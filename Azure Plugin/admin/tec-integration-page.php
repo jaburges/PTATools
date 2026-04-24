@@ -47,14 +47,14 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
     <!-- Module Toggle Section -->
     <div class="module-status-section">
         <h2>TEC Integration Module Status</h2>
-        <div class="module-toggle-card">
+        <div class="module-toggle-card module-card <?php echo $tec_module_enabled ? 'enabled' : 'disabled'; ?>">
             <div class="module-info">
                 <h3><span class="dashicons dashicons-calendar"></span> TEC Integration Module</h3>
                 <p>Sync Microsoft Outlook calendars with The Events Calendar plugin</p>
             </div>
             <div class="module-control">
                 <label class="switch">
-                    <input type="checkbox" class="tec-module-toggle" <?php checked($tec_module_enabled); ?> />
+                    <input type="checkbox" class="module-toggle" data-module="tec_integration" <?php checked($tec_module_enabled); ?> />
                     <span class="slider"></span>
                 </label>
                 <span class="toggle-status"><?php echo $tec_module_enabled ? 'Enabled' : 'Disabled'; ?></span>
@@ -132,7 +132,7 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
                     <div class="auth-status-display">
                         <?php if ($tec_calendar_authenticated): ?>
                             <span class="status-badge status-success">
-                                <span class="dashicons dashicons-yes-alt"></span> Authenticated as <?php echo esc_html($tec_calendar_email); ?>
+                                <span class="dashicons dashicons-yes-alt"></span> Authenticated as <?php echo esc_html($tec_user_email); ?>
                             </span>
                             <div class="auth-actions-inline">
                                 <button type="button" class="button" id="refresh-tec-calendars">
@@ -147,12 +147,12 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
                                 <span class="dashicons dashicons-dismiss"></span> Not authenticated
                             </span>
                             <div class="auth-actions-inline">
-                                <?php if (!empty($tec_calendar_email)): ?>
+                                <?php if (!empty($tec_user_email) && !empty($tec_mailbox_email)): ?>
                                 <button type="button" class="button button-primary" id="tec-calendar-auth">
                                     <span class="dashicons dashicons-admin-network"></span> Authenticate Calendar
                                 </button>
                                 <?php else: ?>
-                                <p class="description">Please enter and save the shared mailbox email above, then authenticate.</p>
+                                <p class="description">Please enter and save your M365 account email and the shared mailbox email above, then authenticate.</p>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>

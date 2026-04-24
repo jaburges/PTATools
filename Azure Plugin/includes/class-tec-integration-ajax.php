@@ -94,7 +94,7 @@ class Azure_TEC_Integration_Ajax {
             return;
         }
         
-        $email = sanitize_email($_POST['email'] ?? '');
+        $email = sanitize_email($_POST['user_email'] ?? $_POST['email'] ?? '');
         
         if (empty($email)) {
             wp_send_json_error('Email is required');
@@ -150,7 +150,7 @@ class Azure_TEC_Integration_Ajax {
             return;
         }
         
-        $email = sanitize_email($_POST['email'] ?? '');
+        $email = sanitize_email($_POST['user_email'] ?? $_POST['email'] ?? '');
         
         if (empty($email)) {
             wp_send_json_error('Email is required');

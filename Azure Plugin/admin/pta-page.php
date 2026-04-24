@@ -163,7 +163,12 @@ if (class_exists('Azure_PTA_Database')) {
                     <span class="dashicons dashicons-admin-network"></span>
                     Manage O365 Groups
                 </a>
-                
+
+                <a href="<?php echo admin_url('admin.php?page=azure-plugin-pta-role-editor'); ?>" class="button">
+                    <span class="dashicons dashicons-admin-users"></span>
+                    Role Editor
+                </a>
+
                 <button type="button" class="button test-pta-sync">
                     <span class="dashicons dashicons-update"></span>
                     Test Sync Connection

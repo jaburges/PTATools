@@ -31,6 +31,8 @@ class Azure_Admin {
         add_action('wp_ajax_azure_save_org_settings', array($this, 'ajax_save_org_settings'));
         add_action('wp_ajax_azure_run_cron_now', array($this, 'ajax_run_cron_now'));
         add_action('wp_ajax_azure_calendar_authorize', array($this, 'ajax_calendar_authorize'));
+        add_action('wp_ajax_azure_get_role_caps', array($this, 'ajax_get_role_caps'));
+        add_action('wp_ajax_azure_save_role_caps', array($this, 'ajax_save_role_caps'));
             
             // Calendar Embed AJAX handlers
             add_action('wp_ajax_azure_save_calendar_embed_email', array($this, 'ajax_save_calendar_embed_email'));
@@ -156,6 +158,15 @@ class Azure_Admin {
             'manage_options',
             'azure-plugin-pta-forminator',
             array($this, 'admin_page_pta_forminator')
+        );
+
+        add_submenu_page(
+            'azure-plugin-pta',
+            'PTA Tools - Role Editor',
+            'Role Editor',
+            'manage_options',
+            'azure-plugin-pta-role-editor',
+            array($this, 'admin_page_pta_role_editor')
         );
         
         add_submenu_page(
@@ -669,6 +680,14 @@ class Azure_Admin {
         }
     }
 
+    public function admin_page_pta_role_editor() {
+        try {
+            include AZURE_PLUGIN_PATH . 'admin/pta-role-editor-page.php';
+        } catch (Exception $e) {
+            $this->render_error_page('Role Editor', $e);
+        }
+    }
+
     public function admin_page_onedrive_media() {
         try {
             $settings = Azure_Settings::get_all_settings();
@@ -948,7 +967,139 @@ class Azure_Admin {
             return;
         }
     }
-    
+
+    /**
+     * Role Editor: return the capabilities array for a given role.
+     */
+    public function ajax_get_role_caps() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+        if (empty($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        $role_slug = isset($_POST['role']) ? sanitize_key($_POST['role']) : '';
+        if (empty($role_slug)) {
+            wp_send_json_error('Missing role');
+        }
+
+        $role = get_role($role_slug);
+        if (!$role) {
+            wp_send_json_error('Role not found');
+        }
+
+        // Return cap => bool map.
+        $caps = array();
+        foreach ($role->capabilities as $cap => $has) {
+            $caps[$cap] = !empty($has);
+        }
+
+        wp_send_json_success(array(
+            'role'         => $role_slug,
+            'capabilities' => $caps,
+        ));
+    }
+
+    /**
+     * Role Editor: persist a capability map to the selected role.
+     *
+     * Accepts the complete desired cap set; any cap not in the posted array that
+     * the role currently has will be removed. The Administrator role is locked
+     * to prevent accidental lockout.
+     */
+    public function ajax_save_role_caps() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+        if (empty($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        $role_slug = isset($_POST['role']) ? sanitize_key($_POST['role']) : '';
+        if (empty($role_slug)) {
+            wp_send_json_error('Missing role');
+        }
+
+        // Block editing administrator to prevent lockout.
+        $protected = array('administrator');
+        if (in_array($role_slug, $protected, true)) {
+            wp_send_json_error('The administrator role is protected and cannot be edited from this UI.');
+        }
+
+        $role = get_role($role_slug);
+        if (!$role) {
+            wp_send_json_error('Role not found');
+        }
+
+        $posted = isset($_POST['capabilities']) && is_array($_POST['capabilities']) ? $_POST['capabilities'] : array();
+
+        // Sanitize: keep only keys that are valid cap slugs (lowercase letters/numbers/underscores).
+        $desired = array();
+        foreach ($posted as $cap => $enabled) {
+            $cap_clean = preg_replace('/[^a-z0-9_]/', '', strtolower($cap));
+            if (empty($cap_clean)) continue;
+            $desired[$cap_clean] = !empty($enabled) && $enabled !== '0';
+        }
+
+        // Always preserve the azure_ad_user marker if the role already had it,
+        // so we don't silently orphan a role from its "Azure AD synced" status.
+        if (!empty($role->capabilities['azure_ad_user']) && !isset($desired['azure_ad_user'])) {
+            $desired['azure_ad_user'] = true;
+        }
+
+        $before = $role->capabilities;
+        $added = 0; $removed = 0;
+
+        // Add / update caps that should be enabled.
+        foreach ($desired as $cap => $enabled) {
+            $currently = !empty($before[$cap]);
+            if ($enabled && !$currently) {
+                $role->add_cap($cap, true);
+                $added++;
+            } elseif (!$enabled && $currently) {
+                $role->remove_cap($cap);
+                $removed++;
+            } elseif (!$enabled && array_key_exists($cap, $before)) {
+                // Existing cap is explicitly stored as false — normalize by removing.
+                $role->remove_cap($cap);
+            }
+        }
+
+        // Remove caps the role currently has but were not included in the posted set at all.
+        foreach ($before as $cap => $has) {
+            if (!isset($desired[$cap])) {
+                $role->remove_cap($cap);
+                if (!empty($has)) { $removed++; }
+            }
+        }
+
+        // Refresh the role object and count final state.
+        $role = get_role($role_slug);
+        $enabled_final = 0;
+        $disabled_final = 0;
+        foreach ($role->capabilities as $v) {
+            if (!empty($v)) { $enabled_final++; } else { $disabled_final++; }
+        }
+
+        Azure_Logger::info("Role Editor: Saved capabilities for '{$role_slug}' (added {$added}, removed {$removed}, final enabled {$enabled_final})");
+        if (class_exists('Azure_Database')) {
+            Azure_Database::log_activity('admin', 'role_caps_saved', 'role', $role_slug, array(
+                'added'   => $added,
+                'removed' => $removed,
+                'enabled' => $enabled_final,
+            ));
+        }
+
+        wp_send_json_success(array(
+            'role'     => $role_slug,
+            'enabled'  => $enabled_final,
+            'disabled' => $disabled_final,
+            'added'    => $added,
+            'removed'  => $removed,
+        ));
+    }
+
     private function render_credentials_section($module, $settings) {
         $use_common = $settings['use_common_credentials'] ?? true;
         ?>

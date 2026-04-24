@@ -2,7 +2,7 @@
 
 A comprehensive WordPress plugin that integrates Microsoft Azure/Microsoft 365 with WordPress and WooCommerce. Single sign-on, calendar sync, email, backups, PTA organizational management, OneDrive media, **Classes**, **Event Tickets**, **Newsletter**, **Auction**, **Product Fields**, **Donations**, and **Volunteer Sign Up** modules—all from one unified plugin (also known as **Microsoft WP**).
 
-**Current (v3.47):** Stability & cache — graceful error handling (catch Throwable), cache-safe login shortcode via AJAX, donations widget on cart + Blocks checkout, sub-module toggle switches, WooCommerce-optional guards.
+**Current (v3.48):** New Role Editor under PTA Roles — visually edit any WordPress role's capabilities (including Azure-AD-synced roles) with grouped/filterable UI. Plus Calendar Sync fixes: module toggle now persists, Authenticate button actually appears, AJAX nonce/field mismatches resolved.
 
 ---
 
@@ -1687,7 +1687,15 @@ This plugin integrates and enhances functionality from multiple Microsoft servic
 
 ## 📊 **Version History**
 
-### **Version 3.47** (Current — April 2026)
+### **Version 3.48** (Current — April 2026)
+- **Role Editor** (new): New page under PTA Roles → Role Editor. Pick any WP role (including Azure-AD-synced roles like `azuread`/"Azure AD User") from a dropdown and visually toggle capabilities grouped by functional area (Core, Users, Posts, Pages, Media, Comments, Themes, Plugins, Tools, WooCommerce, TEC, PTA/Azure, Other). Includes friendly labels for core caps, dangerous-cap badges, filter/search, group "All" toggles, "Copy from..." another role, and sticky save toolbar
+- **Role Editor safety**: Administrator role is locked from edits (prevents lockout); `azure_ad_user` marker preserved on synced roles; all changes logged to `Azure_Database`
+- **Calendar Sync — toggle persistence**: The enable/disable toggle on the Calendar Sync page now uses the universal `module-toggle` handler and actually saves to the database. Previously it used an unhooked class and did nothing on click
+- **Calendar Sync — Authenticate button**: Fixed undefined `$tec_calendar_email` variable that prevented the "Authenticate Calendar" button from ever appearing. Now shows correctly once both M365 and mailbox emails are saved
+- **Calendar Sync — nonce/field mismatches**: Aligned `azureTecAdmin` nonce with AJAX handlers (`azure_plugin_nonce`); AJAX handlers now accept both `user_email` and legacy `email` POST keys
+- **Admin JS**: Sub-module toggles no longer flip the parent card's enabled/disabled visual; toggle-status label now updates after a successful save on module-specific pages
+
+### **Version 3.47** (April 2026)
 - **Stability**: All `catch (Exception)` upgraded to `catch (\Throwable)` across core, logger, and module init — prevents uncaught `Error`/`ParseError` from crashing the site
 - **Graceful degradation**: Plugin no longer self-deactivates on missing files; shows admin notice instead. WooCommerce-optional guards prevent fatals when WC is absent
 - **Login shortcode**: `[user-account-dropdown]` now cache-safe — renders placeholder, then fetches logged-in state via AJAX to work with full-page caching (W3TC/Redis/AFD)

@@ -69,12 +69,13 @@ function initAzurePluginAdmin($) {
             
             // Handle module toggles
             $(document).on('change', '.module-toggle', function() {
-                var module = $(this).data('module');
-                var enabled = $(this).is(':checked');
-                var card = $(this).closest('.module-card');
+                var $toggle = $(this);
+                var module = $toggle.data('module');
+                var enabled = $toggle.is(':checked');
+                var card = $toggle.closest('.module-card');
                 
                 console.log('Module toggle changed:', module, enabled);
-                self.toggleModule(module, enabled, card);
+                self.toggleModule(module, enabled, card, $toggle);
             });
         
         // Handle credentials test
@@ -178,17 +179,18 @@ function initAzurePluginAdmin($) {
         }
     },
     
-    toggleModule: function(module, enabled, card) {
+    toggleModule: function(module, enabled, card, toggleEl) {
         var self = this;
+        var isSubToggle = toggleEl && toggleEl.closest('.sub-module-item').length > 0;
         
         // Debug logging
-        console.log('Toggle module:', module, 'enabled:', enabled);
+        console.log('Toggle module:', module, 'enabled:', enabled, 'sub:', isSubToggle);
         
         // Check if ajax object exists
         if (typeof azure_plugin_ajax === 'undefined') {
             console.error('azure_plugin_ajax is not defined');
             self.showNotification('error', 'Ajax configuration error');
-            card.find('.module-toggle').prop('checked', !enabled);
+            if (toggleEl) { toggleEl.prop('checked', !enabled); }
             return;
         }
         
@@ -207,25 +209,33 @@ function initAzurePluginAdmin($) {
             success: function(response) {
                 console.log('AJAX response:', response);
                 if (response && response.success) {
-                    if (enabled) {
-                        card.removeClass('disabled').addClass('enabled');
-                        self.showNotification('success', module.charAt(0).toUpperCase() + module.slice(1) + ' module enabled');
-                    } else {
-                        card.removeClass('enabled').addClass('disabled');
-                        self.showNotification('info', module.charAt(0).toUpperCase() + module.slice(1) + ' module disabled');
+                    if (!isSubToggle && card && card.length) {
+                        if (enabled) {
+                            card.removeClass('disabled').addClass('enabled');
+                        } else {
+                            card.removeClass('enabled').addClass('disabled');
+                        }
                     }
+                    // Update the toggle-status label if present (used on module pages)
+                    if (toggleEl) {
+                        var statusLabel = toggleEl.closest('.module-control').find('.toggle-status, .module-status');
+                        if (statusLabel.length) {
+                            statusLabel.text(enabled ? 'Enabled' : 'Disabled');
+                        }
+                    }
+                    self.showNotification(enabled ? 'success' : 'info',
+                        module.charAt(0).toUpperCase() + module.slice(1).replace(/_/g, ' ') +
+                        (enabled ? ' enabled' : ' disabled'));
                 } else {
                     console.error('Toggle failed:', response);
                     self.showNotification('error', 'Failed to toggle module: ' + (response.data || 'Unknown error'));
-                    // Revert toggle
-                    card.find('.module-toggle').prop('checked', !enabled);
+                    if (toggleEl) { toggleEl.prop('checked', !enabled); }
                 }
             },
             error: function(xhr, status, error) {
                 console.error('AJAX error:', status, error, xhr);
                 self.showNotification('error', 'Network error occurred: ' + error);
-                // Revert toggle
-                card.find('.module-toggle').prop('checked', !enabled);
+                if (toggleEl) { toggleEl.prop('checked', !enabled); }
             }
         });
     },

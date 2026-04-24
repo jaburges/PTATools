@@ -428,7 +428,7 @@ class Azure_TEC_Integration {
         
         wp_localize_script('azure-tec-admin', 'azureTecAdmin', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('azure_tec_action')
+            'nonce' => wp_create_nonce('azure_plugin_nonce')
         ));
     }
     
