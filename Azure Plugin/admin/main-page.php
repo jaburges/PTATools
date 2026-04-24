@@ -458,47 +458,19 @@ jQuery(document).ready(function($) {
         }
     });
     
-    // Handle module toggles
-    $('.module-toggle').change(function() {
+    // Sync hidden form inputs when module toggles change. The actual AJAX save
+    // is handled centrally by admin.js — this handler ONLY keeps the hidden
+    // form inputs in sync so that if the user later clicks "Save Settings"
+    // the form POST does not accidentally revert module states. Having a
+    // second AJAX request fire here was causing race conditions where a
+    // duplicate save would occasionally clobber the first (most visibly on
+    // the PTA module toggle).
+    $(document).on('change', '.module-toggle', function() {
         var module = $(this).data('module');
         var enabled = $(this).is(':checked');
-        var card = $(this).closest('.module-card');
-        
-        // Update hidden input to match toggle state
-        $('#hidden_enable_' + module).val(enabled ? '1' : '0');
-        
-        // Send AJAX request
-        $.post(azure_plugin_ajax.ajax_url, {
-            action: 'azure_toggle_module',
-            module: module,
-            enabled: enabled,
-            nonce: azure_plugin_ajax.nonce
-        }, function(response) {
-            console.log('Toggle response:', response);
-            if (response.success) {
-                if (enabled) {
-                    card.removeClass('disabled').addClass('enabled');
-                } else {
-                    card.removeClass('enabled').addClass('disabled');
-                }
-                console.log('Module ' + module + ' toggled successfully:', response.data);
-            } else {
-                // Revert toggle if AJAX failed
-                $('.module-toggle[data-module="' + module + '"]').prop('checked', !enabled);
-                $('#hidden_enable_' + module).val(enabled ? '0' : '1');
-                var errorMsg = 'Unknown error';
-                if (response.data) {
-                    errorMsg = typeof response.data === 'string' ? response.data : (response.data.message || 'Unknown error');
-                }
-                alert('Failed to toggle module: ' + errorMsg);
-                console.error('Module toggle error:', response);
-            }
-        }).fail(function(xhr, status, error) {
-            // Revert toggle if AJAX failed
-            $(this).prop('checked', !enabled);
-            $('#hidden_enable_' + module).val(enabled ? '0' : '1');
-            alert('Failed to toggle module: Network error');
-        });
+        if (module) {
+            $('#hidden_enable_' + module).val(enabled ? '1' : '0');
+        }
     });
     
     // Handle credentials test

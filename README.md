@@ -2,7 +2,7 @@
 
 A comprehensive WordPress plugin that integrates Microsoft Azure/Microsoft 365 with WordPress and WooCommerce. Single sign-on, calendar sync, email, backups, PTA organizational management, OneDrive media, **Classes**, **Event Tickets**, **Newsletter**, **Auction**, **Product Fields**, **Donations**, and **Volunteer Sign Up** modules—all from one unified plugin (also known as **Microsoft WP**).
 
-**Current (v3.49):** Calendar Sync "Save Settings" now actually saves — removed duplicate AJAX handlers that were racing each other; TEC AJAX handlers now always registered so saves work right after toggling the module on. Also v3.48 Role Editor under PTA Roles for visually editing any role's capabilities.
+**Current (v3.50):** PTA Roles module toggle now saves reliably from both the main PTA Tools page and the PTA Roles page — replaced the page-specific `.pta-module-toggle` handler with the shared `.module-toggle` + `data-module="pta"` pattern and removed a duplicate inline AJAX handler on the main page that was racing against `admin.js`. Same root cause and fix pattern as the v3.49 Calendar Sync save fix. Plus v3.48 Role Editor under PTA Roles for visually editing any role's capabilities.
 
 ---
 
@@ -1687,7 +1687,12 @@ This plugin integrates and enhances functionality from multiple Microsoft servic
 
 ## 📊 **Version History**
 
-### **Version 3.49** (Current — April 2026)
+### **Version 3.50** (Current — April 2026)
+- **PTA Roles module toggle now saves reliably**: The PTA Roles page was using a custom `.pta-module-toggle` class with its own inline AJAX handler, while the main PTA Tools page had a *second* `.module-toggle` handler inline in `main-page.php` that duplicated the one already in `admin.js`. The two handlers raced each other — on disable, one could fire a `fail` path that reverted the checkbox (and the form's hidden input) back to the enabled state, making it look like the toggle "wasn't saving". Same failure pattern as the v3.49 Calendar Sync bug.
+- **Fix**: PTA page now uses the standard `class="module-toggle" data-module="pta"` pattern inside a `module-card` wrapper, so `admin.js` is the single source of truth for the save AJAX. The main-page inline handler was reduced to *only* syncing the hidden `#hidden_enable_<module>` form input (needed for the "Save Settings" form submit); the AJAX save is now owned solely by `admin.js`.
+- **Consistency**: The disabled-warning banner on the PTA Roles page now shows/hides live instead of requiring a full page reload.
+
+### **Version 3.49** (April 2026)
 - **Calendar Sync — Save Settings actually saves**: Removed duplicate `wp_ajax_azure_save_tec_calendar_email` / `azure_tec_calendar_authorize` / `azure_tec_calendar_check_auth` handlers from `class-admin.php`. Both classes were registering the same action name, so the first-registered one would `wp_die()` before the dedicated TEC handler could ever run. The dedicated `Azure_TEC_Integration_Ajax` class is now the single source of truth for these handlers.
 - **TEC AJAX always registered**: `Azure_TEC_Integration_Ajax` is now instantiated unconditionally in `init()`, not gated behind `enable_tec_integration`. This means Save Settings / Authenticate / Check Auth work immediately after toggling the module on (previously you'd have to reload for handlers to register).
 

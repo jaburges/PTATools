@@ -68,24 +68,22 @@ if (class_exists('Azure_PTA_Database')) {
     <!-- Module Toggle Section -->
     <div class="module-status-section">
         <h2>Module Status</h2>
-        <div class="module-toggle-card">
+        <div class="module-card module-toggle-card <?php echo Azure_Settings::is_module_enabled('pta') ? 'enabled' : 'disabled'; ?>">
             <div class="module-info">
                 <h3><span class="dashicons dashicons-networking"></span> PTA Roles Manager Module</h3>
                 <p>Manage PTA organizational structure with Azure AD sync</p>
             </div>
             <div class="module-control">
                 <label class="switch">
-                    <input type="checkbox" class="pta-module-toggle" <?php checked(Azure_Settings::is_module_enabled('pta')); ?> />
+                    <input type="checkbox" class="module-toggle" data-module="pta" <?php checked(Azure_Settings::is_module_enabled('pta')); ?> />
                     <span class="slider"></span>
                 </label>
                 <span class="toggle-status"><?php echo Azure_Settings::is_module_enabled('pta') ? 'Enabled' : 'Disabled'; ?></span>
             </div>
         </div>
-        <?php if (!Azure_Settings::is_module_enabled('pta')): ?>
-        <div class="notice notice-warning inline">
+        <div class="notice notice-warning inline pta-disabled-notice" <?php echo Azure_Settings::is_module_enabled('pta') ? 'style="display:none;"' : ''; ?>>
             <p><strong>PTA module is disabled.</strong> Enable it above or in the <a href="<?php echo admin_url('admin.php?page=azure-plugin'); ?>">main settings</a> to use PTA functionality.</p>
         </div>
-        <?php endif; ?>
     </div>
     
     <div class="azure-pta-dashboard">
@@ -2574,34 +2572,16 @@ jQuery(document).ready(function($) {
         });
     }
     
-    // Handle module toggle
-    $('.pta-module-toggle').change(function() {
+    // PTA module toggle: the actual AJAX save is handled by admin.js via the
+    // shared `.module-toggle[data-module="pta"]` handler. Here we only toggle
+    // the "disabled" warning banner visibility when the user flips the switch.
+    $(document).on('change', '.module-toggle[data-module="pta"]', function() {
         var enabled = $(this).is(':checked');
-        var statusText = $('.toggle-status');
-        
-        $.post(azure_plugin_ajax.ajax_url, {
-            action: 'azure_toggle_module',
-            module: 'pta',
-            enabled: enabled,
-            nonce: azure_plugin_ajax.nonce
-        }, function(response) {
-            if (response.success) {
-                statusText.text(enabled ? 'Enabled' : 'Disabled');
-                if (enabled) {
-                    $('.notice.notice-warning.inline').fadeOut();
-                } else {
-                    location.reload(); // Refresh to show warning
-                }
-            } else {
-                // Revert toggle if failed
-                $('.pta-module-toggle').prop('checked', !enabled);
-                alert('Failed to toggle PTA module: ' + (response.data || 'Unknown error'));
-            }
-        }).fail(function() {
-            // Revert toggle if failed
-            $('.pta-module-toggle').prop('checked', !enabled);
-            alert('Network error occurred');
-        });
+        if (enabled) {
+            $('.pta-disabled-notice').fadeOut();
+        } else {
+            $('.pta-disabled-notice').fadeIn();
+        }
     });
 });
 </script>
