@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Complete Microsoft 365 integration for WordPress - SSO authentication with Azure AD claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, TEC calendar sync, email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with TEC event generation, Newsletter module, and OneDrive media integration.
- * Version: 3.48
+ * Version: 3.49
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.48');
+define('AZURE_PLUGIN_VERSION', '3.49');
 
 // Auto-update from GitHub Releases (Update URI header must match hostname: github.com)
 add_filter('update_plugins_github.com', function ($update, array $plugin_data, string $plugin_file, $locales) {
@@ -330,6 +330,17 @@ class AzurePlugin {
                 $this->init_calendar_components();
             }
             
+            // Always register TEC AJAX handlers so settings / toggles / auth work
+            // even when the module is mid-enable (toggle just flipped but init
+            // for heavy components hasn't run this request yet).
+            if (is_admin() && class_exists('Azure_TEC_Integration_Ajax')) {
+                try {
+                    new Azure_TEC_Integration_Ajax();
+                } catch (\Throwable $e) {
+                    error_log('Azure Plugin: Failed to init TEC AJAX handlers - ' . $e->getMessage());
+                }
+            }
+
             if ($settings['enable_tec_integration'] ?? false) {
                 $this->init_tec_components();
             }
@@ -495,13 +506,10 @@ class AzurePlugin {
                 Azure_TEC_Integration::get_instance();
                 Azure_Logger::debug_module('TEC', 'Azure_TEC_Integration initialized successfully');
             }
-            
-            // Initialize TEC AJAX handlers
-            if (class_exists('Azure_TEC_Integration_Ajax')) {
-                new Azure_TEC_Integration_Ajax();
-                Azure_Logger::debug_module('TEC', 'Azure_TEC_Integration_Ajax initialized successfully');
-            }
-            
+
+            // Note: Azure_TEC_Integration_Ajax is always initialized earlier in init()
+            // (not gated on enable_tec_integration) so save/auth AJAX always works.
+
             // Initialize TEC Sync Scheduler
             if (class_exists('Azure_TEC_Sync_Scheduler')) {
                 new Azure_TEC_Sync_Scheduler();

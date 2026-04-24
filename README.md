@@ -2,7 +2,7 @@
 
 A comprehensive WordPress plugin that integrates Microsoft Azure/Microsoft 365 with WordPress and WooCommerce. Single sign-on, calendar sync, email, backups, PTA organizational management, OneDrive media, **Classes**, **Event Tickets**, **Newsletter**, **Auction**, **Product Fields**, **Donations**, and **Volunteer Sign Up** modules—all from one unified plugin (also known as **Microsoft WP**).
 
-**Current (v3.48):** New Role Editor under PTA Roles — visually edit any WordPress role's capabilities (including Azure-AD-synced roles) with grouped/filterable UI. Plus Calendar Sync fixes: module toggle now persists, Authenticate button actually appears, AJAX nonce/field mismatches resolved.
+**Current (v3.49):** Calendar Sync "Save Settings" now actually saves — removed duplicate AJAX handlers that were racing each other; TEC AJAX handlers now always registered so saves work right after toggling the module on. Also v3.48 Role Editor under PTA Roles for visually editing any role's capabilities.
 
 ---
 
@@ -1687,7 +1687,11 @@ This plugin integrates and enhances functionality from multiple Microsoft servic
 
 ## 📊 **Version History**
 
-### **Version 3.48** (Current — April 2026)
+### **Version 3.49** (Current — April 2026)
+- **Calendar Sync — Save Settings actually saves**: Removed duplicate `wp_ajax_azure_save_tec_calendar_email` / `azure_tec_calendar_authorize` / `azure_tec_calendar_check_auth` handlers from `class-admin.php`. Both classes were registering the same action name, so the first-registered one would `wp_die()` before the dedicated TEC handler could ever run. The dedicated `Azure_TEC_Integration_Ajax` class is now the single source of truth for these handlers.
+- **TEC AJAX always registered**: `Azure_TEC_Integration_Ajax` is now instantiated unconditionally in `init()`, not gated behind `enable_tec_integration`. This means Save Settings / Authenticate / Check Auth work immediately after toggling the module on (previously you'd have to reload for handlers to register).
+
+### **Version 3.48** (April 2026)
 - **Role Editor** (new): New page under PTA Roles → Role Editor. Pick any WP role (including Azure-AD-synced roles like `azuread`/"Azure AD User") from a dropdown and visually toggle capabilities grouped by functional area (Core, Users, Posts, Pages, Media, Comments, Themes, Plugins, Tools, WooCommerce, TEC, PTA/Azure, Other). Includes friendly labels for core caps, dangerous-cap badges, filter/search, group "All" toggles, "Copy from..." another role, and sticky save toolbar
 - **Role Editor safety**: Administrator role is locked from edits (prevents lockout); `azure_ad_user` marker preserved on synced roles; all changes logged to `Azure_Database`
 - **Calendar Sync — toggle persistence**: The enable/disable toggle on the Calendar Sync page now uses the universal `module-toggle` handler and actually saves to the database. Previously it used an unhooked class and did nothing on click

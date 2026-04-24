@@ -43,10 +43,10 @@ class Azure_Admin {
             add_action('wp_ajax_azure_save_calendar_timezone', array($this, 'ajax_save_calendar_timezone'));
             add_action('wp_ajax_azure_calendar_get_events', array($this, 'ajax_calendar_get_events'));
             
-            // TEC Calendar AJAX handlers
-            add_action('wp_ajax_azure_save_tec_calendar_email', array($this, 'ajax_save_tec_calendar_email'));
-            add_action('wp_ajax_azure_tec_calendar_authorize', array($this, 'ajax_tec_calendar_authorize'));
-            add_action('wp_ajax_azure_tec_calendar_check_auth', array($this, 'ajax_tec_calendar_check_auth'));
+            // TEC Calendar AJAX handlers live in Azure_TEC_Integration_Ajax
+            // (registered unconditionally in azure-plugin.php init so they fire
+            // even when enable_tec_integration has just been toggled on)
+
             
             // OneDrive Media AJAX handlers
             add_action('wp_ajax_azure_onedrive_authorize', array($this, 'ajax_onedrive_authorize'));
@@ -1883,126 +1883,10 @@ class Azure_Admin {
     }
     
     // ==========================================
-    // TEC Calendar AJAX Handlers
+    // TEC Calendar AJAX Handlers moved to Azure_TEC_Integration_Ajax
+    // (see includes/class-tec-integration-ajax.php)
     // ==========================================
-    
-    public function ajax_save_tec_calendar_email() {
-        if (!current_user_can('manage_options') || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
-            wp_send_json_error('Unauthorized access');
-        }
-        
-        $user_email = sanitize_email($_POST['user_email'] ?? '');
-        $mailbox_email = sanitize_email($_POST['mailbox_email'] ?? '');
-        
-        if (empty($user_email)) {
-            wp_send_json_error('Your M365 account email is required');
-        }
-        
-        if (empty($mailbox_email)) {
-            wp_send_json_error('Shared mailbox email is required');
-        }
-        
-        try {
-            // Use update_settings to save both emails
-            Azure_Settings::update_settings(array(
-                'tec_calendar_user_email' => $user_email,
-                'tec_calendar_mailbox_email' => $mailbox_email
-            ));
-            
-            // Verify the emails were saved by reading them back
-            $saved_user_email = Azure_Settings::get_setting('tec_calendar_user_email', '');
-            $saved_mailbox_email = Azure_Settings::get_setting('tec_calendar_mailbox_email', '');
-            
-            if ($saved_user_email === $user_email && $saved_mailbox_email === $mailbox_email) {
-                if (class_exists('Azure_Logger')) {
-                    try {
-                        Azure_Logger::info('TEC Calendar: Settings saved', array(
-                            'user_email' => $user_email,
-                            'mailbox_email' => $mailbox_email
-                        ));
-                    } catch (Exception $e) {
-                        // Ignore logging errors
-                    }
-                }
-                wp_send_json_success('Settings saved successfully');
-            } else {
-                wp_send_json_error('Failed to save settings to database');
-            }
-        } catch (Exception $e) {
-            wp_send_json_error('Failed to save settings: ' . $e->getMessage());
-        }
-    }
-    
-    public function ajax_tec_calendar_authorize() {
-        if (!current_user_can('manage_options') || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
-            wp_send_json_error('Unauthorized access');
-        }
-        
-        $user_email = sanitize_email($_POST['user_email'] ?? '');
-        
-        if (empty($user_email)) {
-            wp_send_json_error('Your M365 account email is required');
-        }
-        
-        if (!class_exists('Azure_Calendar_Auth')) {
-            wp_send_json_error('Calendar authentication class not found');
-        }
-        
-        try {
-            // Check if credentials are configured
-            $credentials = Azure_Settings::get_credentials('calendar');
-            
-            if (empty($credentials['client_id'])) {
-                wp_send_json_error('Azure App Registration credentials not configured. Please configure them in Main Settings.');
-            }
-            
-            if (empty($credentials['tenant_id'])) {
-                wp_send_json_error('Azure Tenant ID not configured. Please configure it in Main Settings.');
-            }
-            
-            $auth = new Azure_Calendar_Auth();
-            // Authenticate as the user (not the shared mailbox)
-            $auth_url = $auth->get_authorization_url_for_user($user_email, 'azure-plugin-tec');
-            
-            if ($auth_url) {
-                wp_send_json_success(array('auth_url' => $auth_url));
-            } else {
-                wp_send_json_error('Failed to generate authorization URL. Check your credentials in Main Settings.');
-            }
-        } catch (Exception $e) {
-            wp_send_json_error('Authorization failed: ' . $e->getMessage());
-        }
-    }
-    
-    public function ajax_tec_calendar_check_auth() {
-        if (!current_user_can('manage_options') || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
-            wp_send_json_error('Unauthorized access');
-        }
-        
-        $email = sanitize_email($_POST['email'] ?? '');
-        
-        if (empty($email)) {
-            wp_send_json_error('Email is required');
-        }
-        
-        if (!class_exists('Azure_Calendar_Auth')) {
-            wp_send_json_error('Calendar authentication class not found');
-        }
-        
-        try {
-            $auth = new Azure_Calendar_Auth();
-            $is_authenticated = $auth->has_valid_user_token($email);
-            
-            if ($is_authenticated) {
-                wp_send_json_success('Authenticated');
-            } else {
-                wp_send_json_error('Not yet authenticated');
-            }
-        } catch (Exception $e) {
-            wp_send_json_error('Check failed: ' . $e->getMessage());
-        }
-    }
-    
+
     /**
      * AJAX: OneDrive authorization
      */
