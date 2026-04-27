@@ -2,7 +2,9 @@
 
 A comprehensive WordPress plugin that integrates Microsoft Azure/Microsoft 365 with WordPress and WooCommerce. Single sign-on, calendar sync, email, backups, PTA organizational management, OneDrive media, **Classes**, **Event Tickets**, **Newsletter**, **Auction**, **Product Fields**, **Donations**, and **Volunteer Sign Up** modules—all from one unified plugin (also known as **Microsoft WP**).
 
-**Current (v3.50):** PTA Roles module toggle now saves reliably from both the main PTA Tools page and the PTA Roles page — replaced the page-specific `.pta-module-toggle` handler with the shared `.module-toggle` + `data-module="pta"` pattern and removed a duplicate inline AJAX handler on the main page that was racing against `admin.js`. Same root cause and fix pattern as the v3.49 Calendar Sync save fix. Plus v3.48 Role Editor under PTA Roles for visually editing any role's capabilities.
+**Current (v3.51):** Fixed the user-account dropdown showing "Log In" for already-logged-in users. The shortcode now renders the full logged-in menu directly in PHP for authenticated requests (W3TC bypasses the page cache for logged-in users via `pgcache.reject.logged = true`, so this is safe), keeping the cache-safe JS-swap as a fallback for any cached anonymous HTML accidentally served to a logged-in browser. Also stops depending on JS execution succeeding in the presence of unrelated errors elsewhere on the page.
+
+**v3.50:** PTA Roles module toggle now saves reliably from both the main PTA Tools page and the PTA Roles page — replaced the page-specific `.pta-module-toggle` handler with the shared `.module-toggle` + `data-module="pta"` pattern and removed a duplicate inline AJAX handler on the main page that was racing against `admin.js`. Same root cause and fix pattern as the v3.49 Calendar Sync save fix.
 
 ---
 

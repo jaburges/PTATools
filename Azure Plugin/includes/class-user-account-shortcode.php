@@ -34,30 +34,33 @@ class Azure_User_Account_Shortcode {
     
     /**
      * Enqueue frontend assets
+     *
+     * Always enqueue on the front-end (shortcode may be in widgets/menus/templates,
+     * not just $post->post_content). Tell W3TC's pgcache to vary by login state
+     * so the rendered HTML doesn't get cross-served between users.
      */
     public function enqueue_frontend_assets() {
-        // Only enqueue if shortcode is used
-        global $post;
-        if (is_a($post, 'WP_Post') && (
-            has_shortcode($post->post_content, 'user-account-dropdown') ||
-            has_shortcode($post->post_content, 'user-account-menu')
-        )) {
-            wp_enqueue_style(
-                'azure-user-account-dropdown',
-                AZURE_PLUGIN_URL . 'css/user-account-dropdown.css',
-                array(),
-                AZURE_PLUGIN_VERSION
-            );
-        }
+        if (is_admin()) { return; }
+        wp_enqueue_style(
+            'azure-user-account-dropdown',
+            AZURE_PLUGIN_URL . 'css/user-account-dropdown.css',
+            array(),
+            AZURE_PLUGIN_VERSION
+        );
     }
-    
+
     /**
      * User account dropdown shortcode
      *
-     * Always renders the logged-out placeholder so the HTML is safe for
-     * full-page caching (W3TC / Redis / AFD).  A small inline script
-     * detects the WordPress auth cookie and fetches the real user state
-     * via admin-ajax, then swaps the UI.
+     * Strategy (W3TC + AFD friendly):
+     *   - For LOGGED-IN users we render the full menu directly in PHP.
+     *     W3TC has pgcache.reject.logged = true, so logged-in requests
+     *     bypass the page cache and always get fresh HTML. AFD also
+     *     respects the origin Cache-Control.
+     *   - For ANONYMOUS users we render the cache-safe "Log In" link plus
+     *     a small inline JS fallback that detects the WordPress auth cookie
+     *     and AJAX-swaps the menu. This is defense-in-depth in case a
+     *     cached anon page is ever served to a logged-in browser.
      */
     public function account_dropdown_shortcode($atts) {
         $atts = shortcode_atts(array(
@@ -72,10 +75,20 @@ class Azure_User_Account_Shortcode {
             'style' => 'default',
         ), $atts);
 
-        $style      = sanitize_text_field($atts['style']);
-        $login_url  = wp_login_url(home_url($_SERVER['REQUEST_URI']));
-        $ajax_url   = admin_url('admin-ajax.php');
+        $style       = sanitize_text_field($atts['style']);
+        $ajax_url    = admin_url('admin-ajax.php');
         $dropdown_id = 'user-account-dropdown-' . wp_rand(1000, 9999);
+
+        // Hint to W3TC / AFD that this response is per-user
+        if (is_user_logged_in() && !defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
+
+        if (is_user_logged_in()) {
+            return $this->render_logged_in_menu($dropdown_id, $style);
+        }
+
+        $login_url = wp_login_url(home_url($_SERVER['REQUEST_URI'] ?? '/'));
 
         ob_start();
         ?>
@@ -102,6 +115,8 @@ class Azure_User_Account_Shortcode {
             if (window._azureAcctInit) return;
             window._azureAcctInit = true;
 
+            // Fallback: if a cached anon page was served to a logged-in browser,
+            // detect the auth cookie and AJAX-swap the menu.
             var hasAuth = document.cookie.split(';').some(function(c){
                 return c.trim().indexOf('wordpress_logged_in_') === 0;
             });
@@ -150,15 +165,17 @@ class Azure_User_Account_Shortcode {
             xhr.send('action=azure_account_state');
         })();
 
-        function azureToggleAccountMenu(id) {
-            var w = document.getElementById(id);
-            if (!w) return;
-            var t = w.querySelector('.user-account-toggle');
-            var m = w.querySelector('.user-account-menu');
-            if (!m) return;
-            var open = m.style.display === 'none' || m.style.display === '';
-            m.style.display = open ? 'block' : 'none';
-            t.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (typeof window.azureToggleAccountMenu !== 'function') {
+            window.azureToggleAccountMenu = function(id) {
+                var w = document.getElementById(id);
+                if (!w) return;
+                var t = w.querySelector('.user-account-toggle');
+                var m = w.querySelector('.user-account-menu');
+                if (!m) return;
+                var open = m.style.display === 'none' || m.style.display === '';
+                m.style.display = open ? 'block' : 'none';
+                if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+            };
         }
 
         document.addEventListener('click', function(e){
@@ -171,6 +188,94 @@ class Azure_User_Account_Shortcode {
                 }
             });
         });
+        </script>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * Render the full logged-in user menu directly in PHP.
+     * Called when is_user_logged_in() is true so we don't depend on JS to swap.
+     */
+    private function render_logged_in_menu($dropdown_id, $style) {
+        $user      = wp_get_current_user();
+        $wc        = class_exists('WooCommerce');
+        $acct      = $wc ? wc_get_page_permalink('myaccount') : admin_url('profile.php');
+        $avatar    = get_avatar_url($user->ID, array('size' => 40));
+        $menu_id   = $dropdown_id . '-menu';
+
+        $items = array(
+            array('label' => __('Dashboard', 'azure-plugin'),       'url' => $acct),
+        );
+        if ($wc) {
+            $items[] = array('label' => __('Orders', 'azure-plugin'),          'url' => wc_get_endpoint_url('orders', '', $acct));
+            $items[] = array('label' => __('Account Details', 'azure-plugin'), 'url' => wc_get_endpoint_url('edit-account', '', $acct));
+        } else {
+            $items[] = array('label' => __('Account Details', 'azure-plugin'), 'url' => admin_url('profile.php'));
+        }
+        $items[] = array('label' => __('Log Out', 'azure-plugin'), 'url' => wp_logout_url(home_url()));
+
+        ob_start();
+        ?>
+        <div class="user-account-dropdown-wrapper logged-in style-<?php echo esc_attr($style); ?>"
+             id="<?php echo esc_attr($dropdown_id); ?>"
+             style="position:relative;display:inline-block;z-index:9999;">
+            <div class="user-account-toggle" role="button" tabindex="0" aria-expanded="false"
+                 aria-controls="<?php echo esc_attr($menu_id); ?>"
+                 onclick="azureToggleAccountMenu('<?php echo esc_js($dropdown_id); ?>')"
+                 style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;">
+                <img src="<?php echo esc_url($avatar); ?>" width="32" height="32"
+                     class="user-account-avatar" alt=""
+                     style="border-radius:50%;" />
+                <span class="user-account-name"><?php echo esc_html($user->display_name); ?></span>
+                <span class="user-account-arrow" style="transition:transform .2s ease;">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </span>
+            </div>
+            <div class="user-account-menu" id="<?php echo esc_attr($menu_id); ?>"
+                 style="display:none;position:absolute;top:100%;right:0;min-width:200px;background:#fff;border:1px solid #e1e4e8;border-radius:8px;margin-top:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:10000;">
+                <ul style="list-style:none;margin:0;padding:8px 0;">
+                    <?php foreach ($items as $item): if (empty($item['url'])) continue; ?>
+                        <li style="margin:0;padding:0;">
+                            <a href="<?php echo esc_url($item['url']); ?>"
+                               style="display:flex;align-items:center;gap:12px;padding:10px 16px;color:#24292e;text-decoration:none;">
+                                <span><?php echo esc_html($item['label']); ?></span>
+                            </a>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        </div>
+
+        <script>
+        if (typeof window.azureToggleAccountMenu !== 'function') {
+            window.azureToggleAccountMenu = function(id) {
+                var w = document.getElementById(id);
+                if (!w) return;
+                var t = w.querySelector('.user-account-toggle');
+                var m = w.querySelector('.user-account-menu');
+                if (!m) return;
+                var open = m.style.display === 'none' || m.style.display === '';
+                m.style.display = open ? 'block' : 'none';
+                if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+            };
+        }
+        if (!window._azureAcctOutsideClick) {
+            window._azureAcctOutsideClick = true;
+            document.addEventListener('click', function(e){
+                document.querySelectorAll('.user-account-dropdown-wrapper.logged-in').forEach(function(w){
+                    if (!w.contains(e.target)) {
+                        var m = w.querySelector('.user-account-menu');
+                        var t = w.querySelector('.user-account-toggle');
+                        if (m) m.style.display = 'none';
+                        if (t) t.setAttribute('aria-expanded','false');
+                    }
+                });
+            });
+        }
         </script>
         <?php
         return ob_get_clean();
