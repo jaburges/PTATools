@@ -1,0 +1,116 @@
+name: Promote staging to production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Azure Plugin/**'
+      - '.github/workflows/promote-prod.yml'
+      - 'infra/post-change-smoke.sh'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual promotion (optional)'
+        required: false
+        default: 'Manual promotion'
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: promote-prod
+  cancel-in-progress: false
+
+env:
+  AZURE_RESOURCE_GROUP: PTSAWebsite
+  AZURE_WEBAPP_NAME: wilderptsa
+  PROD_URL: https://wilderptsa.net
+  STAGING_URL: https://wilderptsa-staging-c20b298090-drccadb2badebhh5.z02.azurefd.net
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    # The 'production' environment has a manual approval rule configured in GitHub
+    # (Settings -> Environments -> production -> Required reviewers). This job will
+    # pause here until an approver clicks "Review deployments" in the workflow run.
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure login (federated identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Pre-flight - verify staging is healthy
+        id: preflight
+        run: |
+          set -uo pipefail
+          # Best-effort: at minimum staging slot must be running.
+          STATE=$(az webapp show -g "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
+            --slot staging --query state -o tsv)
+          if [ "$STATE" != "Running" ]; then
+            echo "::error::Staging slot is not Running (state=$STATE). Aborting promotion."
+            exit 1
+          fi
+          echo "[OK] Staging slot state=Running"
+
+      - name: Capture pre-swap commit on production (for audit)
+        run: |
+          echo "Promotion at $(date -u)" > /tmp/promotion-info.txt
+          echo "Reason: ${{ github.event.inputs.reason || 'push to main' }}" >> /tmp/promotion-info.txt
+          echo "Commit (HEAD of main): ${{ github.sha }}" >> /tmp/promotion-info.txt
+          cat /tmp/promotion-info.txt
+
+      - name: Slot swap staging -> production
+        id: swap
+        run: |
+          set -euo pipefail
+          az webapp deployment slot swap \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot staging \
+            --target-slot production
+          echo "swapped=true" >> $GITHUB_OUTPUT
+          echo "[OK] Swap complete. New code is live on production."
+
+      - name: Wait for prod to settle
+        run: sleep 30
+
+      - name: Smoke test production
+        id: smoke
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          chmod +x infra/post-change-smoke.sh
+          ./infra/post-change-smoke.sh
+
+      - name: Auto-rollback on smoke failure
+        if: steps.swap.outputs.swapped == 'true' && steps.smoke.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          echo "::error::Smoke test failed after swap. Rolling back..."
+          az webapp deployment slot swap \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot production \
+            --target-slot staging
+          echo "::warning::Rollback complete. Production restored to previous version. Investigate the failed smoke test and fix the code on dev branch before re-promoting."
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Production Promotion" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Reason: ${{ github.event.inputs.reason || 'push to main' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Swap: ${{ steps.swap.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Smoke: ${{ steps.smoke.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Final: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.smoke.outcome }}" = "failure" ]; then
+            echo "- Status: ROLLED BACK" >> $GITHUB_STEP_SUMMARY
+          fi
