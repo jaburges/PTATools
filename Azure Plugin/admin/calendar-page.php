@@ -916,7 +916,7 @@ jQuery(document).ready(function($) {
 
 .calendars-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 20px;
     margin-top: 15px;
 }
@@ -973,6 +973,22 @@ jQuery(document).ready(function($) {
     font-size: 11px;
     cursor: text;
     user-select: all;
+    display: inline-block;
+    max-width: 100%;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    background: #f5f5f5;
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+    padding: 2px 6px;
+    line-height: 1.5;
+    vertical-align: middle;
+}
+
+.calendar-info p strong {
+    display: inline-block;
+    min-width: 90px;
+    vertical-align: top;
 }
 
 .calendar-timezone-setting {
