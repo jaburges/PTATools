@@ -45,6 +45,7 @@ class Azure_Auction_Module {
             'class-auction-bids.php',
             'class-auction-emails.php',
             'class-auction-lifecycle.php',
+            'class-auction-winners-report.php',
         );
         foreach ($files as $file) {
             $path = AZURE_PLUGIN_PATH . 'includes/' . $file;
@@ -69,6 +70,58 @@ class Azure_Auction_Module {
         add_action('woocommerce_single_product_summary', array($this, 'maybe_process_ended_auction'), 1);
         add_action('woocommerce_single_product_summary', array($this, 'render_single_product_auction'), 35);
         add_action('wp_enqueue_scripts', array($this, 'enqueue_auction_scripts'));
+
+        add_action('admin_post_azure_auction_create_te_runner_up_orders', array($this, 'handle_create_te_runner_up_orders'));
+    }
+
+    /**
+     * admin-post.php handler: creates wc-pending orders + invoice emails for
+     * the 2nd and 3rd place bidders on a single Teacher Experience product.
+     *
+     * Posts to: admin-post.php?action=azure_auction_create_te_runner_up_orders
+     * Required POST: product_id, _wpnonce (nonce action: azure_auction_te_runner_up_<product_id>)
+     */
+    public function handle_create_te_runner_up_orders() {
+        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to perform this action.', 'azure-plugin'), 403);
+        }
+
+        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+        $nonce      = isset($_POST['_wpnonce']) ? (string) $_POST['_wpnonce'] : '';
+
+        if (!$product_id || !wp_verify_nonce($nonce, 'azure_auction_te_runner_up_' . $product_id)) {
+            wp_die(esc_html__('Security check failed.', 'azure-plugin'), 403);
+        }
+
+        if (!class_exists('Azure_Auction_Winners_Report')) {
+            wp_die(esc_html__('Winners report class not loaded.', 'azure-plugin'), 500);
+        }
+
+        $report  = new Azure_Auction_Winners_Report();
+        $summary = $report->create_runner_up_orders($product_id);
+
+        $totals = $summary['totals'];
+        $msg = sprintf(
+            __('TE runner-up run for #%1$d: created=%2$d emailed=%3$d skipped=%4$d errors=%5$d', 'azure-plugin'),
+            $product_id,
+            (int) $totals['created'],
+            (int) $totals['emailed'],
+            (int) $totals['skipped'],
+            (int) $totals['errors']
+        );
+
+        $redirect = wp_get_referer();
+        if (!$redirect) {
+            $redirect = admin_url('admin.php?page=azure-plugin-auction');
+        }
+        $redirect = add_query_arg(array(
+            'azure_te_msg'   => rawurlencode($msg),
+            'azure_te_state' => $totals['errors'] > 0 ? 'error' : 'success',
+            'azure_te_pid'   => $product_id,
+        ), $redirect);
+
+        wp_safe_redirect($redirect);
+        exit;
     }
 
     public function maybe_process_ended_auction() {

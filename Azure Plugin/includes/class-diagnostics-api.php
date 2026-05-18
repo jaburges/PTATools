@@ -48,14 +48,29 @@ class Azure_Diagnostics_API {
     }
 
     /**
-     * Permission callback — validates the X-Diag-Key header.
+     * Permission callback — validates the X-Diag-Key header OR the
+     * caller's logged-in user has the `run_pta_diagnostics` capability
+     * (or `manage_options` as a fallback during Phase 1).
+     *
+     * The diagnostic key path lets ops tools / monitors hit these
+     * endpoints from outside WP without a session. The cap path lets
+     * trusted admin users hit them straight from the browser.
      */
     public function check_api_key($request) {
+        // Path 1: shared diagnostic key in header or ?key= query param.
         $provided = $request->get_header('X-Diag-Key');
         if (!$provided) {
             $provided = $request->get_param('key');
         }
-        return $provided && hash_equals(self::get_api_key(), $provided);
+        if ($provided && hash_equals(self::get_api_key(), $provided)) {
+            return true;
+        }
+
+        // Path 2: logged-in user with the diagnostics capability.
+        if (class_exists('Azure_Capabilities')) {
+            return Azure_Capabilities::user_can('run_pta_diagnostics');
+        }
+        return current_user_can('manage_options');
     }
 
     public function register_routes() {

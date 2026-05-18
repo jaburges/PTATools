@@ -523,7 +523,7 @@ class Azure_Backup {
     // ------------------------------------------------------------------
 
     public function ajax_start_backup() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('create_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized');
         }
 
@@ -565,7 +565,7 @@ class Azure_Backup {
     }
 
     public function ajax_get_backup_progress() {
-        if (!current_user_can('manage_options') || !isset($_POST['backup_id'])) {
+        if (!azure_user_can('view_pta_backups') || !isset($_POST['backup_id'])) {
             wp_send_json_error('Unauthorized');
         }
 
@@ -605,7 +605,7 @@ class Azure_Backup {
     }
 
     public function ajax_run_backup_now() {
-        if (!current_user_can('manage_options') || !isset($_POST['backup_id']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('create_pta_backups') || !isset($_POST['backup_id']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized');
         }
 
@@ -647,7 +647,7 @@ class Azure_Backup {
     }
 
     public function ajax_trigger_backup_process() {
-        if (!current_user_can('manage_options') || !isset($_POST['backup_id']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('create_pta_backups') || !isset($_POST['backup_id']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized');
         }
         $backup_id = sanitize_text_field($_POST['backup_id']);
@@ -656,7 +656,7 @@ class Azure_Backup {
     }
 
     public function ajax_cancel_all_backups() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('create_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized');
         }
 
@@ -682,7 +682,7 @@ class Azure_Backup {
     }
 
     public function ajax_cleanup_backup_files() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('delete_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized');
         }
 
@@ -701,7 +701,7 @@ class Azure_Backup {
     }
 
     public function ajax_get_backup_jobs() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('view_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_die('Unauthorized');
         }
 
@@ -764,7 +764,7 @@ class Azure_Backup {
     // ------------------------------------------------------------------
 
     public function ajax_get_backup_components() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) {
+        if (!azure_user_can('view_pta_backups') || !wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized');
         }
 
@@ -804,7 +804,7 @@ class Azure_Backup {
     }
 
     public function ajax_download_backup_blob() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_GET['nonce'] ?? '', 'azure_plugin_nonce')) {
+        if (!azure_user_can('view_pta_backups') || !wp_verify_nonce($_GET['nonce'] ?? '', 'azure_plugin_nonce')) {
             wp_die('Unauthorized');
         }
 

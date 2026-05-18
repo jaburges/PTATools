@@ -4,3 +4,5 @@ Azure Plugin/PTATools.wiki/
 wiki-temp/
 .cursor/
 *.env
+.DS_Store
+**/.DS_Store

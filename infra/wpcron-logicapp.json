@@ -1,0 +1,61 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "triggers": {
+      "Daily_at_11pm_Pacific": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Day",
+          "interval": 1,
+          "schedule": {
+            "hours": [
+              23
+            ],
+            "minutes": [
+              0
+            ]
+          },
+          "timeZone": "Pacific Standard Time"
+        }
+      }
+    },
+    "actions": {
+      "Trigger_WP_Cron": {
+        "type": "Http",
+        "inputs": {
+          "method": "GET",
+          "uri": "https://wilderptsa.net/wp-cron.php?doing_wp_cron",
+          "headers": {
+            "User-Agent": "Azure-LogicApp-WPCron-Scheduler/1.0",
+            "X-Source": "azure-logic-app"
+          },
+          "retryPolicy": {
+            "type": "fixed",
+            "count": 3,
+            "interval": "PT5M"
+          }
+        },
+        "runAfter": {},
+        "operationOptions": "DisableAsyncPattern"
+      },
+      "Log_Result": {
+        "type": "Compose",
+        "inputs": {
+          "ranAt": "@{utcNow()}",
+          "statusCode": "@{outputs('Trigger_WP_Cron')['statusCode']}",
+          "url": "https://wilderptsa.net/wp-cron.php?doing_wp_cron"
+        },
+        "runAfter": {
+          "Trigger_WP_Cron": [
+            "Succeeded",
+            "Failed",
+            "TimedOut"
+          ]
+        }
+      }
+    },
+    "outputs": {}
+  }
+}

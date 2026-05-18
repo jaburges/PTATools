@@ -23,6 +23,30 @@ define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('AZURE_PLUGIN_VERSION', '3.51');
 
+/**
+ * Defensive permission helper for retrofitted gates.
+ *
+ * Returns true if the current (or specified) user has the given PTA cap
+ * OR `manage_options`. Falls back to `current_user_can('manage_options')`
+ * if the Azure_Capabilities class isn't loaded yet (e.g. during a partial
+ * deploy or when an AJAX action fires before load_dependencies).
+ *
+ * @param string $cap
+ * @param int|null $user_id Optional; defaults to current user.
+ * @return bool
+ */
+if (!function_exists('azure_user_can')) {
+    function azure_user_can($cap, $user_id = null) {
+        if (class_exists('Azure_Capabilities')) {
+            return Azure_Capabilities::user_can($cap, $user_id);
+        }
+        if ($user_id === null) {
+            return current_user_can('manage_options');
+        }
+        return user_can($user_id, 'manage_options');
+    }
+}
+
 // Auto-update from GitHub Releases (Update URI header must match hostname: github.com)
 add_filter('update_plugins_github.com', function ($update, array $plugin_data, string $plugin_file, $locales) {
     $me = plugin_basename(__FILE__);
@@ -218,7 +242,10 @@ class AzurePlugin {
                 'class-restore-wizard.php' => 'Restore Wizard class',
                 
                 // Diagnostics REST API
-                'class-diagnostics-api.php' => 'Diagnostics REST API class'
+                'class-diagnostics-api.php' => 'Diagnostics REST API class',
+
+                // Capability registry (seeds PTA-specific caps onto roles)
+                'class-capabilities.php' => 'Capabilities class'
             );
             
             // Load critical files first — log errors but never throw/fatal
@@ -294,6 +321,22 @@ class AzurePlugin {
                 Azure_Settings::get_instance();
             }
             
+            // Seed PTA Tools capabilities on every init. The call is cheap
+            // when already at-version (single option read + internal
+            // early-return inside Azure_Capabilities::seed). Don't gate
+            // this on the plugin db version bump — the registry version
+            // is independent of the plugin version, and a hot-patch may
+            // add caps without bumping AZURE_PLUGIN_VERSION.
+            if (class_exists('Azure_Capabilities')) {
+                try {
+                    Azure_Capabilities::seed(false);
+                } catch (\Throwable $e) {
+                    if (class_exists('Azure_Logger')) {
+                        Azure_Logger::error('Capability seed failed in init: ' . $e->getMessage(), 'Capabilities');
+                    }
+                }
+            }
+
             // Run DB migrations on version change (dbDelta is safe to re-run)
             $stored_version = get_option('azure_plugin_db_version', '0');
             if (version_compare($stored_version, AZURE_PLUGIN_VERSION, '<')) {
@@ -946,7 +989,37 @@ class AzurePlugin {
             // Create AzureAD WordPress role
             $this->create_azuread_role();
             $write_log("✅ **[STEP 7]** AzureAD role created");
-            
+
+            // Seed PTA Tools capabilities onto WP roles (idempotent).
+            // Runs after create_azuread_role so the azuread role exists
+            // for any default_roles entries that target it. The class is
+            // explicitly required here because plugins_loaded may not have
+            // fired yet during activation, mirroring how the activate()
+            // method loads class-logger.php / class-database.php earlier.
+            $caps_file = AZURE_PLUGIN_PATH . 'includes/class-capabilities.php';
+            if (file_exists($caps_file) && !class_exists('Azure_Capabilities')) {
+                require_once $caps_file;
+            }
+            if (class_exists('Azure_Capabilities')) {
+                try {
+                    $write_log("⏳ **[STEP 7b]** Seeding PTA Tools capabilities");
+                    $cap_result = Azure_Capabilities::seed(true);
+                    $write_log(sprintf(
+                        "✅ **[STEP 7b]** Capabilities seeded (added=%d, skipped=%d, roles=%s)",
+                        (int) ($cap_result['added'] ?? 0),
+                        (int) ($cap_result['skipped'] ?? 0),
+                        implode(',', $cap_result['roles_touched'] ?? array())
+                    ));
+                } catch (\Throwable $e) {
+                    $write_log("❌ **[STEP 7b ERROR]** Capability seeding failed: " . $e->getMessage());
+                    Azure_Logger::error('Capability seeding failed during activation: ' . $e->getMessage());
+                }
+            } else {
+                // Not fatal — init() will run seed(false) on the next page
+                // load once load_dependencies has fired.
+                $write_log("⚠️ **[STEP 7b]** Azure_Capabilities class not loaded — caps will be seeded on next page load");
+            }
+
             $write_log("⏳ **[STEP 8]** Setting default options");
             // Set default options
             Azure_Logger::info('Setting default options');

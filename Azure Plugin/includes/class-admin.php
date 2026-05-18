@@ -33,6 +33,14 @@ class Azure_Admin {
         add_action('wp_ajax_azure_calendar_authorize', array($this, 'ajax_calendar_authorize'));
         add_action('wp_ajax_azure_get_role_caps', array($this, 'ajax_get_role_caps'));
         add_action('wp_ajax_azure_save_role_caps', array($this, 'ajax_save_role_caps'));
+
+        // Role CRUD (Add / Clone / Rename / Delete + Re-seed PTA caps)
+        add_action('wp_ajax_azure_add_role', array($this, 'ajax_add_role'));
+        add_action('wp_ajax_azure_clone_role', array($this, 'ajax_clone_role'));
+        add_action('wp_ajax_azure_rename_role', array($this, 'ajax_rename_role'));
+        add_action('wp_ajax_azure_delete_role', array($this, 'ajax_delete_role'));
+        add_action('wp_ajax_azure_reseed_pta_caps', array($this, 'ajax_reseed_pta_caps'));
+        add_action('wp_ajax_azure_cleanup_stale_caps', array($this, 'ajax_cleanup_stale_caps'));
             
             // Calendar Embed AJAX handlers
             add_action('wp_ajax_azure_save_calendar_embed_email', array($this, 'ajax_save_calendar_embed_email'));
@@ -1100,6 +1108,354 @@ class Azure_Admin {
         ));
     }
 
+    // =====================================================================
+    // ROLE TYPE CRUD (Add / Clone / Rename / Delete) + Re-seed PTA caps
+    //
+    // The visual editor toolbar exposes these actions next to the cap
+    // toggle UI. Each handler takes the same nonce (`azure_plugin_nonce`)
+    // and requires `manage_options`.
+    //
+    // Roles that can never be deleted from the UI: WP built-ins (admin,
+    // editor, author, contributor, subscriber) plus the SSO-managed
+    // `azuread` role. WP allows deleting these but doing so reliably
+    // breaks WordPress.
+    // =====================================================================
+
+    /**
+     * Reserved role slugs that this UI refuses to delete.
+     */
+    private static $protected_role_slugs = array(
+        'administrator', 'editor', 'author', 'contributor', 'subscriber', 'azuread',
+    );
+
+    private function role_crud_unauthorized_response() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+        if (empty($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+    }
+
+    /**
+     * Validate a role slug for create/clone. Returns sanitised slug or
+     * sends a JSON error and exits.
+     */
+    private function validate_new_role_slug($raw) {
+        $slug = sanitize_key($raw);
+        if (empty($slug)) {
+            wp_send_json_error('Role slug is required.');
+        }
+        if (!preg_match('/^[a-z][a-z0-9_]{1,38}$/', $slug)) {
+            wp_send_json_error('Role slug must start with a letter and contain only a-z, 0-9, and underscores (max 39 chars).');
+        }
+        if (get_role($slug)) {
+            wp_send_json_error("A role with slug '{$slug}' already exists.");
+        }
+        return $slug;
+    }
+
+    /**
+     * Build a starting cap map for a new role based on the "start_from"
+     * selector value: empty | all_pta | <existing-role-slug>.
+     */
+    private function build_initial_caps_for_new_role($start_from) {
+        $start_from = sanitize_key($start_from);
+        if ($start_from === 'empty' || $start_from === '') {
+            // WP needs at least `read` to make the role usable in admin.
+            return array('read' => true);
+        }
+        if ($start_from === 'all_pta') {
+            $caps = array('read' => true);
+            if (class_exists('Azure_Capabilities')) {
+                foreach (Azure_Capabilities::get_registry() as $entry) {
+                    $caps[$entry['slug']] = true;
+                }
+            }
+            return $caps;
+        }
+        // Treat as existing role slug — clone its caps.
+        $source = get_role($start_from);
+        if (!$source) {
+            wp_send_json_error("Source role '{$start_from}' not found.");
+        }
+        $caps = array();
+        foreach ($source->capabilities as $cap => $has) {
+            if (!empty($has)) {
+                $caps[$cap] = true;
+            }
+        }
+        // Don't carry over the SSO marker — new roles aren't Azure-AD.
+        unset($caps['azure_ad_user']);
+        return $caps;
+    }
+
+    /**
+     * AJAX: Create a brand-new WordPress role.
+     *
+     * POST: slug, display_name, start_from (empty | all_pta | <existing-slug>), nonce
+     */
+    public function ajax_add_role() {
+        $this->role_crud_unauthorized_response();
+
+        $slug = $this->validate_new_role_slug($_POST['slug'] ?? '');
+        $display_name = sanitize_text_field($_POST['display_name'] ?? '');
+        if (empty($display_name)) {
+            wp_send_json_error('Display name is required.');
+        }
+        $start_from = sanitize_key($_POST['start_from'] ?? 'empty');
+        $caps = $this->build_initial_caps_for_new_role($start_from);
+
+        $result = add_role($slug, $display_name, $caps);
+        if (!$result instanceof WP_Role) {
+            wp_send_json_error('add_role() failed — slug may have been registered concurrently.');
+        }
+
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info("Role Editor: Created role '{$slug}' (display='{$display_name}', start_from='{$start_from}', " . count($caps) . " caps)", 'Admin');
+        }
+        if (class_exists('Azure_Database')) {
+            Azure_Database::log_activity('admin', 'role_created', 'role', $slug, array(
+                'display_name' => $display_name,
+                'start_from'   => $start_from,
+                'cap_count'    => count($caps),
+            ));
+        }
+
+        wp_send_json_success(array(
+            'slug'         => $slug,
+            'display_name' => $display_name,
+            'cap_count'    => count(array_filter($caps)),
+        ));
+    }
+
+    /**
+     * AJAX: Clone an existing role into a new one.
+     *
+     * POST: source_slug, slug, display_name, nonce
+     */
+    public function ajax_clone_role() {
+        $this->role_crud_unauthorized_response();
+
+        $source_slug = sanitize_key($_POST['source_slug'] ?? '');
+        if (empty($source_slug) || !get_role($source_slug)) {
+            wp_send_json_error('Source role not found.');
+        }
+        $new_slug = $this->validate_new_role_slug($_POST['slug'] ?? '');
+        $display_name = sanitize_text_field($_POST['display_name'] ?? '');
+        if (empty($display_name)) {
+            wp_send_json_error('Display name is required.');
+        }
+
+        $caps = $this->build_initial_caps_for_new_role($source_slug);
+        $result = add_role($new_slug, $display_name, $caps);
+        if (!$result instanceof WP_Role) {
+            wp_send_json_error('add_role() failed.');
+        }
+
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info("Role Editor: Cloned '{$source_slug}' -> '{$new_slug}' (" . count($caps) . " caps)", 'Admin');
+        }
+        if (class_exists('Azure_Database')) {
+            Azure_Database::log_activity('admin', 'role_cloned', 'role', $new_slug, array(
+                'source_slug'  => $source_slug,
+                'display_name' => $display_name,
+                'cap_count'    => count($caps),
+            ));
+        }
+
+        wp_send_json_success(array(
+            'slug'         => $new_slug,
+            'display_name' => $display_name,
+            'source_slug'  => $source_slug,
+            'cap_count'    => count(array_filter($caps)),
+        ));
+    }
+
+    /**
+     * AJAX: Rename a role's display name. Slug stays immutable to avoid
+     * orphaning users who reference the role by slug.
+     *
+     * POST: slug, display_name, nonce
+     */
+    public function ajax_rename_role() {
+        $this->role_crud_unauthorized_response();
+
+        $slug = sanitize_key($_POST['slug'] ?? '');
+        $display_name = sanitize_text_field($_POST['display_name'] ?? '');
+        if (empty($slug) || empty($display_name)) {
+            wp_send_json_error('Slug and display name are required.');
+        }
+        $role = get_role($slug);
+        if (!$role) {
+            wp_send_json_error("Role '{$slug}' not found.");
+        }
+
+        // WP_Roles doesn't expose a public renamer, but the option-backed
+        // store is a simple array keyed by slug — read, mutate, write.
+        $option_key = wp_roles()->role_key;
+        $stored = get_option($option_key, array());
+        if (!isset($stored[$slug])) {
+            wp_send_json_error("Role '{$slug}' is registered in code (not in the database) and cannot be renamed from this UI.");
+        }
+        $stored[$slug]['name'] = $display_name;
+        update_option($option_key, $stored);
+
+        // Refresh the in-memory cache so subsequent calls see the new name.
+        wp_roles()->roles[$slug]['name'] = $display_name;
+
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info("Role Editor: Renamed role '{$slug}' to '{$display_name}'", 'Admin');
+        }
+        if (class_exists('Azure_Database')) {
+            Azure_Database::log_activity('admin', 'role_renamed', 'role', $slug, array(
+                'display_name' => $display_name,
+            ));
+        }
+
+        wp_send_json_success(array(
+            'slug'         => $slug,
+            'display_name' => $display_name,
+        ));
+    }
+
+    /**
+     * AJAX: Delete a role. If users are currently assigned to the role,
+     * the caller must include reassign_to (a fallback role slug) and we
+     * bulk-update them before removing the role.
+     *
+     * POST: slug, reassign_to, nonce
+     */
+    public function ajax_delete_role() {
+        $this->role_crud_unauthorized_response();
+
+        $slug = sanitize_key($_POST['slug'] ?? '');
+        if (empty($slug)) {
+            wp_send_json_error('Slug is required.');
+        }
+        if (in_array($slug, self::$protected_role_slugs, true)) {
+            wp_send_json_error("Role '{$slug}' is protected and cannot be deleted from this UI.");
+        }
+        $role = get_role($slug);
+        if (!$role) {
+            wp_send_json_error("Role '{$slug}' not found.");
+        }
+
+        // Find users currently on this role.
+        $user_ids = get_users(array(
+            'role'   => $slug,
+            'fields' => 'ID',
+            'number' => -1,
+        ));
+        $user_count = is_array($user_ids) ? count($user_ids) : 0;
+
+        $reassign_to = sanitize_key($_POST['reassign_to'] ?? '');
+        $reassigned = 0;
+
+        if ($user_count > 0) {
+            if (empty($reassign_to)) {
+                wp_send_json_error(array(
+                    'message'    => "Cannot delete '{$slug}': {$user_count} user(s) are assigned. Pick a role to reassign them to.",
+                    'user_count' => $user_count,
+                ));
+            }
+            if ($reassign_to === $slug) {
+                wp_send_json_error('Reassign target must differ from the role being deleted.');
+            }
+            if (!get_role($reassign_to)) {
+                wp_send_json_error("Reassign target '{$reassign_to}' not found.");
+            }
+            foreach ((array) $user_ids as $uid) {
+                $user = get_user_by('id', (int) $uid);
+                if ($user) {
+                    $user->set_role($reassign_to);
+                    $reassigned++;
+                }
+            }
+        }
+
+        remove_role($slug);
+
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info("Role Editor: Deleted role '{$slug}' (reassigned {$reassigned} users to '{$reassign_to}')", 'Admin');
+        }
+        if (class_exists('Azure_Database')) {
+            Azure_Database::log_activity('admin', 'role_deleted', 'role', $slug, array(
+                'reassigned_count' => $reassigned,
+                'reassigned_to'    => $reassign_to,
+            ));
+        }
+
+        wp_send_json_success(array(
+            'slug'             => $slug,
+            'reassigned_count' => $reassigned,
+            'reassigned_to'    => $reassign_to,
+        ));
+    }
+
+    /**
+     * AJAX: Re-run Azure_Capabilities::seed() to add any missing PTA-Tools
+     * caps to their default roles. Useful after a registry version bump
+     * or if an operator manually removed a cap and wants the defaults back.
+     */
+    public function ajax_reseed_pta_caps() {
+        $this->role_crud_unauthorized_response();
+
+        if (!class_exists('Azure_Capabilities')) {
+            wp_send_json_error('Capability registry not loaded.');
+        }
+
+        $result = Azure_Capabilities::seed(true);
+        wp_send_json_success($result);
+    }
+
+    /**
+     * AJAX: Probe or clean up stale capabilities left over from a now-
+     * inactive plugin (e.g. TEC after the pta_event migration).
+     *
+     * POST:
+     *   target  string — registry key from Azure_Capabilities::get_stale_cap_targets()
+     *   action  'probe' | 'cleanup' (default 'probe')
+     *   nonce   azure_plugin_nonce
+     *
+     * The cleanup action refuses to run while the source plugin is still
+     * detected as active — see Azure_Capabilities::cleanup_stale_target().
+     */
+    public function ajax_cleanup_stale_caps() {
+        $this->role_crud_unauthorized_response();
+
+        if (!class_exists('Azure_Capabilities')) {
+            wp_send_json_error('Capability registry not loaded.');
+        }
+
+        $target_key = sanitize_key($_POST['target'] ?? '');
+        if (empty($target_key)) {
+            wp_send_json_error('Missing target.');
+        }
+
+        $action = sanitize_key($_POST['action_kind'] ?? 'probe');
+        if ($action === 'cleanup') {
+            $result = Azure_Capabilities::cleanup_stale_target($target_key);
+            if (empty($result['ok'])) {
+                wp_send_json_error(array(
+                    'message' => $result['reason'] ?? 'Cleanup refused.',
+                    'result'  => $result,
+                ));
+            }
+            if (class_exists('Azure_Database')) {
+                Azure_Database::log_activity('admin', 'stale_caps_cleaned', 'capabilities', $target_key, array(
+                    'caps_removed'  => $result['caps_removed'],
+                    'roles_touched' => $result['roles_touched'],
+                ));
+            }
+            wp_send_json_success($result);
+        }
+
+        // Default: probe.
+        $probe = Azure_Capabilities::probe_stale_target($target_key);
+        wp_send_json_success($probe);
+    }
+
     private function render_credentials_section($module, $settings) {
         $use_common = $settings['use_common_credentials'] ?? true;
         ?>
@@ -1331,7 +1687,10 @@ class Azure_Admin {
     }
     
     public function ajax_delete_backup() {
-        if (!current_user_can('manage_options') || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        $allowed = class_exists('Azure_Capabilities')
+            ? Azure_Capabilities::user_can('delete_pta_backups')
+            : current_user_can('manage_options');
+        if (!$allowed || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized access');
         }
         

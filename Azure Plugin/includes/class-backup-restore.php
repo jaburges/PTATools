@@ -52,7 +52,7 @@ class Azure_Backup_Restore {
     }
 
     public function ajax_get_restore_progress() {
-        if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+        if (!azure_user_can('view_pta_backups')) wp_send_json_error('Unauthorized');
         $data = get_transient(self::$restore_key);
         wp_send_json_success($data ?: array('progress' => 0, 'status' => 'idle', 'message' => ''));
     }
@@ -74,7 +74,7 @@ class Azure_Backup_Restore {
      * AJAX: Fetch manifest for a backup to show available components.
      */
     public function ajax_get_backup_manifest() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('view_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Unauthorized');
         }
 
@@ -126,7 +126,7 @@ class Azure_Backup_Restore {
     // ------------------------------------------------------------------
 
     public function ajax_restore_backup() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('restore_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_die('Unauthorized');
         }
 
@@ -176,7 +176,7 @@ class Azure_Backup_Restore {
     // ------------------------------------------------------------------
 
     public function ajax_restore_remote_backup() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('restore_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_die('Unauthorized');
         }
 
@@ -732,7 +732,7 @@ class Azure_Backup_Restore {
     // ------------------------------------------------------------------
 
     public function ajax_list_remote_backups() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+        if (!azure_user_can('view_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_die('Unauthorized');
         }
 
@@ -1003,7 +1003,7 @@ class Azure_Backup_Restore {
 
     // Misc
     public function ajax_get_restore_status() {
-        if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) wp_die('Unauthorized');
+        if (!azure_user_can('view_pta_backups') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) wp_die('Unauthorized');
         wp_send_json_success(array('in_progress' => self::$restore_in_progress));
     }
 

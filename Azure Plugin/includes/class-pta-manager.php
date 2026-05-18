@@ -740,7 +740,7 @@ class Azure_PTA_Manager {
     }
     
     public function ajax_get_assignments() {
-        if (!current_user_can('manage_options')) {
+        if (!azure_user_can('manage_pta_role_assignments')) {
             wp_send_json_error('Unauthorized');
         }
         
@@ -769,7 +769,7 @@ class Azure_PTA_Manager {
     }
     
     public function ajax_assign_role() {
-        if (!current_user_can('manage_options')) {
+        if (!azure_user_can('manage_pta_role_assignments')) {
             wp_send_json_error('Unauthorized');
         }
         
@@ -790,7 +790,7 @@ class Azure_PTA_Manager {
     }
     
     public function ajax_remove_assignment() {
-        if (!current_user_can('manage_options')) {
+        if (!azure_user_can('manage_pta_role_assignments')) {
             wp_send_json_error('Unauthorized');
         }
         
