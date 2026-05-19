@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) {
 }
 
 $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'auction';
-$valid_tabs = array('auction', 'classes', 'product-fields', 'donations');
+$valid_tabs = array('auction', 'classes', 'product-fields', 'donations', 'reports');
 if (!in_array($active_tab, $valid_tabs)) {
     $active_tab = 'auction';
 }
@@ -35,6 +35,10 @@ $GLOBALS['azure_tab_mode'] = true;
            class="azure-tab-link <?php echo $active_tab === 'donations' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-heart"></span> Donations
         </a>
+        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-selling&tab=reports')); ?>"
+           class="azure-tab-link <?php echo $active_tab === 'reports' ? 'active' : ''; ?>">
+            <span class="dashicons dashicons-media-spreadsheet"></span> Reports
+        </a>
     </nav>
 
     <?php
@@ -50,6 +54,9 @@ $GLOBALS['azure_tab_mode'] = true;
             break;
         case 'donations':
             include AZURE_PLUGIN_PATH . 'admin/donations-page.php';
+            break;
+        case 'reports':
+            include AZURE_PLUGIN_PATH . 'admin/orders-reports-page.php';
             break;
     }
     ?>

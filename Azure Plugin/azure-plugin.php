@@ -225,6 +225,9 @@ class AzurePlugin {
                 // Auction functionality
                 'class-auction-module.php' => 'Auction Module class',
                 
+                // Orders Reports module
+                'class-orders-reports-module.php' => 'Orders Reports Module class',
+                
                 // Product Fields functionality
                 'class-product-fields-module.php' => 'Product Fields Module class',
                 'class-user-children.php' => 'User Children Profiles class',
@@ -422,6 +425,14 @@ class AzurePlugin {
             
             if (!empty($settings['enable_auction'])) {
                 $this->init_auction_components();
+            }
+            
+            // Orders Reports is always on when WooCommerce is active.
+            // Page access is gated by the manage_woocommerce capability
+            // on the Selling > Reports tab; no per-module enable toggle
+            // for now (can be added to settings later if needed).
+            if (class_exists('WooCommerce')) {
+                $this->init_orders_reports_components();
             }
             
             if (!empty($settings['enable_product_fields'])) {
@@ -812,6 +823,22 @@ class AzurePlugin {
                 'line' => $e->getLine()
             ));
             error_log('Azure Plugin: Auction init error - ' . $e->getMessage());
+        }
+    }
+
+    private function init_orders_reports_components() {
+        try {
+            if (class_exists('Azure_Orders_Reports_Module')) {
+                Azure_Orders_Reports_Module::get_instance();
+                Azure_Logger::debug_module('OrdersReports', 'Orders Reports Module initialized successfully');
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('Orders Reports init failed: ' . $e->getMessage(), array(
+                'module' => 'OrdersReports',
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ));
+            error_log('Azure Plugin: Orders Reports init error - ' . $e->getMessage());
         }
     }
     
