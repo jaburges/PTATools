@@ -140,7 +140,9 @@ class Azure_Orders_Reports_Storage {
     public static function sanitize_config($config) {
         if (!is_array($config)) $config = array();
         $dr = isset($config['date_range']) && is_array($config['date_range']) ? $config['date_range'] : array();
-        $valid_presets = array('', 'last_7_days', 'last_30_days', 'previous_month', 'previous_quarter', 'previous_year');
+        // 'previous_year' kept for backwards compatibility with saved
+        // reports written before the "This school year" replacement.
+        $valid_presets = array('', 'last_7_days', 'last_30_days', 'previous_month', 'previous_quarter', 'previous_year', 'this_school_year');
         $preset = isset($dr['preset']) ? (string) $dr['preset'] : '';
         if (!in_array($preset, $valid_presets, true)) $preset = '';
 

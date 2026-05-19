@@ -176,7 +176,7 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                         'last_30_days'     => __('Last 30 days', 'azure-plugin'),
                         'previous_month'   => __('Previous month', 'azure-plugin'),
                         'previous_quarter' => __('Previous quarter', 'azure-plugin'),
-                        'previous_year'    => __('Previous year', 'azure-plugin'),
+                        'this_school_year' => __('This school year', 'azure-plugin'),
                     ) as $slug => $label): ?>
                         <button type="button" class="button azure-or-preset" data-preset="<?php echo esc_attr($slug); ?>"><?php echo esc_html($label); ?></button>
                     <?php endforeach; ?>
@@ -226,7 +226,7 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                             name="product_ids[]"
                             multiple="multiple"
                             style="min-width:400px;"
-                            data-placeholder="<?php esc_attr_e('Search for a product\u2026', 'azure-plugin'); ?>"
+                            data-placeholder="<?php echo esc_attr__('Search for a product…', 'azure-plugin'); ?>"
                             data-action="woocommerce_json_search_products"
                             data-allow_clear="true"
                             data-multiple="true">

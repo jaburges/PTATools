@@ -98,8 +98,15 @@
                 to.setMinutes(to.getMinutes() - 1);
                 break;
             case 'previous_year':
+                // Kept for backwards compatibility with saved reports.
                 from = new Date(now.getFullYear() - 1, 0, 1, 0, 0, 0, 0);
                 to   = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 0, 0);
+                break;
+            case 'this_school_year':
+                // Aug 1 of (this year if Aug-Dec, else last year) → today.
+                var sYear = (now.getMonth() >= 7) ? now.getFullYear() : (now.getFullYear() - 1);
+                from = new Date(sYear, 7, 1, 0, 0, 0, 0);     // Month index 7 = August
+                to   = new Date(now); to.setHours(23, 59, 0, 0);
                 break;
             default:
                 return null;

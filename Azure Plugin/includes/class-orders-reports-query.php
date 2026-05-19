@@ -83,10 +83,26 @@ class Azure_Orders_Reports_Query {
                 $to   = $from->modify('+3 months')->modify('-1 second');
                 return array('from' => $from->format('Y-m-d H:i:s'), 'to' => $to->format('Y-m-d H:i:s'));
             case 'previous_year':
+                // Kept for backwards compatibility — any saved report
+                // config from earlier versions that selected "Previous
+                // year" still resolves correctly. UI no longer surfaces
+                // this preset; "This school year" is the replacement.
                 $year = (int) $now->format('Y') - 1;
                 return array(
                     'from' => sprintf('%04d-01-01 00:00:00', $year),
                     'to'   => sprintf('%04d-12-31 23:59:59', $year),
+                );
+            case 'this_school_year':
+                // School year starts Aug 1 of the current year if today
+                // is Aug-Dec, else Aug 1 of the prior year. End of range
+                // is "now" (end of today), not next July 31 — the user
+                // wants a "year-to-date" feel.
+                $month      = (int) $now->format('n');
+                $year       = (int) $now->format('Y');
+                $start_year = ($month >= 8) ? $year : ($year - 1);
+                return array(
+                    'from' => sprintf('%04d-08-01 00:00:00', $start_year),
+                    'to'   => $now->setTime(23, 59, 59)->format('Y-m-d H:i:s'),
                 );
         }
         return array('from' => null, 'to' => current_time('mysql'));
