@@ -431,6 +431,20 @@ class Azure_Auction_Winners_Report {
                         'emailed'    => (bool) $emailed,
                     ));
                 }
+                // Bust cached "no runner-up" reads so the admin widget shows
+                // the new postmeta on the very next page load. Without this,
+                // W3 Total Cache's object cache will keep serving the stale
+                // empty result until its TTL expires (we hit exactly this:
+                // orders + emails went out, postmeta was written, but the
+                // widget showed "not yet created" for hours because get_post_meta
+                // was returning the cached pre-write null).
+                clean_post_cache($product_id);
+                if (function_exists('w3tc_flush_post')) {
+                    @w3tc_flush_post($product_id);
+                }
+                if (function_exists('w3tc_objectcache_flush')) {
+                    @w3tc_objectcache_flush();
+                }
             } catch (\Throwable $e) {
                 $summary['totals']['errors']++;
                 $summary['actions'][] = array(
