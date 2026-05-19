@@ -90,19 +90,29 @@ class Azure_Orders_Reports_Module {
         // 3-letter autocomplete used everywhere else in WC admin. The
         // <select class="wc-product-search"> in our markup is picked up
         // automatically once these are enqueued.
+        //
+        // IMPORTANT: do NOT declare 'select2' / 'wc-enhanced-select' as
+        // dependencies of OUR enqueued assets. WC registers those handles
+        // on the same admin_enqueue_scripts hook at the same priority as
+        // we do; if our callback fires first, WP will see the unresolved
+        // dependency and silently drop our entire stylesheet from the
+        // page. That manifested live as the broken-styling screenshot —
+        // file fetches 200 OK from the public URL but no <link> tag in
+        // the rendered <head>. Our CSS does not override any select2
+        // styles, so cascade order doesn't matter.
         wp_enqueue_style('select2');
         wp_enqueue_script('wc-enhanced-select');
 
         wp_enqueue_style(
             'azure-orders-reports',
             AZURE_PLUGIN_URL . 'css/orders-reports.css',
-            array('select2'),
+            array(),
             $css_v
         );
         wp_enqueue_script(
             'azure-orders-reports-builder',
             AZURE_PLUGIN_URL . 'js/orders-reports-builder.js',
-            array('jquery', 'jquery-ui-sortable', 'wc-enhanced-select'),
+            array('jquery', 'jquery-ui-sortable'),
             $js_v,
             true
         );
