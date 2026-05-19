@@ -208,7 +208,7 @@ class Azure_Admin {
             'azure-plugin',
             'PTA Tools - Selling',
             'Selling',
-            'manage_options',
+            'manage_woocommerce',
             'azure-plugin-selling',
             array($this, 'admin_page_selling')
         );
