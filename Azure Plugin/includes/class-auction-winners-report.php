@@ -204,20 +204,33 @@ class Azure_Auction_Winners_Report {
     }
 
     /**
-     * Top 2 distinct bidders for a TE item EXCLUDING the recorded winner — i.e.
-     * positions 2 and 3 by each user's highest bid.
+     * Returns 1st (winner from postmeta) plus top 2 distinct bidders
+     * EXCLUDING the recorded winner — i.e. positions 2 and 3 by each
+     * user's highest bid.
+     *
+     * The `stored` array is self-healing: if the postmeta tracking the
+     * runner-up order is missing (e.g. W3 Total Cache served a stale
+     * empty result, or the order was created outside our flow), the
+     * method falls back to wc_get_orders() to find an existing order
+     * matching (runner-up user, this product) and auto-backfills the
+     * postmeta so the next read is fast.
      *
      * @return array{
+     *   first:  ?array<string,mixed>,
      *   second: ?array<string,mixed>,
      *   third:  ?array<string,mixed>,
-     *   stored: array{second:?array,third:?array}
+     *   stored: array{first:?array,second:?array,third:?array}
      * }
      */
     public function get_te_runners_up($product_id) {
         global $wpdb;
         $bids_table = Azure_Database::get_table_name('auction_bids');
 
-        $winner_user_id = (int) get_post_meta($product_id, '_auction_winner_user_id', true);
+        $winner_user_id  = (int) get_post_meta($product_id, '_auction_winner_user_id', true);
+        $winning_amount  = get_post_meta($product_id, '_auction_winning_amount', true);
+        $winner_order_id = (int) get_post_meta($product_id, '_auction_winner_order_id', true);
+        $sold_order_id   = (int) get_post_meta($product_id, '_auction_sold_order_id', true);
+        $first_order_id  = $winner_order_id ?: $sold_order_id;
 
         $excluded = array(0);
         if ($winner_user_id) {
@@ -239,17 +252,153 @@ class Azure_Auction_Winners_Report {
         $args = array_merge(array($product_id), $excluded);
         $rows = $wpdb->get_results($wpdb->prepare($sql, $args));
 
+        $first = null;
+        if ($winner_user_id) {
+            $winner_user = get_userdata($winner_user_id);
+            $first = array(
+                'position'    => 1,
+                'user_id'     => $winner_user_id,
+                'login'       => $winner_user ? $winner_user->user_login : '',
+                'email'       => $winner_user ? $winner_user->user_email : '',
+                'name'        => $winner_user ? $winner_user->display_name : '',
+                'bid_amount'  => $winning_amount !== '' ? (float) $winning_amount : null,
+                'last_bid_at' => $this->get_winner_last_bid_at($product_id, $winner_user_id),
+            );
+        }
+
         $second = isset($rows[0]) ? $this->expand_bidder($rows[0], 2) : null;
         $third  = isset($rows[1]) ? $this->expand_bidder($rows[1], 3) : null;
 
+        // For the WINNER we already have the order_id in postmeta. Build
+        // a stored entry the UI can render uniformly with second/third.
+        $stored_first = null;
+        if ($first && $first_order_id) {
+            $stored_first = array(
+                'user_id'    => $winner_user_id,
+                'order_id'   => $first_order_id,
+                'amount'     => $first['bid_amount'],
+                // Winners don't get _auction_te_first_*_at postmeta (the
+                // lifecycle sends synchronously without recording a stamp).
+                // Use the order's date_created as a stand-in.
+                'created_at' => $this->resolve_order_created_at($first_order_id),
+                'emailed_at' => $this->resolve_order_created_at($first_order_id),
+            );
+        }
+
+        $stored_second = $this->get_stored_runner_up($product_id, 2);
+        $stored_third  = $this->get_stored_runner_up($product_id, 3);
+
+        // Self-heal: if postmeta is missing but a matching WC order exists
+        // for this runner-up user on this product, recover the link AND
+        // backfill the postmeta so the next read is fast.
+        if (!$stored_second && $second) {
+            $found = $this->find_existing_order_for_user_product((int) $second['user_id'], $product_id);
+            if ($found) {
+                $this->backfill_te_position_postmeta($product_id, 2, (int) $second['user_id'], (float) $second['bid_amount'], $found);
+                $stored_second = $this->get_stored_runner_up($product_id, 2);
+            }
+        }
+        if (!$stored_third && $third) {
+            $found = $this->find_existing_order_for_user_product((int) $third['user_id'], $product_id);
+            if ($found) {
+                $this->backfill_te_position_postmeta($product_id, 3, (int) $third['user_id'], (float) $third['bid_amount'], $found);
+                $stored_third = $this->get_stored_runner_up($product_id, 3);
+            }
+        }
+
         return array(
+            'first'  => $first,
             'second' => $second,
             'third'  => $third,
             'stored' => array(
-                'second' => $this->get_stored_runner_up($product_id, 'second'),
-                'third'  => $this->get_stored_runner_up($product_id, 'third'),
+                'first'  => $stored_first,
+                'second' => $stored_second,
+                'third'  => $stored_third,
             ),
         );
+    }
+
+    private function get_winner_last_bid_at($product_id, $winner_user_id) {
+        if (!$winner_user_id) return '';
+        global $wpdb;
+        $table = Azure_Database::get_table_name('auction_bids');
+        if (!$table) return '';
+        return (string) $wpdb->get_var($wpdb->prepare(
+            "SELECT created_at FROM {$table} WHERE product_id = %d AND user_id = %d ORDER BY bid_amount DESC, created_at DESC LIMIT 1",
+            $product_id, $winner_user_id
+        ));
+    }
+
+    private function resolve_order_created_at($order_id) {
+        if (!$order_id || !function_exists('wc_get_order')) return '';
+        $order = wc_get_order((int) $order_id);
+        if (!$order) return '';
+        $d = $order->get_date_created();
+        return $d ? $d->date('Y-m-d H:i:s') : '';
+    }
+
+    /**
+     * Find the most-recent WC order placed by $user_id that contains
+     * $product_id as a line item. Returns null if none found.
+     */
+    private function find_existing_order_for_user_product($user_id, $product_id) {
+        if (!$user_id || !$product_id || !function_exists('wc_get_orders')) {
+            return null;
+        }
+        $orders = wc_get_orders(array(
+            'customer_id' => (int) $user_id,
+            'limit'       => 20,
+            'orderby'     => 'date',
+            'order'       => 'DESC',
+            'status'      => array_keys(wc_get_order_statuses()),
+        ));
+        foreach ($orders as $order) {
+            foreach ($order->get_items() as $item) {
+                if ((int) $item->get_product_id() === (int) $product_id) {
+                    $d = $order->get_date_created();
+                    return array(
+                        'order_id'     => (int) $order->get_id(),
+                        'date_created' => $d ? $d->date('Y-m-d H:i:s') : current_time('mysql'),
+                    );
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Write the _auction_te_{second|third}_* postmeta for a recovered
+     * runner-up order, and bust read caches so the very next get_post_meta
+     * picks up the new value (this is exactly the self-heal scenario that
+     * fires when W3TC has cached a pre-write empty result).
+     */
+    private function backfill_te_position_postmeta($product_id, $position, $user_id, $amount, $order_info) {
+        $keys = $this->meta_keys_for_position($position);
+        if (!$keys) return;
+        update_post_meta($product_id, $keys['user_id'],    (int) $user_id);
+        update_post_meta($product_id, $keys['order_id'],   (int) $order_info['order_id']);
+        update_post_meta($product_id, $keys['amount'],     (float) $amount);
+        update_post_meta($product_id, $keys['created_at'], (string) $order_info['date_created']);
+        // Don't fabricate an emailed_at — we don't know whether the customer
+        // actually received the email. Only the explicit "Send email" /
+        // "Email all unpaid" admin actions set _azure_last_invoice_resent_at
+        // on the order.
+
+        clean_post_cache($product_id);
+        if (function_exists('w3tc_flush_post')) {
+            @w3tc_flush_post($product_id);
+        }
+        if (function_exists('w3tc_objectcache_flush')) {
+            @w3tc_objectcache_flush();
+        }
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info('Auction TE postmeta self-healed from existing WC order', array(
+                'product_id' => $product_id,
+                'position'   => $position,
+                'order_id'   => (int) $order_info['order_id'],
+                'user_id'    => (int) $user_id,
+            ));
+        }
     }
 
     private function expand_bidder($row, $position) {

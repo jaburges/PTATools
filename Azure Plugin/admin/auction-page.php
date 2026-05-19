@@ -285,17 +285,8 @@ if (class_exists('WooCommerce')) {
                         <h3 style="margin-top:0;">
                             <a href="<?php echo esc_url(get_edit_post_link($te['product_id'])); ?>"><?php echo esc_html($te['title']); ?></a>
                             <span style="color:#888;font-size:13px;font-weight:normal;">#<?php echo (int) $te['product_id']; ?></span>
+                            <span style="color:#888;font-size:13px;font-weight:normal;margin-left:8px;"><?php echo esc_html($te['ended_at']); ?> · <?php echo esc_html($te['auction_status']); ?></span>
                         </h3>
-                        <p style="margin:4px 0 12px;color:#555;">
-                            <?php printf(
-                                esc_html__('Winner: %1$s (%2$s) — winning bid %3$s, order %4$s, %5$s', 'azure-plugin'),
-                                esc_html($te['winner_name'] ?: '—'),
-                                esc_html($te['winner_email'] ?: '—'),
-                                wp_kses_post($te['winning_amount'] !== null ? wc_price($te['winning_amount']) : '—'),
-                                $te['order_id'] ? '<a href="' . esc_url(Azure_Auction_Winners_Report::order_edit_url($te['order_id'])) . '">#' . (int) $te['order_id'] . '</a>' : '—',
-                                esc_html($te['payment_state'])
-                            ); ?>
-                        </p>
 
                         <table class="wp-list-table widefat fixed striped" style="margin-top:8px;">
                             <thead>
@@ -306,17 +297,33 @@ if (class_exists('WooCommerce')) {
                                     <th style="text-align:right;"><?php _e('Their bid', 'azure-plugin'); ?></th>
                                     <th><?php _e('Last bid at', 'azure-plugin'); ?></th>
                                     <th><?php _e('Order', 'azure-plugin'); ?></th>
+                                    <th><?php _e('Paid?', 'azure-plugin'); ?></th>
                                     <th><?php _e('Invoice', 'azure-plugin'); ?></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach (array('second' => 2, 'third' => 3) as $key => $position):
+                                <?php
+                                $place_labels = array(1 => __('1st', 'azure-plugin'), 2 => __('2nd', 'azure-plugin'), 3 => __('3rd', 'azure-plugin'));
+                                foreach (array('first' => 1, 'second' => 2, 'third' => 3) as $key => $position):
                                     $bidder = $runners[$key];
                                     $stored = $runners['stored'][$key];
                                     $u = ($bidder && !empty($bidder['user_id'])) ? get_userdata((int) $bidder['user_id']) : null;
+                                    // For 1st row, look up live order paid state so the table shows it
+                                    // alongside 2nd/3rd. 2nd/3rd inherit it via the resolve below.
+                                    $row_order_id     = !empty($stored['order_id']) ? (int) $stored['order_id'] : 0;
+                                    $row_order_obj    = $row_order_id && function_exists('wc_get_order') ? wc_get_order($row_order_id) : null;
+                                    $row_order_status = $row_order_obj ? $row_order_obj->get_status() : '';
+                                    $row_paid_states  = function_exists('wc_get_is_paid_statuses') ? wc_get_is_paid_statuses() : array('processing','completed');
+                                    $row_is_paid      = $row_order_obj
+                                        ? (in_array($row_order_status, $row_paid_states, true) || ($row_order_obj->get_date_paid() ? true : false))
+                                        : null;
+                                    $row_paid_label   = !$row_order_obj
+                                        ? '—'
+                                        : ($row_is_paid ? __('PAID', 'azure-plugin') : __('NOT PAID', 'azure-plugin') . ' (' . esc_html($row_order_status) . ')');
+                                    $row_paid_class   = $row_is_paid === true ? 'azure-pay-paid' : ($row_is_paid === false ? 'azure-pay-unpaid' : 'azure-pay-unknown');
                                 ?>
-                                    <tr>
-                                        <td><strong><?php echo $position === 2 ? esc_html__('2nd', 'azure-plugin') : esc_html__('3rd', 'azure-plugin'); ?></strong></td>
+                                    <tr<?php if ($position === 1) echo ' style="background:#f6f7f7;"'; ?>>
+                                        <td><strong><?php echo esc_html($place_labels[$position]); ?></strong></td>
                                         <?php if ($bidder): ?>
                                             <td>
                                                 <?php if ($u): ?>
@@ -337,6 +344,12 @@ if (class_exists('WooCommerce')) {
                                                     <em style="color:#888;"><?php _e('not yet created', 'azure-plugin'); ?></em>
                                                 <?php endif; ?>
                                             </td>
+                                            <td class="<?php echo esc_attr($row_paid_class); ?>">
+                                                <?php echo esc_html($row_paid_label); ?>
+                                                <?php if ($row_order_obj && $row_order_obj->get_date_paid()): ?>
+                                                    <div style="color:#888;font-size:12px;"><?php echo esc_html($row_order_obj->get_date_paid()->date('Y-m-d H:i:s')); ?></div>
+                                                <?php endif; ?>
+                                            </td>
                                             <td>
                                                 <?php if (!empty($stored['emailed_at'])): ?>
                                                     <span style="color:#1e7e34;font-weight:600;"><?php _e('sent', 'azure-plugin'); ?></span>
@@ -350,7 +363,8 @@ if (class_exists('WooCommerce')) {
                                                     $te_resend_oid   = (int) $stored['order_id'];
                                                     $te_resent_at    = Azure_Auction_Winners_Report::get_invoice_resent_at($te_resend_oid);
                                                     $te_resend_label = sprintf(
-                                                        "Resend WooCommerce invoice email for runner-up order #%d (%s)?",
+                                                        "Resend WooCommerce invoice email for %s order #%d (%s)?",
+                                                        $place_labels[$position],
                                                         $te_resend_oid,
                                                         $bidder['email'] ?: ($bidder['name'] ?: 'this customer')
                                                     );
@@ -373,7 +387,7 @@ if (class_exists('WooCommerce')) {
                                                 <?php endif; ?>
                                             </td>
                                         <?php else: ?>
-                                            <td colspan="6"><em style="color:#888;"><?php _e('No bidder at this position.', 'azure-plugin'); ?></em></td>
+                                            <td colspan="7"><em style="color:#888;"><?php _e('No bidder at this position.', 'azure-plugin'); ?></em></td>
                                         <?php endif; ?>
                                     </tr>
                                 <?php endforeach; ?>
