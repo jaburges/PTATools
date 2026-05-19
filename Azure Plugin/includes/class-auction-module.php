@@ -72,6 +72,87 @@ class Azure_Auction_Module {
         add_action('wp_enqueue_scripts', array($this, 'enqueue_auction_scripts'));
 
         add_action('admin_post_azure_auction_create_te_runner_up_orders', array($this, 'handle_create_te_runner_up_orders'));
+        add_action('admin_post_azure_auction_resend_invoice',             array($this, 'handle_resend_invoice'));
+        add_action('admin_post_azure_auction_resend_all_unpaid',          array($this, 'handle_resend_all_unpaid'));
+    }
+
+    /**
+     * Shared cap+nonce check for the resend-invoice handlers.
+     */
+    private function check_invoice_cap_or_die($nonce_action) {
+        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to perform this action.', 'azure-plugin'), 403);
+        }
+        $nonce = isset($_POST['_wpnonce']) ? (string) $_POST['_wpnonce'] : '';
+        if (!wp_verify_nonce($nonce, $nonce_action)) {
+            wp_die(esc_html__('Security check failed.', 'azure-plugin'), 403);
+        }
+    }
+
+    /**
+     * admin-post handler: resend WC Customer Invoice email for ONE order.
+     * Posts to admin-post.php with action=azure_auction_resend_invoice,
+     * order_id, _wpnonce (nonce action: azure_auction_resend_invoice_<order_id>).
+     */
+    public function handle_resend_invoice() {
+        $order_id = isset($_POST['order_id']) ? absint($_POST['order_id']) : 0;
+        $this->check_invoice_cap_or_die('azure_auction_resend_invoice_' . $order_id);
+
+        if (!$order_id) {
+            wp_die(esc_html__('Missing order_id.', 'azure-plugin'), 400);
+        }
+        if (!class_exists('Azure_Auction_Winners_Report')) {
+            wp_die(esc_html__('Winners report class not loaded.', 'azure-plugin'), 500);
+        }
+
+        $report = new Azure_Auction_Winners_Report();
+        $r      = $report->resend_customer_invoice($order_id);
+
+        $state = $r['result'] === 'sent' ? 'success' : 'error';
+        if ($r['result'] === 'sent') {
+            $msg = sprintf(__('Invoice email sent to %s for order #%d.', 'azure-plugin'), $r['to'], $order_id);
+        } else {
+            $msg = sprintf(__('Could not send invoice for order #%1$d: %2$s', 'azure-plugin'), $order_id, $r['error'] ?? $r['result']);
+        }
+
+        $redirect = wp_get_referer() ?: admin_url('admin.php?page=azure-plugin-selling&tab=auction');
+        $redirect = add_query_arg(array(
+            'azure_invoice_msg'   => rawurlencode($msg),
+            'azure_invoice_state' => $state,
+        ), $redirect);
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
+    /**
+     * admin-post handler: bulk-resend WC Customer Invoice email to every
+     * unpaid auction order (main winners + TE runner-ups).
+     * Nonce action: azure_auction_resend_all_unpaid
+     */
+    public function handle_resend_all_unpaid() {
+        $this->check_invoice_cap_or_die('azure_auction_resend_all_unpaid');
+
+        if (!class_exists('Azure_Auction_Winners_Report')) {
+            wp_die(esc_html__('Winners report class not loaded.', 'azure-plugin'), 500);
+        }
+
+        $report  = new Azure_Auction_Winners_Report();
+        $summary = $report->resend_invoices_for_unpaid_auctions();
+        $t       = $summary['totals'];
+
+        $msg = sprintf(
+            __('Bulk invoice resend: eligible=%1$d sent=%2$d skipped=%3$d errors=%4$d', 'azure-plugin'),
+            (int) $t['eligible'], (int) $t['sent'], (int) $t['skipped'], (int) $t['errors']
+        );
+        $state = $t['errors'] > 0 ? 'error' : ($t['sent'] > 0 ? 'success' : 'warning');
+
+        $redirect = wp_get_referer() ?: admin_url('admin.php?page=azure-plugin-selling&tab=auction');
+        $redirect = add_query_arg(array(
+            'azure_invoice_msg'   => rawurlencode($msg),
+            'azure_invoice_state' => $state,
+        ), $redirect);
+        wp_safe_redirect($redirect);
+        exit;
     }
 
     /**

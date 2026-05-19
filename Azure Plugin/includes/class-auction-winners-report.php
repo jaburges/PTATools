@@ -468,6 +468,219 @@ class Azure_Auction_Winners_Report {
     }
 
     /**
+     * Order meta key recording the last time we (re-)triggered the WC
+     * Customer Invoice email for an order via this admin widget.
+     */
+    const ORDER_META_INVOICE_RESENT_AT = '_azure_last_invoice_resent_at';
+
+    /**
+     * Trigger WooCommerce's built-in "Customer Invoice / Order Details"
+     * email for a single order. Same email WC sends when an admin uses
+     * "Order actions → Email invoice / order details" on the order edit
+     * screen. For unpaid orders the email includes a pay-now link.
+     *
+     * Defensively ensures the order has a billing email by copying from
+     * the customer's user meta / user record if missing (some orders
+     * created via wc_create_order(['customer_id' => N]) without copying
+     * billing fields would otherwise send to an empty address).
+     *
+     * @return array{
+     *   order_id:int,
+     *   result:string,           sent|skipped_no_order|skipped_no_email|error
+     *   to:string,
+     *   error:?string,
+     *   resent_at:?string
+     * }
+     */
+    public function resend_customer_invoice($order_id) {
+        $order_id = (int) $order_id;
+        $res = array(
+            'order_id'  => $order_id,
+            'result'    => 'error',
+            'to'        => '',
+            'error'     => null,
+            'resent_at' => null,
+        );
+        if (!$order_id || !function_exists('wc_get_order')) {
+            $res['error'] = 'WooCommerce not loaded.';
+            return $res;
+        }
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            $res['result'] = 'skipped_no_order';
+            $res['error'] = 'Order ' . $order_id . ' not found.';
+            return $res;
+        }
+
+        $this->ensure_order_billing_from_user($order);
+
+        $to = (string) $order->get_billing_email();
+        if (empty($to)) {
+            $res['result'] = 'skipped_no_email';
+            $res['error'] = 'Order has no billing_email and customer user has no email either.';
+            return $res;
+        }
+        $res['to'] = $to;
+
+        try {
+            if (!function_exists('WC') || !WC()->mailer()) {
+                throw new \RuntimeException('WC mailer not available.');
+            }
+            $emails = WC()->mailer()->get_emails();
+            if (!isset($emails['WC_Email_Customer_Invoice'])) {
+                throw new \RuntimeException('WC_Email_Customer_Invoice not registered.');
+            }
+            $emails['WC_Email_Customer_Invoice']->trigger($order_id);
+
+            $now = current_time('mysql');
+            $order->update_meta_data(self::ORDER_META_INVOICE_RESENT_AT, $now);
+            $order->save();
+            $order->add_order_note(sprintf(
+                'Invoice email re-sent to %s via Selling > Auction admin widget.',
+                $to
+            ));
+
+            $res['result']    = 'sent';
+            $res['resent_at'] = $now;
+
+            if (class_exists('Azure_Logger')) {
+                Azure_Logger::info('Auction widget: invoice resent', array(
+                    'order_id' => $order_id,
+                    'to'       => $to,
+                ));
+            }
+        } catch (\Throwable $e) {
+            $res['error'] = $e->getMessage();
+            if (class_exists('Azure_Logger')) {
+                Azure_Logger::error('Auction widget: invoice resend failed: ' . $e->getMessage(), array(
+                    'order_id' => $order_id,
+                ));
+            }
+        }
+
+        return $res;
+    }
+
+    /**
+     * Resend the WC Customer Invoice email to every customer who has an
+     * unpaid order linked to an ended/sold auction product — main winners
+     * AND Teacher Experience 2nd/3rd-place runner-up orders.
+     *
+     * "Unpaid" = order status in {pending, on-hold, failed} AND no
+     * _paid_date. Cancelled / refunded / paid orders are skipped.
+     *
+     * @return array{
+     *   totals: array{eligible:int, sent:int, skipped:int, errors:int},
+     *   actions: array<int,array<string,mixed>>
+     * }
+     */
+    public function resend_invoices_for_unpaid_auctions() {
+        $summary = array(
+            'totals'  => array('eligible' => 0, 'sent' => 0, 'skipped' => 0, 'errors' => 0),
+            'actions' => array(),
+        );
+
+        $eligible_ids = $this->get_unpaid_auction_order_ids();
+        $summary['totals']['eligible'] = count($eligible_ids);
+
+        foreach ($eligible_ids as $order_id) {
+            $r = $this->resend_customer_invoice($order_id);
+            if ($r['result'] === 'sent') {
+                $summary['totals']['sent']++;
+            } elseif ($r['result'] === 'error') {
+                $summary['totals']['errors']++;
+            } else {
+                $summary['totals']['skipped']++;
+            }
+            $summary['actions'][] = $r;
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Enumerate WC order IDs that (a) belong to an ended/sold auction
+     * product (winner or TE 2nd/3rd runner-up) AND (b) are currently
+     * unpaid (status pending/on-hold/failed, no _paid_date).
+     *
+     * @return int[]
+     */
+    public function get_unpaid_auction_order_ids() {
+        $unpaid_statuses = array('pending', 'on-hold', 'failed');
+        $candidates = array();
+
+        foreach ($this->get_ended_auction_rows() as $row) {
+            if (!empty($row['order_id'])) {
+                $candidates[(int) $row['order_id']] = true;
+            }
+            $runners = $this->get_te_runners_up((int) $row['product_id']);
+            foreach (array('second', 'third') as $key) {
+                $stored = $runners['stored'][$key] ?? null;
+                if (!empty($stored['order_id'])) {
+                    $candidates[(int) $stored['order_id']] = true;
+                }
+            }
+        }
+
+        $unpaid = array();
+        foreach (array_keys($candidates) as $oid) {
+            if (!function_exists('wc_get_order')) {
+                break;
+            }
+            $order = wc_get_order($oid);
+            if (!$order) {
+                continue;
+            }
+            $status = $order->get_status();
+            $date_paid = $order->get_date_paid();
+            if (in_array($status, $unpaid_statuses, true) && !$date_paid) {
+                $unpaid[] = (int) $oid;
+            }
+        }
+        sort($unpaid);
+        return $unpaid;
+    }
+
+    /**
+     * If an order is missing billing_email, copy it (plus first/last name)
+     * from the customer's WC billing meta or fall back to the WP user
+     * record. Persists changes on the order.
+     */
+    private function ensure_order_billing_from_user($order) {
+        if (!$order) return;
+        if (!empty($order->get_billing_email())) return;
+        $customer_id = (int) $order->get_customer_id();
+        if (!$customer_id) return;
+        $user = get_userdata($customer_id);
+        if (!$user) return;
+
+        $email = get_user_meta($customer_id, 'billing_email', true);
+        if (empty($email)) $email = $user->user_email;
+        $first = get_user_meta($customer_id, 'billing_first_name', true);
+        if (empty($first)) $first = $user->first_name;
+        $last  = get_user_meta($customer_id, 'billing_last_name', true);
+        if (empty($last))  $last  = $user->last_name;
+
+        if (!empty($email)) {
+            $order->set_billing_email($email);
+            if (!empty($first)) $order->set_billing_first_name($first);
+            if (!empty($last))  $order->set_billing_last_name($last);
+            $order->save();
+        }
+    }
+
+    /**
+     * Convenience accessor: last-resent-at timestamp for an order, or ''.
+     */
+    public static function get_invoice_resent_at($order_id) {
+        if (!$order_id || !function_exists('wc_get_order')) {
+            return '';
+        }
+        $order = wc_get_order((int) $order_id);
+        return $order ? (string) $order->get_meta(self::ORDER_META_INVOICE_RESENT_AT, true) : '';
+    }
+
+    /**
      * @return array{
      *   item_count:int,
      *   sum_winning:float,

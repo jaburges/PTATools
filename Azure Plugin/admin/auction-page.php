@@ -71,6 +71,36 @@ if (class_exists('WooCommerce')) {
             <a href="<?php echo admin_url('edit.php?post_type=product'); ?>" class="button">
                 <span class="dashicons dashicons-list-view"></span> <?php _e('View All Products', 'azure-plugin'); ?>
             </a>
+
+            <?php
+            if (class_exists('Azure_Auction_Winners_Report')) {
+                $azure_bulk_resend_count_pre = method_exists('Azure_Auction_Winners_Report', 'get_unpaid_auction_order_ids')
+                    ? count((new Azure_Auction_Winners_Report())->get_unpaid_auction_order_ids())
+                    : null;
+                if ($azure_bulk_resend_count_pre !== null) {
+                    $azure_bulk_confirm = sprintf(
+                        "Send the WooCommerce invoice email to %d unpaid auction customer(s)?\n\nEach customer receives one email with a pay-now link.\nThis cannot be undone from the UI.",
+                        (int) $azure_bulk_resend_count_pre
+                    );
+                    ?>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block; margin-left:8px;">
+                        <input type="hidden" name="action" value="azure_auction_resend_all_unpaid" />
+                        <?php wp_nonce_field('azure_auction_resend_all_unpaid'); ?>
+                        <button type="submit"
+                                class="button button-secondary"
+                                <?php disabled($azure_bulk_resend_count_pre === 0); ?>
+                                onclick="return confirm(<?php echo esc_attr(wp_json_encode($azure_bulk_confirm)); ?>);">
+                            <span class="dashicons dashicons-email-alt2"></span>
+                            <?php printf(
+                                esc_html__('Email all unpaid Auction Items (%d)', 'azure-plugin'),
+                                (int) $azure_bulk_resend_count_pre
+                            ); ?>
+                        </button>
+                    </form>
+                    <?php
+                }
+            }
+            ?>
         </div>
         <p class="description"><?php _e('Create a product and select "Auction" as the product type. Set bidding end date/time, optional Buy It Now price, and require immediate payment.', 'azure-plugin'); ?></p>
 
@@ -90,6 +120,19 @@ if (class_exists('WooCommerce')) {
                     esc_html($azure_msg_text)
                 );
             }
+            if (!empty($_GET['azure_invoice_msg'])) {
+                $azure_inv_text  = wp_kses_post(rawurldecode((string) $_GET['azure_invoice_msg']));
+                $raw_state       = isset($_GET['azure_invoice_state']) ? (string) $_GET['azure_invoice_state'] : 'success';
+                $azure_inv_state = in_array($raw_state, array('success', 'error', 'warning', 'info'), true) ? $raw_state : 'info';
+                printf(
+                    '<div class="notice notice-%s is-dismissible" style="margin: 15px 0;"><p>%s</p></div>',
+                    esc_attr($azure_inv_state),
+                    esc_html($azure_inv_text)
+                );
+            }
+
+            $azure_unpaid_order_ids = $azure_winners_report->get_unpaid_auction_order_ids();
+            $azure_unpaid_count     = count($azure_unpaid_order_ids);
             ?>
 
             <hr style="margin: 30px 0;" />
@@ -110,6 +153,7 @@ if (class_exists('WooCommerce')) {
                             <th style="text-align:right;"><?php _e('Winning bid', 'azure-plugin'); ?></th>
                             <th><?php _e('Order', 'azure-plugin'); ?></th>
                             <th><?php _e('Paid?', 'azure-plugin'); ?></th>
+                            <th style="width:160px;"><?php _e('Invoice', 'azure-plugin'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -163,6 +207,36 @@ if (class_exists('WooCommerce')) {
                                         <div style="color:#888;font-size:12px;"><?php echo esc_html($r['paid_date']); ?></div>
                                     <?php endif; ?>
                                 </td>
+                                <td>
+                                    <?php
+                                    $resend_oid       = (int) $r['order_id'];
+                                    $resend_last_sent = $resend_oid ? Azure_Auction_Winners_Report::get_invoice_resent_at($resend_oid) : '';
+                                    if ($resend_oid) {
+                                        $resend_confirm = sprintf(
+                                            "Resend WooCommerce invoice email for order #%d (%s)?",
+                                            $resend_oid,
+                                            $r['winner_email'] ?: ($r['winner_name'] ?: 'this customer')
+                                        );
+                                    ?>
+                                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:0;">
+                                            <input type="hidden" name="action" value="azure_auction_resend_invoice" />
+                                            <input type="hidden" name="order_id" value="<?php echo (int) $resend_oid; ?>" />
+                                            <?php wp_nonce_field('azure_auction_resend_invoice_' . (int) $resend_oid); ?>
+                                            <button type="submit" class="button button-small"
+                                                    onclick="return confirm(<?php echo esc_attr(wp_json_encode($resend_confirm)); ?>);">
+                                                <span class="dashicons dashicons-email-alt" style="vertical-align:middle;font-size:14px;"></span>
+                                                <?php _e('Send email', 'azure-plugin'); ?>
+                                            </button>
+                                        </form>
+                                        <?php if (!empty($resend_last_sent)): ?>
+                                            <div style="color:#888;font-size:11px;margin-top:3px;">
+                                                <?php printf(esc_html__('last sent: %s', 'azure-plugin'), esc_html($resend_last_sent)); ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    <?php } else { ?>
+                                        <em style="color:#888;">—</em>
+                                    <?php } ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -170,7 +244,7 @@ if (class_exists('WooCommerce')) {
                         <tr style="font-weight:bold;">
                             <td colspan="4" style="text-align:right;"><?php _e('Totals', 'azure-plugin'); ?></td>
                             <td style="text-align:right;"><?php echo wp_kses_post(wc_price($azure_winner_totals['sum_winning'])); ?></td>
-                            <td colspan="2">
+                            <td colspan="3">
                                 <?php printf(
                                     esc_html__('%1$d items · Paid: %2$s · Outstanding: %3$s%4$s', 'azure-plugin'),
                                     (int) $azure_winner_totals['item_count'],
@@ -271,6 +345,31 @@ if (class_exists('WooCommerce')) {
                                                     <span style="color:#b32d2e;font-weight:600;"><?php _e('order exists, email NOT sent', 'azure-plugin'); ?></span>
                                                 <?php else: ?>
                                                     <em style="color:#888;"><?php _e('not yet sent', 'azure-plugin'); ?></em>
+                                                <?php endif; ?>
+                                                <?php if (!empty($stored['order_id'])):
+                                                    $te_resend_oid   = (int) $stored['order_id'];
+                                                    $te_resent_at    = Azure_Auction_Winners_Report::get_invoice_resent_at($te_resend_oid);
+                                                    $te_resend_label = sprintf(
+                                                        "Resend WooCommerce invoice email for runner-up order #%d (%s)?",
+                                                        $te_resend_oid,
+                                                        $bidder['email'] ?: ($bidder['name'] ?: 'this customer')
+                                                    );
+                                                ?>
+                                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin:6px 0 0 0;">
+                                                        <input type="hidden" name="action" value="azure_auction_resend_invoice" />
+                                                        <input type="hidden" name="order_id" value="<?php echo (int) $te_resend_oid; ?>" />
+                                                        <?php wp_nonce_field('azure_auction_resend_invoice_' . (int) $te_resend_oid); ?>
+                                                        <button type="submit" class="button button-small"
+                                                                onclick="return confirm(<?php echo esc_attr(wp_json_encode($te_resend_label)); ?>);">
+                                                            <span class="dashicons dashicons-email-alt" style="vertical-align:middle;font-size:14px;"></span>
+                                                            <?php _e('Send email', 'azure-plugin'); ?>
+                                                        </button>
+                                                    </form>
+                                                    <?php if (!empty($te_resent_at)): ?>
+                                                        <div style="color:#888;font-size:11px;margin-top:3px;">
+                                                            <?php printf(esc_html__('last resent: %s', 'azure-plugin'), esc_html($te_resent_at)); ?>
+                                                        </div>
+                                                    <?php endif; ?>
                                                 <?php endif; ?>
                                             </td>
                                         <?php else: ?>
