@@ -183,8 +183,25 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                 </div>
             </fieldset>
 
-            <fieldset class="azure-or-section">
-                <legend><?php _e('Filters', 'azure-plugin'); ?></legend>
+            <?php
+            // Compact summary for the collapsible Filters section. Counts
+            // active filter dimensions so the user can tell at a glance
+            // what's set without expanding the section.
+            $azure_or_status_count = count($cfg['filters']['statuses']);
+            $azure_or_prod_count   = count((array) $cfg['filters']['product_ids']);
+            $azure_or_cat_count    = count((array) $cfg['filters']['category_ids']);
+            $azure_or_tag_count    = count((array) $cfg['filters']['tag_ids']);
+            $azure_or_filter_summary = sprintf(
+                /* translators: 1: status count, 2: products count, 3: categories count, 4: tags count */
+                __('%1$d statuses · %2$d products · %3$d categories · %4$d tags', 'azure-plugin'),
+                $azure_or_status_count, $azure_or_prod_count, $azure_or_cat_count, $azure_or_tag_count
+            );
+            ?>
+            <details class="azure-or-section azure-or-section--details" open>
+                <summary>
+                    <strong><?php _e('Filters', 'azure-plugin'); ?></strong>
+                    <span class="azure-or-summary-meta"><?php echo esc_html($azure_or_filter_summary); ?></span>
+                </summary>
 
                 <div class="azure-or-row">
                     <label><strong><?php _e('Order Status', 'azure-plugin'); ?></strong></label>
@@ -247,7 +264,7 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                         </select>
                     </div>
                 </div>
-            </fieldset>
+            </details>
 
             <fieldset class="azure-or-section">
                 <legend><?php _e('Row granularity', 'azure-plugin'); ?></legend>
@@ -268,11 +285,28 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                 <div class="azure-or-columns-grid">
                     <div class="azure-or-available">
                         <h4><?php _e('Available', 'azure-plugin'); ?></h4>
-                        <?php foreach ($categories as $cat_slug => $cat_label):
+                        <?php
+                        // Default-open only the categories users reach for most often.
+                        // Order Amounts / Billing / Shipping / Aggregated stay collapsed
+                        // — click their summary to expand. Cuts roughly half the vertical
+                        // height of the picker on page load.
+                        $azure_or_open_by_default = array('order', 'customer', 'line_item', 'product_fields');
+                        foreach ($categories as $cat_slug => $cat_label):
                             $cols_in_cat = array_filter($registry, function ($c) use ($cat_slug) { return $c['category'] === $cat_slug; });
-                            if (empty($cols_in_cat)) continue; ?>
-                            <details open>
-                                <summary><?php echo esc_html($cat_label); ?></summary>
+                            if (empty($cols_in_cat)) continue;
+                            $is_open = in_array($cat_slug, $azure_or_open_by_default, true);
+                            $selected_in_cat = 0;
+                            foreach ($cols_in_cat as $cc) {
+                                if (in_array($cc['key'], $selected_keys, true)) $selected_in_cat++;
+                            }
+                        ?>
+                            <details <?php echo $is_open ? 'open' : ''; ?>>
+                                <summary>
+                                    <?php echo esc_html($cat_label); ?>
+                                    <?php if ($selected_in_cat > 0): ?>
+                                        <span class="azure-or-cat-badge"><?php echo (int) $selected_in_cat; ?></span>
+                                    <?php endif; ?>
+                                </summary>
                                 <ul>
                                     <?php foreach ($cols_in_cat as $c):
                                         $checked = in_array($c['key'], $selected_keys, true); ?>

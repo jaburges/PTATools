@@ -26,13 +26,42 @@
 .azure-or-section {
     background: #fff;
     border: 1px solid #ccd0d4;
-    padding: 14px 18px;
-    margin: 12px 0;
+    padding: 10px 14px;
+    margin: 8px 0;
     border-radius: 4px;
 }
 .azure-or-section > legend {
     font-weight: 600;
     padding: 0 6px;
+}
+
+/* The Filters section is rendered as <details>, not <fieldset>; tweak
+   to match the visual rhythm of the other sections. */
+.azure-or-section--details > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 4px 6px;
+    margin: -4px -6px;
+    border-radius: 3px;
+    user-select: none;
+}
+.azure-or-section--details > summary::-webkit-details-marker { display: none; }
+.azure-or-section--details > summary::before {
+    content: "▸";
+    display: inline-block;
+    width: 1em;
+    color: #888;
+    transition: transform 0.1s ease;
+}
+.azure-or-section--details[open] > summary::before {
+    content: "▾";
+}
+.azure-or-section--details > summary:hover { background: #f6f7f7; }
+.azure-or-summary-meta {
+    color: #666;
+    font-weight: normal;
+    font-size: 13px;
+    margin-left: 12px;
 }
 .azure-or-row {
     margin: 8px 0;
@@ -217,14 +246,37 @@
     margin: 4px 0;
 }
 
-/* Actions bar */
+/* Actions bar — sticky to the viewport bottom so Preview/Save/Export are
+   always reachable without scrolling past the columns picker. */
 .azure-or-actions {
     margin-top: 16px;
-    padding: 12px 0;
-    border-top: 1px solid #e5e5e5;
+    padding: 10px 14px;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    background: #fff;
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+    position: sticky;
+    bottom: 8px;
+    z-index: 50;
+    box-shadow: 0 -2px 6px rgba(0,0,0,0.05);
+}
+
+/* Tiny badge after each Available category name showing how many of its
+   columns the user has already selected. Lets users scan collapsed
+   categories and know at a glance whether they've already picked
+   something from them. */
+.azure-or-cat-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    background: #2271b1;
+    color: #fff;
+    border-radius: 9px;
+    font-size: 11px;
+    line-height: 1.4;
+    vertical-align: middle;
 }
 
 /* Preview area */
