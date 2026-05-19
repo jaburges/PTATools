@@ -32,6 +32,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build plugin zip
+        # The zip MUST contain the plugin files at its ROOT (no leading
+        # `azure-plugin/` folder). `az webapp deploy --type zip --target-path X`
+        # extracts the zip contents *into* X — if the zip has a top-level
+        # folder, you get X/azure-plugin/azure-plugin.php (nested junk) instead
+        # of X/azure-plugin.php. So we cd INTO the build dir before zipping.
         run: |
           set -euo pipefail
           mkdir -p build
@@ -44,10 +49,11 @@ jobs:
             --exclude='node_modules' \
             --exclude='.env' \
             --exclude='tests' \
+            --exclude='.DS_Store' \
             "Azure Plugin/" "build/azure-plugin/"
-          cd build
-          zip -r ../azure-plugin.zip "azure-plugin/" -x "*.DS_Store"
-          cd ..
+          cd build/azure-plugin
+          zip -rq ../../azure-plugin.zip . -x "*.DS_Store"
+          cd ../..
           ls -lh azure-plugin.zip
 
       - name: Azure login (federated identity)
@@ -58,6 +64,12 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy plugin to staging slot
+        # IMPORTANT: target path is "Azure Plugin" (with the space, capitalised)
+        # because that's the folder WordPress has registered in active_plugins
+        # ("Azure Plugin/azure-plugin.php"). Deploying to the lowercase
+        # "azure-plugin" folder is a no-op for the running site — WP won't
+        # load it. `--clean true` wipes the target folder before extracting
+        # so renamed/removed files don't linger between deploys.
         run: |
           set -euo pipefail
           az webapp deploy \
@@ -66,8 +78,9 @@ jobs:
             --slot "$AZURE_WEBAPP_SLOT" \
             --src-path azure-plugin.zip \
             --type zip \
-            --target-path "/home/site/wwwroot/wp-content/plugins/azure-plugin"
-          echo "[OK] Plugin zip deployed to staging slot"
+            --target-path "/home/site/wwwroot/wp-content/plugins/Azure Plugin" \
+            --clean true
+          echo "[OK] Plugin zip deployed to staging slot's 'Azure Plugin' folder"
 
       - name: Wait for app to pick up new code
         run: sleep 30
