@@ -160,7 +160,11 @@ class Azure_Orders_Reports_Module {
         $this->require_cap_ajax();
         check_ajax_referer('azure_or_save', 'nonce');
 
-        $name      = isset($_POST['name']) ? (string) $_POST['name'] : '';
+        // Form field is `report_name` (matches the builder UI + the export
+        // handler). Falls back to `name` for any caller that still sends the
+        // older key.
+        $name = isset($_POST['report_name']) ? (string) $_POST['report_name']
+              : (isset($_POST['name']) ? (string) $_POST['name'] : '');
         $report_id = isset($_POST['report_id']) ? absint($_POST['report_id']) : 0;
         $config    = $this->config_from_post();
         $result    = Azure_Orders_Reports_Storage::save($name, $config, $report_id);
