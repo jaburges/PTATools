@@ -121,58 +121,11 @@
         $('#azure-or-preset').val('');
     });
 
-    // ── Product search autocomplete ────────────────────────────────────
-    var searchTimer = null;
-    $(document).on('input', '#azure-or-product-search', function () {
-        var q = $(this).val();
-        clearTimeout(searchTimer);
-        if (!q || q.length < 2) {
-            $('#azure-or-product-results').empty();
-            return;
-        }
-        searchTimer = setTimeout(function () {
-            $.get(azureOR.ajaxurl, {
-                action: 'azure_or_search_products',
-                nonce: azureOR.nonces.search,
-                q: q,
-            }, function (resp) {
-                var $results = $('#azure-or-product-results').empty();
-                if (!resp || !resp.success || !resp.data || !resp.data.items) return;
-                resp.data.items.forEach(function (it) {
-                    $('<a href="#"/>').text(it.text)
-                        .data('id', it.id)
-                        .data('label', it.text)
-                        .addClass('azure-or-product-pick')
-                        .appendTo($results);
-                });
-            });
-        }, 250);
-    });
-
-    $(document).on('click', '.azure-or-product-pick', function (e) {
-        e.preventDefault();
-        var $a = $(this);
-        var id = $a.data('id');
-        var label = $a.data('label');
-        var $list = $('#azure-or-product-selected');
-        if ($list.find('li[data-id="' + id + '"]').length) {
-            $('#azure-or-product-results').empty();
-            $('#azure-or-product-search').val('');
-            return;
-        }
-        $('<li/>')
-            .attr('data-id', id)
-            .append($('<input type="hidden" name="product_ids[]"/>').val(id))
-            .append(document.createTextNode(label + ' '))
-            .append('<button type="button" class="azure-or-remove">&times;</button>')
-            .appendTo($list);
-        $('#azure-or-product-results').empty();
-        $('#azure-or-product-search').val('');
-    });
-
-    $(document).on('click', '#azure-or-product-selected .azure-or-remove', function () {
-        $(this).closest('li').remove();
-    });
+    // ── Product search ─────────────────────────────────────────────────
+    // The <select class="wc-product-search"> is auto-initialised by WC's
+    // wc-enhanced-select script (which we enqueue in the PHP module). It
+    // gives us the same Select2-powered 3-letter search used everywhere
+    // else in the WC admin. Nothing to do here.
 
     // ── Preview (AJAX) ─────────────────────────────────────────────────
     $('#azure-or-preview-btn').on('click', function () {

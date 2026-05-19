@@ -220,21 +220,22 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                 </div>
 
                 <div class="azure-or-row">
-                    <label><strong><?php _e('Products', 'azure-plugin'); ?></strong></label>
-                    <div id="azure-or-product-picker">
-                        <input type="search" id="azure-or-product-search" placeholder="<?php esc_attr_e('Search products to add\u2026', 'azure-plugin'); ?>" />
-                        <div id="azure-or-product-results" class="azure-or-search-results"></div>
-                        <ul id="azure-or-product-selected">
-                            <?php foreach ((array) $cfg['filters']['product_ids'] as $pid):
-                                $title = get_the_title((int) $pid); ?>
-                                <li data-id="<?php echo (int) $pid; ?>">
-                                    <input type="hidden" name="product_ids[]" value="<?php echo (int) $pid; ?>" />
-                                    <?php echo esc_html($title ?: '#' . (int) $pid); ?>
-                                    <button type="button" class="azure-or-remove">&times;</button>
-                                </li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </div>
+                    <label for="azure-or-product-search"><strong><?php _e('Products', 'azure-plugin'); ?></strong></label>
+                    <select id="azure-or-product-search"
+                            class="wc-product-search"
+                            name="product_ids[]"
+                            multiple="multiple"
+                            style="min-width:400px;"
+                            data-placeholder="<?php esc_attr_e('Search for a product\u2026', 'azure-plugin'); ?>"
+                            data-action="woocommerce_json_search_products"
+                            data-allow_clear="true"
+                            data-multiple="true">
+                        <?php foreach ((array) $cfg['filters']['product_ids'] as $pid):
+                            $pid_int = (int) $pid;
+                            $title = get_the_title($pid_int) ?: ('#' . $pid_int); ?>
+                            <option value="<?php echo $pid_int; ?>" selected="selected"><?php echo esc_html($title); ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
 
                 <div class="azure-or-row azure-or-row-split">

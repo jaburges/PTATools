@@ -72,18 +72,38 @@ class Azure_Orders_Reports_Module {
         if ($page !== 'azure-plugin-selling' || $tab !== 'reports') {
             return;
         }
+
+        // File-mtime cache buster — matches the existing admin pattern in
+        // class-admin.php which uses VERSION.time(). filemtime is gentler
+        // (only busts when the file actually changes, not every page load)
+        // but still survives the "I forgot to bump AZURE_PLUGIN_VERSION"
+        // case that bit us between deploys.
+        $base_v   = defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1.0';
+        $css_path = AZURE_PLUGIN_PATH . 'css/orders-reports.css';
+        $js_path  = AZURE_PLUGIN_PATH . 'js/orders-reports-builder.js';
+        $css_v    = file_exists($css_path) ? $base_v . '.' . filemtime($css_path) : $base_v;
+        $js_v     = file_exists($js_path)  ? $base_v . '.' . filemtime($js_path)  : $base_v;
+
         wp_enqueue_script('jquery-ui-sortable');
+
+        // WooCommerce's standard product-search Select2 widget — the same
+        // 3-letter autocomplete used everywhere else in WC admin. The
+        // <select class="wc-product-search"> in our markup is picked up
+        // automatically once these are enqueued.
+        wp_enqueue_style('select2');
+        wp_enqueue_script('wc-enhanced-select');
+
         wp_enqueue_style(
             'azure-orders-reports',
             AZURE_PLUGIN_URL . 'css/orders-reports.css',
-            array(),
-            defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1.0'
+            array('select2'),
+            $css_v
         );
         wp_enqueue_script(
             'azure-orders-reports-builder',
             AZURE_PLUGIN_URL . 'js/orders-reports-builder.js',
-            array('jquery', 'jquery-ui-sortable'),
-            defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1.0',
+            array('jquery', 'jquery-ui-sortable', 'wc-enhanced-select'),
+            $js_v,
             true
         );
         wp_localize_script('azure-orders-reports-builder', 'azureOR', array(
@@ -94,7 +114,6 @@ class Azure_Orders_Reports_Module {
                 'save'     => wp_create_nonce('azure_or_save'),
                 'delete'   => wp_create_nonce('azure_or_delete'),
                 'dup'      => wp_create_nonce('azure_or_duplicate'),
-                'search'   => wp_create_nonce('azure_or_search_products'),
                 'export'   => wp_create_nonce('azure_or_export'),
             ),
         ));
