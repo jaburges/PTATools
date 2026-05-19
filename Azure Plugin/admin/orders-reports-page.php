@@ -194,7 +194,7 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                             $bare = preg_replace('/^wc-/', '', $slug);
                             $checked = in_array($bare, $cfg['filters']['statuses'], true);
                         ?>
-                            <label style="margin-right:14px;">
+                            <label class="azure-or-status-toggle">
                                 <input type="checkbox" name="statuses[]" value="<?php echo esc_attr($bare); ?>" <?php checked($checked); ?> />
                                 <?php echo esc_html($label); ?>
                             </label>
@@ -220,30 +220,32 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                     </div>
                 </div>
 
-                <div class="azure-or-row">
-                    <label><strong><?php _e('Categories', 'azure-plugin'); ?></strong></label>
-                    <select name="category_ids[]" multiple style="min-width:300px;height:120px;">
-                        <?php
-                        $cats = get_terms(array('taxonomy' => 'product_cat', 'hide_empty' => false));
-                        foreach ($cats as $cat):
-                            $sel = in_array((int) $cat->term_id, (array) $cfg['filters']['category_ids'], true);
-                        ?>
-                            <option value="<?php echo (int) $cat->term_id; ?>" <?php selected($sel); ?>><?php echo esc_html($cat->name); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+                <div class="azure-or-row azure-or-row-split">
+                    <div class="azure-or-half">
+                        <label><strong><?php _e('Categories', 'azure-plugin'); ?></strong></label>
+                        <select name="category_ids[]" multiple size="6">
+                            <?php
+                            $cats = get_terms(array('taxonomy' => 'product_cat', 'hide_empty' => false));
+                            foreach ($cats as $cat):
+                                $sel = in_array((int) $cat->term_id, (array) $cfg['filters']['category_ids'], true);
+                            ?>
+                                <option value="<?php echo (int) $cat->term_id; ?>" <?php selected($sel); ?>><?php echo esc_html($cat->name); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
 
-                <div class="azure-or-row">
-                    <label><strong><?php _e('Tags', 'azure-plugin'); ?></strong></label>
-                    <select name="tag_ids[]" multiple style="min-width:300px;height:120px;">
-                        <?php
-                        $tags = get_terms(array('taxonomy' => 'product_tag', 'hide_empty' => false));
-                        foreach ($tags as $tag):
-                            $sel = in_array((int) $tag->term_id, (array) $cfg['filters']['tag_ids'], true);
-                        ?>
-                            <option value="<?php echo (int) $tag->term_id; ?>" <?php selected($sel); ?>><?php echo esc_html($tag->name); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="azure-or-half">
+                        <label><strong><?php _e('Tags', 'azure-plugin'); ?></strong></label>
+                        <select name="tag_ids[]" multiple size="6">
+                            <?php
+                            $tags = get_terms(array('taxonomy' => 'product_tag', 'hide_empty' => false));
+                            foreach ($tags as $tag):
+                                $sel = in_array((int) $tag->term_id, (array) $cfg['filters']['tag_ids'], true);
+                            ?>
+                                <option value="<?php echo (int) $tag->term_id; ?>" <?php selected($sel); ?>><?php echo esc_html($tag->name); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                 </div>
             </fieldset>
 

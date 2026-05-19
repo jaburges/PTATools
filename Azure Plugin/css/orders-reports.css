@@ -43,6 +43,72 @@
 }
 .azure-or-row > label { display: inline-flex; align-items: center; gap: 6px; }
 
+/* Two columns side-by-side inside one row (Categories | Tags). */
+.azure-or-row-split {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: flex-start;
+    width: 100%;
+}
+.azure-or-half {
+    flex: 1 1 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.azure-or-half select {
+    width: 100%;
+}
+
+/* ── Order Status toggle pills ──────────────────────────────────── */
+.azure-or-statuses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.azure-or-status-toggle {
+    display: inline-flex;
+    align-items: center;
+    background: #f0f0f1;
+    color: #50575e;
+    padding: 6px 14px;
+    border-radius: 16px;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid #c3c4c7;
+    font-size: 13px;
+    line-height: 1.2;
+    transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
+}
+.azure-or-status-toggle input[type="checkbox"] {
+    /* Visually hidden but still focusable/operable by keyboard. */
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+    margin: 0;
+}
+.azure-or-status-toggle:hover {
+    border-color: #8c8f94;
+    background: #e0e0e1;
+}
+.azure-or-status-toggle:has(input:checked) {
+    background: #2271b1;
+    color: #fff;
+    border-color: #2271b1;
+}
+.azure-or-status-toggle:has(input:checked):hover {
+    background: #1d5d8b;
+    border-color: #1d5d8b;
+}
+.azure-or-status-toggle:focus-within {
+    box-shadow: 0 0 0 2px #2271b1;
+    outline: 2px solid transparent;
+}
+
 .azure-or-presets { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .azure-or-presets-label { color: #666; margin-right: 4px; }
 
@@ -118,6 +184,17 @@
     list-style: none;
     padding: 0;
     margin: 4px 0 0 6px;
+}
+
+/* Two-column flow for each category's column list — cuts vertical
+   scrolling roughly in half. */
+.azure-or-available > details > ul {
+    column-count: 2;
+    column-gap: 16px;
+}
+.azure-or-available > details > ul > li {
+    break-inside: avoid;
+    margin-bottom: 2px;
 }
 .azure-or-selected ul#azure-or-selected-list li {
     background: #fff;
