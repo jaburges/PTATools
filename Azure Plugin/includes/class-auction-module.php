@@ -80,7 +80,7 @@ class Azure_Auction_Module {
      * Shared cap+nonce check for the resend-invoice handlers.
      */
     private function check_invoice_cap_or_die($nonce_action) {
-        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+        if (!azure_auction_admin_can()) {
             wp_die(esc_html__('You do not have permission to perform this action.', 'azure-plugin'), 403);
         }
         $nonce = isset($_POST['_wpnonce']) ? (string) $_POST['_wpnonce'] : '';
@@ -163,7 +163,7 @@ class Azure_Auction_Module {
      * Required POST: product_id, _wpnonce (nonce action: azure_auction_te_runner_up_<product_id>)
      */
     public function handle_create_te_runner_up_orders() {
-        if (!current_user_can('manage_woocommerce') && !current_user_can('manage_options')) {
+        if (!azure_auction_admin_can()) {
             wp_die(esc_html__('You do not have permission to perform this action.', 'azure-plugin'), 403);
         }
 
@@ -348,22 +348,40 @@ class Azure_Auction_Module {
             true
         );
         wp_localize_script('azure-auction-bid', 'azureAuction', array(
-            'ajaxurl' => admin_url('admin-ajax.php'),
-            'nonce'   => wp_create_nonce('azure_auction_bid'),
+            'ajaxurl'   => admin_url('admin-ajax.php'),
+            'nonce'     => wp_create_nonce('azure_auction_bid'),
             'productId' => $product->get_id(),
-            'i18n'    => array(
+            'loginUrl'  => wp_login_url(get_permalink($product->get_id())),
+            'i18n'      => array(
                 'buyItNowConfirm' => __('Create order and go to checkout?', 'azure-plugin'),
             ),
         ));
     }
 
     public function ajax_place_bid_guest() {
-        wp_send_json_error(array('message' => __('You must be logged in to bid.', 'azure-plugin')));
+        // Reply 401 + a structured payload so the JS can recognise the
+        // logged-out case and swap the bid form for a "Session expired —
+        // log in to bid" banner. The login_url is computed from POST
+        // referer so the user lands back on the product page after auth.
+        $referer = isset($_SERVER['HTTP_REFERER']) ? wp_validate_redirect((string) $_SERVER['HTTP_REFERER'], '') : '';
+        wp_send_json_error(array(
+            'code'      => 'not_logged_in',
+            'message'   => __('Your session has expired. Log in to place bids.', 'azure-plugin'),
+            'login_url' => wp_login_url($referer ?: home_url('/')),
+        ), 401);
     }
 
     public function ajax_place_bid() {
         if (!is_user_logged_in()) {
-            wp_send_json_error(array('message' => __('You must be logged in to bid.', 'azure-plugin')));
+            // Defence in depth: same payload shape as the nopriv handler so
+            // a same-origin race (cookie expired mid-request) still gives
+            // the JS a clean signal instead of a generic 200 error.
+            $referer = isset($_SERVER['HTTP_REFERER']) ? wp_validate_redirect((string) $_SERVER['HTTP_REFERER'], '') : '';
+            wp_send_json_error(array(
+                'code'      => 'not_logged_in',
+                'message'   => __('Your session has expired. Log in to place bids.', 'azure-plugin'),
+                'login_url' => wp_login_url($referer ?: home_url('/')),
+            ), 401);
         }
         if (!class_exists('Azure_Auction_Bids')) {
             wp_send_json_error(array('message' => __('Auction bids not available.', 'azure-plugin')));

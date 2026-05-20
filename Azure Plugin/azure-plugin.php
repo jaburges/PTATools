@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Complete Microsoft 365 integration for WordPress - SSO authentication with Azure AD claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, TEC calendar sync, email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with TEC event generation, Newsletter module, and OneDrive media integration.
- * Version: 3.52
+ * Version: 3.53
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.52');
+define('AZURE_PLUGIN_VERSION', '3.53');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -44,6 +44,24 @@ if (!function_exists('azure_user_can')) {
             return current_user_can('manage_options');
         }
         return user_can($user_id, 'manage_options');
+    }
+}
+
+/**
+ * Auction admin UI and auction-night controls (Selling → Auction tab).
+ *
+ * Shop managers have manage_woocommerce (required for the Selling menu) but
+ * not manage_options. Invoice resend handlers already allow both caps.
+ *
+ * @param int|null $user_id Optional; defaults to current user.
+ * @return bool
+ */
+if (!function_exists('azure_auction_admin_can')) {
+    function azure_auction_admin_can($user_id = null) {
+        if ($user_id === null) {
+            return current_user_can('manage_woocommerce') || current_user_can('manage_options');
+        }
+        return user_can($user_id, 'manage_woocommerce') || user_can($user_id, 'manage_options');
     }
 }
 
