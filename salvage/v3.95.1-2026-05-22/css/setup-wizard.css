@@ -1,0 +1,791 @@
+/**
+ * Setup Wizard Styles
+ */
+
+/* Container */
+.azure-setup-wizard {
+    max-width: 900px;
+    margin: 20px auto;
+    padding: 0;
+}
+
+.wizard-container {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+/* Progress Bar */
+.wizard-progress {
+    background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
+    padding: 30px;
+    color: #fff;
+}
+
+.progress-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #fff;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.progress-steps {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 5px;
+}
+
+.progress-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    min-width: 80px;
+    opacity: 0.6;
+    transition: opacity 0.3s ease;
+}
+
+.progress-step.current,
+.progress-step.completed {
+    opacity: 1;
+}
+
+.progress-step .step-number {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.progress-step.current .step-number {
+    background: #fff;
+    color: #0078d4;
+}
+
+.progress-step.completed .step-number {
+    background: rgba(255, 255, 255, 0.9);
+    color: #00a32a;
+}
+
+.progress-step .step-title {
+    font-size: 11px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* Wizard Content */
+.wizard-content {
+    padding: 40px;
+}
+
+/* Step Header */
+.step-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.step-header h1 {
+    margin: 0 0 10px;
+    font-size: 28px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.step-header .lead {
+    font-size: 16px;
+    color: #646970;
+    margin: 0;
+}
+
+.plugin-logo {
+    margin-bottom: 20px;
+}
+
+.success-icon {
+    margin-bottom: 20px;
+}
+
+.success-icon .dashicons {
+    font-size: 64px;
+    width: 64px;
+    height: 64px;
+    color: #00a32a;
+}
+
+/* Feature Grid (Welcome step) */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin: 30px 0;
+}
+
+.feature-item {
+    text-align: center;
+    padding: 20px;
+    background: #f6f7f7;
+    border-radius: 6px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.feature-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.feature-item .dashicons {
+    font-size: 36px;
+    width: 36px;
+    height: 36px;
+    color: #0078d4;
+    margin-bottom: 10px;
+}
+
+.feature-item h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.feature-item p {
+    margin: 0;
+    font-size: 13px;
+    color: #646970;
+}
+
+/* Form Sections */
+.form-section {
+    margin: 30px 0;
+}
+
+.form-row {
+    margin-bottom: 25px;
+}
+
+.form-row label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.form-row label .required {
+    color: #d63638;
+}
+
+.form-row input[type="text"],
+.form-row input[type="email"],
+.form-row input[type="password"],
+.form-row select {
+    width: 100%;
+    max-width: 400px;
+    padding: 10px 12px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-row input:focus,
+.form-row select:focus {
+    border-color: #0078d4;
+    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+    outline: none;
+}
+
+.form-row input.error {
+    border-color: #d63638;
+}
+
+.form-row input.disabled,
+.form-row select.disabled {
+    background: #f6f7f7;
+    color: #8c8f94;
+}
+
+.form-row .description {
+    margin-top: 6px;
+    font-size: 13px;
+    color: #646970;
+}
+
+.field-error {
+    display: block;
+    color: #d63638;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+/* Toggle Password Button */
+.toggle-password {
+    vertical-align: middle;
+    margin-left: 8px;
+}
+
+.toggle-password .dashicons {
+    vertical-align: middle;
+}
+
+/* Checkbox & Radio Labels */
+.checkbox-label,
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    margin-bottom: 10px;
+}
+
+.checkbox-label input,
+.radio-label input {
+    margin: 0;
+}
+
+/* Modules Grid */
+.modules-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin: 30px 0;
+}
+
+.module-card {
+    display: block;
+    cursor: pointer;
+}
+
+.module-card input {
+    display: none;
+}
+
+.module-card .module-content {
+    padding: 20px;
+    border: 2px solid #dcdcde;
+    border-radius: 6px;
+    text-align: center;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.module-card:hover .module-content {
+    border-color: #0078d4;
+    background: #f0f6fc;
+}
+
+.module-card input:checked + .module-content {
+    border-color: #0078d4;
+    background: #e7f3ff;
+}
+
+.module-card .dashicons {
+    font-size: 32px;
+    width: 32px;
+    height: 32px;
+    color: #0078d4;
+    margin-bottom: 10px;
+}
+
+.module-card h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.module-card p {
+    margin: 0;
+    font-size: 12px;
+    color: #646970;
+}
+
+/* Credentials Option */
+.credentials-option {
+    background: #f6f7f7;
+    padding: 20px;
+    border-radius: 6px;
+}
+
+/* Video Placeholder */
+.video-placeholder {
+    margin: 30px 0;
+}
+
+.video-frame {
+    background: #1d2327;
+    border-radius: 8px;
+    padding: 60px 20px;
+    text-align: center;
+    color: #fff;
+}
+
+.video-frame .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    opacity: 0.5;
+    margin-bottom: 15px;
+}
+
+.video-frame p {
+    margin: 0;
+    font-size: 16px;
+}
+
+.video-frame .small {
+    font-size: 13px;
+    opacity: 0.6;
+    margin-top: 10px;
+}
+
+/* Validation Section */
+.validation-section {
+    margin: 25px 0;
+    padding: 20px;
+    background: #f6f7f7;
+    border-radius: 6px;
+}
+
+.validation-result {
+    margin-top: 15px;
+}
+
+.validation-result .success {
+    color: #00a32a;
+}
+
+.validation-result .error {
+    color: #d63638;
+}
+
+.validation-result .validating {
+    color: #0078d4;
+}
+
+.validation-result .info {
+    color: #0078d4;
+}
+
+.validation-result .spinner {
+    float: none;
+    margin: 0 5px 0 0;
+}
+
+.validation-result .error-details,
+.validation-result .resolution {
+    margin-top: 10px;
+    padding: 10px;
+    background: #fff;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.validation-result .resolution {
+    border-left: 3px solid #0078d4;
+}
+
+/* Info Box */
+.info-box {
+    display: flex;
+    gap: 15px;
+    padding: 20px;
+    background: #f0f6fc;
+    border-radius: 6px;
+    border-left: 4px solid #0078d4;
+    margin: 25px 0;
+}
+
+.info-box.warning {
+    background: #fcf9e8;
+    border-left-color: #dba617;
+}
+
+.info-box .dashicons {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    color: #0078d4;
+    flex-shrink: 0;
+}
+
+.info-box.warning .dashicons {
+    color: #dba617;
+}
+
+.info-box strong {
+    display: block;
+    margin-bottom: 8px;
+}
+
+.info-box p {
+    margin: 0;
+    font-size: 14px;
+    color: #50575e;
+}
+
+.info-box ul {
+    margin: 10px 0 0;
+    padding-left: 20px;
+}
+
+.info-box li {
+    margin-bottom: 5px;
+}
+
+.permissions-list {
+    columns: 2;
+    margin: 15px 0;
+    padding-left: 20px;
+}
+
+.permissions-list li {
+    margin-bottom: 8px;
+}
+
+.permissions-list code {
+    background: #fff;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+/* Action Cards (PTA step) */
+.action-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin: 30px 0;
+}
+
+.action-card {
+    display: flex;
+    gap: 20px;
+    padding: 25px;
+    border: 2px solid #dcdcde;
+    border-radius: 8px;
+    transition: border-color 0.2s ease;
+    position: relative;
+}
+
+.action-card.completed {
+    border-color: #00a32a;
+    background: #f0fdf4;
+}
+
+.action-icon {
+    flex-shrink: 0;
+}
+
+.action-icon .dashicons {
+    font-size: 40px;
+    width: 40px;
+    height: 40px;
+    color: #0078d4;
+}
+
+.action-content {
+    flex: 1;
+}
+
+.action-content h3 {
+    margin: 0 0 10px;
+    font-size: 16px;
+}
+
+.action-content p {
+    margin: 0 0 15px;
+    color: #646970;
+}
+
+.action-status {
+    margin-top: 10px;
+    font-size: 13px;
+}
+
+.action-status .success {
+    color: #00a32a;
+}
+
+.action-status .error {
+    color: #d63638;
+}
+
+.action-check {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.action-check.visible {
+    opacity: 1;
+}
+
+.action-check .dashicons {
+    font-size: 32px;
+    width: 32px;
+    height: 32px;
+    color: #00a32a;
+}
+
+/* SSO Preview */
+.sso-preview {
+    margin: 25px 0;
+    padding: 20px;
+    background: #f6f7f7;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.sso-preview p {
+    margin: 0 0 15px;
+    font-weight: 600;
+}
+
+.azure-sso-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: #fff;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: default;
+}
+
+.azure-sso-button svg {
+    flex-shrink: 0;
+}
+
+/* Role Selection */
+.role-selection {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: center;
+}
+
+.role-selection select,
+.role-selection input[type="text"] {
+    max-width: 200px;
+}
+
+/* Storage Options (OneDrive) */
+.storage-options {
+    display: flex;
+    gap: 15px;
+}
+
+.radio-card {
+    cursor: pointer;
+}
+
+.radio-card input {
+    display: none;
+}
+
+.radio-card .radio-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 20px 30px;
+    border: 2px solid #dcdcde;
+    border-radius: 6px;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.radio-card:hover .radio-content {
+    border-color: #0078d4;
+}
+
+.radio-card input:checked + .radio-content {
+    border-color: #0078d4;
+    background: #e7f3ff;
+}
+
+.radio-card .dashicons {
+    font-size: 32px;
+    width: 32px;
+    height: 32px;
+    color: #0078d4;
+}
+
+/* Summary Section */
+.summary-section {
+    margin: 30px 0;
+}
+
+.summary-section h3 {
+    margin: 0 0 15px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.summary-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.summary-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    background: #f6f7f7;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.summary-item.enabled {
+    background: #f0fdf4;
+    color: #00a32a;
+}
+
+.summary-item .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+/* Step Actions */
+.step-actions {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 1px solid #dcdcde;
+}
+
+.step-actions .button-hero {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.step-actions .button-hero .dashicons {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+}
+
+.skip-link {
+    display: block;
+    margin-top: 15px;
+    color: #646970;
+    text-decoration: none;
+    font-size: 13px;
+}
+
+.skip-link:hover {
+    color: #0078d4;
+    text-decoration: underline;
+}
+
+/* Responsive */
+@media (max-width: 782px) {
+    .azure-setup-wizard {
+        margin: 10px;
+    }
+    
+    .wizard-progress {
+        padding: 20px;
+    }
+    
+    .progress-steps {
+        display: none;
+    }
+    
+    .wizard-content {
+        padding: 25px;
+    }
+    
+    .feature-grid,
+    .modules-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .permissions-list {
+        columns: 1;
+    }
+    
+    .step-actions {
+        flex-direction: column;
+    }
+    
+    .step-actions .button {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .role-selection {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .storage-options {
+        flex-direction: column;
+    }
+}
+
+/* Dashboard Progress Banner */
+.setup-progress-banner {
+    background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
+    color: #fff;
+    padding: 25px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+}
+
+.setup-progress-banner h3 {
+    margin: 0 0 15px;
+    color: #fff;
+}
+
+.setup-progress-banner .progress-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.setup-progress-banner .progress-fill {
+    height: 100%;
+    background: #fff;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.setup-progress-banner p {
+    margin: 0 0 15px;
+    opacity: 0.9;
+}
+
+.setup-progress-banner .button {
+    background: #fff;
+    color: #0078d4;
+    border: none;
+}
+
+.setup-progress-banner .button:hover {
+    background: #f0f0f0;
+    color: #005a9e;
+}
+

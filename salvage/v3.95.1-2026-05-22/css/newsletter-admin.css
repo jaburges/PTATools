@@ -1,0 +1,2395 @@
+/**
+ * Newsletter Admin Styles
+ */
+
+/* Editor Header with Save Draft */
+.editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.editor-header h1 {
+    margin: 0;
+    flex: 1;
+}
+
+.editor-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.editor-header-actions .button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.editor-header-actions .button .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+}
+
+#save-status {
+    font-size: 13px;
+    padding: 0 10px;
+}
+
+#save-status .saving {
+    color: #646970;
+}
+
+#save-status .saved {
+    color: #00a32a;
+    font-weight: 500;
+}
+
+#save-status .error {
+    color: #d63638;
+    font-weight: 500;
+}
+
+/* Spinning animation for save icon */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.dashicons.spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Arrow Flow Progress Steps */
+.arrow-flow-steps {
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 20px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.arrow-step {
+    flex: 1;
+    position: relative;
+    background: #f0f0f1;
+    transition: all 0.3s ease;
+}
+
+.arrow-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: -20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-top: 35px solid transparent;
+    border-bottom: 35px solid transparent;
+    border-left: 20px solid #f0f0f1;
+    z-index: 2;
+    transition: border-color 0.3s ease;
+}
+
+.arrow-step:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-top: 35px solid transparent;
+    border-bottom: 35px solid transparent;
+    border-left: 20px solid #fff;
+    z-index: 1;
+}
+
+.arrow-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 20px 30px 20px 40px;
+    min-height: 70px;
+}
+
+.arrow-step:first-child .arrow-content {
+    padding-left: 30px;
+}
+
+.arrow-step .step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #8c8f94;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.arrow-step .step-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: #50575e;
+    white-space: nowrap;
+}
+
+.arrow-step .dashicons {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    color: #fff;
+}
+
+/* Pending (not yet reached) */
+.arrow-step.pending {
+    background: #f0f0f1;
+}
+
+.arrow-step.pending::after {
+    border-left-color: #f0f0f1;
+}
+
+.arrow-step.pending .step-num {
+    background: #c3c4c7;
+}
+
+.arrow-step.pending .step-text {
+    color: #8c8f94;
+}
+
+/* Current step - Blue */
+.arrow-step.current {
+    background: #2271b1;
+}
+
+.arrow-step.current::after {
+    border-left-color: #2271b1;
+}
+
+.arrow-step.current .step-num {
+    background: rgba(255, 255, 255, 0.3);
+    color: #fff;
+}
+
+.arrow-step.current .step-text {
+    color: #fff;
+    font-weight: 600;
+}
+
+/* Completed step - Green */
+.arrow-step.completed {
+    background: #00a32a;
+}
+
+.arrow-step.completed::after {
+    border-left-color: #00a32a;
+}
+
+.arrow-step.completed .dashicons {
+    color: #fff;
+}
+
+.arrow-step.completed .step-text {
+    color: #fff;
+}
+
+/* Recipient Checkboxes */
+.recipient-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 15px;
+    background: #f8f9fa;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.recipient-checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.recipient-checkbox:hover {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+.recipient-checkbox input[type="checkbox"] {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+
+.recipient-checkbox input[type="checkbox"]:checked + .checkbox-label strong {
+    color: #2271b1;
+}
+
+.checkbox-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.checkbox-label strong {
+    font-size: 13px;
+    color: #1d2327;
+}
+
+.checkbox-label .list-type {
+    font-size: 11px;
+    color: #646970;
+    background: #f0f0f1;
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: inline-block;
+    margin-top: 3px;
+}
+
+.checkbox-label .list-count {
+    font-size: 12px;
+    color: #646970;
+}
+
+.recipient-summary {
+    margin-top: 12px;
+    padding: 12px 15px;
+    background: #f0f6fc;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.recipient-summary strong {
+    color: #1d2327;
+}
+
+#total-recipient-count {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2271b1;
+}
+
+/* Old workflow steps (keep for backwards compatibility) */
+.workflow-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px 20px;
+    background: #fff;
+    margin-bottom: 20px;
+    border: 1px solid #ccd0d4;
+}
+
+.workflow-steps .step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.workflow-steps .step.active,
+.workflow-steps .step.completed {
+    opacity: 1;
+}
+
+.workflow-steps .step-number {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #dcdcde;
+    color: #50575e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.workflow-steps .step.active .step-number {
+    background: #2271b1;
+    color: #fff;
+}
+
+.workflow-steps .step.completed .step-number {
+    background: #00a32a;
+    color: #fff;
+}
+
+.workflow-steps .step.completed .step-number::after {
+    content: '✓';
+}
+
+.workflow-steps .step-label {
+    font-size: 13px;
+    color: #50575e;
+}
+
+.workflow-steps .step.active .step-label {
+    color: #2271b1;
+    font-weight: 600;
+}
+
+.workflow-steps .step-connector {
+    width: 80px;
+    height: 2px;
+    background: #dcdcde;
+    margin: 0 10px;
+}
+
+.workflow-steps .step-connector.completed {
+    background: #00a32a;
+}
+
+/* Step Content */
+.step-content {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+}
+
+.step-panel {
+    padding: 30px;
+}
+
+.step-panel h2 {
+    margin-top: 0;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+}
+
+.step-actions {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Step Navigation Bars (Top & Bottom) */
+.step-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.step-nav-top {
+    margin-bottom: 20px;
+}
+
+.step-nav-bottom {
+    margin-top: 20px;
+}
+
+.step-nav .nav-left,
+.step-nav .nav-right,
+.step-nav .nav-center {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.step-nav .nav-center {
+    flex: 1;
+    justify-content: center;
+}
+
+.step-nav .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.step-nav .button .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+.step-nav .button-primary {
+    min-width: 150px;
+    justify-content: center;
+}
+
+.step-nav .button-hero {
+    padding: 8px 20px;
+    font-size: 14px;
+    min-width: 180px;
+}
+
+/* Design step bottom nav - sits outside the editor container */
+.design-bottom-nav {
+    margin-top: 15px;
+}
+
+/* Form Styling */
+.newsletter-editor-wrap .form-table th {
+    width: 180px;
+}
+
+.newsletter-editor-wrap .required {
+    color: #d63638;
+}
+
+.subject-tools {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-top: 8px;
+}
+
+.char-count {
+    color: #646970;
+    font-size: 12px;
+}
+
+.recipient-count {
+    margin-left: 15px;
+    color: #646970;
+}
+
+/* Editor Toolbar */
+.editor-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 15px;
+    background: #f0f0f1;
+    border-bottom: 1px solid #ccd0d4;
+}
+
+.toolbar-center {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.device-buttons {
+    display: flex;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.device-btn {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-right: 1px solid #ccd0d4;
+}
+
+.device-btn:last-child {
+    border-right: none;
+}
+
+.device-btn.active {
+    background: #2271b1;
+    color: #fff;
+}
+
+.device-btn .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+}
+
+/* Editor loading state */
+#gjs-editor:empty::before {
+    content: 'Loading editor...';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #646970;
+    font-size: 14px;
+}
+
+/* Update Design button */
+#btn-update-design {
+    background: #2271b1;
+    color: #fff;
+    border-color: #2271b1;
+    font-weight: 500;
+}
+
+#btn-update-design:hover {
+    background: #135e96;
+    border-color: #135e96;
+}
+
+#btn-update-design .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+    vertical-align: middle;
+    margin-right: 2px;
+}
+
+#btn-update-design .spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Media library button in traits */
+.media-library-btn:hover {
+    background: #135e96 !important;
+}
+
+/* Ensure WordPress media modal appears above GrapesJS */
+.media-modal {
+    z-index: 200000 !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+.media-modal .media-modal-content {
+    display: flex !important;
+    flex: 1 !important;
+    overflow: visible !important;
+}
+.media-modal .media-frame {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 !important;
+}
+.media-modal .media-frame-content {
+    display: block !important;
+    flex: 1 !important;
+    min-height: 300px !important;
+    overflow: auto !important;
+}
+.media-modal .media-frame-title,
+.media-modal .media-frame-router,
+.media-modal .media-frame-toolbar {
+    display: block !important;
+}
+.media-modal .attachments-browser {
+    display: flex !important;
+}
+.media-modal-backdrop {
+    z-index: 199999 !important;
+}
+
+/* Editor minimum height */
+.editor-main {
+    min-height: 500px;
+}
+
+/* Editor Container */
+.editor-container {
+    display: flex;
+    height: calc(100vh - 250px);
+    min-height: 500px;
+}
+
+/* Common sidebar styles */
+.editor-sidebar {
+    width: 280px;
+    min-width: 280px;
+    max-width: 280px;
+    background: #fff !important;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Left sidebar - blocks & layers */
+.editor-sidebar-left {
+    border-right: 1px solid #e6e9ec;
+}
+
+/* Right sidebar - settings & styles */
+.editor-sidebar-right {
+    border-left: 1px solid #e6e9ec;
+}
+
+/* Main editor canvas */
+.editor-main {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Override GrapesJS dark theme - Elementor light style */
+.editor-sidebar .gjs-one-bg {
+    background-color: #fff !important;
+}
+
+.editor-sidebar .gjs-two-color {
+    color: #6d7882 !important;
+}
+
+.editor-sidebar .gjs-three-bg {
+    background-color: #93003c !important;
+}
+
+.editor-sidebar .gjs-four-color,
+.editor-sidebar .gjs-four-color-h:hover {
+    color: #93003c !important;
+}
+
+.sidebar-tabs {
+    display: flex;
+    background: #fff;
+    border-bottom: 1px solid #e6e9ec;
+    padding: 0;
+}
+
+.sidebar-tab {
+    flex: 1;
+    padding: 14px 10px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: #6d7882;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s ease;
+}
+
+.sidebar-tab:hover {
+    color: #495157;
+}
+
+.sidebar-tab.active {
+    background: transparent;
+    color: #93003c;
+    border-bottom-color: #93003c;
+    font-weight: 600;
+}
+
+.sidebar-panel {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Blocks panel needs no padding - GrapesJS adds its own */
+#blocks-panel {
+    padding: 0;
+}
+
+/* ===========================================
+   SETTINGS PANEL (Right Sidebar)
+   =========================================== */
+
+#settings-panel {
+    padding: 0;
+}
+
+.settings-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    color: #646970;
+}
+
+.settings-placeholder .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #c3c4c7;
+    margin-bottom: 15px;
+}
+
+.settings-placeholder p {
+    margin: 0;
+    font-size: 13px;
+}
+
+#traits-container {
+    padding: 15px;
+}
+
+/* Element indicator in Styles panel */
+.selected-element-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 15px;
+    background: #f0f6fc;
+    border-bottom: 1px solid #e6e9ec;
+    font-size: 12px;
+    color: #1d2327;
+}
+
+.selected-element-indicator .dashicons {
+    color: #2271b1;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+.selected-element-indicator .element-name {
+    font-weight: 500;
+    word-break: break-word;
+}
+
+#styles-container {
+    padding: 0;
+}
+
+/* ===========================================
+   TRAIT MANAGER STYLING (Settings Fields)
+   =========================================== */
+
+.gjs-trt-traits {
+    padding: 0 !important;
+}
+
+.gjs-trt-trait {
+    padding: 12px 0 !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    background: transparent !important;
+}
+
+.gjs-trt-trait:last-child {
+    border-bottom: none !important;
+}
+
+.gjs-trt-trait__wrp-label {
+    width: 100% !important;
+    margin-bottom: 6px !important;
+}
+
+.gjs-trt-trait__label {
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: #1d2327 !important;
+    text-transform: none !important;
+}
+
+.gjs-trt-trait__wrp-input {
+    width: 100% !important;
+}
+
+/* Trait input fields */
+.gjs-trt-trait input[type="text"],
+.gjs-trt-trait input[type="number"],
+.gjs-trt-trait textarea {
+    width: 100% !important;
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+    border: 1px solid #ddd !important;
+    border-radius: 4px !important;
+    background: #fff !important;
+    color: #1d2327 !important;
+    box-sizing: border-box !important;
+}
+
+.gjs-trt-trait input[type="text"]:focus,
+.gjs-trt-trait input[type="number"]:focus,
+.gjs-trt-trait textarea:focus {
+    border-color: #2271b1 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 1px #2271b1 !important;
+}
+
+/* Trait select dropdowns */
+.gjs-trt-trait select {
+    width: 100% !important;
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+    border: 1px solid #ddd !important;
+    border-radius: 4px !important;
+    background: #fff !important;
+    color: #1d2327 !important;
+    cursor: pointer !important;
+}
+
+/* Trait checkboxes */
+.gjs-trt-trait input[type="checkbox"] {
+    width: 18px !important;
+    height: 18px !important;
+    margin-right: 8px !important;
+    cursor: pointer !important;
+}
+
+/* Trait color picker */
+.gjs-trt-trait input[type="color"] {
+    width: 40px !important;
+    height: 32px !important;
+    padding: 2px !important;
+    border: 1px solid #ddd !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+}
+
+/* Styles panel */
+#styles-panel {
+    padding: 0;
+}
+
+/* Layers panel */
+#layers-panel {
+    padding: 0;
+}
+
+.editor-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.editor-help-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: #f0f6fc;
+    border-bottom: 1px solid #c5d9eb;
+    color: #1d2327;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.editor-help-bar .dashicons {
+    color: #2271b1;
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.editor-help-bar .editor-help-text {
+    flex: 1;
+}
+
+.editor-help-bar.is-dismissed {
+    display: none;
+}
+
+.editor-help-dismiss {
+    background: transparent;
+    border: 0;
+    color: #50575e;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.editor-help-dismiss:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: #1d2327;
+}
+
+#gjs-editor {
+    flex: 1;
+    background: #f8f9fa;
+}
+
+/* GrapesJS Global Overrides - Force Light Theme */
+.gjs-one-bg {
+    background-color: #f8f9fa !important;
+}
+
+.gjs-two-color {
+    color: #1d2327 !important;
+}
+
+.gjs-three-bg {
+    background-color: #2271b1 !important;
+}
+
+.gjs-four-color,
+.gjs-four-color-h:hover {
+    color: #2271b1 !important;
+}
+
+/* Panel backgrounds */
+.gjs-pn-panels,
+.gjs-pn-views-container {
+    background: #f8f9fa !important;
+}
+
+/* Hide the grapesjs-preset-newsletter device-switcher panel (we render
+   our own Desktop / Tablet / Mobile buttons in the top toolbar). The
+   preset re-adds these on init even though we remove the panel via
+   Panels.removePanel('devices-c'); CSS catches anything that slips
+   through. */
+.gjs-pn-devices-c,
+.gjs-pn-devices {
+    display: none !important;
+}
+
+/* All text in panels should be dark */
+.gjs-pn-panels *,
+#blocks-panel *,
+#styles-panel *,
+#layers-panel * {
+    color: #1d2327;
+}
+
+/* Input fields */
+.gjs-pn-panels input,
+.gjs-pn-panels select,
+#blocks-panel input,
+#styles-panel input,
+#layers-panel input {
+    background: #fff !important;
+    color: #1d2327 !important;
+    border: 1px solid #c3c4c7 !important;
+}
+
+/* ==========================================
+   BLOCK MANAGER - ELEMENTOR STYLE
+   ========================================== */
+
+/* Block manager container */
+.gjs-blocks-c {
+    padding: 0 !important;
+    background: #fff !important;
+    width: 100% !important;
+}
+
+/* Category sections - collapsible headers */
+.gjs-block-category {
+    border-bottom: none !important;
+    background: #fff !important;
+    margin-bottom: 0 !important;
+}
+
+.gjs-block-category .gjs-title {
+    background: #f1f2f3 !important;
+    padding: 13px 16px !important;
+    font-weight: 600 !important;
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    color: #6d7882 !important;
+    cursor: pointer !important;
+    border-bottom: 1px solid #e6e9ec !important;
+    display: flex !important;
+    align-items: center !important;
+    transition: background 0.15s ease !important;
+}
+
+.gjs-block-category .gjs-title:hover {
+    background: #e8eaed !important;
+}
+
+.gjs-block-category .gjs-caret-icon {
+    margin-right: 10px !important;
+    color: #9da5ae !important;
+    font-size: 8px !important;
+    transition: transform 0.2s ease !important;
+}
+
+.gjs-block-category.gjs-open .gjs-caret-icon {
+    transform: rotate(90deg) !important;
+}
+
+/* ===========================================
+   BLOCKS GRID - STRICT 2 COLUMNS ONLY
+   =========================================== */
+
+/* Force 2-column grid - maximum specificity with !important on everything */
+.gjs-blocks[style],
+.gjs-blocks,
+.gjs-blocks-c .gjs-blocks,
+#blocks-panel .gjs-blocks,
+.editor-sidebar .gjs-blocks,
+.gjs-block-category .gjs-blocks,
+.sidebar-panel .gjs-blocks,
+div.gjs-blocks {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-auto-rows: minmax(90px, auto) !important;
+    padding: 10px !important;
+    gap: 8px !important;
+    background: #fff !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    /* Kill any flexbox completely */
+    flex-wrap: unset !important;
+    flex-direction: unset !important;
+    flex: unset !important;
+    flex-flow: unset !important;
+    justify-content: unset !important;
+    align-items: unset !important;
+}
+
+/* ===========================================
+   INDIVIDUAL BLOCKS - ELEMENTOR WIDGET STYLE
+   =========================================== */
+
+.gjs-block,
+.gjs-blocks .gjs-block,
+.gjs-blocks-c .gjs-block,
+#blocks-panel .gjs-block,
+.gjs-block-category .gjs-block,
+div.gjs-block[style] {
+    /* Force block to fill grid cell - CRITICAL for 2-column */
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    flex: unset !important;
+    float: none !important;
+    
+    /* Block dimensions - compact for 2 columns */
+    min-height: 85px !important;
+    height: auto !important;
+    
+    /* Flexbox for content layout */
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    
+    /* Spacing - compact */
+    padding: 12px 6px 10px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    
+    /* Appearance */
+    background: #fff !important;
+    border: 1px solid #e6e9ec !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    
+    /* Interaction */
+    cursor: grab !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+    position: relative !important;
+    overflow: visible !important;
+}
+
+/* Hover state - magenta accent like Elementor */
+.gjs-block:hover {
+    border-color: #93003c !important;
+    box-shadow: 0 0 0 1px #93003c !important;
+    background: #fff !important;
+}
+
+/* Active/dragging states */
+.gjs-block:active {
+    transform: scale(0.97) !important;
+    cursor: grabbing !important;
+}
+
+.gjs-block.gjs-bdrag {
+    opacity: 0.85 !important;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.2) !important;
+}
+
+/* ===========================================
+   BLOCK ICONS - ELEMENTOR STYLE
+   =========================================== */
+
+/* Icon container */
+.gjs-block__media {
+    margin-bottom: 12px !important;
+    color: #6d7882 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 40px !important;
+    height: 40px !important;
+    flex-shrink: 0 !important;
+}
+
+/* SVG icons */
+.gjs-block svg {
+    width: 36px !important;
+    height: 36px !important;
+    display: block !important;
+}
+
+/* Icon color change on hover - Elementor magenta */
+.gjs-block:hover svg {
+    filter: brightness(0) saturate(100%) invert(12%) sepia(96%) saturate(5765%) hue-rotate(327deg) brightness(76%) contrast(115%) !important;
+}
+
+/* ===========================================
+   BLOCK LABELS
+   =========================================== */
+
+.gjs-block-label {
+    font-size: 12px !important;
+    font-weight: 400 !important;
+    color: #6d7882 !important;
+    text-align: center !important;
+    line-height: 1.4 !important;
+    letter-spacing: 0 !important;
+    transition: color 0.15s ease !important;
+    text-transform: none !important;
+    word-wrap: break-word !important;
+    max-width: 100% !important;
+    padding: 0 2px !important;
+}
+
+.gjs-block:hover .gjs-block-label {
+    color: #93003c !important;
+}
+
+/* ===========================================
+   FALLBACK ICONS (Font Awesome / GrapesJS)
+   =========================================== */
+
+.gjs-block .fa {
+    font-size: 30px !important;
+    color: #6d7882 !important;
+    transition: color 0.15s ease !important;
+    display: block !important;
+    margin-bottom: 8px !important;
+}
+
+.gjs-block:hover .fa {
+    color: #93003c !important;
+}
+
+.gjs-fonts {
+    color: #6d7882 !important;
+    font-size: 30px !important;
+    transition: color 0.15s ease !important;
+}
+
+.gjs-block:hover .gjs-fonts {
+    color: #93003c !important;
+}
+
+/* Style manager - Elementor clean style */
+.gjs-sm-sectors {
+    background: #fff !important;
+}
+
+.gjs-sm-sector {
+    border-bottom: none !important;
+    background: #fff !important;
+}
+
+.gjs-sm-sector-title {
+    background: #f7f7f7 !important;
+    padding: 12px 15px !important;
+    font-weight: 600 !important;
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    color: #6d7882 !important;
+    border-top: 1px solid #e6e9ec !important;
+    border-bottom: 1px solid #e6e9ec !important;
+}
+
+.gjs-sm-sector-title:hover {
+    background: #eff1f3 !important;
+    color: #495157 !important;
+}
+
+.gjs-sm-properties {
+    padding: 15px !important;
+    background: #fff !important;
+}
+
+.gjs-sm-property {
+    margin-bottom: 15px !important;
+}
+
+.gjs-sm-label {
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: #495157 !important;
+    margin-bottom: 6px !important;
+}
+
+.gjs-field {
+    background: #fff !important;
+    border: 1px solid #d5d8dc !important;
+    border-radius: 3px !important;
+}
+
+.gjs-field:focus-within {
+    border-color: #93003c !important;
+    box-shadow: 0 0 0 1px rgba(147, 0, 60, 0.2) !important;
+}
+
+.gjs-field input,
+.gjs-field select {
+    color: #495157 !important;
+    background: #fff !important;
+    font-size: 13px !important;
+}
+
+.gjs-field-arrows {
+    color: #6d7882 !important;
+}
+
+/* Color picker */
+.gjs-field-color-picker {
+    border: 1px solid #d5d8dc !important;
+    border-radius: 3px !important;
+}
+
+/* Layer manager - Clean style */
+.gjs-layers {
+    background: #fff !important;
+}
+
+.gjs-layer {
+    padding: 10px 15px !important;
+    border-bottom: 1px solid #e6e9ec !important;
+    background: #fff !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-top: none !important;
+}
+
+.gjs-layer:hover {
+    background: #f7f7f7 !important;
+}
+
+.gjs-layer.gjs-selected {
+    background: #fef4f8 !important;
+    border-left: 3px solid #93003c !important;
+}
+
+.gjs-layer-title {
+    font-size: 13px !important;
+    color: #495157 !important;
+}
+
+.gjs-layer-title-inn {
+    color: #495157 !important;
+}
+
+.gjs-layer-caret {
+    color: #9da5ae !important;
+}
+
+.gjs-layer-vis {
+    color: #9da5ae !important;
+}
+
+/* Layer count badge */
+.gjs-layer-count {
+    background: #93003c !important;
+    color: #fff !important;
+    font-size: 10px !important;
+    padding: 2px 6px !important;
+    border-radius: 10px !important;
+}
+
+/* Canvas frame */
+.gjs-frame-wrapper {
+    background: #e5e5e5;
+}
+
+.gjs-frame {
+    background: #fff;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+/* Selected component */
+.gjs-selected {
+    outline: 2px solid #2271b1 !important;
+}
+
+/* Toolbar */
+.gjs-toolbar {
+    background: #1d2327;
+    border-radius: 3px;
+}
+
+.gjs-toolbar-item {
+    color: #fff;
+    padding: 5px 8px;
+}
+
+/* Resizer */
+.gjs-resizer-h {
+    border-color: #2271b1;
+}
+
+/* Fix for modal */
+.gjs-mdl-dialog {
+    max-width: 800px;
+}
+
+/* Trait manager (element properties) */
+.gjs-trt-traits {
+    padding: 10px;
+    background: #fff;
+}
+
+.gjs-trt-trait {
+    margin-bottom: 10px;
+}
+
+.gjs-trt-trait__wrp-title {
+    font-size: 11px;
+    color: #646970;
+    margin-bottom: 3px;
+}
+
+/* Rich text editor */
+.gjs-rte-toolbar {
+    background: #1d2327;
+    border-radius: 3px;
+    padding: 5px;
+}
+
+.gjs-rte-actionbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+}
+
+.gjs-rte-action {
+    background: transparent;
+    color: #fff;
+    border: none;
+    padding: 5px 8px;
+    cursor: pointer;
+    border-radius: 2px;
+}
+
+.gjs-rte-action:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.gjs-rte-active {
+    background: #2271b1;
+}
+
+/* Component selected highlight */
+.gjs-cv-canvas .gjs-selected {
+    outline: 2px solid #2271b1 !important;
+    outline-offset: -2px !important;
+    box-shadow: 0 0 0 4px rgba(34, 113, 177, 0.1) !important;
+}
+
+/* Hover highlight */
+.gjs-cv-canvas .gjs-hovered {
+    outline: 2px dashed #2271b1 !important;
+    outline-offset: -2px !important;
+}
+
+/* Drop zone indicator */
+.gjs-placeholder {
+    border: 2px dashed #2271b1 !important;
+    background: rgba(34, 113, 177, 0.08) !important;
+    border-radius: 4px !important;
+    animation: dropzonePulse 1s ease-in-out infinite !important;
+}
+
+@keyframes dropzonePulse {
+    0%, 100% { 
+        background: rgba(34, 113, 177, 0.08);
+        border-color: #2271b1;
+    }
+    50% { 
+        background: rgba(34, 113, 177, 0.15);
+        border-color: #135e96;
+    }
+}
+
+/* Drag helper tooltip */
+.gjs-drag-helper {
+    background: #1d2327 !important;
+    color: #fff !important;
+    padding: 8px 12px !important;
+    border-radius: 6px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+    pointer-events: none !important;
+}
+
+/* Toolbar position indicator */
+.gjs-toolbar {
+    background: #1d2327 !important;
+    border-radius: 4px !important;
+    padding: 4px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+}
+
+.gjs-toolbar-item {
+    color: #fff !important;
+    padding: 6px !important;
+    border-radius: 3px !important;
+    cursor: pointer !important;
+    transition: background 0.15s ease !important;
+}
+
+.gjs-toolbar-item:hover {
+    background: rgba(255,255,255,0.15) !important;
+}
+
+/* Resize handles */
+.gjs-resizer-h {
+    background: #2271b1 !important;
+    border-radius: 2px !important;
+}
+
+/* Badge for component type */
+.gjs-badge {
+    background: #1d2327 !important;
+    color: #fff !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    padding: 3px 8px !important;
+    border-radius: 3px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+}
+
+/* Empty blocks container message */
+#blocks-panel:empty::after {
+    content: 'No blocks available';
+    display: block;
+    padding: 20px;
+    text-align: center;
+    color: #646970;
+}
+
+/* Empty styles panel message */
+#styles-panel:empty::after {
+    content: 'Select an element to see its styles';
+    display: block;
+    padding: 20px;
+    text-align: center;
+    color: #646970;
+    font-size: 13px;
+}
+
+/* Empty layers panel message */
+#layers-panel:empty::after {
+    content: 'No layers yet';
+    display: block;
+    padding: 20px;
+    text-align: center;
+    color: #646970;
+    font-size: 13px;
+}
+
+/* Sidebar scroll enhancement */
+.editor-sidebar {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 300px);
+}
+
+.sidebar-panel {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+}
+
+/* Active sidebar tab indicator */
+.sidebar-tabs {
+    flex-shrink: 0;
+}
+
+/* Canvas wrapper */
+.gjs-cv-canvas {
+    width: 100%;
+    height: 100%;
+    top: 0;
+}
+
+.gjs-cv-canvas__frames {
+    height: 100%;
+    background: #e5e5e5;
+}
+
+/* Center the frame based on device */
+.gjs-frame-wrapper {
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    min-height: 100%;
+    background: #e5e5e5;
+}
+
+/* GrapesJS Frame - email canvas */
+.gjs-frame {
+    background: #fff !important;
+    box-shadow: 0 2px 15px rgba(0,0,0,0.1) !important;
+    border-radius: 4px !important;
+    overflow: hidden !important;
+}
+
+/* Device preview frame styling - Tablet */
+.gjs-frame-wrapper[data-device="Tablet"],
+.gjs-frame[style*="width: 768px"] {
+    border: 8px solid #444 !important;
+    border-radius: 16px !important;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.2) !important;
+    margin: 0 auto !important;
+    overflow: auto !important;
+}
+
+/* Mobile preview device frame styling */
+.gjs-frame-wrapper--mobile .gjs-frame,
+.gjs-frame-wrapper[data-device="Mobile"],
+.gjs-frame[style*="width: 320px"],
+.gjs-frame[style*="width: 375px"] {
+    border: 10px solid #333 !important;
+    border-radius: 30px !important;
+    box-shadow: 0 5px 25px rgba(0,0,0,0.2) !important;
+    margin: 0 auto !important;
+    overflow: auto !important;
+}
+
+/* Ensure the frame wrapper allows scrolling for all device previews */
+.gjs-frame-wrapper {
+    overflow: auto !important;
+}
+
+/* Ensure email content doesn't overflow in tablet view */
+.gjs-frame-wrapper[data-device="Tablet"] .gjs-frame table,
+.gjs-frame[style*="width: 768px"] table {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+/* Ensure email content doesn't overflow in mobile view */
+.gjs-frame-wrapper--mobile .gjs-frame table,
+.gjs-frame-wrapper[data-device="Mobile"] .gjs-frame table,
+.gjs-frame[style*="width: 320px"] table,
+.gjs-frame[style*="width: 375px"] table {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+/* Force responsive tables in canvas for all views */
+#gjs-editor table {
+    max-width: 100%;
+}
+
+#gjs-editor img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Fix GrapesJS canvas height to allow full content view */
+.gjs-cv-canvas {
+    overflow: auto !important;
+}
+
+.gjs-cv-canvas__frames {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 100% !important;
+}
+
+/* Step 3: Review */
+.review-grid {
+    display: grid;
+    grid-template-columns: 1fr 350px;
+    gap: 30px;
+}
+
+.review-preview {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 4px;
+}
+
+.review-preview h3 {
+    margin-top: 0;
+}
+
+.preview-device-toggle {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.preview-device {
+    padding: 6px 16px;
+    border: 1px solid #ccd0d4;
+    background: #fff;
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.preview-device.active {
+    background: #2271b1;
+    color: #fff;
+    border-color: #2271b1;
+}
+
+.preview-frame {
+    width: 100%;
+    height: 500px;
+    border: 1px solid #ccd0d4;
+    background: #fff;
+}
+
+.preview-frame.mobile {
+    width: 375px;
+    margin: 0 auto;
+    display: block;
+}
+
+.review-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.review-section {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    padding: 15px;
+    border-radius: 4px;
+}
+
+.review-section h4 {
+    margin: 0 0 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.summary-table {
+    width: 100%;
+}
+
+.summary-table td {
+    padding: 5px 0;
+}
+
+.summary-table td:first-child {
+    color: #646970;
+    width: 100px;
+}
+
+.test-send-form {
+    display: flex;
+    gap: 10px;
+}
+
+.test-send-form input {
+    flex: 1;
+}
+
+/* Spam Score */
+#spam-score-result {
+    margin-top: 15px;
+}
+
+.spam-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.spam-score-value {
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.spam-score-value.good {
+    color: #00a32a;
+}
+
+.spam-score-value.warning {
+    color: #dba617;
+}
+
+.spam-score-value.bad {
+    color: #d63638;
+}
+
+.spam-issues {
+    margin-top: 15px;
+}
+
+.spam-issues .issue-group {
+    margin-bottom: 12px;
+    padding: 10px;
+    background: #f9f9f9;
+    border-radius: 4px;
+}
+
+.spam-issues .issue-group strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: #1d2327;
+}
+
+.spam-issues ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.spam-issues li {
+    margin: 4px 0;
+    font-size: 12px;
+    color: #50575e;
+}
+
+/* Accessibility */
+.accessibility-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.accessibility-item:last-child {
+    border-bottom: none;
+}
+
+.accessibility-item .dashicons {
+    margin-top: 2px;
+}
+
+.accessibility-item.pass .dashicons {
+    color: #00a32a;
+}
+
+.accessibility-item.fail .dashicons {
+    color: #d63638;
+}
+
+/* Step 4: Send Options */
+/* Campaign Summary Panel - Step 4 */
+.campaign-summary-panel {
+    background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 30px;
+}
+
+.campaign-summary-panel h3 {
+    margin: 0 0 15px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1d2327;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.campaign-summary-panel h3 .dashicons {
+    color: #2271b1;
+}
+
+.campaign-summary-panel .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.campaign-summary-panel .summary-item {
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 12px 15px;
+}
+
+.campaign-summary-panel .summary-item label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #646970;
+    margin-bottom: 5px;
+}
+
+.campaign-summary-panel .summary-item span {
+    font-size: 14px;
+    color: #1d2327;
+    word-break: break-word;
+}
+
+.campaign-summary-panel .summary-item.recipients-summary {
+    grid-column: span 2;
+}
+
+.campaign-summary-panel .status-configured {
+    color: #00a32a;
+    font-weight: 600;
+}
+
+.campaign-summary-panel .status-not-configured {
+    color: #d63638;
+    font-size: 12px;
+}
+
+.campaign-summary-panel .spam-score-good {
+    color: #00a32a;
+    font-weight: 600;
+}
+
+.campaign-summary-panel .spam-score-warning {
+    color: #dba617;
+    font-weight: 600;
+}
+
+.campaign-summary-panel .spam-score-bad {
+    color: #d63638;
+    font-weight: 600;
+}
+
+.send-options {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.send-option {
+    flex: 1;
+}
+
+.send-option input[type="radio"] {
+    display: none;
+}
+
+.send-option .option-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 30px 20px;
+    background: #f8f9fa;
+    border: 2px solid #ccd0d4;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.send-option input:checked + .option-card {
+    background: #f0f6fc;
+    border-color: #2271b1;
+}
+
+.send-option .option-card .dashicons {
+    font-size: 36px;
+    width: 36px;
+    height: 36px;
+    color: #646970;
+}
+
+.send-option input:checked + .option-card .dashicons {
+    color: #2271b1;
+}
+
+.send-option .option-card strong {
+    font-size: 16px;
+}
+
+.send-option .option-card span:last-child {
+    color: #646970;
+    font-size: 13px;
+}
+
+.schedule-options {
+    background: #f8f9fa;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 4px;
+}
+
+.page-options {
+    background: #f8f9fa;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 4px;
+}
+
+.page-settings {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #ddd;
+}
+
+#final-send-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#final-send-btn .dashicons {
+    font-size: 20px;
+}
+
+/* Campaigns List */
+.newsletter-campaigns-page .campaigns-table {
+    margin-top: 20px;
+}
+
+.newsletter-campaigns-page .status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.newsletter-campaigns-page .status-draft {
+    background: #f0f0f1;
+    color: #50575e;
+}
+
+.newsletter-campaigns-page .status-scheduled {
+    background: #fcf9e8;
+    color: #996800;
+}
+
+.newsletter-campaigns-page .status-sending {
+    background: #f0f6fc;
+    color: #2271b1;
+}
+
+.newsletter-campaigns-page .status-sent {
+    background: #edfaef;
+    color: #007017;
+}
+
+.newsletter-campaigns-page .status-paused {
+    background: #fef2f1;
+    color: #8a2424;
+}
+
+/* Statistics Page */
+.newsletter-statistics-page .stats-overview {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.newsletter-statistics-page .stat-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    padding: 20px;
+    text-align: center;
+    border-radius: 4px;
+}
+
+.newsletter-statistics-page .stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: #1d2327;
+}
+
+.newsletter-statistics-page .stat-label {
+    color: #646970;
+    margin-top: 5px;
+}
+
+.newsletter-statistics-page .stat-card.highlight {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+/* Lists Page */
+.newsletter-lists-page .lists-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.newsletter-lists-page .list-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    padding: 20px;
+    border-radius: 4px;
+}
+
+.newsletter-lists-page .list-card h3 {
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.newsletter-lists-page .list-meta {
+    color: #646970;
+    font-size: 13px;
+    margin-bottom: 15px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .review-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .review-sidebar {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+    
+    .review-section {
+        flex: 1 1 300px;
+    }
+    
+    .arrow-content {
+        padding: 15px 20px 15px 30px;
+    }
+    
+    .arrow-step .step-text {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 900px) {
+    .arrow-flow-steps {
+        flex-wrap: wrap;
+    }
+    
+    .arrow-step {
+        flex: 1 1 45%;
+    }
+    
+    .arrow-step::after,
+    .arrow-step::before {
+        display: none;
+    }
+    
+    .arrow-content {
+        padding: 15px 20px;
+        justify-content: flex-start;
+    }
+    
+    .arrow-step:first-child .arrow-content {
+        padding-left: 20px;
+    }
+}
+
+/* Responsive: Narrower sidebars on medium-large screens */
+@media (max-width: 1400px) {
+    .editor-sidebar {
+        width: 260px;
+        min-width: 260px;
+        max-width: 260px;
+    }
+}
+
+/* Responsive: Even narrower on medium screens */
+@media (max-width: 1200px) {
+    .editor-sidebar {
+        width: 220px;
+        min-width: 220px;
+        max-width: 220px;
+    }
+    
+    /* Stack blocks in single column on narrow sidebar */
+    .gjs-blocks {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 782px) {
+    .workflow-steps {
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+    
+    .workflow-steps .step-connector {
+        display: none;
+    }
+    
+    .arrow-flow-steps {
+        flex-direction: column;
+    }
+    
+    .arrow-step {
+        flex: none;
+    }
+    
+    .send-options {
+        flex-direction: column;
+    }
+    
+    .editor-container {
+        flex-direction: column;
+        height: auto;
+        min-height: 800px;
+    }
+    
+    .editor-sidebar {
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        max-height: 250px;
+        border-right: none !important;
+        border-left: none !important;
+    }
+    
+    .editor-sidebar-left {
+        border-bottom: 1px solid #e6e9ec;
+        order: 1;
+    }
+    
+    .editor-main {
+        order: 2;
+        min-height: 400px;
+    }
+    
+    .editor-sidebar-right {
+        border-top: 1px solid #e6e9ec;
+        order: 3;
+    }
+    
+    /* Restore 2-column blocks on mobile full-width sidebar */
+    .gjs-blocks {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+    
+    .recipient-checkboxes {
+        max-height: 150px;
+    }
+}
+
+/* =============================================
+   TEMPLATE SELECTION SCREEN
+   ============================================= */
+
+.template-selection-screen {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 20px;
+}
+
+.template-selection-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.template-selection-header h1 {
+    font-size: 32px;
+    font-weight: 600;
+    color: #1d2327;
+    margin: 0 0 10px;
+}
+
+.template-selection-header .description {
+    font-size: 16px;
+    color: #646970;
+    margin: 0;
+}
+
+.template-selection-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 24px;
+    margin-bottom: 40px;
+}
+
+.template-selection-card {
+    display: block;
+    background: #fff;
+    border: 2px solid #dcdcde;
+    border-radius: 8px;
+    overflow: hidden;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.template-selection-card:hover {
+    border-color: #2271b1;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.template-selection-card:focus {
+    outline: 2px solid #2271b1;
+    outline-offset: 2px;
+}
+
+.template-selection-card.blank-template {
+    border-style: dashed;
+    border-color: #c3c4c7;
+}
+
+.template-selection-card.blank-template:hover {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+.template-preview {
+    height: 200px;
+    background: #f6f7f7;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+}
+
+.template-preview.blank {
+    background: linear-gradient(135deg, #f0f6fc 0%, #fff 100%);
+    align-items: center;
+}
+
+.template-preview.blank .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #2271b1;
+}
+
+.template-preview .preview-wrapper {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.template-preview iframe {
+    width: 600px;
+    height: 900px;
+    border: none;
+    transform: scale(0.45);
+    transform-origin: top center;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    margin-left: -300px;
+    background: #fff;
+}
+
+/* Fade effect at bottom for cropped preview */
+.template-preview .preview-wrapper::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(to bottom, transparent, rgba(246,247,247,0.9));
+    pointer-events: none;
+}
+
+.template-preview .template-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #f0f0f1 0%, #fff 100%);
+}
+
+.template-preview .template-placeholder .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #c3c4c7;
+}
+
+.template-info {
+    padding: 16px;
+    border-top: 1px solid #f0f0f1;
+}
+
+.template-info h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.template-info p {
+    margin: 0;
+    font-size: 13px;
+    color: #646970;
+}
+
+.template-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.template-badge.system {
+    background: #dcdcde;
+    color: #50575e;
+}
+
+.template-badge.custom {
+    background: #d7f0e5;
+    color: #00713a;
+}
+
+.template-selection-footer {
+    text-align: center;
+    padding-top: 20px;
+    border-top: 1px solid #dcdcde;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .template-selection-screen {
+        padding: 20px 10px;
+    }
+    
+    .template-selection-header h1 {
+        font-size: 24px;
+    }
+    
+    .template-selection-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+
+

@@ -1,0 +1,155 @@
+/**
+ * Upcoming Events Shortcode Styles
+ * 
+ * @package AzurePlugin
+ */
+
+/* Container */
+.upcoming-events {
+    font: 16px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+    margin: 1rem 0;
+}
+
+/* Multi-column layouts */
+.upcoming-columns-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+}
+
+.upcoming-columns-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+}
+
+/* Responsive: stack on mobile */
+@media (max-width: 768px) {
+    .upcoming-columns-2,
+    .upcoming-columns-3 {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
+
+/* Week sections */
+.upcoming-week {
+    margin-bottom: 1rem;
+}
+
+.upcoming-week h3 {
+    font-weight: 700;
+    font-size: 1.1em;
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 2px solid #0073aa;
+    color: #333;
+}
+
+/* Event list */
+.upcoming-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.upcoming-event {
+    margin: 0.35rem 0;
+    line-height: 1.5;
+}
+
+/* Date styling */
+.upcoming-date {
+    color: #666;
+    font-weight: 500;
+}
+
+/* Separator */
+.upcoming-separator {
+    color: #999;
+}
+
+/* Title styling */
+.upcoming-title {
+    color: inherit;
+}
+
+a.upcoming-title {
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+a.upcoming-title:hover {
+    border-bottom-color: currentColor;
+    color: #0073aa;
+}
+
+.upcoming-online-meeting,
+.upcoming-join-meeting {
+    margin: 0.35rem 0 0 0;
+    display: block;
+}
+
+.upcoming-join-meeting .pta-join-meeting {
+    font-size: 0.85em;
+    padding: 0.35em 0.65em;
+}
+
+.upcoming-online-meeting a {
+    color: #0073aa;
+    text-decoration: underline;
+}
+
+.upcoming-online-meeting a:hover {
+    color: #005f8d;
+}
+
+/* Empty message */
+.upcoming-empty {
+    color: #666;
+    font-style: italic;
+    margin: 0.5rem 0;
+}
+
+/* Error message */
+.upcoming-error {
+    color: #dc3545;
+    padding: 1rem;
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+    .upcoming-week h3 {
+        color: #e0e0e0;
+        border-bottom-color: #4a9fd4;
+    }
+    
+    .upcoming-date {
+        color: #aaa;
+    }
+    
+    .upcoming-separator {
+        color: #666;
+    }
+    
+    a.upcoming-title:hover {
+        color: #4a9fd4;
+    }
+
+    .upcoming-online-meeting a {
+        color: #4a9fd4;
+    }
+
+    .upcoming-online-meeting a:hover {
+        color: #74b7e5;
+    }
+    
+    .upcoming-empty {
+        color: #999;
+    }
+}
+

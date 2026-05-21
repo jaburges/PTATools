@@ -1,0 +1,319 @@
+/**
+ * Tickets Module - Admin Styles
+ */
+
+/* Stats Cards */
+.stats-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.stat-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    transition: box-shadow 0.2s;
+}
+
+.stat-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card .stat-number {
+    font-size: 32px;
+    font-weight: 700;
+    color: #1d2327;
+    line-height: 1;
+}
+
+.stat-card .stat-label {
+    font-size: 12px;
+    color: #646970;
+    text-transform: uppercase;
+    margin-top: 5px;
+}
+
+.stat-card.info .stat-number {
+    color: #2271b1;
+}
+
+.stat-card.success .stat-number {
+    color: #00a32a;
+}
+
+.stat-card.warning .stat-number {
+    color: #dba617;
+}
+
+.stat-card.danger .stat-number {
+    color: #d63638;
+}
+
+/* Module toggle card */
+.module-toggle-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.module-toggle-card .module-info h3 {
+    margin: 0 0 5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.module-toggle-card .module-info p {
+    margin: 0;
+    color: #646970;
+}
+
+.module-toggle-card .module-control {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+/* Switch toggle */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 26px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.4s;
+    border-radius: 26px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: #2271b1;
+}
+
+input:checked + .slider:before {
+    transform: translateX(24px);
+}
+
+/* Tab navigation */
+.nav-tab-wrapper {
+    margin-bottom: 20px;
+}
+
+.nav-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Tab content */
+.tab-content {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+/* Tables */
+.tickets-table {
+    margin-top: 0;
+}
+
+.tickets-table th,
+.tickets-table td {
+    vertical-align: middle;
+}
+
+/* Ticket status badges */
+.ticket-status {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ticket-status.status-active {
+    background: #d7f0e5;
+    color: #00713a;
+}
+
+.ticket-status.status-used {
+    background: #e5e5e5;
+    color: #666;
+}
+
+.ticket-status.status-cancelled {
+    background: #fce4e4;
+    color: #d63638;
+}
+
+/* Seat badge */
+.seat-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #2271b1;
+    color: #fff;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.seat-badge.ga {
+    background: #996800;
+}
+
+/* Action buttons */
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.action-buttons .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Danger zone */
+.danger-zone-section {
+    background: #fff;
+    border: 1px solid #d63638;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 30px;
+}
+
+.danger-zone-section h3 {
+    margin: 0 0 15px;
+    color: #d63638;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.danger-zone-controls {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.control-group {
+    flex: 1;
+    min-width: 200px;
+}
+
+.control-group h4 {
+    margin: 0 0 5px;
+}
+
+/* Empty states */
+.no-items,
+.no-tickets,
+.no-venues {
+    padding: 40px 20px;
+    text-align: center;
+    background: #f9f9f9;
+    border-radius: 8px;
+    color: #666;
+}
+
+.no-venues .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #ccc;
+}
+
+.no-venues h3 {
+    margin: 15px 0 10px;
+    color: #333;
+}
+
+/* Settings sections */
+.settings-section {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.settings-section h3 {
+    margin: 0 0 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-section.future-feature {
+    opacity: 0.7;
+}
+
+.coming-soon-badge {
+    background: #dba617;
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: normal;
+    margin-left: auto;
+}
+
+/* Responsive */
+@media (max-width: 782px) {
+    .stats-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .module-toggle-card {
+        flex-direction: column;
+        gap: 15px;
+        text-align: center;
+    }
+    
+    .danger-zone-controls {
+        flex-direction: column;
+    }
+}
+

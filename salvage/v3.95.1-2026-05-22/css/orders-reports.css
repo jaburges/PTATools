@@ -1,0 +1,288 @@
+/* PTA Tools — Orders Reports — Builder/list styles */
+
+.azure-or-wrap { max-width: 1200px; }
+
+.azure-or-subtabs {
+    border-bottom: 1px solid #ccd0d4;
+    margin: 14px 0 18px;
+    padding: 0;
+}
+.azure-or-subtab {
+    display: inline-block;
+    padding: 8px 14px;
+    margin: 0 2px -1px 0;
+    border: 1px solid transparent;
+    border-bottom: none;
+    text-decoration: none;
+    color: #50575e;
+    font-weight: 500;
+}
+.azure-or-subtab.active {
+    background: #fff;
+    border-color: #ccd0d4;
+    color: #1d2327;
+}
+
+.azure-or-section {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    padding: 10px 14px;
+    margin: 8px 0;
+    border-radius: 4px;
+}
+.azure-or-section > legend {
+    font-weight: 600;
+    padding: 0 6px;
+}
+
+/* The Filters section is rendered as <details>, not <fieldset>; tweak
+   to match the visual rhythm of the other sections. */
+.azure-or-section--details > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 4px 6px;
+    margin: -4px -6px;
+    border-radius: 3px;
+    user-select: none;
+}
+.azure-or-section--details > summary::-webkit-details-marker { display: none; }
+.azure-or-section--details > summary::before {
+    content: "▸";
+    display: inline-block;
+    width: 1em;
+    color: #888;
+    transition: transform 0.1s ease;
+}
+.azure-or-section--details[open] > summary::before {
+    content: "▾";
+}
+.azure-or-section--details > summary:hover { background: #f6f7f7; }
+.azure-or-summary-meta {
+    color: #666;
+    font-weight: normal;
+    font-size: 13px;
+    margin-left: 12px;
+}
+.azure-or-row {
+    margin: 8px 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}
+.azure-or-row > label { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Two columns side-by-side inside one row (Categories | Tags). */
+.azure-or-row-split {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: flex-start;
+    width: 100%;
+}
+.azure-or-half {
+    flex: 1 1 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.azure-or-half select {
+    width: 100%;
+}
+
+/* ── Order Status toggle pills ──────────────────────────────────── */
+.azure-or-statuses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.azure-or-status-toggle {
+    display: inline-flex;
+    align-items: center;
+    background: #f0f0f1;
+    color: #50575e;
+    padding: 6px 14px;
+    border-radius: 16px;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid #c3c4c7;
+    font-size: 13px;
+    line-height: 1.2;
+    transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
+}
+.azure-or-status-toggle input[type="checkbox"] {
+    /* Visually hidden but still focusable/operable by keyboard. */
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    height: 0;
+    margin: 0;
+}
+.azure-or-status-toggle:hover {
+    border-color: #8c8f94;
+    background: #e0e0e1;
+}
+.azure-or-status-toggle:has(input:checked) {
+    background: #2271b1;
+    color: #fff;
+    border-color: #2271b1;
+}
+.azure-or-status-toggle:has(input:checked):hover {
+    background: #1d5d8b;
+    border-color: #1d5d8b;
+}
+.azure-or-status-toggle:focus-within {
+    box-shadow: 0 0 0 2px #2271b1;
+    outline: 2px solid transparent;
+}
+
+.azure-or-presets { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.azure-or-presets-label { color: #666; margin-right: 4px; }
+
+/* Product search */
+#azure-or-product-picker { width: 100%; max-width: 600px; }
+#azure-or-product-search { width: 100%; }
+.azure-or-search-results {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-top: none;
+    max-height: 180px;
+    overflow: auto;
+}
+.azure-or-search-results a {
+    display: block;
+    padding: 6px 10px;
+    border-bottom: 1px solid #f1f1f1;
+    text-decoration: none;
+    color: #1d2327;
+}
+.azure-or-search-results a:hover { background: #f6f7f7; }
+
+#azure-or-product-selected {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+#azure-or-product-selected li {
+    background: #f0f0f1;
+    padding: 4px 8px;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.azure-or-remove,
+.azure-or-col-remove {
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    color: #b32d2e;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 4px;
+}
+
+/* Columns picker */
+.azure-or-columns-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 8px;
+}
+.azure-or-available,
+.azure-or-selected {
+    border: 1px solid #e5e5e5;
+    border-radius: 4px;
+    padding: 10px;
+    background: #fafafa;
+    min-height: 280px;
+}
+.azure-or-available details { margin: 6px 0; }
+.azure-or-available summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 4px 0;
+}
+.azure-or-available ul,
+.azure-or-selected ul {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0 6px;
+}
+
+/* Two-column flow for each category's column list — cuts vertical
+   scrolling roughly in half. */
+.azure-or-available > details > ul {
+    column-count: 2;
+    column-gap: 16px;
+}
+.azure-or-available > details > ul > li {
+    break-inside: avoid;
+    margin-bottom: 2px;
+}
+.azure-or-selected ul#azure-or-selected-list li {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    padding: 6px 8px;
+    margin: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: grab;
+}
+.azure-or-selected ul#azure-or-selected-list li:active { cursor: grabbing; }
+.azure-or-selected .dashicons-menu { color: #888; }
+.azure-or-col-label { flex: 1; }
+.azure-or-sort-placeholder {
+    background: #fffbe5;
+    border: 1px dashed #c4a700;
+    height: 32px;
+    margin: 4px 0;
+}
+
+/* Actions bar — sticky to the viewport bottom so Preview/Save/Export are
+   always reachable without scrolling past the columns picker. */
+.azure-or-actions {
+    margin-top: 16px;
+    padding: 10px 14px;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    background: #fff;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    position: sticky;
+    bottom: 8px;
+    z-index: 50;
+    box-shadow: 0 -2px 6px rgba(0,0,0,0.05);
+}
+
+/* Tiny badge after each Available category name showing how many of its
+   columns the user has already selected. Lets users scan collapsed
+   categories and know at a glance whether they've already picked
+   something from them. */
+.azure-or-cat-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    background: #2271b1;
+    color: #fff;
+    border-radius: 9px;
+    font-size: 11px;
+    line-height: 1.4;
+    vertical-align: middle;
+}
+
+/* Preview area */
+.azure-or-preview-summary {
+    background: #f0f6fc;
+    border-left: 4px solid #2271b1;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}

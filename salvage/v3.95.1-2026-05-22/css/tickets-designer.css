@@ -1,0 +1,592 @@
+/**
+ * Tickets Module - Venue Designer Styles
+ */
+
+/* Designer Layout */
+.venue-designer-wrap {
+    margin: -20px;
+    background: #f0f0f1;
+}
+
+.venue-designer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: #1d2327;
+    color: #fff;
+}
+
+.venue-designer-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.header-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.header-actions .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Info Bar */
+.venue-info-bar {
+    display: flex;
+    gap: 20px;
+    padding: 15px 20px;
+    background: #fff;
+    border-bottom: 1px solid #dcdcde;
+    flex-wrap: wrap;
+}
+
+.venue-info-bar > div {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.venue-info-bar label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #666;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.venue-info-bar input {
+    padding: 8px 12px;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.venue-info-bar input:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.venue-name-input {
+    flex: 1;
+    min-width: 200px;
+}
+
+.venue-description-input {
+    flex: 2;
+    min-width: 300px;
+}
+
+.venue-capacity {
+    text-align: right;
+    min-width: 120px;
+}
+
+.venue-capacity span {
+    font-size: 28px;
+    font-weight: 700;
+    color: #2271b1;
+    line-height: 1;
+}
+
+/* Main Designer Grid */
+.venue-designer {
+    display: grid;
+    grid-template-columns: 240px 1fr 300px;
+    height: calc(100vh - 250px);
+    min-height: 500px;
+}
+
+/* Sidebar */
+.designer-sidebar {
+    background: #fff;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.designer-sidebar h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.designer-sidebar h4 {
+    margin: 15px 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #666;
+    text-transform: uppercase;
+}
+
+.designer-blocks {
+    border-right: 1px solid #dcdcde;
+}
+
+.designer-settings {
+    border-left: 1px solid #dcdcde;
+}
+
+/* Block Palette */
+.block-palette {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.block-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 15px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    cursor: grab;
+    transition: all 0.2s;
+    font-size: 13px;
+}
+
+.block-item:hover {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+.block-item:active {
+    cursor: grabbing;
+    transform: scale(0.98);
+}
+
+.block-item .dashicons {
+    color: #2271b1;
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.block-item.dragging {
+    opacity: 0.5;
+}
+
+/* Designer Tools */
+.designer-tools {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.canvas-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.canvas-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: #666;
+}
+
+.canvas-controls input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 15px;
+}
+
+.zoom-controls .button {
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.zoom-controls .button .dashicons {
+    width: 20px;
+    height: 20px;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.zoom-controls #zoom-reset {
+    min-width: auto;
+    padding: 0 12px;
+}
+
+#zoom-level {
+    min-width: 50px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Canvas Container */
+.designer-canvas-container {
+    background: #e5e5e5;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    position: relative;
+}
+
+.designer-canvas-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+        linear-gradient(to right, #ddd 1px, transparent 1px),
+        linear-gradient(to bottom, #ddd 1px, transparent 1px);
+    background-size: 20px 20px;
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.designer-canvas {
+    background: #fff;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    position: relative;
+    z-index: 1;
+    transition: transform 0.2s;
+}
+
+/* Venue Blocks on Canvas */
+.venue-block {
+    position: absolute;
+    border: 2px solid rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    cursor: move;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    user-select: none;
+    transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.venue-block:hover {
+    border-color: rgba(0, 0, 0, 0.4);
+}
+
+.venue-block.selected {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 3px rgba(34, 113, 177, 0.3);
+    z-index: 10;
+}
+
+.venue-block .block-label {
+    padding: 8px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.venue-block .block-seats {
+    font-size: 10px;
+    opacity: 0.8;
+    margin-top: 3px;
+}
+
+/* Block Types */
+.venue-block.type-rectangle {
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+}
+
+.venue-block.type-general_admission {
+    background: linear-gradient(135deg, #FF9800, #f57c00);
+}
+
+.venue-block.type-stage {
+    background: #1d2327;
+    border-radius: 4px 4px 0 0;
+}
+
+.venue-block.type-aisle {
+    background: repeating-linear-gradient(
+        45deg,
+        #f0f0f1,
+        #f0f0f1 5px,
+        #e5e5e5 5px,
+        #e5e5e5 10px
+    );
+    border: 2px dashed #ccc;
+    color: #999;
+    text-shadow: none;
+}
+
+.venue-block.type-label {
+    background: transparent;
+    border: 2px dashed #ccc;
+    color: #1d2327;
+    text-shadow: none;
+    font-weight: 700;
+}
+
+/* Resize Handles */
+.venue-block .resize-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: #2271b1;
+    border: 2px solid #fff;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.venue-block:hover .resize-handle,
+.venue-block.selected .resize-handle {
+    opacity: 1;
+}
+
+.resize-handle.se {
+    bottom: -6px;
+    right: -6px;
+    cursor: se-resize;
+}
+
+.resize-handle.sw {
+    bottom: -6px;
+    left: -6px;
+    cursor: sw-resize;
+}
+
+.resize-handle.ne {
+    top: -6px;
+    right: -6px;
+    cursor: ne-resize;
+}
+
+.resize-handle.nw {
+    top: -6px;
+    left: -6px;
+    cursor: nw-resize;
+}
+
+/* Settings Panel */
+#block-settings-panel {
+    min-height: 200px;
+}
+
+.no-selection {
+    color: #666;
+    font-style: italic;
+    text-align: center;
+    padding: 40px 20px;
+    background: #f6f7f7;
+    border-radius: 8px;
+}
+
+.settings-group {
+    margin-bottom: 18px;
+}
+
+.settings-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #1d2327;
+}
+
+.settings-group input,
+.settings-group select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.settings-group input:focus,
+.settings-group select:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.settings-group input[type="color"] {
+    height: 40px;
+    padding: 4px;
+    cursor: pointer;
+}
+
+.settings-group input[type="number"] {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+}
+
+.delete-block {
+    width: 100%;
+    margin-top: 10px;
+}
+
+/* Venues Grid (List View) */
+.venues-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.venues-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.venue-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.venue-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.venue-preview {
+    height: 160px;
+    background: #f6f7f7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-bottom: 1px solid #eee;
+}
+
+.mini-layout {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform: scale(0.3);
+    transform-origin: center center;
+}
+
+.venue-info {
+    padding: 15px;
+}
+
+.venue-info h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+}
+
+.venue-meta {
+    display: flex;
+    gap: 15px;
+    color: #666;
+    font-size: 13px;
+    margin: 0;
+}
+
+.venue-description {
+    color: #666;
+    font-size: 13px;
+    margin: 10px 0 0;
+}
+
+.venue-actions {
+    padding: 12px 15px;
+    border-top: 1px solid #f0f0f1;
+    display: flex;
+    gap: 8px;
+    background: #fafafa;
+}
+
+.venue-actions .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 12px;
+    height: 32px;
+    font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .venue-designer {
+        grid-template-columns: 200px 1fr 260px;
+    }
+}
+
+@media (max-width: 960px) {
+    .venue-designer {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+    
+    .designer-sidebar {
+        border-right: none !important;
+        border-left: none !important;
+        border-bottom: 1px solid #dcdcde;
+    }
+    
+    .designer-blocks {
+        order: 1;
+    }
+    
+    .designer-canvas-container {
+        order: 2;
+        min-height: 400px;
+    }
+    
+    .designer-settings {
+        order: 3;
+    }
+    
+    .block-palette {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+    
+    .block-item {
+        flex: 1;
+        min-width: 140px;
+    }
+}
+
+@media (max-width: 600px) {
+    .venue-info-bar {
+        flex-direction: column;
+    }
+    
+    .venue-capacity {
+        text-align: left;
+    }
+    
+    .venues-grid {
+        grid-template-columns: 1fr;
+    }
+}
+

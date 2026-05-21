@@ -1,0 +1,80 @@
+.azure-product-fields {
+    margin: 15px 0;
+    padding: 15px 0;
+    border-top: 1px solid #eee;
+}
+
+.azure-pf-group-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    color: #333;
+}
+
+.azure-pf-field {
+    margin-bottom: 12px;
+}
+
+.azure-pf-field label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+
+.azure-pf-field input[type="text"],
+.azure-pf-field input[type="email"],
+.azure-pf-field input[type="tel"],
+.azure-pf-field input[type="number"],
+.azure-pf-field textarea,
+.azure-pf-field select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.azure-pf-field textarea {
+    min-height: 60px;
+    resize: vertical;
+}
+
+.azure-pf-field .required {
+    color: #e2401c;
+}
+
+.azure-pf-checkbox-label {
+    font-weight: 400 !important;
+    cursor: pointer;
+}
+
+.azure-pf-checkbox-label input[type="checkbox"] {
+    margin-right: 6px;
+}
+
+/* ── Child Selector ───────────────────────────────────────── */
+
+.azure-pf-child-selector {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+.azure-pf-child-selector label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 14px;
+    color: #333;
+}
+
+.azure-pf-child-selector select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}

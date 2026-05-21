@@ -1,0 +1,796 @@
+/**
+ * Azure Plugin - PTA Roles Frontend Styles
+ */
+
+/* Leadership Structure Layout */
+.pta-leadership-structure {
+    margin: 20px 0;
+}
+
+.pta-leader-section {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 30px;
+}
+
+.pta-leader-section .pta-role-item {
+    max-width: 280px;
+    min-width: 250px;
+    text-align: center;
+}
+
+.pta-leader-section .pta-role-item.pta-leader-card {
+    border-top: 4px solid #007cba;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.pta-leader-section .pta-role-photo {
+    margin: 0 auto 15px auto;
+}
+
+.pta-leader-section .pta-role-photo img.pta-user-avatar {
+    border-width: 4px;
+}
+
+.pta-leader-section .pta-role-photo.pta-photo-placeholder {
+    margin: 0 auto 15px auto;
+}
+
+.pta-leader-section .pta-role-name {
+    font-size: 20px;
+    margin-bottom: 8px;
+}
+
+.pta-leader-section .pta-role-assigned-names {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.pta-leader-section .pta-role-status {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-top: 15px;
+    display: inline-block;
+}
+
+/* Roles Directory */
+.pta-roles-directory {
+    display: grid;
+    gap: 20px;
+    margin: 20px 0;
+}
+
+.pta-roles-directory.pta-layout-grid[data-columns="1"] { grid-template-columns: 1fr; }
+.pta-roles-directory.pta-layout-grid[data-columns="2"] { grid-template-columns: repeat(2, 1fr); }
+.pta-roles-directory.pta-layout-grid[data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
+.pta-roles-directory.pta-layout-grid[data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
+.pta-roles-directory.pta-layout-grid[data-columns="5"] { grid-template-columns: repeat(5, 1fr); }
+.pta-roles-directory.pta-layout-grid[data-columns="6"] { grid-template-columns: repeat(6, 1fr); }
+
+/* Team Members Inspired Card Layout */
+.pta-roles-directory.pta-layout-team-cards {
+    display: grid;
+    gap: 20px;
+    margin: 30px 0;
+}
+
+.pta-roles-directory.pta-layout-team-cards[data-columns="1"] { grid-template-columns: 1fr; }
+.pta-roles-directory.pta-layout-team-cards[data-columns="2"] { grid-template-columns: repeat(2, 1fr); }
+.pta-roles-directory.pta-layout-team-cards[data-columns="3"] { grid-template-columns: repeat(3, 1fr); }
+.pta-roles-directory.pta-layout-team-cards[data-columns="4"] { grid-template-columns: repeat(4, 1fr); }
+.pta-roles-directory.pta-layout-team-cards[data-columns="5"] { grid-template-columns: repeat(5, 1fr); }
+
+.pta-roles-directory.pta-layout-list {
+    display: block;
+}
+
+.pta-role-item {
+    background: #fff;
+    border: 1px solid #e1e1e1;
+    border-radius: 8px;
+    padding: 20px;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+/* Team Members Inspired Card Styles */
+.pta-layout-team-cards .pta-role-item {
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 0;
+    text-align: center;
+    position: relative;
+    margin-top: 80px;
+    box-shadow: 3px 0px 5px 0px rgba(0,0,0,0.04);
+    border-top: 5px solid #007cba;
+    border-bottom: 5px solid whitesmoke;
+    border-left: solid 1px #eee;
+    border-right: solid 1px #eee;
+    box-sizing: border-box;
+    transition: all 0.3s ease;
+}
+
+.pta-role-item:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.pta-role-item.pta-status-filled {
+    border-left: 4px solid #28a745;
+}
+
+.pta-role-item.pta-status-partial {
+    border-left: 4px solid #ffc107;
+}
+
+.pta-role-item.pta-status-open {
+    border-left: 4px solid #dc3545;
+}
+
+/* Team Cards Status Colors */
+.pta-layout-team-cards .pta-role-item.pta-status-filled {
+    border-top-color: #28a745;
+}
+
+.pta-layout-team-cards .pta-role-item.pta-status-partial {
+    border-top-color: #ffc107;
+}
+
+.pta-layout-team-cards .pta-role-item.pta-status-open {
+    border-top-color: #dc3545;
+}
+
+/* Avatar/Photo Styles */
+.pta-role-avatar {
+    margin-left: auto;
+    margin-right: auto;
+    background-size: cover !important;
+    background-position: center center !important;
+    width: 60%;
+    padding-bottom: 60%;
+    border: none;
+    box-shadow: 2px 0px 1px 0px rgba(0,0,0,0.05);
+    border-radius: 50% !important;
+    margin-top: -30%;
+    border: 6px solid #eeeeee;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.pta-layout-team-cards[data-columns="1"] .pta-role-avatar {
+    width: 35%;
+    padding-bottom: 35%;
+    margin-top: -18%;
+}
+
+.pta-layout-team-cards[data-columns="2"] .pta-role-avatar {
+    width: 50%;
+    padding-bottom: 50%;
+    margin-top: -25%;
+}
+
+/* Text Block Styles for Team Cards */
+.pta-layout-team-cards .pta-role-textblock {
+    padding: 10px 15px 20px 15px;
+}
+
+.pta-layout-team-cards .pta-role-name {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 24px;
+    margin: 15px 0 8px 0;
+    color: #222;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+.pta-layout-team-cards .pta-role-department {
+    font-size: 14px;
+    color: #888;
+    margin-bottom: 10px;
+    font-weight: 400;
+}
+
+.pta-layout-team-cards .pta-role-description {
+    padding: 0;
+    margin: 15px 0 10px 0;
+    font-weight: 400;
+    font-size: 13px;
+    line-height: 20px;
+    color: #555;
+}
+
+.pta-layout-team-cards .pta-role-count {
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #6c757d;
+    margin-bottom: 8px;
+    display: inline-block;
+}
+
+.pta-role-name {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.pta-role-count {
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 10px;
+    display: inline-block;
+}
+
+.pta-role-description {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 10px;
+    line-height: 1.4;
+}
+
+.pta-role-department {
+    color: #007cba;
+    font-size: 13px;
+    margin-bottom: 5px;
+}
+
+.pta-role-status {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.pta-role-status.pta-status-filled {
+    background: #d4edda;
+    color: #155724;
+}
+
+.pta-role-status.pta-status-partial {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.pta-role-status.pta-status-open {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* User Photo Styles */
+.pta-role-photo {
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+.pta-role-photo img.pta-user-avatar {
+    border-radius: 50%;
+    border: 3px solid #e1e1e1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pta-role-photo.pta-photo-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    margin: 0 auto 15px auto;
+}
+
+.pta-role-photo .pta-initials {
+    color: #fff;
+    font-size: 24px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.pta-role-assigned-names {
+    font-size: 14px;
+    color: #555;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+/* Assignments list with photos */
+.pta-assignments-list.with-photos {
+    padding-left: 0;
+}
+
+.pta-assignments-list.with-photos .pta-assignment-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-left: none;
+    padding: 10px 15px;
+}
+
+.pta-assignment-photo img {
+    border-radius: 50%;
+    border: 2px solid #e1e1e1;
+}
+
+.pta-assignment-name {
+    font-weight: 500;
+    color: #333;
+}
+
+.pta-assignment-email {
+    color: #666;
+    font-size: 13px;
+}
+
+.pta-assignment-email a {
+    color: #007cba;
+    text-decoration: none;
+}
+
+.pta-assignment-email a:hover {
+    text-decoration: underline;
+}
+
+/* Role Card */
+.pta-role-card {
+    background: #fff;
+    border: 1px solid #e1e1e1;
+    border-radius: 8px;
+    padding: 25px;
+    max-width: 400px;
+    margin: 20px 0;
+}
+
+.pta-role-card .pta-role-photo {
+    margin-bottom: 20px;
+}
+
+.pta-role-card .pta-role-photo img.pta-user-avatar {
+    width: 100px;
+    height: 100px;
+}
+
+.pta-role-card .pta-role-photo.pta-photo-placeholder {
+    width: 100px;
+    height: 100px;
+}
+
+.pta-role-title {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.pta-role-card .pta-role-department {
+    color: #007cba;
+    font-size: 14px;
+    margin-bottom: 15px;
+    font-weight: 500;
+}
+
+.pta-role-card .pta-role-description {
+    margin-bottom: 15px;
+    line-height: 1.5;
+}
+
+.pta-role-assignments {
+    border-top: 1px solid #e1e1e1;
+    padding-top: 15px;
+    margin-top: 15px;
+}
+
+.pta-role-assignments h5 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pta-role-assignments ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.pta-role-assignments li {
+    margin-bottom: 5px;
+    color: #666;
+}
+
+/* Department Roles */
+.pta-department-roles {
+    margin: 20px 0;
+}
+
+.pta-department-roles h3 {
+    color: #333;
+    border-bottom: 2px solid #007cba;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+.pta-department-vp {
+    color: #666;
+    margin-bottom: 20px;
+    padding: 10px 15px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+/* Department VP Card */
+.pta-department-vp-card {
+    background: #fff;
+    border: 1px solid #e1e1e1;
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 300px;
+    text-align: center;
+    margin: 20px 0;
+}
+
+.pta-department-vp-card h4 {
+    margin: 0 0 15px 0;
+    color: #007cba;
+    font-size: 16px;
+}
+
+.pta-vp-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.pta-vp-email a {
+    color: #007cba;
+    text-decoration: none;
+}
+
+.pta-vp-email a:hover {
+    text-decoration: underline;
+}
+
+/* Open Positions */
+.pta-open-positions {
+    margin: 20px 0;
+}
+
+.pta-open-positions h3 {
+    color: #333;
+    margin-bottom: 20px;
+    font-size: 22px;
+}
+
+.pta-positions-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.pta-position-item {
+    background: #fff;
+    border: 1px solid #e1e1e1;
+    border-left: 4px solid #dc3545;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 10px;
+}
+
+.pta-department {
+    color: #666;
+    font-size: 14px;
+    font-weight: normal;
+}
+
+.pta-open-count {
+    background: #dc3545;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin-left: 10px;
+}
+
+.pta-position-description {
+    color: #666;
+    font-size: 14px;
+    margin-top: 8px;
+    line-height: 1.4;
+}
+
+/* User Roles */
+.pta-user-roles {
+    margin: 20px 0;
+}
+
+.pta-assignments-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.pta-assignment-item {
+    background: #fff;
+    border: 1px solid #e1e1e1;
+    border-left: 4px solid #28a745;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 10px;
+}
+
+.pta-assignment-description {
+    color: #666;
+    font-size: 14px;
+    margin-top: 8px;
+    line-height: 1.4;
+}
+
+/* Org Chart */
+.pta-org-chart-container {
+    margin: 20px 0;
+    background: #fff;
+    border: 1px solid #e1e1e1;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.pta-org-chart {
+    width: 100%;
+    min-height: 400px;
+}
+
+/* Error Messages */
+.pta-error {
+    color: #721c24;
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin: 20px 0;
+}
+
+.pta-no-roles,
+.pta-no-vp,
+.pta-no-openings,
+.pta-no-assignments {
+    color: #856404;
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin: 20px 0;
+}
+
+/* Contact Links for Team Cards */
+.pta-role-contacts {
+    padding-top: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.pta-role-contact-link {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #007cba;
+    color: white;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transition: opacity 0.3s ease;
+}
+
+.pta-role-contact-link:hover {
+    opacity: 0.8;
+    color: white;
+    text-decoration: none;
+}
+
+.pta-layout-team-cards[data-columns="4"] .pta-role-contact-link,
+.pta-layout-team-cards[data-columns="5"] .pta-role-contact-link {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+}
+
+/* Status Badge for Team Cards */
+.pta-layout-team-cards .pta-role-status {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .pta-roles-directory.pta-layout-grid {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .pta-roles-directory.pta-layout-team-cards {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 15px;
+    }
+    
+    .pta-layout-team-cards .pta-role-item {
+        margin-top: 60px;
+    }
+    
+    .pta-layout-team-cards .pta-role-avatar {
+        width: 50% !important;
+        padding-bottom: 50% !important;
+        margin-top: -25% !important;
+    }
+    
+    .pta-role-item {
+        padding: 15px;
+    }
+    
+    .pta-role-name {
+        font-size: 16px;
+    }
+    
+    .pta-role-status {
+        position: relative;
+        top: auto;
+        right: auto;
+        margin-top: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .pta-roles-directory.pta-layout-team-cards {
+        grid-template-columns: 1fr !important;
+        gap: 20px;
+    }
+    
+    .pta-layout-team-cards .pta-role-item {
+        margin: 80px 2% 25px 2%;
+        width: 96%;
+    }
+    
+    .pta-layout-team-cards .pta-role-avatar {
+        width: 45% !important;
+        padding-bottom: 45% !important;
+        margin-top: -24% !important;
+    }
+    
+    .pta-layout-team-cards .pta-role-description {
+        padding: 0 10px;
+        font-size: 14px;
+        line-height: 22px;
+    }
+    
+    .pta-role-card,
+    .pta-department-vp-card {
+        padding: 15px;
+    }
+    
+    .pta-role-title {
+        font-size: 20px;
+    }
+}
+
+/* Role email link */
+.pta-role-email {
+    margin-top: 4px;
+    font-size: 13px;
+}
+
+.pta-role-email a {
+    color: #0073aa;
+    text-decoration: none;
+}
+
+.pta-role-email a:hover {
+    text-decoration: underline;
+}
+
+/* Signup button on role cards */
+.pta-signup-btn {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 6px 16px;
+    background: #0073aa;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.pta-signup-btn:hover {
+    background: #005a87;
+}
+
+/* Signup modal overlay */
+.pta-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 99999;
+    overflow-y: auto;
+}
+
+.pta-modal-content {
+    position: relative;
+    max-width: 640px;
+    margin: 60px auto;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    animation: ptaModalFadeIn 0.2s ease-out;
+}
+
+@keyframes ptaModalFadeIn {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.pta-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.pta-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.pta-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    line-height: 1;
+    padding: 0 4px;
+}
+
+.pta-modal-close:hover {
+    color: #333;
+}
+
+.pta-modal-body {
+    padding: 24px;
+}
+
+
+
+
+
+
+
+
+
+

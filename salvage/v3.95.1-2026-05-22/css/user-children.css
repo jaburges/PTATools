@@ -1,0 +1,325 @@
+/* ── My Account: Profile + My Children page ─────────────────── */
+
+.azure-my-children-page {
+    max-width: 760px;
+}
+
+.azure-uc-section + .azure-uc-section {
+    border-top: 1px solid #eee;
+    padding-top: 24px;
+}
+
+.azure-uc-profile-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0 0 14px;
+}
+
+.azure-uc-profile-row label {
+    font-weight: 600;
+    font-size: 13px;
+    color: #444;
+}
+
+.azure-uc-profile-row input[type="text"],
+.azure-uc-profile-row input[type="email"],
+.azure-uc-profile-row input[type="tel"],
+.azure-uc-profile-row input[type="number"],
+.azure-uc-profile-row textarea,
+.azure-uc-profile-row select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+/* Narrower fields for single-column rows like family + emergency contact */
+.azure-uc-profile-row--narrow input[type="text"],
+.azure-uc-profile-row--narrow input[type="email"],
+.azure-uc-profile-row--narrow input[type="tel"],
+.azure-uc-profile-row--narrow input[type="number"],
+.azure-uc-profile-row--narrow select {
+    max-width: 320px;
+}
+
+/* Two-column grid pairing Parent 1 / Parent 2 fields side-by-side */
+.azure-uc-parent-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 18px;
+    margin-bottom: 8px;
+}
+
+.azure-uc-parent-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+}
+
+.azure-uc-parent-empty {
+    /* Reserve the grid slot when only one of Parent 1 / Parent 2 exists */
+}
+
+@media (max-width: 600px) {
+    .azure-uc-parent-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Three-column grid for Emergency Contact (Name | Email | Cell) */
+.azure-uc-family-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px 18px;
+    margin-bottom: 8px;
+}
+
+.azure-uc-family-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+}
+
+.azure-uc-family-cell input,
+.azure-uc-family-cell select,
+.azure-uc-family-cell textarea {
+    width: 100%;
+    max-width: none;
+}
+
+@media (max-width: 720px) {
+    .azure-uc-family-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.azure-uc-empty {
+    color: #666;
+    padding: 20px;
+    text-align: center;
+    background: #f9f9f9;
+    border-radius: 6px;
+}
+
+.azure-uc-children-header {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+/* Override theme button defaults aggressively — many WP themes apply
+   block-level button styles (`width:100%; padding:12px 24px;`) that hijack
+   anything with class="button". We use a plain element + scoped reset. */
+.azure-uc-add-child,
+button.azure-uc-add-child {
+    -webkit-appearance: none;
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    border: 1px solid #2271b1;
+    background: #2271b1;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: none;
+    transition: background 0.15s;
+}
+
+.azure-uc-add-child:hover,
+button.azure-uc-add-child:hover {
+    background: #135e96;
+    color: #fff;
+}
+
+.azure-uc-child-card {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    overflow: hidden;
+}
+
+.azure-uc-child-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f7f7f7;
+}
+
+.azure-uc-child-card.is-expanded .azure-uc-child-header {
+    border-bottom: 1px solid #eee;
+}
+
+.azure-uc-child-name {
+    flex: 1;
+}
+
+.azure-uc-toggle,
+button.azure-uc-toggle {
+    -webkit-appearance: none;
+    appearance: none;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    color: #555;
+    line-height: 1;
+    box-shadow: none;
+}
+
+.azure-uc-toggle-icon {
+    display: inline-block;
+    transition: transform 0.15s;
+    font-size: 12px;
+}
+
+.azure-uc-child-card.is-expanded .azure-uc-toggle-icon {
+    transform: rotate(90deg);
+}
+
+.azure-uc-child-actions a {
+    margin-left: 12px;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.azure-uc-child-meta {
+    padding: 12px 16px;
+}
+
+.azure-uc-meta-row {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 14px;
+    border-bottom: 1px solid #f5f5f5;
+}
+
+.azure-uc-meta-row:last-child {
+    border-bottom: none;
+}
+
+.azure-uc-meta-label {
+    font-weight: 600;
+    min-width: 160px;
+    color: #555;
+}
+
+.azure-uc-meta-value {
+    color: #333;
+}
+
+/* ── Modal ────────────────────────────────────────────────── */
+
+#azure-uc-child-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.azure-uc-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.azure-uc-modal-content {
+    position: relative;
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.azure-uc-modal-content h3 {
+    margin: 0 0 16px 0;
+}
+
+.azure-uc-modal-content label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+
+.azure-uc-modal-content input[type="text"],
+.azure-uc-modal-content input[type="email"],
+.azure-uc-modal-content input[type="tel"],
+.azure-uc-modal-content input[type="number"],
+.azure-uc-modal-content textarea,
+.azure-uc-modal-content select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.azure-uc-modal-content .required {
+    color: #e2401c;
+}
+
+.azure-uc-modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* ── Product Page: Child Selector ─────────────────────────── */
+
+.azure-pf-child-selector {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+.azure-pf-child-selector label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 14px;
+    color: #333;
+}
+
+.azure-pf-child-selector select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}

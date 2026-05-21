@@ -1,0 +1,435 @@
+/* Azure Plugin Email Frontend Styles */
+
+/* Contact Form Styles */
+.azure-contact-form {
+    max-width: 600px;
+    margin: 20px 0;
+    padding: 30px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.azure-contact-form .form-field {
+    margin-bottom: 20px;
+}
+
+.azure-contact-form label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+}
+
+.azure-contact-form .required {
+    color: #dc3232;
+    font-weight: bold;
+}
+
+.azure-contact-form input[type="text"],
+.azure-contact-form input[type="email"],
+.azure-contact-form input[type="tel"],
+.azure-contact-form textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.3s ease;
+    box-sizing: border-box;
+}
+
+.azure-contact-form input:focus,
+.azure-contact-form textarea:focus {
+    outline: none;
+    border-color: #0073aa;
+    box-shadow: 0 0 0 2px rgba(0, 115, 170, 0.2);
+}
+
+.azure-contact-form textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.azure-contact-form .azure-contact-submit {
+    background: #0073aa;
+    color: #fff;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    min-width: 140px;
+}
+
+.azure-contact-form .azure-contact-submit:hover {
+    background: #005a87;
+}
+
+.azure-contact-form .azure-contact-submit:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.azure-contact-form .form-messages {
+    margin-top: 20px;
+    padding: 0;
+}
+
+.azure-contact-form .form-message {
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+.azure-contact-form .form-message.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.azure-contact-form .form-message.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.azure-contact-form .form-message.loading {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+/* Email Status Styles */
+.azure-email-status {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.azure-email-status h4 {
+    margin-top: 0;
+    color: #495057;
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 10px;
+}
+
+.azure-email-status p {
+    margin: 10px 0;
+    color: #6c757d;
+}
+
+.azure-email-status strong {
+    color: #343a40;
+}
+
+.email-queue-stats {
+    margin: 15px 0;
+}
+
+.email-queue-stats ul {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0;
+}
+
+.email-queue-stats li {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+}
+
+.email-queue-stats li:last-child {
+    border-bottom: none;
+}
+
+/* Email Queue Styles */
+.azure-email-queue {
+    margin: 20px 0;
+}
+
+.azure-email-queue-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.azure-email-queue-table th,
+.azure-email-queue-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.azure-email-queue-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #495057;
+}
+
+.azure-email-queue-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.azure-email-queue-table .status-pending {
+    background: #fff3cd;
+    color: #856404;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.azure-email-queue-table .status-sent {
+    background: #d4edda;
+    color: #155724;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.azure-email-queue-table .status-failed {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* Error Messages */
+.azure-email-error {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 15px;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    margin: 20px 0;
+}
+
+/* Loading Spinner */
+.azure-email-loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ddd;
+    border-radius: 50%;
+    border-top-color: #0073aa;
+    animation: azure-email-spin 1s linear infinite;
+    margin-right: 8px;
+}
+
+@keyframes azure-email-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .azure-contact-form {
+        padding: 20px;
+        margin: 10px 0;
+    }
+    
+    .azure-email-queue-table {
+        font-size: 14px;
+    }
+    
+    .azure-email-queue-table th,
+    .azure-email-queue-table td {
+        padding: 8px;
+    }
+    
+    .azure-email-queue-table {
+        overflow-x: auto;
+        display: block;
+        white-space: nowrap;
+    }
+    
+    .azure-email-queue-table thead,
+    .azure-email-queue-table tbody,
+    .azure-email-queue-table tr,
+    .azure-email-queue-table td,
+    .azure-email-queue-table th {
+        display: block;
+    }
+    
+    .azure-email-queue-table thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+    
+    .azure-email-queue-table tr {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        padding: 10px;
+        background: #fff;
+    }
+    
+    .azure-email-queue-table td {
+        border: none;
+        position: relative;
+        padding-left: 50%;
+        padding-top: 8px;
+        padding-bottom: 8px;
+    }
+    
+    .azure-email-queue-table td:before {
+        content: attr(data-label) ": ";
+        position: absolute;
+        left: 6px;
+        width: 45%;
+        padding-right: 10px;
+        white-space: nowrap;
+        font-weight: bold;
+        color: #333;
+    }
+}
+
+@media (max-width: 480px) {
+    .azure-contact-form {
+        padding: 15px;
+        border-radius: 4px;
+    }
+    
+    .azure-contact-form input,
+    .azure-contact-form textarea {
+        padding: 10px;
+        font-size: 16px; /* Prevent zoom on iOS */
+    }
+    
+    .azure-contact-form .azure-contact-submit {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+    }
+    
+    .azure-email-status {
+        padding: 15px;
+        margin: 10px 0;
+    }
+}
+
+/* Print Styles */
+@media print {
+    .azure-contact-form,
+    .azure-email-status,
+    .azure-email-queue {
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+    
+    .azure-contact-form .azure-contact-submit {
+        display: none;
+    }
+    
+    .azure-email-queue-table {
+        font-size: 12px;
+    }
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+    .azure-contact-form {
+        border: 2px solid #000;
+    }
+    
+    .azure-contact-form input,
+    .azure-contact-form textarea {
+        border: 2px solid #000;
+    }
+    
+    .azure-contact-form input:focus,
+    .azure-contact-form textarea:focus {
+        border-color: #00f;
+        box-shadow: 0 0 0 2px #00f;
+    }
+    
+    .azure-contact-form .azure-contact-submit {
+        border: 2px solid #000;
+    }
+    
+    .azure-email-error {
+        border: 2px solid #d00;
+        background: #fee;
+    }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    .azure-contact-form {
+        background: #2c3e50;
+        border-color: #4a5f7a;
+        color: #ecf0f1;
+    }
+    
+    .azure-contact-form label {
+        color: #ecf0f1;
+    }
+    
+    .azure-contact-form input,
+    .azure-contact-form textarea {
+        background: #34495e;
+        border-color: #4a5f7a;
+        color: #ecf0f1;
+    }
+    
+    .azure-contact-form input:focus,
+    .azure-contact-form textarea:focus {
+        border-color: #3498db;
+        box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+    }
+    
+    .azure-email-status {
+        background: #34495e;
+        border-color: #4a5f7a;
+        color: #ecf0f1;
+    }
+    
+    .azure-email-queue-table {
+        background: #2c3e50;
+        border-color: #4a5f7a;
+        color: #ecf0f1;
+    }
+    
+    .azure-email-queue-table th {
+        background: #34495e;
+        color: #ecf0f1;
+    }
+    
+    .azure-email-queue-table tbody tr:hover {
+        background: #3a526b;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
