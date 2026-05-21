@@ -14,6 +14,9 @@ if (!defined('ABSPATH')) {
 class Azure_Upcoming_Module {
     
     private static $instance = null;
+    private const CACHE_VERSION_OPTION = 'azure_up_next_cache_version';
+    /** Bump when query/render logic changes so stale transients are ignored. */
+    private const CACHE_SCHEMA = '4';
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -44,6 +47,14 @@ class Azure_Upcoming_Module {
             array(),
             AZURE_PLUGIN_VERSION
         );
+        if (class_exists('Azure_Event_CPT') && file_exists(AZURE_PLUGIN_PATH . 'css/pta-event-shared.css')) {
+            wp_enqueue_style(
+                'pta-event-shared',
+                AZURE_PLUGIN_URL . 'css/pta-event-shared.css',
+                array(),
+                AZURE_PLUGIN_VERSION
+            );
+        }
     }
     
     /**
@@ -53,8 +64,13 @@ class Azure_Upcoming_Module {
      * @return string HTML output
      */
     public function render_upcoming_shortcode($atts) {
-        // Check if TEC is active
-        if (!class_exists('Tribe__Events__Main')) {
+        // Phase 4 source routing: when pta_calendar_data_source is 'pta'
+        // we read from pta_event posts and don't need TEC at all. Only
+        // require TEC when we're still reading from tribe_events.
+        $tec_required = !class_exists('Azure_Event_CPT')
+            ? true
+            : Azure_Event_CPT::tec_required();
+        if ($tec_required && !class_exists('Tribe__Events__Main')) {
             return '<p class="upcoming-error">' . __('The Events Calendar plugin is required for this shortcode.', 'azure-plugin') . '</p>';
         }
         
@@ -67,7 +83,12 @@ class Azure_Upcoming_Module {
             'week-start'          => 'monday',
             'show-time'           => 'true',
             'link-titles'         => 'true',
+            'show-join-meeting'   => 'true',
             'show-empty'          => 'true',
+            'show-coming-up'      => 'true',
+            'coming-up-days'      => '30',
+            'coming-up-title'     => __('Coming up', 'azure-plugin'),
+            'cache'               => 'true',
             'empty-message'       => __('No upcoming events.', 'azure-plugin'),
             'this-week-title'     => __('This Week', 'azure-plugin'),
             'next-week-title'     => __('Next Week', 'azure-plugin'),
@@ -78,7 +99,11 @@ class Azure_Upcoming_Module {
         $show_next_week = filter_var($atts['next-week'], FILTER_VALIDATE_BOOLEAN);
         $show_time = filter_var($atts['show-time'], FILTER_VALIDATE_BOOLEAN);
         $link_titles = filter_var($atts['link-titles'], FILTER_VALIDATE_BOOLEAN);
+        $show_join_meeting = filter_var($atts['show-join-meeting'], FILTER_VALIDATE_BOOLEAN);
         $show_empty = filter_var($atts['show-empty'], FILTER_VALIDATE_BOOLEAN);
+        $show_coming_up = filter_var($atts['show-coming-up'], FILTER_VALIDATE_BOOLEAN);
+        $use_cache = filter_var($atts['cache'], FILTER_VALIDATE_BOOLEAN);
+        $coming_up_days = max(7, min(90, (int) $atts['coming-up-days']));
         $columns = intval($atts['columns']);
         if ($columns < 1) $columns = 1;
         if ($columns > 3) $columns = 3;
@@ -101,14 +126,43 @@ class Azure_Upcoming_Module {
         $current_week_start = clone $today;
         $current_week_start->modify("-{$days_since_start} days");
         $current_week_start->setTime(0, 0, 0);
-        
+
+        // Inclusive end-of-day on the 7th day of each week so evening events
+        // on the last day (e.g. Sunday 6pm) are not clipped by a midnight
+        // exclusive upper bound.
         $current_week_end = clone $current_week_start;
-        $current_week_end->modify('+7 days');
-        
-        $next_week_start = clone $current_week_end;
+        $current_week_end->modify('+6 days');
+        $current_week_end->setTime(23, 59, 59);
+
+        $next_week_start = clone $current_week_start;
+        $next_week_start->modify('+7 days');
+        $next_week_start->setTime(0, 0, 0);
+
         $next_week_end = clone $next_week_start;
-        $next_week_end->modify('+7 days');
+        $next_week_end->modify('+6 days');
+        $next_week_end->setTime(23, 59, 59);
+
+        $coming_up_start = clone $today;
+        $coming_up_start->setTime(0, 0, 0);
+        $coming_up_end = clone $today;
+        $coming_up_end->modify('+' . $coming_up_days . ' days');
+        $coming_up_end->setTime(23, 59, 59);
+
+        $cache_key = $this->get_cache_key($atts, $current_week_start, $coming_up_end);
+        if ($use_cache) {
+            $cached = get_transient($cache_key);
+            if (is_string($cached)) {
+                return $cached;
+            }
+        }
         
+        $list_options = array(
+            'show_time'         => $show_time,
+            'link_titles'       => $link_titles,
+            'show_join_meeting' => $show_join_meeting,
+            'empty_message'     => $atts['empty-message'],
+        );
+
         // Build output
         $output = '<div class="upcoming-events upcoming-columns-' . esc_attr($columns) . '">';
         
@@ -120,9 +174,11 @@ class Azure_Upcoming_Module {
             if (!empty($current_week_events) || $show_empty) {
                 $output .= '<div class="upcoming-week upcoming-current-week">';
                 $output .= '<h3>' . esc_html($atts['this-week-title']) . '</h3>';
-                $output .= $this->render_events_list($current_week_events, $show_time, $link_titles, $atts['empty-message']);
+                $output .= $this->render_events_list($current_week_events, $list_options);
                 $output .= '</div>';
-                if (!empty($current_week_events)) $has_events = true;
+                if (!empty($current_week_events)) {
+                    $has_events = true;
+                }
             }
         }
         
@@ -132,20 +188,101 @@ class Azure_Upcoming_Module {
             if (!empty($next_week_events) || $show_empty) {
                 $output .= '<div class="upcoming-week upcoming-next-week">';
                 $output .= '<h3>' . esc_html($atts['next-week-title']) . '</h3>';
-                $output .= $this->render_events_list($next_week_events, $show_time, $link_titles, $atts['empty-message']);
+                $output .= $this->render_events_list($next_week_events, $list_options);
                 $output .= '</div>';
-                if (!empty($next_week_events)) $has_events = true;
+                if (!empty($next_week_events)) {
+                    $has_events = true;
+                }
+            }
+        }
+
+        // When this/next week are empty, show the next N days (e.g. June events while still in May).
+        if (!$has_events && $show_coming_up) {
+            $coming_events = $this->get_events_in_range($coming_up_start, $coming_up_end, $exclude_categories);
+            if (!empty($coming_events)) {
+                $output .= '<div class="upcoming-week upcoming-coming-up">';
+                $output .= '<h3>' . esc_html($atts['coming-up-title']) . '</h3>';
+                $output .= $this->render_events_list($coming_events, $list_options);
+                $output .= '</div>';
+                $has_events = true;
             }
         }
         
         // If no events at all and not showing empty message
         if (!$has_events && !$show_empty) {
+            if ($use_cache) {
+                set_transient($cache_key, '', $this->get_cache_ttl($current_week_end));
+            }
             return '';
         }
         
         $output .= '</div>';
+
+        if ($use_cache) {
+            set_transient($cache_key, $output, $this->get_cache_ttl($current_week_end));
+        }
         
         return $output;
+    }
+
+    /**
+     * Build a stable transient key for this shortcode output.
+     *
+     * The key includes shortcode attributes, current/next week range, plugin
+     * version, and a lightweight cache-version option that gets bumped when
+     * TEC events are edited. That gives us weekly caching without needing a
+     * custom database table or duplicate event data.
+     *
+     * @param array $atts Normalized shortcode attributes.
+     * @param DateTime $current_week_start Current week start.
+     * @param DateTime $next_week_end End of next week.
+     * @return string
+     */
+    private function get_cache_key($atts, $current_week_start, $next_week_end) {
+        ksort($atts);
+        $version = get_option(self::CACHE_VERSION_OPTION, '1');
+        // Including the data-source flag in the cache key means a
+        // flip from `tribe` to `pta` (or back) automatically falls
+        // through to a fresh query without needing an explicit
+        // invalidate_cache() bump on every flag change.
+        $data_source = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::get_data_source()
+            : 'tribe';
+        $parts = array(
+            'atts' => $atts,
+            'range' => array(
+                $current_week_start->format('Y-m-d'),
+                $next_week_end->format('Y-m-d'),
+            ),
+            'version'     => $version,
+            'plugin'      => defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : 'unknown',
+            'data_source' => $data_source,
+            'schema'      => self::CACHE_SCHEMA,
+        );
+
+        return 'azure_up_next_' . md5(wp_json_encode($parts));
+    }
+
+    /**
+     * Cache until the next week boundary, with a one-hour safety floor.
+     *
+     * @param DateTime $current_week_end Boundary where the shortcode result changes.
+     * @return int TTL in seconds.
+     */
+    private function get_cache_ttl($current_week_end) {
+        $seconds = $current_week_end->getTimestamp() - current_time('timestamp') + (10 * MINUTE_IN_SECONDS);
+        return max(HOUR_IN_SECONDS, (int) $seconds);
+    }
+
+    /**
+     * Invalidate cached [up-next] output.
+     *
+     * This intentionally bumps a version option instead of scanning/deleting
+     * transient rows by prefix. On Redis-backed sites this is one option write;
+     * old transient keys naturally expire on their weekly TTL.
+     */
+    public static function invalidate_cache() {
+        update_option(self::CACHE_VERSION_OPTION, (string) time(), false);
     }
     
     /**
@@ -156,15 +293,26 @@ class Azure_Upcoming_Module {
      * @param array $exclude_categories Categories to exclude
      * @return array Array of event objects
      */
-    private function get_events_in_range($start, $end, $exclude_categories = array()) {
+    private function get_events_in_range($start, $end, $exclude_categories = array(), $future_only = false) {
+        // Phase 4 source routing: post type and taxonomy come from the
+        // Azure_Event_CPT helper, which honours pta_calendar_data_source.
+        $post_type = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::query_post_type()
+            : 'tribe_events';
+        $taxonomy  = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::query_taxonomy()
+            : 'tribe_events_cat';
+
         $args = array(
-            'post_type'      => 'tribe_events',
+            'post_type'      => $post_type,
             'post_status'    => 'publish',
             'posts_per_page' => 100,
             'orderby'        => 'meta_value',
             'order'          => 'ASC',
             'meta_key'       => '_EventStartDate',
+            'meta_type'      => 'DATETIME',
             'meta_query'     => array(
+                'relation' => 'AND',
                 array(
                     'key'     => '_EventStartDate',
                     'value'   => $start->format('Y-m-d H:i:s'),
@@ -174,24 +322,24 @@ class Azure_Upcoming_Module {
                 array(
                     'key'     => '_EventStartDate',
                     'value'   => $end->format('Y-m-d H:i:s'),
-                    'compare' => '<',
+                    'compare' => '<=',
                     'type'    => 'DATETIME',
                 ),
             ),
         );
-        
+
         // Exclude categories if specified
         if (!empty($exclude_categories)) {
             $args['tax_query'] = array(
                 array(
-                    'taxonomy' => 'tribe_events_cat',
+                    'taxonomy' => $taxonomy,
                     'field'    => 'name',
                     'terms'    => $exclude_categories,
                     'operator' => 'NOT IN',
                 ),
             );
         }
-        
+
         $query = new WP_Query($args);
         $events = array();
         
@@ -199,6 +347,10 @@ class Azure_Upcoming_Module {
             while ($query->have_posts()) {
                 $query->the_post();
                 $event_id = get_the_ID();
+
+                if (get_post_meta($event_id, '_EventHideFromUpcoming', true) === 'yes') {
+                    continue;
+                }
                 
                 $events[] = array(
                     'id'         => $event_id,
@@ -207,9 +359,17 @@ class Azure_Upcoming_Module {
                     'start_date' => get_post_meta($event_id, '_EventStartDate', true),
                     'end_date'   => get_post_meta($event_id, '_EventEndDate', true),
                     'all_day'    => get_post_meta($event_id, '_EventAllDay', true) === 'yes',
+                    'online_url' => $this->get_online_meeting_url($event_id),
                 );
             }
             wp_reset_postdata();
+        }
+
+        if ($future_only && !empty($events)) {
+            $cutoff = (new DateTime('now', wp_timezone()))->getTimestamp();
+            $events = array_values(array_filter($events, function ($event) use ($cutoff) {
+                return !empty($event['start_date']) && strtotime($event['start_date']) >= $cutoff;
+            }));
         }
         
         // Sort by start date
@@ -219,17 +379,37 @@ class Azure_Upcoming_Module {
         
         return $events;
     }
+
+    /**
+     * Find the first online meeting URL in TEC location fields or event body.
+     *
+     * Outlook/Graph sync can store the meeting URL in either the location
+     * display name or the event body. TEC venues may also hold the link in the
+     * venue title/body/meta when an online meeting was represented as a venue.
+     *
+     * @param int $event_id TEC event post ID.
+     * @return string URL or empty string.
+     */
+    private function get_online_meeting_url($event_id) {
+        if (class_exists('Azure_Event_CPT')) {
+            return Azure_Event_CPT::extract_online_meeting_url($event_id);
+        }
+        return '';
+    }
     
     /**
      * Render a list of events
-     * 
-     * @param array $events Array of event data
-     * @param bool $show_time Whether to show event time
-     * @param bool $link_titles Whether to make titles clickable
-     * @param string $empty_message Message to show if no events
+     *
+     * @param array $events  Array of event data.
+     * @param array $options show_time, link_titles, show_join_meeting, empty_message.
      * @return string HTML output
      */
-    private function render_events_list($events, $show_time, $link_titles, $empty_message) {
+    private function render_events_list($events, $options) {
+        $show_time         = !empty($options['show_time']);
+        $link_titles       = !empty($options['link_titles']);
+        $show_join_meeting = !empty($options['show_join_meeting']);
+        $empty_message     = isset($options['empty_message']) ? $options['empty_message'] : __('No upcoming events.', 'azure-plugin');
+
         if (empty($events)) {
             return '<p class="upcoming-empty">' . esc_html($empty_message) . '</p>';
         }
@@ -257,6 +437,19 @@ class Azure_Upcoming_Module {
             } else {
                 $output .= '<span class="upcoming-title">' . esc_html($event['title']) . '</span>';
             }
+
+            if ($show_join_meeting && class_exists('Azure_Event_CPT')) {
+                $join_btn = Azure_Event_CPT::render_join_meeting_button((int) $event['id'], 'inline');
+                if ($join_btn !== '') {
+                    $output .= '<div class="upcoming-join-meeting">' . $join_btn . '</div>';
+                }
+            } elseif (!empty($event['online_url'])) {
+                $output .= '<div class="upcoming-online-meeting">';
+                $output .= '<a href="' . esc_url($event['online_url']) . '" target="_blank" rel="noopener noreferrer">';
+                $output .= esc_html__('Join online meeting', 'azure-plugin');
+                $output .= '</a>';
+                $output .= '</div>';
+            }
             
             $output .= '</li>';
         }
@@ -272,8 +465,11 @@ class Azure_Upcoming_Module {
      * @return array Array of category names
      */
     public static function get_tec_categories() {
+        $taxonomy = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::query_taxonomy()
+            : 'tribe_events_cat';
         $categories = get_terms(array(
-            'taxonomy'   => 'tribe_events_cat',
+            'taxonomy'   => $taxonomy,
             'hide_empty' => false,
         ));
         

@@ -22,11 +22,25 @@ class Azure_Donations_Module {
     }
 
     private function __construct() {
-        $this->ensure_tables();
-        $this->init_admin_hooks();
+        // Only run table existence + admin hook registration when this request
+        // could plausibly need them. On a front-end cart/checkout pageload we
+        // still need the frontend hooks (the donation widget, fee calculator,
+        // checkout record), but we never need the admin AJAX handlers and the
+        // SHOW TABLES query is wasted I/O.
+        $is_admin_like = (function_exists('is_admin') && is_admin())
+            || (function_exists('wp_doing_ajax') && wp_doing_ajax())
+            || (defined('DOING_AJAX') && DOING_AJAX)
+            || (defined('DOING_CRON') && DOING_CRON);
+
+        if ($is_admin_like) {
+            $this->ensure_tables();
+            $this->init_admin_hooks();
+        }
 
         if (!class_exists('WooCommerce')) {
-            add_action('admin_notices', array($this, 'woocommerce_missing_notice'));
+            if ($is_admin_like) {
+                add_action('admin_notices', array($this, 'woocommerce_missing_notice'));
+            }
             return;
         }
 
@@ -41,12 +55,23 @@ class Azure_Donations_Module {
         echo '<div class="notice notice-error"><p><strong>' . esc_html__('Donations Module:', 'azure-plugin') . '</strong> ' . esc_html__('WooCommerce is required.', 'azure-plugin') . '</p></div>';
     }
 
+    /**
+     * Verify the donation_campaigns table exists; create it on first miss.
+     *
+     * Caches the "exists" answer in a transient so the SHOW TABLES query
+     * runs at most once per 6 hours (or until activation explicitly resets
+     * the flag). Without this the query fires on every admin request.
+     */
     private function ensure_tables() {
+        if (get_transient('azure_donations_tables_ok')) {
+            return;
+        }
         global $wpdb;
         $table = Azure_Database::get_table_name('donation_campaigns');
         if ($table && $wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
             Azure_Database::create_tables();
         }
+        set_transient('azure_donations_tables_ok', 1, 6 * HOUR_IN_SECONDS);
     }
 
     private function init_admin_hooks() {

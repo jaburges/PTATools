@@ -7,6 +7,14 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Guard the CLASS declaration only — do NOT early-return from this file.
+// FLBuilder::register_module() at the bottom of this file must always run
+// when the file is required, otherwise BB never picks the module up. If
+// the class is already declared (e.g. an autoloader or another require_once
+// path beat us to it), we still need to call register_module so BB's
+// in-memory registry knows about the module for THIS request.
+if (!class_exists('PTAOrgChartModule') && class_exists('FLBuilderModule')) {
+
 /**
  * PTA Organization Chart Module for Beaver Builder
  */
@@ -169,8 +177,13 @@ class PTAOrgChartModule extends FLBuilderModule {
     }
 }
 
-// Register the module
-FLBuilder::register_module('PTAOrgChartModule', array(
+} // end if (!class_exists('PTAOrgChartModule') && class_exists('FLBuilderModule'))
+
+// Register the module — always call this when the file is required, even
+// if the class was already declared by another path. BB's $modules registry
+// is per-request so we must re-register on every load_modules() pass.
+if (class_exists('PTAOrgChartModule') && class_exists('FLBuilder')) {
+    FLBuilder::register_module('PTAOrgChartModule', array(
     'general' => array(
         'title' => __('General', 'azure-plugin'),
         'sections' => array(
@@ -212,3 +225,4 @@ FLBuilder::register_module('PTAOrgChartModule', array(
         )
     )
 ));
+}

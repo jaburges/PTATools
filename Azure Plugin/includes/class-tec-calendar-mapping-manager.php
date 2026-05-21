@@ -364,33 +364,62 @@ class Azure_TEC_Calendar_Mapping_Manager {
     }
     
     /**
-     * Ensure TEC category exists, create if it doesn't
+     * Ensure the event category exists, create if it doesn't.
+     *
+     * v3.91.12+: writes to whichever taxonomy is active for the current
+     * `pta_calendar_data_source` flag. Post-migration that's
+     * `pta_event_category`; pre-migration it's `tribe_events_cat`.
+     * Hard-coding `tribe_events_cat` (TEC-owned taxonomy) silently
+     * failed once TEC was deactivated, dropping every imported event's
+     * category on the floor.
      */
     public function ensure_tec_category_exists($category_name) {
-        // Check if term exists
-        $term = term_exists($category_name, 'tribe_events_cat');
-        
+        $taxonomy = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::query_taxonomy()
+            : 'tribe_events_cat';
+
+        // Defensive: if the chosen taxonomy isn't registered (e.g. TEC
+        // is gone AND Azure_Event_CPT hasn't bootstrapped), fall back
+        // to pta_event_category if THAT is registered. Don't try to
+        // write to a non-existent taxonomy — wp_insert_term will just
+        // return an "invalid_taxonomy" WP_Error.
+        if (!taxonomy_exists($taxonomy) && taxonomy_exists('pta_event_category')) {
+            $taxonomy = 'pta_event_category';
+        }
+        if (!taxonomy_exists($taxonomy)) {
+            Azure_Logger::error(
+                "TEC Calendar Mapping Manager: Neither '{$taxonomy}' nor 'pta_event_category' is registered — cannot create category '{$category_name}'",
+                'TEC'
+            );
+            return false;
+        }
+
+        // Check if term exists in the active taxonomy
+        $term = term_exists($category_name, $taxonomy);
+
         if ($term) {
-            // Term exists, return term_id
             if (is_array($term)) {
                 return $term['term_id'];
             }
             return $term;
         }
-        
+
         // Term doesn't exist, create it
-        $term = wp_insert_term($category_name, 'tribe_events_cat', array(
+        $term = wp_insert_term($category_name, $taxonomy, array(
             'description' => "Events synced from Outlook calendar: {$category_name}",
-            'slug' => sanitize_title($category_name)
+            'slug'        => sanitize_title($category_name),
         ));
-        
+
         if (is_wp_error($term)) {
-            Azure_Logger::error("TEC Calendar Mapping Manager: Failed to create TEC category '{$category_name}': " . $term->get_error_message(), 'TEC');
+            Azure_Logger::error(
+                "TEC Calendar Mapping Manager: Failed to create category '{$category_name}' in taxonomy '{$taxonomy}': " . $term->get_error_message(),
+                'TEC'
+            );
             return false;
         }
-        
-        Azure_Logger::info("TEC Calendar Mapping Manager: Created TEC category: {$category_name}", 'TEC');
-        
+
+        Azure_Logger::info("TEC Calendar Mapping Manager: Created category '{$category_name}' in taxonomy '{$taxonomy}'", 'TEC');
+
         return $term['term_id'];
     }
     

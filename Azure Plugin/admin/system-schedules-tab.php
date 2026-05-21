@@ -88,6 +88,11 @@ $plugin_crons = array(
         'module' => 'Tickets',
         'desc'   => 'Clean up expired ticket reservations',
     ),
+    array(
+        'hook'   => 'azure_auction_finalize_orphans',
+        'module' => 'Auction',
+        'desc'   => 'Daily safety-net: finalize ended auctions that missed their one-shot event',
+    ),
 );
 
 $all_crons = _get_cron_array();

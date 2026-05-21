@@ -120,14 +120,15 @@ class Azure_TEC_Integration_Ajax {
                 return;
             }
             
-            $state = wp_generate_password(32, false);
-            $auth_url = $auth->get_user_authorization_url($email, $state);
-            
+            // Use the canonical auth URL builder (includes timestamp + user-scoped nonce).
+            // Return user to the Calendar Sync tab after auth completes.
+            $auth_url = $auth->get_authorization_url_for_user($email, 'azure-plugin-calendar&tab=sync');
+
             if ($auth_url) {
                 Azure_Logger::info("TEC Integration AJAX: Generated auth URL for {$email}", 'TEC');
                 wp_send_json_success(array('auth_url' => $auth_url));
             } else {
-                Azure_Logger::error("TEC Integration AJAX: Failed to generate auth URL for {$email} - get_user_authorization_url returned false", 'TEC');
+                Azure_Logger::error("TEC Integration AJAX: Failed to generate auth URL for {$email} - get_authorization_url_for_user returned false", 'TEC');
                 wp_send_json_error('Failed to generate authorization URL. Check Azure credentials configuration.');
             }
         } catch (Exception $e) {
@@ -227,91 +228,111 @@ class Azure_TEC_Integration_Ajax {
     }
     
     /**
-     * Get TEC event categories
+     * Resolve which event-category taxonomy is currently active.
+     *
+     * v3.91.12+: when `pta_calendar_data_source` is 'pta', the
+     * destination taxonomy is `pta_event_category`. Otherwise (legacy
+     * TEC-active install) it's `tribe_events_cat`. Falls back to
+     * `pta_event_category` if the chosen taxonomy isn't registered.
+     */
+    private function active_event_taxonomy() {
+        $tax = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::query_taxonomy()
+            : 'tribe_events_cat';
+        if (!taxonomy_exists($tax) && taxonomy_exists('pta_event_category')) {
+            $tax = 'pta_event_category';
+        }
+        return $tax;
+    }
+
+    /**
+     * Get event categories (Outlook->event sync mapping dropdown).
      */
     public function ajax_get_tec_categories() {
         if (!check_ajax_referer('azure_plugin_nonce', 'nonce', false)) {
             wp_send_json_error('Invalid nonce');
             return;
         }
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
             return;
         }
-        
-        if (!class_exists('Tribe__Events__Main')) {
-            wp_send_json_error('The Events Calendar plugin not active');
+
+        $taxonomy = $this->active_event_taxonomy();
+        if (!taxonomy_exists($taxonomy)) {
+            wp_send_json_error('No event category taxonomy is registered. Activate The Events Calendar or the PTA Events module.');
             return;
         }
-        
+
         $categories = get_terms(array(
-            'taxonomy' => 'tribe_events_cat',
+            'taxonomy'   => $taxonomy,
             'hide_empty' => false,
-            'orderby' => 'name',
-            'order' => 'ASC'
+            'orderby'    => 'name',
+            'order'      => 'ASC',
         ));
-        
+
         if (is_wp_error($categories)) {
             Azure_Logger::error('TEC Integration AJAX: Failed to get categories: ' . $categories->get_error_message(), 'TEC');
             wp_send_json_error('Failed to retrieve categories');
             return;
         }
-        
+
         $formatted_categories = array();
         foreach ($categories as $category) {
             $formatted_categories[] = array(
                 'term_id' => $category->term_id,
-                'name' => $category->name,
-                'slug' => $category->slug,
-                'count' => $category->count
+                'name'    => $category->name,
+                'slug'    => $category->slug,
+                'count'   => $category->count,
             );
         }
-        
-        Azure_Logger::debug('TEC Integration AJAX: Retrieved ' . count($formatted_categories) . ' TEC categories', 'TEC');
+
+        Azure_Logger::debug("TEC Integration AJAX: Retrieved " . count($formatted_categories) . " categories from taxonomy '{$taxonomy}'", 'TEC');
         wp_send_json_success($formatted_categories);
     }
-    
+
     /**
-     * Create new TEC event category
+     * Create new event category.
      */
     public function ajax_create_tec_category() {
         if (!check_ajax_referer('azure_plugin_nonce', 'nonce', false)) {
             wp_send_json_error('Invalid nonce');
             return;
         }
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
             return;
         }
-        
-        if (!class_exists('Tribe__Events__Main')) {
-            wp_send_json_error('The Events Calendar plugin not active');
+
+        $taxonomy = $this->active_event_taxonomy();
+        if (!taxonomy_exists($taxonomy)) {
+            wp_send_json_error('No event category taxonomy is registered.');
             return;
         }
-        
+
         $category_name = sanitize_text_field($_POST['category_name'] ?? '');
-        
+
         if (empty($category_name)) {
             wp_send_json_error('Category name is required');
             return;
         }
-        
+
         // Check if category already exists
-        $existing = term_exists($category_name, 'tribe_events_cat');
+        $existing = term_exists($category_name, $taxonomy);
         if ($existing) {
-            Azure_Logger::info("TEC Integration AJAX: Category '{$category_name}' already exists", 'TEC');
+            Azure_Logger::info("TEC Integration AJAX: Category '{$category_name}' already exists in '{$taxonomy}'", 'TEC');
             wp_send_json_success(array(
-                'term_id' => $existing['term_id'],
-                'name' => $category_name,
-                'existed' => true
+                'term_id' => is_array($existing) ? $existing['term_id'] : $existing,
+                'name'    => $category_name,
+                'existed' => true,
             ));
             return;
         }
-        
+
         // Create new category
-        $result = wp_insert_term($category_name, 'tribe_events_cat');
+        $result = wp_insert_term($category_name, $taxonomy);
         
         if (is_wp_error($result)) {
             Azure_Logger::error("TEC Integration AJAX: Failed to create category '{$category_name}': " . $result->get_error_message(), 'TEC');

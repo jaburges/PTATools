@@ -54,9 +54,11 @@ class Azure_PTA_Manager {
         // Hooks for user sync
         add_action('pta_user_assignment_changed', array($this, 'trigger_user_sync'), 10, 3);
         add_action('pta_department_vp_changed', array($this, 'trigger_department_sync'), 10, 2);
-        
-        // Schedule cleanup
-        add_action('init', array($this, 'schedule_cleanup'));
+
+        // Daily cleanup handler. The schedule_event call lives in
+        // Azure_PTA_Cron::ensure_events_scheduled() and runs once per backend
+        // request; this only needs the action handler bound for when WP-Cron
+        // fires the event.
         add_action('pta_daily_cleanup', array($this, 'daily_cleanup'));
     }
     
@@ -649,15 +651,6 @@ class Azure_PTA_Manager {
     }
     
     /**
-     * Schedule daily cleanup
-     */
-    public function schedule_cleanup() {
-        if (!wp_next_scheduled('pta_daily_cleanup')) {
-            wp_schedule_event(time(), 'daily', 'pta_daily_cleanup');
-        }
-    }
-    
-    /**
      * Daily cleanup tasks
      */
     public function daily_cleanup() {
@@ -740,7 +733,7 @@ class Azure_PTA_Manager {
     }
     
     public function ajax_get_assignments() {
-        if (!azure_user_can('manage_pta_role_assignments')) {
+        if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }
         
@@ -769,7 +762,7 @@ class Azure_PTA_Manager {
     }
     
     public function ajax_assign_role() {
-        if (!azure_user_can('manage_pta_role_assignments')) {
+        if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }
         
@@ -790,7 +783,7 @@ class Azure_PTA_Manager {
     }
     
     public function ajax_remove_assignment() {
-        if (!azure_user_can('manage_pta_role_assignments')) {
+        if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }
         

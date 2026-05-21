@@ -3,6 +3,34 @@
  * PTA Roles Directory Beaver Builder Module
  */
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+// Declare the module class HERE (not in class-pta-beaver-builder.php) so
+// FLBuilderModule::__construct's ReflectionClass-derived slug resolves to
+// 'pta-roles-directory' instead of 'class-pta-beaver-builder'. Co-locating
+// stub classes for multiple modules in the same shared file caused all of
+// them to share one slug, which silently dropped subsequent modules at
+// FLBuilder::register_module() time.
+if (!class_exists('PTARolesDirectoryModule') && class_exists('FLBuilderModule')) {
+    class PTARolesDirectoryModule extends FLBuilderModule {
+        public function __construct() {
+            parent::__construct(array(
+                'name'            => __('PTA Roles Directory', 'azure-plugin'),
+                'description'     => __('Display a directory of PTA roles with filtering options', 'azure-plugin'),
+                'group'           => __('Azure Plugin', 'azure-plugin'),
+                'category'        => __('PTA Modules', 'azure-plugin'),
+                'dir'             => AZURE_PLUGIN_PATH . 'includes/beaver-builder/pta-roles-directory/',
+                'url'             => AZURE_PLUGIN_URL . 'includes/beaver-builder/pta-roles-directory/',
+                'editor_export'   => true,
+                'enabled'         => true,
+                'icon'            => 'networking.svg',
+            ));
+        }
+    }
+}
+
 FLBuilder::register_module('PTARolesDirectoryModule', array(
     'general' => array(
         'title' => __('General', 'azure-plugin'),

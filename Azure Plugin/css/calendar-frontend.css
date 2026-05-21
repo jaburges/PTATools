@@ -154,6 +154,213 @@
     border-radius: 6px;
 }
 
+/* TEC-style rounded pill for all-day / multi-day events.
+   Solid colored bar that spans across the days it covers,
+   with the title clearly visible on the bar. */
+.azure-calendar-container .fc-daygrid-event.pta-cal-allday,
+.azure-calendar-container .fc-daygrid-block-event.pta-cal-allday {
+    border-radius: 999px;
+    padding: 3px 12px;
+    margin: 2px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    border-width: 0;
+    color: #fff;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
+}
+
+.azure-calendar-container .fc-daygrid-event.pta-cal-allday .fc-event-title,
+.azure-calendar-container .fc-daygrid-block-event.pta-cal-allday .fc-event-title {
+    color: #fff;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Continuation pieces (when a multi-day pill wraps across rows
+   in the month grid) should have flat edges where they meet the
+   week boundary, so the bar reads as one continuous run. */
+.azure-calendar-container .fc-daygrid-event.fc-event-end.pta-cal-allday {
+    border-top-right-radius: 999px;
+    border-bottom-right-radius: 999px;
+}
+.azure-calendar-container .fc-daygrid-event.fc-event-start.pta-cal-allday {
+    border-top-left-radius: 999px;
+    border-bottom-left-radius: 999px;
+}
+.azure-calendar-container .fc-daygrid-event.pta-cal-allday:not(.fc-event-end) {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-right: 0;
+}
+.azure-calendar-container .fc-daygrid-event.pta-cal-allday:not(.fc-event-start) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    margin-left: 0;
+}
+
+/* Slightly tighter timed events (small dot + start time). */
+.azure-calendar-container .fc-daygrid-event.pta-cal-timed {
+    padding: 1px 4px;
+    font-size: 12px;
+}
+
+/* Online-meeting indicator on calendar chips. Tiny camera icon
+   before the event title so visitors can spot meetings at a glance
+   without opening the event. */
+.azure-calendar-container .fc-event.pta-cal-has-meeting .fc-event-title::before {
+    content: "\1F4F9";  /* video camera */
+    margin-right: 4px;
+    opacity: 0.9;
+    font-size: 0.85em;
+}
+.azure-calendar-container .fc-list-event.pta-cal-has-meeting .fc-list-event-title::before {
+    content: "\1F4F9 ";
+    margin-right: 4px;
+    opacity: 0.9;
+}
+
+/* Subscribe-to-Calendar bar (sits directly under the embed). */
+.pta-cal-subscribe {
+    margin: 8px 0 24px 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    position: relative;
+}
+.pta-cal-subscribe-inner {
+    display: flex;
+    justify-content: flex-end;
+    position: relative;
+}
+.pta-cal-sub-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #0073aa;
+    color: #fff;
+    border: 0;
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.pta-cal-sub-toggle:hover {
+    background: #005a87;
+    transform: translateY(-1px);
+}
+.pta-cal-sub-toggle:focus-visible {
+    outline: 2px solid #003e5f;
+    outline-offset: 2px;
+}
+.pta-cal-sub-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    font-size: 14px;
+    line-height: 1;
+}
+.pta-cal-sub-popover {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: 320px;
+    max-width: calc(100vw - 32px);
+    background: #fff;
+    border: 1px solid #e2e6eb;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    padding: 16px;
+    z-index: 50;
+}
+.pta-cal-sub-popover[hidden] { display: none; }
+.pta-cal-sub-popover::before {
+    content: "";
+    position: absolute;
+    top: -7px;
+    right: 22px;
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border-top: 1px solid #e2e6eb;
+    border-left: 1px solid #e2e6eb;
+    transform: rotate(45deg);
+}
+.pta-cal-sub-lead {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.4;
+}
+.pta-cal-sub-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.pta-cal-sub-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    background: #f7f9fc;
+    border: 1px solid #e2e6eb;
+    border-radius: 8px;
+    padding: 10px 14px;
+    text-decoration: none;
+    color: #0f172a;
+    cursor: pointer;
+    font: inherit;
+    width: 100%;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pta-cal-sub-btn:hover {
+    background: #eef2f7;
+    border-color: #cbd5e1;
+    text-decoration: none;
+}
+.pta-cal-sub-btn span {
+    font-weight: 600;
+    font-size: 14px;
+}
+.pta-cal-sub-btn small {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.3;
+}
+.pta-cal-sub-btn.primary {
+    background: #0073aa;
+    border-color: #0073aa;
+    color: #fff;
+}
+.pta-cal-sub-btn.primary small { color: rgba(255, 255, 255, 0.8); }
+.pta-cal-sub-btn.primary:hover {
+    background: #005a87;
+    border-color: #005a87;
+}
+.pta-cal-sub-btn.copy.copied {
+    background: #d1fae5;
+    border-color: #10b981;
+    color: #065f46;
+}
+
+@media (max-width: 480px) {
+    .pta-cal-subscribe-inner { justify-content: stretch; }
+    .pta-cal-sub-toggle { width: 100%; justify-content: center; }
+    .pta-cal-sub-popover {
+        right: auto;
+        left: 0;
+        width: 100%;
+    }
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .azure-events-list.format-grid {

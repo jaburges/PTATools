@@ -435,6 +435,7 @@ class Azure_Admin {
         $settings['sso_default_role'] = sanitize_text_field($_POST['sso_default_role'] ?? 'subscriber');
         $settings['sso_show_on_login_page'] = isset($_POST['sso_show_on_login_page']);
         $settings['sso_login_button_text'] = sanitize_text_field($_POST['sso_login_button_text'] ?? 'Sign in with Microsoft');
+        $settings['sso_login_org_heading']   = sanitize_text_field($_POST['sso_login_org_heading'] ?? '');
         
         // Custom role settings
         $settings['sso_use_custom_role'] = isset($_POST['sso_use_custom_role']);

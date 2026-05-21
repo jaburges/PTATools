@@ -874,6 +874,50 @@
     flex-direction: column;
 }
 
+.editor-help-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: #f0f6fc;
+    border-bottom: 1px solid #c5d9eb;
+    color: #1d2327;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.editor-help-bar .dashicons {
+    color: #2271b1;
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.editor-help-bar .editor-help-text {
+    flex: 1;
+}
+
+.editor-help-bar.is-dismissed {
+    display: none;
+}
+
+.editor-help-dismiss {
+    background: transparent;
+    border: 0;
+    color: #50575e;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.editor-help-dismiss:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: #1d2327;
+}
+
 #gjs-editor {
     flex: 1;
     background: #f8f9fa;
@@ -901,6 +945,16 @@
 .gjs-pn-panels,
 .gjs-pn-views-container {
     background: #f8f9fa !important;
+}
+
+/* Hide the grapesjs-preset-newsletter device-switcher panel (we render
+   our own Desktop / Tablet / Mobile buttons in the top toolbar). The
+   preset re-adds these on init even though we remove the panel via
+   Panels.removePanel('devices-c'); CSS catches anything that slips
+   through. */
+.gjs-pn-devices-c,
+.gjs-pn-devices {
+    display: none !important;
 }
 
 /* All text in panels should be dark */

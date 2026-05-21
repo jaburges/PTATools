@@ -363,11 +363,11 @@ if ($activity_table) {
                 </tr>
                 <tr>
                     <th scope="row"><label for="org_name">Organization Name</label></th>
-                    <td><input type="text" id="org_name" class="regular-text org-setting-field" value="<?php echo esc_attr($org_name); ?>" placeholder="e.g. Wilder PTSA" /></td>
+                    <td><input type="text" id="org_name" class="regular-text org-setting-field" value="<?php echo esc_attr($org_name); ?>" placeholder="e.g. Maple Elementary PTSA" /></td>
                 </tr>
                 <tr>
                     <th scope="row"><label for="org_team_name">Team Name</label></th>
-                    <td><input type="text" id="org_team_name" class="regular-text org-setting-field" value="<?php echo esc_attr($org_team_name); ?>" placeholder="e.g. Wilder PTSA Team" /></td>
+                    <td><input type="text" id="org_team_name" class="regular-text org-setting-field" value="<?php echo esc_attr($org_team_name); ?>" placeholder="e.g. Maple PTSA Team" /></td>
                 </tr>
                 <tr>
                     <th scope="row"><label for="org_admin_email">Admin Email (FROM address)</label></th>

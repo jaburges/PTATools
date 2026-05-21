@@ -85,6 +85,26 @@ a.upcoming-title:hover {
     color: #0073aa;
 }
 
+.upcoming-online-meeting,
+.upcoming-join-meeting {
+    margin: 0.35rem 0 0 0;
+    display: block;
+}
+
+.upcoming-join-meeting .pta-join-meeting {
+    font-size: 0.85em;
+    padding: 0.35em 0.65em;
+}
+
+.upcoming-online-meeting a {
+    color: #0073aa;
+    text-decoration: underline;
+}
+
+.upcoming-online-meeting a:hover {
+    color: #005f8d;
+}
+
 /* Empty message */
 .upcoming-empty {
     color: #666;
@@ -118,6 +138,14 @@ a.upcoming-title:hover {
     
     a.upcoming-title:hover {
         color: #4a9fd4;
+    }
+
+    .upcoming-online-meeting a {
+        color: #4a9fd4;
+    }
+
+    .upcoming-online-meeting a:hover {
+        color: #74b7e5;
     }
     
     .upcoming-empty {

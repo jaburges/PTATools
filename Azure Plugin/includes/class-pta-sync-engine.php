@@ -20,8 +20,9 @@ class Azure_PTA_Sync_Engine {
             $this->auth = new Azure_SSO_Auth();
         }
         
-        // Schedule sync jobs processing
-        add_action('init', array($this, 'schedule_sync_processing'));
+        // Sync queue processor handler. The custom `five_minutes` cron
+        // interval and event scheduling are owned by Azure_PTA_Cron; this
+        // only binds the handler that fires when the event runs.
         add_action('pta_process_sync_queue', array($this, 'process_sync_queue'));
         
         // Manual sync triggers
@@ -89,23 +90,6 @@ class Azure_PTA_Sync_Engine {
         return $access_token;
     }
     
-    /**
-     * Schedule sync queue processing
-     */
-    public function schedule_sync_processing() {
-        // Add custom cron schedule for 5 minutes
-        add_filter('cron_schedules', function($schedules) {
-            $schedules['five_minutes'] = array(
-                'interval' => 5 * MINUTE_IN_SECONDS,
-                'display' => __('Every 5 minutes')
-            );
-            return $schedules;
-        });
-        
-        if (!wp_next_scheduled('pta_process_sync_queue')) {
-            wp_schedule_event(time() + 60, 'five_minutes', 'pta_process_sync_queue');
-        }
-    }
     
     /**
      * Process sync queue

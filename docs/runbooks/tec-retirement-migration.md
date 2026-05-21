@@ -1,7 +1,8 @@
 # TEC Retirement Migration — `wilderptsa.net` Method
 
-> Status: **Done on `wilderptsa.net`** (cutover complete, plugin v3.91.10, post-cutover state).
-> **Not yet done on `lwptsa.net`** — see [Replication on `lwptsa.net`](#replication-on-lwptsanet).
+> Status:
+> - **`wilderptsa.net`**: cutover complete, plugin v3.91.10, post-cutover state (Phase 5/6, writer still `both`).
+> - **`lwptsa.net`**: cutover complete + writer flipped + TEC folder deleted (Phase 6 complete, plugin v3.91.12). See [Final state on `lwptsa.net`](#final-state-on-lwptsanet).
 
 This runbook documents how `wilderptsa.net` was moved off **The Events Calendar (TEC)** plugin and onto a native PTA Tools event system (`pta_event` CPT), so the migration can be replicated on `lwptsa.net` and any other PTA Tools site.
 
@@ -476,10 +477,84 @@ All migration endpoints live under `/wp-json/pta-tools/v1/diagnostics/` and requ
 
 ---
 
+## Final state on `lwptsa.net`
+
+As of plugin v3.91.12 (deployed 2026-05-20):
+
+```
+plugin_version             3.91.12
+TEC plugin                 DEACTIVATED + folder deleted from /wp-content/plugins/
+pta_calendar_owner         pta          # writer no longer creates tribe_events on sync
+pta_calendar_data_source   pta          # reader on pta_event
+event-tickets plugin       still present on disk (deactivated, used to pair with TEC Tickets)
+all-in-one-event-calendar  still present on disk (deactivated, 754 legacy ai1ec_event posts in DB)
+
+Post types registered      pta_event/pta_venue/pta_organizer = true
+                           tribe_events/tribe_venue          = false
+
+Counts (frozen):
+  tribe_events (orphan)    publish 63, draft 1, trash 1, _total 65   # kept as rollback safety net
+  tribe_venue (orphan)     publish 20
+  pta_event                publish 54, draft 1
+  pta_venue/pta_organizer  0
+
+Parity (clean):
+  tribe_events_missing_mirror   0
+  pta_events_orphaned           0
+  date_mismatches               0
+```
+
+### Display / UX additions (v3.91.11)
+
+- Single event page (`/event/<slug>/`):
+  - Featured image renders above the title when set (`.pta-event-hero`)
+  - **Join meeting** block-style button when a Teams/Zoom/Meet/etc. URL is found in the body, venue, or `_EventURL` (`.pta-event-join`)
+- Events archive (`/events/`):
+  - List view: optional featured-image thumb on each card + **Join meeting** inline button per card
+  - Calendar grid: small camera icon on event chips when an online meeting is detected (`.pta-events-calendar-chip.has-meeting`)
+- `[azure_calendar_events]` shortcode:
+  - Now reads directly from `pta_event` when `data_source=pta` (was Outlook-only before — placeholder stub `Azure_Calendar_EventsShortcode` was overriding the real implementation; that conflict is now resolved)
+  - New attributes: `show_image`, `show_join_meeting`, `source` (`pta`/`outlook`/auto)
+  - Renders as a card grid with image + Join button per event
+- `[azure_calendar]` shortcode:
+  - `id` is now optional when reading from `pta_event` (no Outlook calendar to map to)
+  - `source` attribute is now properly declared (was being silently filtered out by `shortcode_atts`)
+- `/calendar/` page content rewritten to use `[azure_calendar source="pta"]` (month grid) + `[azure_calendar_events source="pta" limit="8" show_image="true" show_join_meeting="true"]` (upcoming cards)
+- New static helper `Azure_Event_CPT::extract_online_meeting_url($post_id)` scrapes Teams/Zoom/Meet/Webex/etc. URLs from post body / venue / event URL. Used by every renderer so the rules stay consistent.
+
+### Calendar Sync admin UI + category propagation fix (v3.91.12)
+
+Three follow-on issues surfaced after TEC was fully removed; all fixed in this version.
+
+1. **Admin UI was screaming at you for no reason.** The `Azure Plugin → Calendar Sync` tab still hard-checked for `Tribe__Events__Main` and rendered "The Events Calendar Plugin Not Found" + "Install The Events Calendar" CTA + a global `admin_notices` red bar across every admin page, even though the sync was happily writing to `pta_event` underneath. Fixed:
+   - `Azure_TEC_Integration::__construct` no longer registers the orange `tec_dependency_notice` admin nag when `Azure_Event_CPT::is_pta_owner_active()` is true.
+   - `admin/tec-integration-page.php` rebranded from "TEC Integration" to "Outlook Calendar Sync"; the red "TEC plugin not found" error block is now a green success banner explaining that we're in native mode (sync target is `pta_event`, not TEC); column / label text updated ("TEC Category" → "Event Category", etc.).
+2. **Category mapping AJAX endpoints were dead.** `ajax_get_tec_categories` / `ajax_create_tec_category` in `class-tec-integration-ajax.php` queried the hard-coded `tribe_events_cat` taxonomy, which is no longer registered post-TEC-removal. Switched both to use `Azure_Event_CPT::query_taxonomy()` (resolves to `pta_event_category` in pta mode). Same fix in `Azure_TEC_Calendar_Mapping_Manager::ensure_tec_category_exists`.
+3. **Categories were silently being dropped during sync.** The sync engine's `create_tec_event_from_outlook_with_category` / `update_tec_event_from_outlook_with_category` wrote category terms ONLY to `tribe_events_cat`. After TEC was removed, that taxonomy lookup failed, the assignment silently no-op'd, and `mirror_to_pta_event` then read empty terms back from it and wrote empty terms to `pta_event`. Result: all 24 Outlook-synced `pta_event` posts had no category. Fix:
+   - New `Azure_TEC_Sync_Engine::assign_event_category($tec_event_id, $category_name)` helper:
+     - Always writes a canonical `_pta_event_category_name` postmeta value (post-type-agnostic, survives plugin churn).
+     - Writes the term to every registered event-category taxonomy that's attached to `tribe_events` (so it works in tec, both, and pta modes).
+     - Logs a warning when no taxonomy is reachable (instead of silently dropping).
+   - `mirror_to_pta_event()` now resolves category via a 4-step fallback chain: `_pta_event_category_name` postmeta → terms in `tribe_events_cat` (legacy events) → terms in `pta_event_category` (transition events) → calendar-mapping lookup by `_outlook_calendar_id`. First non-empty wins; result is written to `pta_event_category` by name and cached back to postmeta.
+   - `_pta_event_category_name` added to the mirrored-meta-keys list so it propagates from `tribe_events` to `pta_event` automatically.
+   - One-shot backfill (deleted after run) categorised all 24 already-synced `pta_event` posts that were missing their category.
+
+### Remaining cleanup options on `lwptsa.net` (NOT executed)
+
+Run these later only if rollback is no longer needed:
+
+| What | How | Recovers |
+|---|---|---|
+| Drop 64 orphan `tribe_events` posts | `POST /cleanup-execute {"actions":["delete_orphan_tribe_events"],"dry_run":false}` | ~a few MB DB + zero runtime cost (already invisible to WP_Query). Removes rollback safety net. |
+| Drop 20 orphan `tribe_venue` posts | Same endpoint with `delete_orphan_tribe_venues` (if available; else SQL) | ~a few KB. |
+| Delete `event-tickets/` plugin folder | `DELETE` via Kudu vfs | ~5 MB on disk. Confirm Tickets module isn't planned for use. |
+| Delete `all-in-one-event-calendar/` plugin folder | Same | ~3 MB on disk. |
+| Drop 754 `ai1ec_event` posts (legacy All-in-One Event Calendar) | SQL: `DELETE FROM wp_posts WHERE post_type='ai1ec_event'` + `DELETE FROM wp_postmeta WHERE post_id NOT IN (SELECT ID FROM wp_posts)` | ~a few MB DB. Completely safe — ai1ec plugin is deactivated, posts are invisible. |
+
 ## Open follow-ups
 
-- [ ] Reconcile `v3.91.10` plugin code back into this Git repo so future deploys go through `dev` → `main` instead of bypassing source control.
-- [ ] Run the lwptsa migration end-to-end (Steps 0–6 above).
-- [ ] After ~3 months of stable Phase 6 on Wilder, decide whether to flip Wilder's writer flag to `pta` (single-write, no more `tribe_events` writes) or run cleanup. Currently Wilder writes both; cost is negligible so no urgency.
+- [ ] Reconcile `v3.91.11` plugin code back into this Git repo so future deploys go through `dev` → `main` instead of bypassing source control. The diff is now ~25 versions (v3.52 → v3.91.11) of drift plus the migration code (`class-event-cpt.php`, `class-pta-cron.php`, heavily extended `class-tec-sync-engine.php` / `class-calendar-shortcode.php` / `class-diagnostics-api.php`) plus the v3.91.11 calendar/UX additions documented above.
+- [ ] After ~3 months of stable Phase 6 on Wilder, decide whether to flip Wilder's writer flag to `pta` (single-write, no more `tribe_events` writes) or run cleanup. Currently Wilder writes both; cost is negligible so no urgency. lwptsa is now at `pta` — Wilder can match when comfortable.
 - [ ] Document the `tribe-ignored` post status (42 posts on Wilder). It's a TEC artifact for legacy recurring events; needs verification that they're correctly excluded from sync and from front-end queries on `pta_event`.
-- [ ] The 7 `tribe_venue` posts on Wilder were not migrated to `pta_venue` (zero rows). Decide whether venues are worth migrating or whether they can be inlined into `_EventVenue` meta on `pta_event`.
+- [ ] The 7 `tribe_venue` posts on Wilder (20 on lwptsa) were not migrated to `pta_venue` (zero rows). Decide whether venues are worth migrating or whether they can be inlined into `_EventVenue` meta on `pta_event`.
+- [ ] Consider extending `Azure_Calendar_GraphAPI::get_calendar_events()` to request `onlineMeeting/joinUrl,isOnlineMeeting` from Graph and store the URL as dedicated `_pta_online_meeting_url` postmeta. The current renderer scrapes it from `post_content` at render time, which works but is slightly less robust than a dedicated field. The `extract_online_meeting_url()` helper already prefers `_pta_online_meeting_url` when present, so this is a forward-compatible enhancement.

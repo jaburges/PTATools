@@ -102,7 +102,10 @@ class Azure_Newsletter_Ajax {
         if (!empty($errors)) {
             wp_send_json_error('Insert errors: ' . implode(', ', $errors));
         }
-        
+
+        // Wipe cached PNG thumbnails so they regenerate from the new HTML
+        do_action('azure_newsletter_templates_reset');
+
         wp_send_json_success(array(
             'message' => sprintf(__('Reset complete. Deleted %d old templates, inserted %d new templates.', 'azure-plugin'), $deleted, $inserted),
             'deleted' => $deleted,
@@ -454,21 +457,10 @@ class Azure_Newsletter_Ajax {
         }
         
         check_ajax_referer('azure_newsletter_nonce', 'nonce');
-
-        // Gate: a user can save/send a newsletter if they have either the
-        // specific PTA cap (`send_newsletters` for now-or-schedule sends,
-        // `edit_newsletters` for plain drafts) OR `manage_options` as a
-        // fallback. The fallback ensures existing administrators keep
-        // working without a cap migration. Phase 2 will tighten this.
-        $send_option_for_gate = sanitize_key($_POST['send_option'] ?? 'draft');
-        $needs_send_cap = in_array($send_option_for_gate, array('now', 'schedule'), true);
-        $required_cap = $needs_send_cap ? 'send_newsletters' : 'edit_newsletters';
-        $allowed = class_exists('Azure_Capabilities')
-            ? Azure_Capabilities::user_can($required_cap)
-            : current_user_can('manage_options');
-        if (!$allowed) {
+        
+        if (!current_user_can('manage_options')) {
             if (class_exists('Azure_Logger')) {
-                Azure_Logger::warning("Newsletter AJAX: Permission denied (required cap: {$required_cap})");
+                Azure_Logger::warning('Newsletter AJAX: Permission denied for user');
             }
             wp_send_json_error('Permission denied');
         }

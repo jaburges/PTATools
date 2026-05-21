@@ -500,41 +500,60 @@ class Azure_SSO_Sync {
     }
     
     /**
-     * Get the role to assign to SSO users (custom or default)
+     * Get the role to assign to SSO users (custom or default).
+     *
+     * Thin wrapper around the static helper so other modules (parent
+     * importer, AcyMailing migrator) can answer "what role does SSO put
+     * @{org_domain} users into?" without instantiating Azure_SSO_Sync.
      */
     private function get_sso_role() {
+        return self::resolve_configured_role_slug();
+    }
+
+    /**
+     * Public helper: resolve the role slug that this site's SSO is
+     * configured to assign new sign-ins. Centralizes the
+     * sso_use_custom_role / sso_custom_role_name / sso_default_role
+     * decision tree and lazily creates the custom role on first call.
+     *
+     * Used by:
+     *   - Azure_SSO_Sync internal sync flow (above)
+     *   - Azure_Parent_Migration when bucketing @{org_domain} imports
+     *     (those should land in the SSO role, not `parent`).
+     *
+     * Falls back to the WP `subscriber` role if the option is unset.
+     */
+    public static function resolve_configured_role_slug() {
         $use_custom_role = Azure_Settings::get_setting('sso_use_custom_role', false);
-        
+
         if ($use_custom_role) {
             $custom_role_name = Azure_Settings::get_setting('sso_custom_role_name', 'AzureAD');
-            
-            // Sanitize the role name (WordPress role names should be lowercase with underscores)
+
             $role_slug = sanitize_key(strtolower($custom_role_name));
             $role_display_name = sanitize_text_field($custom_role_name);
-            
-            // Check if the custom role exists, if not create it
+
             if (!get_role($role_slug)) {
-                Azure_Logger::info("SSO: Creating custom role '$role_display_name' with slug '$role_slug'");
-                
-                // Create role with basic subscriber capabilities
+                if (class_exists('Azure_Logger')) {
+                    Azure_Logger::info("SSO: Creating custom role '$role_display_name' with slug '$role_slug'");
+                }
+
                 $subscriber_role = get_role('subscriber');
                 $capabilities = $subscriber_role ? $subscriber_role->capabilities : array(
                     'read' => true,
-                    'level_0' => true
+                    'level_0' => true,
                 );
-                
-                // Add some identifying capabilities
                 $capabilities['azure_ad_user'] = true;
-                
+
                 add_role($role_slug, $role_display_name, $capabilities);
-                
-                Azure_Logger::info("SSO: Custom role '$role_display_name' created successfully");
+
+                if (class_exists('Azure_Logger')) {
+                    Azure_Logger::info("SSO: Custom role '$role_display_name' created successfully");
+                }
             }
-            
+
             return $role_slug;
         }
-        
-        // Use standard WordPress role
+
         return Azure_Settings::get_setting('sso_default_role', 'subscriber');
     }
     

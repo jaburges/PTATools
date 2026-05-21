@@ -3,7 +3,19 @@
  * Product Fields Module
  *
  * Reusable custom fields for WooCommerce products, assigned by category.
- * Field values persist to user profiles for auto-population on repeat purchases.
+ * Field values persist to user/child profiles for auto-population on
+ * repeat purchases.
+ *
+ * Storage contract (set by v3.64+):
+ *   - `field_key` on `azure_product_fields` is the stable storage slug.
+ *   - Order line items receive both a `_pta_<field_key>` (machine-stable)
+ *     and a `<Display Label>` (human-readable) meta entry.
+ *   - Profile write-back routes by scope:
+ *       parent → user meta `pta_pf_<field_key>`
+ *       child  → `azure_user_children_meta` row keyed by `pta_pf_<field_key>`
+ *                for the child id selected on the product page.
+ *
+ * Admin AJAX lives in `class-product-fields-admin.php`.
  */
 
 if (!defined('ABSPATH')) {
@@ -29,6 +41,11 @@ class Azure_Product_Fields_Module {
 
         $this->init_hooks();
 
+        if (is_admin()) {
+            require_once AZURE_PLUGIN_PATH . 'includes/class-product-fields-admin.php';
+            Azure_Product_Fields_Admin::get_instance();
+        }
+
         if (class_exists('Azure_Logger')) {
             Azure_Logger::debug_module('ProductFields', 'Product Fields module initialized');
         }
@@ -39,14 +56,6 @@ class Azure_Product_Fields_Module {
     }
 
     private function init_hooks() {
-        // Admin AJAX handlers
-        add_action('wp_ajax_azure_pf_save_group', array($this, 'ajax_save_group'));
-        add_action('wp_ajax_azure_pf_delete_group', array($this, 'ajax_delete_group'));
-        add_action('wp_ajax_azure_pf_get_group', array($this, 'ajax_get_group'));
-        add_action('wp_ajax_azure_pf_save_field', array($this, 'ajax_save_field'));
-        add_action('wp_ajax_azure_pf_delete_field', array($this, 'ajax_delete_field'));
-        add_action('wp_ajax_azure_pf_reorder_fields', array($this, 'ajax_reorder_fields'));
-
         // Frontend: render fields on product page
         add_action('woocommerce_before_add_to_cart_button', array($this, 'render_product_fields'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
@@ -61,13 +70,17 @@ class Azure_Product_Fields_Module {
         // Order: save to line item meta
         add_action('woocommerce_checkout_create_order_line_item', array($this, 'save_order_item_meta'), 10, 4);
 
-        // Save to user profile on order completion
+        // Save to user/child profile on order completion
         add_action('woocommerce_order_status_completed', array($this, 'save_to_user_profile'));
         add_action('woocommerce_payment_complete', array($this, 'save_to_user_profile'));
     }
 
-    // ─── Helper: get field groups for a product ────────────────────────
+    // ─── Helpers ───────────────────────────────────────────────────────
 
+    /**
+     * Get all active field groups assigned to the product's categories,
+     * each with its fields preloaded.
+     */
     public static function get_groups_for_product($product_id) {
         global $wpdb;
 
@@ -104,6 +117,70 @@ class Azure_Product_Fields_Module {
         return $groups;
     }
 
+    /**
+     * Resolve the canonical user-meta key used for a field's profile write.
+     * Falls back to legacy `user_meta_key` for rows that pre-date `field_key`.
+     */
+    public static function get_user_meta_key($field) {
+        if (!empty($field->field_key)) {
+            return 'pta_pf_' . $field->field_key;
+        }
+        if (!empty($field->user_meta_key)) {
+            return $field->user_meta_key;
+        }
+        return '';
+    }
+
+    /**
+     * Public export contract.
+     *
+     * Returns a [field_key => Display Label] map of every canonical field
+     * defined in `wp_azure_product_fields`. External order-export plugins can
+     * use this list to register columns without guessing label spellings.
+     *
+     * Order line items expose each value at meta key `_pta_<field_key>`, which
+     * is stable across label edits. Use that key when reading values from
+     * `WC_Order_Item_Product` or directly from `wp_woocommerce_order_itemmeta`.
+     *
+     * Filter: `pta_product_fields_export_columns` ([field_key=>label]).
+     */
+    public static function get_export_columns() {
+        global $wpdb;
+        $fld_table = Azure_Database::get_table_name('product_fields');
+        $columns = array();
+        if ($fld_table) {
+            $rows = $wpdb->get_results(
+                "SELECT field_key, label FROM {$fld_table}
+                 WHERE field_key <> ''
+                 ORDER BY scope, sort_order, label ASC"
+            );
+            foreach ($rows as $r) {
+                $columns[$r->field_key] = $r->label;
+            }
+        }
+        return apply_filters('pta_product_fields_export_columns', $columns);
+    }
+
+    /**
+     * Whether a field's label semantically refers to the child's name.
+     * Used to decide which value identifies the child during auto-save.
+     */
+    public static function is_child_name_field($field) {
+        if (!empty($field->field_key)) {
+            $k = strtolower($field->field_key);
+            if ($k === 'child_name' || strpos($k, 'child') !== false && strpos($k, 'name') !== false) {
+                return true;
+            }
+        }
+        if (!empty($field->label)) {
+            $l = strtolower($field->label);
+            if (strpos($l, 'child') !== false && strpos($l, 'name') !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ─── Frontend: render fields ───────────────────────────────────────
 
     public function render_product_fields() {
@@ -119,34 +196,40 @@ class Azure_Product_Fields_Module {
 
         $user_id = get_current_user_id();
         $children = array();
+        $family   = null;
         if ($user_id && class_exists('Azure_User_Children')) {
             $children = Azure_User_Children::get_children_for_user($user_id);
+            $family   = Azure_User_Children::get_family_for_user($user_id);
         }
+
+        // Defaults map: parent-scope is current user's saved meta. Child-scope
+        // values live under the child id and are swapped in via JS when the
+        // dropdown changes. Family-scope is one map shared across both
+        // co-parents (emergency contact, etc.) — pre-filled like parent.
+        $parent_defaults = $this->build_parent_defaults($user_id, $groups);
+        $family_defaults = $this->build_family_defaults($family, $groups);
+        $child_data      = $this->build_children_data($children);
 
         echo '<div class="azure-product-fields">';
 
         if (!empty($children)) {
-            $children_data = array();
-            foreach ($children as $child) {
-                $children_data[] = array(
-                    'id' => $child->id,
-                    'name' => $child->child_name,
-                    'meta' => Azure_User_Children::get_child_meta($child->id),
-                );
-            }
-
             echo '<div class="azure-pf-child-selector">';
             echo '<label for="azure-pf-select-child">' . esc_html__('Select Child', 'azure-plugin') . '</label>';
-            echo '<select id="azure-pf-select-child">';
+            echo '<select id="azure-pf-select-child" name="azure_pf_child_id">';
             echo '<option value="">' . esc_html__('-- Fill in manually --', 'azure-plugin') . '</option>';
             foreach ($children as $child) {
                 echo '<option value="' . esc_attr($child->id) . '">' . esc_html($child->child_name) . '</option>';
             }
             echo '</select>';
             echo '</div>';
-
-            echo '<script>var azureChildProfiles = ' . wp_json_encode($children_data) . ';</script>';
         }
+
+        // Single inline payload: keyed-by-field_key map for all scopes.
+        echo '<script>window.azurePtaProductFields = ' . wp_json_encode(array(
+            'children' => $child_data,
+            'parent'   => $parent_defaults,
+            'family'   => $family_defaults,
+        )) . ';</script>';
 
         foreach ($groups as $group) {
             if (empty($group->fields)) {
@@ -157,24 +240,33 @@ class Azure_Product_Fields_Module {
                 echo '<h4 class="azure-pf-group-title">' . esc_html($group->name) . '</h4>';
             }
             foreach ($group->fields as $field) {
-                $this->render_single_field($field, $user_id);
+                $this->render_single_field($field, $parent_defaults, $family_defaults);
             }
             echo '</div>';
         }
         echo '</div>';
     }
 
-    private function render_single_field($field, $user_id) {
+    private function render_single_field($field, $parent_defaults, $family_defaults = array()) {
+        $scope = !empty($field->scope) ? $field->scope : 'child';
         $value = '';
-        if ($user_id && $field->save_to_profile && !empty($field->user_meta_key)) {
-            $value = get_user_meta($user_id, $field->user_meta_key, true);
+
+        // Parent + family scope fields pre-fill from saved profile data on
+        // initial load. Child-scope fields stay blank until the user picks a
+        // child (the JS swap fills them from the child profile).
+        if ($scope === 'parent' && !empty($field->field_key) && isset($parent_defaults[$field->field_key])) {
+            $value = (string) $parent_defaults[$field->field_key];
+        } elseif ($scope === 'family' && !empty($field->field_key) && isset($family_defaults[$field->field_key])) {
+            $value = (string) $family_defaults[$field->field_key];
         }
 
         $name = 'azure_pf_' . $field->id;
         $required = $field->required ? ' required' : '';
         $req_star = $field->required ? ' <span class="required">*</span>' : '';
+        $field_key_attr = !empty($field->field_key) ? ' data-field-key="' . esc_attr($field->field_key) . '"' : '';
+        $scope_attr     = ' data-field-scope="' . esc_attr($scope) . '"';
 
-        echo '<p class="form-row azure-pf-field azure-pf-field-' . esc_attr($field->field_type) . '">';
+        echo '<p class="form-row azure-pf-field azure-pf-field-' . esc_attr($field->field_type) . '"' . $field_key_attr . $scope_attr . '>';
         echo '<label for="' . esc_attr($name) . '">' . esc_html($field->label) . $req_star . '</label>';
 
         switch ($field->field_type) {
@@ -208,6 +300,104 @@ class Azure_Product_Fields_Module {
         }
 
         echo '</p>';
+    }
+
+    /**
+     * Build a [field_key => value] map of saved parent-scope values for
+     * the current user, sourced from `pta_pf_<field_key>` user meta with
+     * a fallback to the legacy `user_meta_key` column.
+     */
+    private function build_parent_defaults($user_id, $groups) {
+        $defaults = array();
+        if (!$user_id) {
+            return $defaults;
+        }
+
+        foreach ($groups as $group) {
+            if (empty($group->fields)) {
+                continue;
+            }
+            foreach ($group->fields as $field) {
+                $scope = !empty($field->scope) ? $field->scope : 'child';
+                if ($scope !== 'parent' || empty($field->field_key)) {
+                    continue;
+                }
+                $val = get_user_meta($user_id, 'pta_pf_' . $field->field_key, true);
+                if ($val === '' && !empty($field->user_meta_key)) {
+                    $val = get_user_meta($user_id, $field->user_meta_key, true);
+                }
+                if ($val !== '') {
+                    $defaults[$field->field_key] = $val;
+                }
+            }
+        }
+
+        return $defaults;
+    }
+
+    /**
+     * Build a [field_key => value] map of saved family-scope values shared
+     * by both co-parents (emergency contact, etc.). Returns an empty map if
+     * the user has no connected_family yet — the family is created on
+     * demand when an order with family-scope meta is paid for.
+     */
+    private function build_family_defaults($family, $groups) {
+        $defaults = array();
+        if (!$family || empty($family->id) || !class_exists('Azure_User_Children')) {
+            return $defaults;
+        }
+
+        // Single round-trip; reuse for every family-scope field.
+        $stored = Azure_User_Children::get_family_meta($family->id);
+
+        foreach ($groups as $group) {
+            if (empty($group->fields)) {
+                continue;
+            }
+            foreach ($group->fields as $field) {
+                $scope = !empty($field->scope) ? $field->scope : 'child';
+                if ($scope !== 'family' || empty($field->field_key)) {
+                    continue;
+                }
+                $key = 'pta_pf_' . $field->field_key;
+                if (isset($stored[$key]) && $stored[$key] !== '') {
+                    $defaults[$field->field_key] = $stored[$key];
+                }
+            }
+        }
+
+        return $defaults;
+    }
+
+    /**
+     * Build a [child_id => { field_key: value, _name: child_name }] map of
+     * saved child-scope values for the current user's children. The map is
+     * exposed to the front-end JS so swapping the child dropdown can hydrate
+     * inputs by field_key (label-edit safe).
+     */
+    private function build_children_data($children) {
+        $out = array();
+        if (empty($children) || !class_exists('Azure_User_Children')) {
+            return $out;
+        }
+        foreach ($children as $child) {
+            $meta_raw = Azure_User_Children::get_child_meta($child->id);
+            $by_key = array();
+            foreach ($meta_raw as $k => $v) {
+                if (strpos($k, 'pta_pf_') === 0) {
+                    $by_key[substr($k, strlen('pta_pf_'))] = $v;
+                } else {
+                    // Legacy keys (label-as-meta-key) survive so old data still
+                    // pre-populates until the consolidation tool migrates them.
+                    $by_key['__legacy__::' . $k] = $v;
+                }
+            }
+            $out[$child->id] = array(
+                'name'   => $child->child_name,
+                'fields' => $by_key,
+            );
+        }
+        return $out;
     }
 
     public function enqueue_frontend_assets() {
@@ -274,10 +464,12 @@ class Azure_Product_Fields_Module {
                 $key = 'azure_pf_' . $field->id;
                 if (isset($_POST[$key])) {
                     $field_values[$field->id] = array(
+                        'field_key'       => isset($field->field_key) ? $field->field_key : '',
+                        'scope'           => !empty($field->scope) ? $field->scope : 'child',
                         'label'           => $field->label,
                         'value'           => sanitize_text_field($_POST[$key]),
                         'save_to_profile' => (bool) $field->save_to_profile,
-                        'user_meta_key'   => $field->user_meta_key,
+                        'user_meta_key'   => isset($field->user_meta_key) ? $field->user_meta_key : '',
                     );
                 }
             }
@@ -285,6 +477,11 @@ class Azure_Product_Fields_Module {
 
         if (!empty($field_values)) {
             $cart_item_data['azure_product_fields'] = $field_values;
+        }
+
+        $child_id = isset($_POST['azure_pf_child_id']) ? intval($_POST['azure_pf_child_id']) : 0;
+        if ($child_id > 0) {
+            $cart_item_data['azure_pf_child_id'] = $child_id;
         }
 
         return $cart_item_data;
@@ -319,13 +516,25 @@ class Azure_Product_Fields_Module {
             if ($field['value'] === '') {
                 continue;
             }
+
+            // Human-readable label retained for admin order screen / emails.
             $item->update_meta_data($field['label'], $field['value']);
+
+            // Machine-stable key retained for export/reporting. Survives label
+            // edits because it is keyed by `field_key`, not the display label.
+            if (!empty($field['field_key'])) {
+                $item->update_meta_data('_pta_' . $field['field_key'], $field['value']);
+            }
         }
 
         $item->update_meta_data('_azure_product_fields_raw', $values['azure_product_fields']);
+
+        if (!empty($values['azure_pf_child_id'])) {
+            $item->update_meta_data('_azure_pf_child_id', intval($values['azure_pf_child_id']));
+        }
     }
 
-    // ─── Save to user profile on order completion ──────────────────────
+    // ─── Save to user profile on order completion (parent scope only) ──
 
     public function save_to_user_profile($order_id) {
         $order = wc_get_order($order_id);
@@ -345,223 +554,26 @@ class Azure_Product_Fields_Module {
             }
 
             foreach ($raw as $field) {
-                if (!$field['save_to_profile'] || empty($field['user_meta_key']) || $field['value'] === '') {
+                if (empty($field['save_to_profile']) || !isset($field['value']) || $field['value'] === '') {
                     continue;
                 }
-                update_user_meta($user_id, $field['user_meta_key'], $field['value']);
+
+                $scope = !empty($field['scope']) ? $field['scope'] : 'child';
+                if ($scope === 'child' || $scope === 'family') {
+                    // Child + family scope writes are owned by
+                    // Azure_User_Children — child needs the child row, and
+                    // family writes go to azure_connected_family_meta.
+                    continue;
+                }
+
+                if (!empty($field['field_key'])) {
+                    update_user_meta($user_id, 'pta_pf_' . $field['field_key'], $field['value']);
+                }
+                if (!empty($field['user_meta_key'])) {
+                    // Legacy compatibility: keep writing to the configured key.
+                    update_user_meta($user_id, $field['user_meta_key'], $field['value']);
+                }
             }
         }
-    }
-
-    // ─── Admin AJAX: Field Groups ──────────────────────────────────────
-
-    public function ajax_save_group() {
-        check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-
-        global $wpdb;
-        $table = Azure_Database::get_table_name('product_field_groups');
-        $cat_table = Azure_Database::get_table_name('product_field_categories');
-
-        if (!$table || $wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
-            Azure_Database::create_tables();
-            $table = Azure_Database::get_table_name('product_field_groups');
-            $cat_table = Azure_Database::get_table_name('product_field_categories');
-            if (!$table || $wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
-                wp_send_json_error('Database tables could not be created. Check error logs.');
-            }
-        }
-
-        $id          = intval($_POST['id'] ?? 0);
-        $name        = sanitize_text_field($_POST['name'] ?? '');
-        $description = sanitize_textarea_field($_POST['description'] ?? '');
-        $is_active   = intval($_POST['is_active'] ?? 1);
-        $categories  = array_map('intval', (array)($_POST['categories'] ?? array()));
-
-        if (empty($name)) {
-            wp_send_json_error('Group name is required');
-        }
-
-        $data = array(
-            'name'        => $name,
-            'description' => $description,
-            'is_active'   => $is_active,
-            'updated_at'  => current_time('mysql'),
-        );
-
-        if ($id > 0) {
-            $result = $wpdb->update($table, $data, array('id' => $id));
-            if ($result === false) {
-                wp_send_json_error('DB update failed: ' . $wpdb->last_error);
-            }
-        } else {
-            $data['created_at'] = current_time('mysql');
-            $result = $wpdb->insert($table, $data);
-            if ($result === false) {
-                wp_send_json_error('DB insert failed: ' . $wpdb->last_error);
-            }
-            $id = $wpdb->insert_id;
-        }
-
-        $wpdb->delete($cat_table, array('group_id' => $id));
-        foreach ($categories as $term_id) {
-            $wpdb->insert($cat_table, array('group_id' => $id, 'term_id' => $term_id));
-        }
-
-        wp_send_json_success(array('id' => $id, 'message' => 'Group saved'));
-    }
-
-    public function ajax_delete_group() {
-        check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-
-        global $wpdb;
-        $id = intval($_POST['id'] ?? 0);
-        if (!$id) {
-            wp_send_json_error('Invalid group ID');
-        }
-
-        $grp_table = Azure_Database::get_table_name('product_field_groups');
-        $fld_table = Azure_Database::get_table_name('product_fields');
-        $cat_table = Azure_Database::get_table_name('product_field_categories');
-
-        $wpdb->delete($fld_table, array('group_id' => $id));
-        $wpdb->delete($cat_table, array('group_id' => $id));
-        $wpdb->delete($grp_table, array('id' => $id));
-
-        wp_send_json_success('Group deleted');
-    }
-
-    public function ajax_get_group() {
-        check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-
-        global $wpdb;
-        $id = intval($_GET['id'] ?? $_POST['id'] ?? 0);
-
-        $grp_table = Azure_Database::get_table_name('product_field_groups');
-        $fld_table = Azure_Database::get_table_name('product_fields');
-        $cat_table = Azure_Database::get_table_name('product_field_categories');
-
-        $group = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$grp_table} WHERE id = %d", $id));
-        if (!$group) {
-            wp_send_json_error('Group not found');
-        }
-
-        $group->fields = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$fld_table} WHERE group_id = %d ORDER BY sort_order ASC", $id
-        ));
-
-        $group->categories = $wpdb->get_col($wpdb->prepare(
-            "SELECT term_id FROM {$cat_table} WHERE group_id = %d", $id
-        ));
-
-        wp_send_json_success($group);
-    }
-
-    // ─── Admin AJAX: Fields ────────────────────────────────────────────
-
-    public function ajax_save_field() {
-        check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-
-        global $wpdb;
-        $table = Azure_Database::get_table_name('product_fields');
-
-        $id              = intval($_POST['id'] ?? 0);
-        $group_id        = intval($_POST['group_id'] ?? 0);
-        $label           = sanitize_text_field($_POST['label'] ?? '');
-        $field_type      = sanitize_text_field($_POST['field_type'] ?? 'text');
-        $placeholder     = sanitize_text_field($_POST['placeholder'] ?? '');
-        $required        = intval($_POST['required'] ?? 0);
-        $save_to_profile = intval($_POST['save_to_profile'] ?? 0);
-        $user_meta_key   = sanitize_key($_POST['user_meta_key'] ?? '');
-        $options_json    = '';
-
-        if (empty($label) || !$group_id) {
-            wp_send_json_error('Label and group are required');
-        }
-
-        $valid_types = array('text', 'email', 'tel', 'number', 'textarea', 'select', 'checkbox');
-        if (!in_array($field_type, $valid_types)) {
-            $field_type = 'text';
-        }
-
-        if ($field_type === 'select' && !empty($_POST['options'])) {
-            $options = array_filter(array_map('trim', explode("\n", sanitize_textarea_field($_POST['options']))));
-            $options_json = wp_json_encode(array_values($options));
-        }
-
-        if ($save_to_profile && empty($user_meta_key)) {
-            $user_meta_key = 'azure_pf_' . sanitize_key($label);
-        }
-
-        $data = array(
-            'group_id'        => $group_id,
-            'label'           => $label,
-            'field_type'      => $field_type,
-            'placeholder'     => $placeholder,
-            'options_json'    => $options_json,
-            'required'        => $required,
-            'save_to_profile' => $save_to_profile,
-            'user_meta_key'   => $user_meta_key,
-        );
-
-        if ($id > 0) {
-            $wpdb->update($table, $data, array('id' => $id));
-        } else {
-            $max_order = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT MAX(sort_order) FROM {$table} WHERE group_id = %d", $group_id
-            ));
-            $data['sort_order'] = $max_order + 1;
-            $data['created_at'] = current_time('mysql');
-            $wpdb->insert($table, $data);
-            $id = $wpdb->insert_id;
-        }
-
-        wp_send_json_success(array('id' => $id, 'message' => 'Field saved'));
-    }
-
-    public function ajax_delete_field() {
-        check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-
-        global $wpdb;
-        $table = Azure_Database::get_table_name('product_fields');
-        $id = intval($_POST['id'] ?? 0);
-
-        if (!$id) {
-            wp_send_json_error('Invalid field ID');
-        }
-
-        $wpdb->delete($table, array('id' => $id));
-        wp_send_json_success('Field deleted');
-    }
-
-    public function ajax_reorder_fields() {
-        check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized');
-        }
-
-        global $wpdb;
-        $table = Azure_Database::get_table_name('product_fields');
-        $order = (array)($_POST['order'] ?? array());
-
-        foreach ($order as $position => $field_id) {
-            $wpdb->update($table, array('sort_order' => (int) $position), array('id' => (int) $field_id));
-        }
-
-        wp_send_json_success('Order updated');
     }
 }

@@ -10,12 +10,22 @@ if (!defined('ABSPATH')) {
 class Azure_Calendar_EventsShortcode {
     
     public function __construct() {
-        add_shortcode('azure_calendar_events', array($this, 'render_events_shortcode'));
+        // NOTE (v3.91.11): `azure_calendar_events` is now handled by the
+        // real implementation in Azure_Calendar_Shortcode (which reads
+        // pta_event posts and renders the image + Join-meeting cards).
+        // We must NOT re-register it here or this stub will overwrite
+        // the real callback (last add_shortcode() wins) and visitors
+        // get the placeholder "No upcoming events found." message even
+        // when the post type has plenty of events.
+        //
+        // The other two shortcodes below are pure stubs that were
+        // never wired up to real data, but leaving them registered
+        // doesn't hurt — they return empty results.
         add_shortcode('azure_upcoming_events', array($this, 'render_upcoming_events'));
         add_shortcode('azure_event_details', array($this, 'render_event_details'));
-        
+
         if (class_exists('Azure_Logger')) {
-            Azure_Logger::debug('Calendar Events Shortcode: Initialized');
+            Azure_Logger::debug('Calendar Events Shortcode: Initialized (azure_calendar_events handled by Azure_Calendar_Shortcode)');
         }
     }
     

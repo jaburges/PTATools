@@ -1,0 +1,240 @@
+/* PTA Tools — single-event template
+ * Visual parity with TEC's classic single-event layout.
+ * Loaded only on /event/<slug>/ pages by Azure_Event_CPT.
+ */
+
+.pta-event-single-wrap {
+    padding: 32px 16px 48px;
+}
+
+.pta-event-single {
+    max-width: 1100px;
+    margin: 0 auto;
+    color: #1a1a1a;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.pta-event-back {
+    margin: 0 0 16px;
+    font-size: 14px;
+}
+.pta-event-back a {
+    color: #1a1a1a;
+    text-decoration: none;
+}
+.pta-event-back a:hover {
+    text-decoration: underline;
+}
+
+/* Hero image (featured image) — appears above the title when the
+   event has a featured image set. The aspect-ratio frame keeps the
+   layout from collapsing while the image lazy-loads. */
+.pta-event-hero {
+    margin: 0 0 20px;
+    border-radius: 6px;
+    overflow: hidden;
+    aspect-ratio: 16 / 6;
+    background: #ede9fe;
+}
+.pta-event-hero img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.pta-event-title {
+    font-size: 36px;
+    line-height: 1.15;
+    margin: 0 0 18px;
+    font-weight: 700;
+}
+
+.pta-event-when {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 12px;
+}
+
+/* "Join meeting" hero button sits between the date heading and the
+   "Add to calendar" disclosure — this is the highest-intent action
+   on the page for any event with an online meeting. */
+.pta-event-join {
+    margin: 0 0 20px;
+}
+
+.pta-event-rule {
+    border: 0;
+    border-top: 1px solid #e5e7eb;
+    margin: 24px 0;
+}
+
+/* Add to calendar dropdown */
+.pta-event-add-to-cal {
+    margin: 0 0 16px;
+}
+.pta-event-add-to-cal details {
+    display: inline-block;
+    border: 1px solid #5b21b6;
+    border-radius: 4px;
+    padding: 0;
+    min-width: 280px;
+    background: #fff;
+}
+.pta-event-add-to-cal summary {
+    cursor: pointer;
+    padding: 12px 16px;
+    color: #5b21b6;
+    font-weight: 600;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.pta-event-add-to-cal summary::-webkit-details-marker { display: none; }
+.pta-event-add-to-cal .pta-cal-chev { margin-left: auto; }
+.pta-event-add-to-cal[open] .pta-cal-chev { transform: rotate(180deg); }
+.pta-event-add-to-cal ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid #e5e7eb;
+}
+.pta-event-add-to-cal li {
+    margin: 0;
+}
+.pta-event-add-to-cal li a {
+    display: block;
+    padding: 10px 16px;
+    color: #1a1a1a;
+    text-decoration: none;
+}
+.pta-event-add-to-cal li a:hover {
+    background: #f5f3ff;
+}
+
+/* Details + Venue + Map row */
+.pta-event-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 32px;
+    align-items: start;
+}
+@media (max-width: 900px) {
+    .pta-event-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+}
+
+.pta-event-section {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+    color: #1a1a1a;
+}
+
+.pta-event-details p,
+.pta-event-venue p {
+    margin: 0 0 12px;
+    font-size: 14px;
+}
+.pta-event-details strong,
+.pta-event-venue strong {
+    font-weight: 700;
+    color: #1a1a1a;
+}
+.pta-event-details a,
+.pta-event-venue a {
+    color: #5b21b6;
+    text-decoration: none;
+}
+.pta-event-details a:hover,
+.pta-event-venue a:hover {
+    text-decoration: underline;
+}
+
+.pta-event-map {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 4px;
+    border: 1px solid #e5e7eb;
+}
+.pta-event-map iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+/* Body content (post_content) */
+.pta-event-body {
+    font-size: 16px;
+    line-height: 1.6;
+}
+.pta-event-body p {
+    margin: 0 0 16px;
+}
+
+/* Related events carousel */
+.pta-event-related-heading {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 20px;
+}
+.pta-event-related {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+@media (max-width: 900px) {
+    .pta-event-related {
+        grid-template-columns: 1fr;
+    }
+}
+.pta-event-related-card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: #f5f6f8;
+    border-radius: 4px;
+    overflow: hidden;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.pta-event-related-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    text-decoration: none;
+}
+.pta-event-related-thumb {
+    aspect-ratio: 16 / 9;
+    background: #d1d5db;
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9ca3af;
+    font-size: 64px;
+}
+.pta-event-related-thumb.has-thumb { color: transparent; }
+.pta-event-related-meta {
+    padding: 14px 16px 18px;
+}
+.pta-event-related-meta h4 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #5b21b6;
+}
+.pta-event-related-meta p {
+    margin: 0;
+    font-size: 14px;
+    color: #1a1a1a;
+}

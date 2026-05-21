@@ -391,6 +391,8 @@ class Azure_Database {
             id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             group_id bigint(20) UNSIGNED NOT NULL,
             label varchar(255) NOT NULL,
+            field_key varchar(100) NOT NULL DEFAULT '',
+            scope varchar(10) NOT NULL DEFAULT 'child',
             field_type varchar(50) NOT NULL DEFAULT 'text',
             placeholder varchar(255) DEFAULT '',
             options_json longtext,
@@ -400,7 +402,8 @@ class Azure_Database {
             sort_order int(11) DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            KEY group_id (group_id)
+            KEY group_id (group_id),
+            KEY field_key (field_key)
         ) $charset_collate;";
 
         $table_pf_categories = $wpdb->prefix . 'azure_product_field_categories';
@@ -427,18 +430,49 @@ class Azure_Database {
             PRIMARY KEY (id)
         ) $charset_collate;";
 
-        // User Children table (parent → child profiles)
+        // Connected Family table (Parent 1 + Parent 2 link, possibly different addresses)
+        $table_connected_family = $wpdb->prefix . 'azure_connected_family';
+        $sql_connected_family = "CREATE TABLE $table_connected_family (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            display_name varchar(255) NOT NULL DEFAULT '',
+            primary_user_id bigint(20) UNSIGNED NOT NULL,
+            secondary_user_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY primary_user_id (primary_user_id),
+            KEY secondary_user_id (secondary_user_id)
+        ) $charset_collate;";
+
+        // Connected Family Meta table (KV storage for emergency contact + future family-scope fields)
+        $table_connected_family_meta = $wpdb->prefix . 'azure_connected_family_meta';
+        $sql_connected_family_meta = "CREATE TABLE $table_connected_family_meta (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            family_id bigint(20) UNSIGNED NOT NULL,
+            meta_key varchar(255) NOT NULL,
+            meta_value longtext,
+            PRIMARY KEY (id),
+            KEY family_id (family_id),
+            KEY meta_key (meta_key(191))
+        ) $charset_collate;";
+
+        // User Children table (parent → child profiles).
+        // `user_id` retained for back-compat; `family_id` is the canonical link
+        // going forward. The v3.67 backfill creates a single-parent family for
+        // each existing row so lookups can always go through the family.
         $table_user_children = $wpdb->prefix . 'azure_user_children';
         $sql_user_children = "CREATE TABLE $table_user_children (
             id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             user_id bigint(20) UNSIGNED NOT NULL,
+            family_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
             child_name varchar(255) NOT NULL,
             date_of_birth date DEFAULT NULL,
             is_active tinyint(1) DEFAULT 1,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            KEY user_id (user_id)
+            KEY user_id (user_id),
+            KEY family_id (family_id)
         ) $charset_collate;";
 
         // User Children Meta table (flexible key-value for child fields)
@@ -540,6 +574,8 @@ class Azure_Database {
         dbDelta($sql_pf_groups);
         dbDelta($sql_pf_fields);
         dbDelta($sql_pf_categories);
+        dbDelta($sql_connected_family);
+        dbDelta($sql_connected_family_meta);
         dbDelta($sql_user_children);
         dbDelta($sql_user_children_meta);
         dbDelta($sql_volunteer_sheets);
@@ -548,10 +584,496 @@ class Azure_Database {
         dbDelta($sql_donation_campaigns);
         dbDelta($sql_donation_records);
         
+        // One-time back-fill of new columns on the product fields table.
+        // Safe to run on every dbDelta call: the option flag prevents repeats.
+        self::backfill_product_fields_keys();
+
+        // v3.67: backfill connected_family rows for existing user_children so
+        // every child has a family_id. Self-gated by an option flag.
+        self::backfill_connected_families();
+
+        // v3.67: seed/restructure product field groups (rename Core → Child Core,
+        // add Allergies, create Parent Core + Emergency Contact). Idempotent.
+        self::seed_v367_field_groups();
+
+        // v3.67.2: consolidate field duplicates left behind by older plugins
+        // and by the v3.67 seed. Migrates orphan importer data to whichever
+        // existing field config matches by normalized label. One-shot.
+        self::consolidate_v367_field_duplicates();
+
         // Log successful table creation
         Azure_Logger::info('Azure Plugin database tables created successfully');
     }
-    
+
+    /**
+     * v3.67.2: Consolidate duplicate child-scope fields and migrate orphan
+     * meta entries written by the v3.67 importer to the user's pre-existing
+     * field configuration.
+     *
+     * Why: v3.67's seed created canonical-keyed fields like `child_grade`
+     * alongside pre-existing fields like "Childs Grade" (select dropdown).
+     * Result: the admin saw two grade fields, the import wrote data to the
+     * canonical text field, and the dropdown stayed empty. The same problem
+     * applied to Enrichment data (`photos_ok`, `epi_pen`, `ymca`,
+     * `other_notes_instructor`) where the importer's canonical keys never
+     * had matching field configs.
+     *
+     * What this method does, gated by `azure_pf_v367_consolidation_done`:
+     *   1. For each canonical child-scope concept, find every field whose
+     *      normalized label matches a known synonym set.
+     *   2. Pick a winner — preferring (a) non-canonical key (existing field),
+     *      (b) presence of options_json, (c) lower id (older configuration).
+     *   3. Migrate data: every loser's `pta_pf_<key>` row in
+     *      `azure_user_children_meta` is moved to the winner's key. The
+     *      importer's canonical key (which may have no field config at all)
+     *      is migrated the same way.
+     *   4. Delete every loser field config row so admin sees one row per
+     *      concept.
+     *
+     * Conflict policy: if the winner key already has data for a given
+     * child, the loser row is deleted (existing wins). Otherwise the loser
+     * row is renamed to the winner's key (data preserved, just under the
+     * canonical storage slug for the existing field).
+     */
+    public static function consolidate_v367_field_duplicates() {
+        // v2 of the gate: the original normalizer didn't collapse the
+        // no-apostrophe form ("childs") to "child", so "Childs Grade" was
+        // never matched against the canonical synonyms and the duplicates
+        // survived. Bumping the option name re-runs the migration on sites
+        // where v1 already finished.
+        if (get_option('azure_pf_v367_consolidation_done_v2') === 'yes') {
+            return;
+        }
+
+        global $wpdb;
+        $fld_table = self::get_table_name('product_fields');
+        $cm_table  = self::get_table_name('user_children_meta');
+        if (!$fld_table) {
+            return;
+        }
+
+        // canonical_key => array(label_synonyms_after_normalization)
+        // Each set is intentionally narrow — fuzzy matches risk merging
+        // unrelated fields. Add to this list if a site has a label not
+        // already captured.
+        $synonyms = array(
+            'child_name'      => array('child name', 'student name'),
+            'child_grade'     => array('child grade', 'grade', 'student grade'),
+            'child_teacher'   => array('child teacher', 'teacher', 'student teacher'),
+            'photos_ok'       => array(
+                'photos ok', 'photos approved', 'photo permission',
+                'allow photos', 'photos of your child ok',
+                'photos of your child', 'do you allow photos to be taken of your child',
+            ),
+            'epi_pen'         => array(
+                'epi pen', 'epipen', 'self carry epi pen', 'carries epi pen',
+                'carries epipen',
+            ),
+            'ymca'            => array(
+                'ymca', 'attending ymca', 'is your child attending ymca that day',
+                'is your child attending ymca',
+            ),
+            'other_notes_instructor' => array(
+                'other notes instructor', 'other notes for instructor',
+                'other notes for class instructor', 'instructor notes',
+            ),
+        );
+
+        $candidates = $wpdb->get_results(
+            "SELECT id, label, field_key, field_type, options_json, sort_order
+             FROM {$fld_table}
+             WHERE scope = 'child'"
+        );
+        if (empty($candidates)) {
+            $candidates = array();
+        }
+
+        // Index candidates by normalized label so each concept's match is
+        // O(synonyms) rather than O(fields × synonyms).
+        $by_norm = array();
+        foreach ($candidates as $c) {
+            $norm = self::normalize_label_for_consolidation($c->label);
+            if (!isset($by_norm[$norm])) {
+                $by_norm[$norm] = array();
+            }
+            $by_norm[$norm][] = $c;
+        }
+
+        foreach ($synonyms as $canonical_key => $synonym_labels) {
+            $matches = array();
+            foreach ($synonym_labels as $syn) {
+                if (!empty($by_norm[$syn])) {
+                    foreach ($by_norm[$syn] as $f) {
+                        $matches[$f->id] = $f;
+                    }
+                }
+            }
+            if (empty($matches)) {
+                continue;
+            }
+            $matches = array_values($matches);
+
+            usort($matches, function ($a, $b) use ($canonical_key) {
+                // Prefer non-canonical (existing) field over the v3.67 seed.
+                $a_canonical = ($a->field_key === $canonical_key) ? 1 : 0;
+                $b_canonical = ($b->field_key === $canonical_key) ? 1 : 0;
+                if ($a_canonical !== $b_canonical) {
+                    return $a_canonical - $b_canonical;
+                }
+                // Prefer rows with select options configured.
+                $a_opts = !empty($a->options_json) ? 1 : 0;
+                $b_opts = !empty($b->options_json) ? 1 : 0;
+                if ($a_opts !== $b_opts) {
+                    return $b_opts - $a_opts;
+                }
+                return (int) $a->id - (int) $b->id;
+            });
+
+            $winner = $matches[0];
+            $winner_key = 'pta_pf_' . $winner->field_key;
+            $canonical_meta_key = 'pta_pf_' . $canonical_key;
+
+            // Migrate orphan importer data (canonical key with no field row).
+            if ($canonical_meta_key !== $winner_key) {
+                self::move_meta_key($cm_table, 'child_id', $canonical_meta_key, $winner_key);
+            }
+
+            // Migrate every loser's data and delete its field row.
+            for ($i = 1; $i < count($matches); $i++) {
+                $loser = $matches[$i];
+                $loser_key = 'pta_pf_' . $loser->field_key;
+                if ($loser_key !== $winner_key) {
+                    self::move_meta_key($cm_table, 'child_id', $loser_key, $winner_key);
+                }
+                $wpdb->delete($fld_table, array('id' => (int) $loser->id), array('%d'));
+            }
+        }
+
+        update_option('azure_pf_v367_consolidation_done_v2', 'yes', false);
+    }
+
+    /**
+     * Move every row in $table whose meta_key matches $from_key to $to_key,
+     * keyed by $entity_col (e.g. child_id). If a row at $to_key already
+     * exists for the same entity, the from-row is deleted (winner wins).
+     */
+    private static function move_meta_key($table, $entity_col, $from_key, $to_key) {
+        global $wpdb;
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, {$entity_col} AS entity_id FROM {$table} WHERE meta_key = %s",
+            $from_key
+        ));
+        if (empty($rows)) {
+            return;
+        }
+        foreach ($rows as $row) {
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$table} WHERE {$entity_col} = %d AND meta_key = %s",
+                (int) $row->entity_id, $to_key
+            ));
+            if ($exists) {
+                $wpdb->delete($table, array('id' => (int) $row->id), array('%d'));
+            } else {
+                $wpdb->update(
+                    $table,
+                    array('meta_key' => $to_key),
+                    array('id' => (int) $row->id),
+                    array('%s'),
+                    array('%d')
+                );
+            }
+        }
+    }
+
+    /**
+     * Normalize a field label for synonym matching. Mirrors the
+     * normalization in Azure_User_Children for runtime dedup so that the
+     * config layer and the runtime layer collapse the same variants.
+     */
+    private static function normalize_label_for_consolidation($label) {
+        $norm = strtolower(trim((string) $label));
+        // Strip apostrophes/parens/punctuation to spaces ("Child's" → "child s",
+        // "Child(s)" → "child s ").
+        $norm = preg_replace('/[^a-z0-9 ]+/', ' ', $norm);
+        $norm = preg_replace('/\s+/', ' ', $norm);
+        // Collapse every "child" variant ("childs", "child s") into "child"
+        // so "Childs Grade", "Child's Grade", "Child(s) Grade", "Child Grade"
+        // all normalize to the same token sequence.
+        $norm = preg_replace('/\bchild(s|\s+s)?\b/', 'child', $norm);
+        $norm = preg_replace('/\s+/', ' ', $norm);
+        return trim($norm);
+    }
+
+    /**
+     * v3.67: For every existing `azure_user_children` row with `family_id = 0`,
+     * create a single-parent connected_family (`primary_user_id = user_id`,
+     * no secondary) and update the child's `family_id`. Idempotent: skips
+     * rows that already have a family_id, gated by the
+     * `azure_connected_family_backfill_done` option.
+     */
+    public static function backfill_connected_families() {
+        global $wpdb;
+
+        if (get_option('azure_connected_family_backfill_done') === 'yes') {
+            return;
+        }
+
+        $children_table = self::get_table_name('user_children');
+        $family_table   = self::get_table_name('connected_family');
+        if (!$children_table || !$family_table) {
+            return;
+        }
+
+        $children = $wpdb->get_results(
+            "SELECT id, user_id FROM {$children_table} WHERE family_id = 0 AND user_id > 0"
+        );
+        if (empty($children)) {
+            update_option('azure_connected_family_backfill_done', 'yes', false);
+            return;
+        }
+
+        // Re-use one family per primary user — multiple children of the same
+        // user join the same family.
+        $user_to_family = array();
+        foreach ($children as $child) {
+            $user_id = (int) $child->user_id;
+            if (!isset($user_to_family[$user_id])) {
+                $existing = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM {$family_table} WHERE primary_user_id = %d AND secondary_user_id = 0 LIMIT 1",
+                    $user_id
+                ));
+                if ($existing) {
+                    $user_to_family[$user_id] = $existing;
+                } else {
+                    $display = self::derive_family_display_name($user_id);
+                    $wpdb->insert($family_table, array(
+                        'display_name'    => $display,
+                        'primary_user_id' => $user_id,
+                    ), array('%s', '%d'));
+                    $user_to_family[$user_id] = (int) $wpdb->insert_id;
+                }
+            }
+            $wpdb->update(
+                $children_table,
+                array('family_id' => $user_to_family[$user_id]),
+                array('id' => (int) $child->id),
+                array('%d'),
+                array('%d')
+            );
+        }
+
+        update_option('azure_connected_family_backfill_done', 'yes', false);
+    }
+
+    /**
+     * Best-effort family display name from a WP user record. Returns
+     * "<Last> family" if a last name is present, else "<Display Name>".
+     *
+     * @param int $user_id
+     * @return string
+     */
+    public static function derive_family_display_name($user_id) {
+        $user = get_userdata((int) $user_id);
+        if (!$user) {
+            return '';
+        }
+        $last = get_user_meta($user_id, 'last_name', true);
+        if ($last) {
+            return $last . ' family';
+        }
+        return $user->display_name ?: $user->user_login;
+    }
+
+    /**
+     * v3.67: rename "Core" group → "Child Core", create "Parent Core" and
+     * "Emergency Contact" groups, ensure every canonical field exists.
+     * Idempotent: gated by the `azure_pf_v367_seed_done` option, and each
+     * field is matched on `field_key` so re-runs are safe.
+     */
+    public static function seed_v367_field_groups() {
+        global $wpdb;
+
+        if (get_option('azure_pf_v367_seed_done') === 'yes') {
+            return;
+        }
+
+        $groups_table = self::get_table_name('product_field_groups');
+        $fields_table = self::get_table_name('product_fields');
+        if (!$groups_table || !$fields_table) {
+            return;
+        }
+
+        // 1. Rename existing "Core" group to "Child Core". Match case-insensitive.
+        $core_group_id = (int) $wpdb->get_var(
+            "SELECT id FROM {$groups_table} WHERE LOWER(name) = 'core' LIMIT 1"
+        );
+        if ($core_group_id) {
+            $wpdb->update(
+                $groups_table,
+                array('name' => 'Child Core'),
+                array('id' => $core_group_id),
+                array('%s'),
+                array('%d')
+            );
+        } else {
+            $core_group_id = self::ensure_field_group($groups_table, 'Child Core', 'Child profile fields used at checkout', 10);
+        }
+
+        // 2. Ensure Child Core has the canonical child fields.
+        self::ensure_field($fields_table, $core_group_id, 'Child Name', 'child_name', 'child', 'text', true, true, 10);
+        self::ensure_field($fields_table, $core_group_id, 'Child Grade', 'child_grade', 'child', 'text', false, true, 20);
+        self::ensure_field($fields_table, $core_group_id, 'Child Teacher', 'child_teacher', 'child', 'text', false, true, 30);
+
+        // 3. Parent Core group + 6 fields (parent scope = stored in usermeta).
+        $parent_group_id = self::ensure_field_group($groups_table, 'Parent Core', 'Parent contact details, pre-filled from profile', 20);
+        self::ensure_field($fields_table, $parent_group_id, 'Parent 1 Name',  'parent_1_name',  'parent', 'text',  false, true, 10);
+        self::ensure_field($fields_table, $parent_group_id, 'Parent 1 Email', 'parent_1_email', 'parent', 'email', false, true, 20);
+        self::ensure_field($fields_table, $parent_group_id, 'Parent 1 Cell',  'parent_1_cell',  'parent', 'text',  false, true, 30);
+        self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Name',  'parent_2_name',  'parent', 'text',  false, true, 40);
+        self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Email', 'parent_2_email', 'parent', 'email', false, true, 50);
+        self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Cell',  'parent_2_cell',  'parent', 'text',  false, true, 60);
+
+        // 4. Enrichment group: ensure exists, add Allergies if missing. Existing
+        // fields are matched on label (best-effort) since they predate field_key.
+        $enrichment_group_id = (int) $wpdb->get_var(
+            "SELECT id FROM {$groups_table} WHERE LOWER(name) = 'enrichment' LIMIT 1"
+        );
+        if (!$enrichment_group_id) {
+            $enrichment_group_id = self::ensure_field_group($groups_table, 'Enrichment', 'Enrichment / activity-specific child fields', 30);
+        }
+        self::ensure_field($fields_table, $enrichment_group_id, 'Allergies', 'allergies', 'child', 'textarea', false, true, 100);
+
+        // 5. Emergency Contact group + 3 family-scope fields.
+        $emergency_group_id = self::ensure_field_group($groups_table, 'Emergency Contact', 'Family-level emergency contact (shared between co-parents)', 40);
+        self::ensure_field($fields_table, $emergency_group_id, 'Emergency Contact Name',  'emergency_contact_name',  'family', 'text',  false, true, 10);
+        self::ensure_field($fields_table, $emergency_group_id, 'Emergency Contact Email', 'emergency_contact_email', 'family', 'email', false, true, 20);
+        self::ensure_field($fields_table, $emergency_group_id, 'Emergency Contact Cell',  'emergency_contact_cell',  'family', 'text',  false, true, 30);
+
+        update_option('azure_pf_v367_seed_done', 'yes', false);
+    }
+
+    /**
+     * Get an existing product field group by name (case-insensitive) or
+     * create it. Returns the group id.
+     */
+    private static function ensure_field_group($groups_table, $name, $description, $sort_order) {
+        global $wpdb;
+        $existing = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$groups_table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+            $name
+        ));
+        if ($existing) {
+            return $existing;
+        }
+        $wpdb->insert(
+            $groups_table,
+            array(
+                'name'        => $name,
+                'description' => $description,
+                'sort_order'  => (int) $sort_order,
+                'is_active'   => 1,
+            ),
+            array('%s', '%s', '%d', '%d')
+        );
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Get an existing field by `field_key` or insert it. `field_key` is
+     * immutable so this is safe to re-run.
+     */
+    private static function ensure_field($fields_table, $group_id, $label, $field_key, $scope, $field_type, $required, $save_to_profile, $sort_order) {
+        global $wpdb;
+        $existing = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$fields_table} WHERE field_key = %s LIMIT 1",
+            $field_key
+        ));
+        if ($existing) {
+            return $existing;
+        }
+        $wpdb->insert(
+            $fields_table,
+            array(
+                'group_id'        => (int) $group_id,
+                'label'           => $label,
+                'field_key'       => $field_key,
+                'scope'           => $scope,
+                'field_type'      => $field_type,
+                'placeholder'     => '',
+                'required'        => $required ? 1 : 0,
+                'save_to_profile' => $save_to_profile ? 1 : 0,
+                'user_meta_key'   => 'pta_pf_' . $field_key,
+                'sort_order'      => (int) $sort_order,
+            ),
+            array('%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%d')
+        );
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Populate `field_key` (stable slug) and `scope` for any legacy
+     * `azure_product_fields` rows that pre-date the v3.64 schema. Labels remain
+     * the display string; `field_key` is the immutable storage identifier.
+     *
+     * Idempotent. Skips rows that already have a `field_key`.
+     */
+    public static function backfill_product_fields_keys() {
+        global $wpdb;
+
+        $done = get_option('azure_pf_field_key_backfill_done');
+        if ($done === 'yes') {
+            return;
+        }
+
+        $fld_table = self::get_table_name('product_fields');
+        if (!$fld_table) {
+            return;
+        }
+
+        $rows = $wpdb->get_results("SELECT id, label, field_key, user_meta_key FROM {$fld_table}");
+        if (empty($rows)) {
+            update_option('azure_pf_field_key_backfill_done', 'yes', false);
+            return;
+        }
+
+        $used_keys = array();
+        foreach ($rows as $row) {
+            if (!empty($row->field_key)) {
+                $used_keys[$row->field_key] = true;
+            }
+        }
+
+        foreach ($rows as $row) {
+            if (!empty($row->field_key)) {
+                continue;
+            }
+
+            $base = '';
+            if (!empty($row->user_meta_key)) {
+                $base = preg_replace('/^(azure_pf_|pta_pf_)/', '', $row->user_meta_key);
+            }
+            if ($base === '') {
+                $base = sanitize_key($row->label);
+            }
+            $base = trim($base, '_');
+            if ($base === '') {
+                $base = 'field_' . $row->id;
+            }
+
+            $candidate = $base;
+            $i = 2;
+            while (isset($used_keys[$candidate])) {
+                $candidate = $base . '_' . $i;
+                $i++;
+            }
+            $used_keys[$candidate] = true;
+
+            $wpdb->update($fld_table, array('field_key' => $candidate), array('id' => $row->id));
+        }
+
+        update_option('azure_pf_field_key_backfill_done', 'yes', false);
+    }
+
     public static function get_table_name($table) {
         global $wpdb;
         
@@ -586,6 +1108,8 @@ class Azure_Database {
             'product_field_categories' => $wpdb->prefix . 'azure_product_field_categories',
             'user_children' => $wpdb->prefix . 'azure_user_children',
             'user_children_meta' => $wpdb->prefix . 'azure_user_children_meta',
+            'connected_family' => $wpdb->prefix . 'azure_connected_family',
+            'connected_family_meta' => $wpdb->prefix . 'azure_connected_family_meta',
             'volunteer_sheets' => $wpdb->prefix . 'azure_volunteer_sheets',
             'volunteer_activities' => $wpdb->prefix . 'azure_volunteer_activities',
             'volunteer_signups' => $wpdb->prefix . 'azure_volunteer_signups',

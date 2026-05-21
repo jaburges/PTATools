@@ -1,0 +1,115 @@
+/*
+ * PTA User Dropdown — header account menu
+ *
+ * Rendered by the [pta_user_dropdown] shortcode. Designed to be
+ * unobtrusive in the Kadence header while replacing MemberPlus's
+ * memb-plus-nav.php dropdown.
+ *
+ * Loaded only on pages where the shortcode actually renders.
+ */
+
+.pta-user-dropdown {
+    position: relative;
+    display: inline-block;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.pta-user-dropdown__trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    box-shadow: none;
+}
+.pta-user-dropdown__trigger:hover,
+.pta-user-dropdown__trigger:focus-visible {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+.pta-user-dropdown__trigger[aria-expanded="true"] {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+.pta-user-dropdown__avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+}
+
+.pta-user-dropdown__name {
+    font-weight: 500;
+}
+
+.pta-user-dropdown__caret {
+    margin-left: 2px;
+    font-size: 11px;
+    line-height: 1;
+    opacity: 0.7;
+    transition: transform 0.15s ease;
+}
+.pta-user-dropdown__trigger[aria-expanded="true"] .pta-user-dropdown__caret {
+    transform: rotate(180deg);
+}
+
+.pta-user-dropdown__panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 200px;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+    padding: 4px 0;
+    z-index: 9999;
+}
+
+.pta-user-dropdown__panel[hidden] {
+    display: none;
+}
+
+.pta-user-dropdown__menu {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.pta-user-dropdown__menu li {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pta-user-dropdown__menu a {
+    display: block;
+    padding: 8px 16px;
+    color: #2D3748;
+    text-decoration: none;
+    font-weight: 400;
+    font-size: 14px;
+}
+.pta-user-dropdown__menu a:hover,
+.pta-user-dropdown__menu a:focus-visible {
+    background: #f4f7fb;
+    color: #2271b1;
+}
+
+/* Logged-out state: no panel, just a link */
+.pta-user-dropdown--guest {
+    text-decoration: none;
+    color: inherit;
+    padding: 4px 10px;
+}

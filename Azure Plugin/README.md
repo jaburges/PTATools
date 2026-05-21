@@ -62,7 +62,7 @@
 | Module | Description |
 |--------|-------------|
 | **[Classes (WooCommerce)](https://github.com/jaburges/PTATools/wiki/Classes-Module)** | Create class products with TEC integration, variable pricing, commit-to-buy |
-| **[Auction](https://github.com/jaburges/PTATools/wiki/Auction-Module)** | Timed bidding, Buy It Now, max bid, confirm-bid modal, instant updates |
+| **[Auction](https://github.com/jaburges/PTATools/wiki/Auction-Module)** | Timed manual bidding, Buy It Now, confirm-bid modal, outbid + winner emails, instant updates |
 | **[Product Fields](https://github.com/jaburges/PTATools/wiki/Product-Fields-Module)** | Custom checkout fields with children profiles, applied by category |
 | **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, campaigns with goals, `[pta-donate]` shortcode |
 

@@ -241,24 +241,52 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                         </td>
                     </tr>
                     <tr>
-                        <th><label for="newsletter_from"><?php _e('From', 'azure-plugin'); ?> <span class="required">*</span></label></th>
+                        <th><label for="newsletter_from_name_input"><?php _e('From', 'azure-plugin'); ?> <span class="required">*</span></label></th>
                         <td>
+                            <?php
+                            // Editor pre-fills from the saved newsletter (if editing) or
+                            // from sensible site defaults so the form is always submittable
+                            // even when no sender addresses are pre-configured under
+                            // Newsletter -> Settings.
+                            $current_email = !empty($newsletter->from_email) ? $newsletter->from_email : get_option('admin_email');
+                            $current_name  = !empty($newsletter->from_name)  ? $newsletter->from_name  : get_bloginfo('name');
+                            ?>
                             <?php if (!empty($from_addresses)): ?>
-                            <select id="newsletter_from" name="newsletter_from" class="regular-text" required>
-                                <option value=""><?php _e('Select sender...', 'azure-plugin'); ?></option>
+                            <select id="newsletter_from_picker" class="regular-text" style="margin-bottom:8px;">
+                                <option value=""><?php _e('— Choose a saved sender —', 'azure-plugin'); ?></option>
                                 <?php foreach ($from_addresses as $addr): ?>
                                 <option value="<?php echo esc_attr($addr['email'] . '|' . $addr['name']); ?>"
-                                        <?php selected(($newsletter->from_email ?? '') . '|' . ($newsletter->from_name ?? ''), $addr['email'] . '|' . $addr['name']); ?>>
+                                        <?php selected($current_email . '|' . $current_name, $addr['email'] . '|' . $addr['name']); ?>>
                                     <?php echo esc_html($addr['name'] . ' <' . $addr['email'] . '>'); ?>
                                 </option>
                                 <?php endforeach; ?>
                             </select>
-                            <?php else: ?>
-                            <p class="notice notice-warning" style="margin:0;">
-                                <?php _e('No sender addresses configured.', 'azure-plugin'); ?>
-                                <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=settings'); ?>">
-                                    <?php _e('Configure now', 'azure-plugin'); ?>
-                                </a>
+                            <p class="description" style="margin:0 0 6px 0;"><?php _e('Pick a saved sender, or enter one directly below.', 'azure-plugin'); ?></p>
+                            <?php endif; ?>
+                            <div class="newsletter-from-inputs" style="display:flex;gap:8px;flex-wrap:wrap;">
+                                <input type="text"
+                                       id="newsletter_from_name_input"
+                                       name="newsletter_from_name_input"
+                                       placeholder="<?php esc_attr_e('From name (e.g., Wilder PTSA)', 'azure-plugin'); ?>"
+                                       value="<?php echo esc_attr($current_name); ?>"
+                                       style="flex:1;min-width:180px;"
+                                       required>
+                                <input type="email"
+                                       id="newsletter_from_email_input"
+                                       name="newsletter_from_email_input"
+                                       placeholder="<?php esc_attr_e('From email', 'azure-plugin'); ?>"
+                                       value="<?php echo esc_attr($current_email); ?>"
+                                       style="flex:1;min-width:220px;"
+                                       required>
+                            </div>
+                            <input type="hidden"
+                                   id="newsletter_from"
+                                   name="newsletter_from"
+                                   value="<?php echo esc_attr($current_email . '|' . $current_name); ?>">
+                            <?php if (empty($from_addresses)): ?>
+                            <p class="description" style="margin-top:6px;">
+                                <?php _e('Tip: save reusable sender addresses in', 'azure-plugin'); ?>
+                                <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=settings'); ?>"><?php _e('Newsletter Settings', 'azure-plugin'); ?></a>.
                             </p>
                             <?php endif; ?>
                         </td>
@@ -399,6 +427,13 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                 
                 <!-- MAIN CANVAS -->
                 <div class="editor-main">
+                    <div class="editor-help-bar" id="editor-help-bar">
+                        <span class="dashicons dashicons-info-outline" aria-hidden="true"></span>
+                        <span class="editor-help-text">
+                            <?php _e('Tip: drag blocks from the left. <strong>Double-click any text</strong> to edit it — the floating toolbar lets you bold, italicize, and add <strong>links</strong>.', 'azure-plugin'); ?>
+                        </span>
+                        <button type="button" class="editor-help-dismiss" aria-label="<?php esc_attr_e('Dismiss tip', 'azure-plugin'); ?>">&times;</button>
+                    </div>
                     <div id="gjs-editor"></div>
                 </div>
                 
