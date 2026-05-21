@@ -7,6 +7,11 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Guard the CLASS declaration only — do NOT early-return from this file.
+// FLBuilder::register_module() at the bottom must always run. See
+// pta-org-chart.php for the full rationale.
+if (!class_exists('PTAOpenPositionsModule') && class_exists('FLBuilderModule')) {
+
 /**
  * PTA Open Positions Module for Beaver Builder
  */
@@ -195,8 +200,13 @@ class PTAOpenPositionsModule extends FLBuilderModule {
     }
 }
 
-// Register the module
-FLBuilder::register_module('PTAOpenPositionsModule', array(
+} // end if (!class_exists('PTAOpenPositionsModule') && class_exists('FLBuilderModule'))
+
+// Register the module — always call this when the file is required, even
+// if the class was already declared by another path. See pta-org-chart.php
+// for the full rationale.
+if (class_exists('PTAOpenPositionsModule') && class_exists('FLBuilder')) {
+    FLBuilder::register_module('PTAOpenPositionsModule', array(
     'general' => array(
         'title' => __('General', 'azure-plugin'),
         'sections' => array(
@@ -247,3 +257,4 @@ FLBuilder::register_module('PTAOpenPositionsModule', array(
         )
     )
 ));
+}

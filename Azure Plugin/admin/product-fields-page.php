@@ -178,6 +178,8 @@ if (is_wp_error($product_categories)) {
                                 <tr>
                                     <th style="width:30px;"></th>
                                     <th>Label</th>
+                                    <th style="width:140px;">Key</th>
+                                    <th style="width:80px;">Scope</th>
                                     <th style="width:100px;">Type</th>
                                     <th style="width:70px;">Required</th>
                                     <th style="width:80px;">Profile</th>
@@ -185,7 +187,7 @@ if (is_wp_error($product_categories)) {
                                 </tr>
                             </thead>
                             <tbody id="azure-pf-fields-body">
-                                <tr class="azure-pf-no-fields"><td colspan="6" style="text-align:center;color:#999;">No fields yet. Add one above.</td></tr>
+                                <tr class="azure-pf-no-fields"><td colspan="8" style="text-align:center;color:#999;">No fields yet. Add one above.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -206,6 +208,21 @@ if (is_wp_error($product_categories)) {
                     <p>
                         <label><strong>Label</strong></label><br>
                         <input type="text" name="label" id="azure-pf-field-label" class="regular-text" style="width:100%;" required />
+                        <br><small>The display label shown to customers. Safe to edit later.</small>
+                    </p>
+                    <p>
+                        <label><strong>Field Key</strong></label><br>
+                        <input type="text" name="field_key" id="azure-pf-field-key" class="regular-text" style="width:100%;" />
+                        <br><small id="azure-pf-field-key-hint">Stable storage slug (used for line-item meta and profile keys). Auto-generated from the label on first save and immutable thereafter.</small>
+                    </p>
+                    <p>
+                        <label><strong>Scope</strong></label><br>
+                        <select name="scope" id="azure-pf-field-scope" style="width:100%;">
+                            <option value="child">Child profile (saved per child)</option>
+                            <option value="parent">Parent profile (saved on the user account)</option>
+                            <option value="family">Family profile (shared between co-parents on the same account)</option>
+                        </select>
+                        <br><small>Determines where the value is read from on the product page and saved to after checkout.</small>
                     </p>
                     <p>
                         <label><strong>Type</strong></label><br>
@@ -376,14 +393,17 @@ jQuery(function($) {
         var $body = $('#azure-pf-fields-body');
         $body.empty();
         if (!fields.length) {
-            $body.html('<tr class="azure-pf-no-fields"><td colspan="6" style="text-align:center;color:#999;">No fields yet. Add one above.</td></tr>');
+            $body.html('<tr class="azure-pf-no-fields"><td colspan="8" style="text-align:center;color:#999;">No fields yet. Add one above.</td></tr>');
             return;
         }
         fields.forEach(function(f) {
+            var scopeLabel = (f.scope === 'parent') ? 'Parent' : (f.scope === 'family' ? 'Family' : 'Child');
             $body.append(
                 '<tr data-field-id="' + f.id + '">' +
                 '<td><span class="dashicons dashicons-move" style="cursor:grab;color:#999;"></span></td>' +
                 '<td><strong>' + escHtml(f.label) + '</strong></td>' +
+                '<td><code style="font-size:11px;">' + escHtml(f.field_key || '—') + '</code></td>' +
+                '<td>' + escHtml(scopeLabel) + '</td>' +
                 '<td>' + escHtml(f.field_type) + '</td>' +
                 '<td>' + (f.required == 1 ? '<span class="dashicons dashicons-yes" style="color:#46b450;"></span>' : '') + '</td>' +
                 '<td>' + (f.save_to_profile == 1 ? '<span class="dashicons dashicons-admin-users" style="color:#0073aa;" title="' + escHtml(f.user_meta_key) + '"></span>' : '') + '</td>' +
@@ -421,6 +441,9 @@ jQuery(function($) {
             $('#azure-pf-field-id').val(field.id);
             $('#azure-pf-field-group-id').val(field.group_id);
             $('#azure-pf-field-label').val(field.label);
+            $('#azure-pf-field-key').val(field.field_key || '').prop('readonly', !!field.field_key);
+            $('#azure-pf-field-key-hint').text(field.field_key ? 'Locked: this slug is referenced by existing orders and child profiles.' : 'Auto-generated from the label on first save and immutable thereafter.');
+            $('#azure-pf-field-scope').val(field.scope || 'child');
             $('#azure-pf-field-type').val(field.field_type).trigger('change');
             $('#azure-pf-field-placeholder').val(field.placeholder);
             $('#azure-pf-field-required').prop('checked', field.required == 1);
@@ -464,6 +487,8 @@ jQuery(function($) {
             id: $('#azure-pf-field-id').val(),
             group_id: $('#azure-pf-field-group-id').val(),
             label: $('#azure-pf-field-label').val(),
+            field_key: $('#azure-pf-field-key').val(),
+            scope: $('#azure-pf-field-scope').val(),
             field_type: $('#azure-pf-field-type').val(),
             placeholder: $('#azure-pf-field-placeholder').val(),
             options: $('#azure-pf-field-options').val(),
@@ -496,6 +521,9 @@ jQuery(function($) {
     function resetFieldForm() {
         $('#azure-pf-field-id').val(0);
         $('#azure-pf-field-label').val('');
+        $('#azure-pf-field-key').val('').prop('readonly', false);
+        $('#azure-pf-field-key-hint').text('Auto-generated from the label on first save and immutable thereafter.');
+        $('#azure-pf-field-scope').val('child');
         $('#azure-pf-field-type').val('text').trigger('change');
         $('#azure-pf-field-placeholder').val('');
         $('#azure-pf-field-options').val('');

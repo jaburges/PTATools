@@ -1,49 +1,55 @@
 /**
  * Product Fields – child profile auto-population.
  *
- * When a logged-in user selects a child from the dropdown,
- * we match the child's stored meta keys against field labels
- * and fill in the values automatically.
+ * When a logged-in user selects a child from the dropdown, swap each
+ * child-scope field's value for that child's stored profile data. Lookup is
+ * keyed by `data-field-key` (stable slug), with a label-based fallback so
+ * legacy installs still hydrate from old label-keyed meta.
+ *
+ * Parent-scope fields are pre-filled server-side and ignored by the swap.
+ *
+ * Parent- and family-scope fields are pre-filled server-side and ignored by
+ * the swap (family-scope is shared between co-parents, not per-child).
+ *
+ * Payload shape (set by class-product-fields-module.php):
+ *   window.azurePtaProductFields = {
+ *     children: { <child_id>: { name, fields: { <field_key>: value, ... } } },
+ *     parent:   { <field_key>: value },
+ *     family:   { <field_key>: value }
+ *   }
  */
 jQuery(function ($) {
     var $selector = $('#azure-pf-select-child');
-    if (!$selector.length || typeof azureChildProfiles === 'undefined') {
+    if (!$selector.length || typeof window.azurePtaProductFields === 'undefined') {
         return;
     }
+
+    var data = window.azurePtaProductFields || {};
+    var children = data.children || {};
 
     $selector.on('change', function () {
         var childId = parseInt($(this).val(), 10);
 
         if (!childId) {
-            clearFields();
+            clearChildFields();
             return;
         }
 
-        var child = null;
-        for (var i = 0; i < azureChildProfiles.length; i++) {
-            if (azureChildProfiles[i].id === childId) {
-                child = azureChildProfiles[i];
-                break;
-            }
-        }
-
+        var child = children[childId];
         if (!child) {
             return;
         }
 
-        populateFields(child);
+        populateChildFields(child);
     });
 
-    function populateFields(child) {
-        var meta = child.meta || {};
+    function populateChildFields(child) {
+        var fields = child.fields || {};
 
         $('.azure-product-fields .azure-pf-field').each(function () {
             var $field = $(this);
-            var $label = $field.find('label').first();
-            var labelText = $.trim($label.text().replace(/\*$/, '').replace(/\s+/g, ' '));
-
-            var value = findMetaValue(meta, labelText, child.name);
-            if (value === null) {
+            var scope = $field.attr('data-field-scope');
+            if (scope === 'parent' || scope === 'family') {
                 return;
             }
 
@@ -52,37 +58,61 @@ jQuery(function ($) {
                 return;
             }
 
-            if ($input.is(':checkbox')) {
-                $input.prop('checked', value === 'Yes' || value === '1' || value === 'true');
-            } else {
-                $input.val(value).trigger('change');
+            var value = resolveValue($field, fields, child.name);
+            if (value === null) {
+                return;
             }
+
+            applyValue($input, value);
         });
     }
 
-    function findMetaValue(meta, labelText, childName) {
+    function resolveValue($field, fields, childName) {
+        var fieldKey = $field.attr('data-field-key') || '';
+        var labelText = $.trim($field.find('label').first().text().replace(/\*$/, '').replace(/\s+/g, ' '));
         var lower = labelText.toLowerCase();
 
-        if (lower.indexOf('child') !== -1 && lower.indexOf('name') !== -1) {
+        if (fieldKey && (fieldKey === 'child_name' || (lower.indexOf('child') !== -1 && lower.indexOf('name') !== -1))) {
             return childName;
         }
 
-        if (meta[labelText] !== undefined) {
-            return meta[labelText];
+        if (fieldKey && Object.prototype.hasOwnProperty.call(fields, fieldKey)) {
+            return fields[fieldKey];
         }
 
-        for (var key in meta) {
-            if (meta.hasOwnProperty(key) && key.toLowerCase() === lower) {
-                return meta[key];
+        // Legacy fallback: pre-consolidation children may still have meta
+        // keyed by the original display label.
+        var legacyKey = '__legacy__::' + labelText;
+        if (Object.prototype.hasOwnProperty.call(fields, legacyKey)) {
+            return fields[legacyKey];
+        }
+        for (var key in fields) {
+            if (Object.prototype.hasOwnProperty.call(fields, key) && key.indexOf('__legacy__::') === 0) {
+                if (key.substring('__legacy__::'.length).toLowerCase() === lower) {
+                    return fields[key];
+                }
             }
         }
 
         return null;
     }
 
-    function clearFields() {
+    function applyValue($input, value) {
+        if ($input.is(':checkbox')) {
+            $input.prop('checked', value === 'Yes' || value === '1' || value === 'true');
+        } else {
+            $input.val(value).trigger('change');
+        }
+    }
+
+    function clearChildFields() {
         $('.azure-product-fields .azure-pf-field').each(function () {
-            var $input = $(this).find('input, textarea, select').first();
+            var $field = $(this);
+            var scope = $field.attr('data-field-scope');
+            if (scope === 'parent' || scope === 'family') {
+                return;
+            }
+            var $input = $field.find('input, textarea, select').first();
             if (!$input.length) {
                 return;
             }

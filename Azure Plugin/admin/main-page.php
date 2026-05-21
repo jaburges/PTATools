@@ -225,6 +225,31 @@ if (!defined('ABSPATH')) {
             </div>
         </div>
 
+        <div class="azure-plugin-site-behavior" style="margin-top: 20px;">
+            <h2>Site Behavior</h2>
+            <p class="description">WordPress-wide behavior toggles. These don't enable a module — they change how the site responds.</p>
+            <table class="wp-list-table widefat fixed striped" style="margin-top: 10px;">
+                <tbody>
+                    <tr>
+                        <td style="width: 40px; padding: 12px 10px;">
+                            <label class="switch-mini">
+                                <input type="checkbox" class="module-toggle" data-module="no_comments" <?php checked($settings['enable_no_comments'] ?? false); ?> />
+                                <span class="slider"></span>
+                            </label>
+                        </td>
+                        <td>
+                            <strong>Disable all comments</strong><br />
+                            <span class="description">
+                                Closes commenting and pingbacks on every post type, removes the Comments admin menu and toolbar item,
+                                strips the <code>/wp/v2/comments</code> REST endpoints, and drops the comments RSS feed and pingback header.
+                                Replaces the standalone "Disable All Comments" code snippet so WPCode is no longer required.
+                            </span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
         <div class="azure-plugin-dependencies" style="margin-top: 20px;">
             <h2>Plugin Dependencies</h2>
             <p class="description">These third-party plugins are required by various PTA Tools modules. Install and activate any that are needed for your enabled modules.</p>
@@ -238,16 +263,17 @@ if (!defined('ABSPATH')) {
                 </thead>
                 <tbody>
                     <?php
+                    // Calendar/events were migrated off The Events Calendar to
+                    // PTA Tools' native pta_event CPT in v3.86. Event Tickets
+                    // (Tribe__Tickets__Main) is not referenced anywhere in
+                    // this plugin's runtime; tickets are implemented natively
+                    // (custom WC product type, QR codes, seating designer,
+                    // check-in handler) under includes/class-tickets-*.php.
                     $dependencies = array(
-                        array(
-                            'name'    => 'The Events Calendar (TEC)',
-                            'check'   => class_exists('Tribe__Events__Main'),
-                            'modules' => 'TEC Integration, Calendar Sync, Classes, Event Tickets',
-                        ),
                         array(
                             'name'    => 'WooCommerce',
                             'check'   => class_exists('WooCommerce'),
-                            'modules' => 'Classes, Auction, Event Tickets, Product Fields',
+                            'modules' => 'Classes, Auction, Tickets, Product Fields, Donations',
                         ),
                         array(
                             'name'    => 'Forminator',
@@ -258,11 +284,6 @@ if (!defined('ABSPATH')) {
                             'name'    => 'Beaver Builder',
                             'check'   => class_exists('FLBuilder'),
                             'modules' => 'PTA Roles (Custom Modules)',
-                        ),
-                        array(
-                            'name'    => 'Event Tickets',
-                            'check'   => class_exists('Tribe__Tickets__Main'),
-                            'modules' => 'Event Tickets, Check-In',
                         ),
                     );
                     foreach ($dependencies as $dep):

@@ -56,6 +56,21 @@
     }
 
     /**
+     * Remove the `open` attribute from <details> elements during the
+     * email-export step. The FAQ blocks are authored with <details open>
+     * so the answer is visible while editing in the GrapesJS canvas;
+     * collapsed-by-default behaviour is restored at send time so the
+     * email arrives looking like an FAQ accordion in clients that
+     * support <details> (Apple Mail, Gmail, Outlook web, Yahoo).
+     */
+    function stripFaqOpenAttr(html) {
+        if (!html || typeof html !== 'string') { return html; }
+        return html
+            .replace(/<details\s+open(\s|>)/gi, '<details$1')
+            .replace(/<details([^>]*?)\sopen(=("?open"?|""))?(\s|>)/gi, '<details$1$4');
+    }
+
+    /**
      * Get email-ready HTML with CSS properly handled
      * Email clients strip <style> tags, so we need clean HTML
      */
@@ -68,6 +83,14 @@
         
         // Aggressively clean up the HTML - remove any CSS text that leaked in
         html = cleanHtmlContent(html);
+
+        // FAQ blocks are authored with <details open> so the answer is
+        // visible/editable in the canvas. Strip the `open` attribute on
+        // export so the email arrives collapsed-by-default in clients
+        // that honour the disclosure triangle. Operates on serialized
+        // HTML rather than the live model, so editor state is not
+        // mutated.
+        html = stripFaqOpenAttr(html);
         
         // Build proper email HTML structure
         var emailHtml = '<!DOCTYPE html>\n';
@@ -99,6 +122,8 @@
     $(document).ready(function() {
         initWorkflowNavigation();
         initSubjectCharCount();
+        initFromFieldSync();
+        initEditorHelpBar();
         initSendOptions();
         initPageOptions();
         initRecipientCheckboxes();
@@ -296,6 +321,26 @@
             
             // Register custom component types with traits
             registerComponentTypes();
+
+            // grapesjs-preset-newsletter adds its own device-switcher
+            // panel ('devices-c') on the left side of the toolbar that
+            // duplicates the device buttons we render in our top
+            // toolbar (.device-buttons). Remove it so users don't see
+            // two sets of identical Desktop/Tablet/Mobile controls.
+            try {
+                if (editor.Panels && editor.Panels.removePanel) {
+                    editor.Panels.removePanel('devices-c');
+                }
+            } catch (e) { /* not critical */ }
+
+            // Make sure the inline rich-text toolbar includes a clearly
+            // labelled Link action. GrapesJS ships with bold/italic/
+            // underline/strikethrough/link by default but the link icon
+            // is small and easy to miss; we replace the default with a
+            // prompt-driven version that handles both adding and
+            // removing links (and supports target=_blank for email-
+            // friendly behaviour).
+            customizeRichTextEditor();
             
             // Load initial content if available
             loadInitialContent();
@@ -333,6 +378,18 @@
         if (!editor) return;
 
         var bm = editor.BlockManager;
+
+        // The grapesjs-preset-newsletter plugin pre-registers its own
+        // 'button' block whose content is `<a class="button">Button</a>`
+        // — i.e. an unstyled link that renders as plain blue underlined
+        // text in our canvas because we don't ship that .button class.
+        // Remove it before our richer table-based replacement is added,
+        // otherwise users dragging the (visually identical) icon into
+        // the page get the preset's bare link instead of our styled
+        // button.
+        if (bm.get('button')) {
+            bm.remove('button');
+        }
 
         // Clean Elementor-style SVG icons
         var c = '#6d7882'; // Icon color
@@ -374,7 +431,8 @@
             // WordPress/PTA
             posts: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="6" width="16" height="16" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="10" x2="44" y2="10" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="18" x2="38" y2="18" stroke="'+c+'" stroke-width="2"/><rect x="4" y="26" width="16" height="16" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="30" x2="44" y2="30" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="38" x2="38" y2="38" stroke="'+c+'" stroke-width="2"/></svg>',
             pta: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle cx="16" cy="14" r="6" fill="none" stroke="'+c+'" stroke-width="2"/><circle cx="32" cy="14" r="6" fill="none" stroke="'+c+'" stroke-width="2"/><circle cx="24" cy="30" r="6" fill="none" stroke="'+c+'" stroke-width="2"/><path d="M10,26 C10,22 12,20 16,20 C18,20 20,21 21,22" fill="none" stroke="'+c+'" stroke-width="2"/><path d="M38,26 C38,22 36,20 32,20 C30,20 28,21 27,22" fill="none" stroke="'+c+'" stroke-width="2"/><path d="M18,40 C18,38 20,36 24,36 C28,36 30,38 30,40" fill="none" stroke="'+c+'" stroke-width="2"/></svg>',
-            shortcode: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><text x="4" y="32" font-family="monospace" font-size="14" fill="'+c+'">[...]</text></svg>'
+            shortcode: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><text x="4" y="32" font-family="monospace" font-size="14" fill="'+c+'">[...]</text></svg>',
+            faq: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="6" width="40" height="10" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><polyline points="36,10 39,13 42,10" fill="none" stroke="'+c+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="20" width="40" height="22" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="27" x2="39" y2="27" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="33" x2="35" y2="33" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="39" x2="30" y2="39" stroke="'+c+'" stroke-width="2"/></svg>'
         };
 
         // === LAYOUT BLOCKS ===
@@ -520,6 +578,86 @@
                 <table width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
                         <td style="height: 30px; line-height: 30px; font-size: 1px;">&nbsp;</td>
+                    </tr>
+                </table>
+            `
+        });
+
+        // FAQ — single expandable Q/A pair built on <details>/<summary>.
+        // Email-client behaviour:
+        //   - Apple Mail (macOS, iOS, iPadOS), Gmail (web/iOS/Android),
+        //     Yahoo, Outlook on the web — the disclosure triangle is
+        //     interactive; recipients can collapse/expand each item.
+        //   - Outlook desktop (Windows / Mac classic) — does not support
+        //     <details>; the answer renders permanently expanded, which
+        //     still reads cleanly as a Q/A list.
+        // We render the block with `open` so the answer is visible in
+        // the GrapesJS canvas (otherwise users would not know there is
+        // hidden text to edit). On send, the editor's getEmailReadyHtml()
+        // pipeline strips the `open` attribute via stripFaqOpenAttr()
+        // so the email arrives collapsed-by-default in supporting
+        // clients. Edit-time vs send-time behaviour is decoupled.
+        bm.add('faq-item', {
+            label: 'FAQ Item',
+            category: 'Content',
+            media: icons.faq,
+            content: `
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 8px 0;" class="pta-faq-block">
+                    <tr>
+                        <td style="padding: 0 20px;">
+                            <details open style="border: 1px solid #dcdcde; border-radius: 6px; padding: 14px 16px; background: #ffffff; font-family: Arial, Helvetica, sans-serif;">
+                                <summary style="cursor: pointer; font-weight: 700; font-size: 16px; color: #1d2327; list-style: none; outline: none;">
+                                    Question — type your question here
+                                </summary>
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f1; font-size: 14px; line-height: 1.6; color: #50575e;">
+                                    Answer — type the answer here. You can include <a href="#" style="color:#2271b1;">links</a>, <strong>bold text</strong>, and lists. Some email clients (Outlook desktop) will show this expanded by default, which is fine.
+                                </div>
+                            </details>
+                        </td>
+                    </tr>
+                </table>
+            `
+        });
+
+        // FAQ — pre-stacked section with a heading and three Q/A items,
+        // ready for the user to swap the placeholder text. Saves the
+        // user from dragging FAQ Item three times for the common case.
+        bm.add('faq-section', {
+            label: 'FAQ Section',
+            category: 'Content',
+            media: icons.faq,
+            content: `
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 20px 0;" class="pta-faq-block">
+                    <tr>
+                        <td style="padding: 0 20px;">
+                            <h2 style="margin: 0 0 14px 0; font-family: Arial, Helvetica, sans-serif; font-size: 22px; color: #1d2327;">
+                                Frequently Asked Questions
+                            </h2>
+                            <details open style="border: 1px solid #dcdcde; border-radius: 6px; padding: 14px 16px; background: #ffffff; margin-bottom: 8px; font-family: Arial, Helvetica, sans-serif;">
+                                <summary style="cursor: pointer; font-weight: 700; font-size: 16px; color: #1d2327; list-style: none; outline: none;">
+                                    What time does the event start?
+                                </summary>
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f1; font-size: 14px; line-height: 1.6; color: #50575e;">
+                                    Doors open at 5:30 PM and the program begins at 6:00 PM. We recommend arriving early to find parking and get settled.
+                                </div>
+                            </details>
+                            <details open style="border: 1px solid #dcdcde; border-radius: 6px; padding: 14px 16px; background: #ffffff; margin-bottom: 8px; font-family: Arial, Helvetica, sans-serif;">
+                                <summary style="cursor: pointer; font-weight: 700; font-size: 16px; color: #1d2327; list-style: none; outline: none;">
+                                    Where can I park?
+                                </summary>
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f1; font-size: 14px; line-height: 1.6; color: #50575e;">
+                                    Free parking is available in the school lot. Additional parking can be found on the surrounding streets — please be mindful of neighbours' driveways.
+                                </div>
+                            </details>
+                            <details open style="border: 1px solid #dcdcde; border-radius: 6px; padding: 14px 16px; background: #ffffff; font-family: Arial, Helvetica, sans-serif;">
+                                <summary style="cursor: pointer; font-weight: 700; font-size: 16px; color: #1d2327; list-style: none; outline: none;">
+                                    How do I volunteer?
+                                </summary>
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f1; font-size: 14px; line-height: 1.6; color: #50575e;">
+                                    Sign up on our volunteer page or reply to this email and we'll point you to the right team. Every shift helps!
+                                </div>
+                            </details>
+                        </td>
                     </tr>
                 </table>
             `
@@ -933,6 +1071,105 @@
                     </tr>
                 </table>
             `
+        });
+    }
+
+    /**
+     * Customize the Rich Text Editor toolbar that appears when the user
+     * double-clicks editable text. We replace the default link action
+     * with one that:
+     *   - Prompts for a URL (preserving the current href if editing)
+     *   - Auto-prepends https:// when the user types a bare domain
+     *   - Sets target="_blank" + rel="noopener" so newsletter links
+     *     open externally
+     *   - Lets the user clear the link by leaving the URL empty
+     * The link button is also given a distinctive label so it's easier
+     * to find on the floating toolbar.
+     */
+    function customizeRichTextEditor() {
+        if (!editor || !editor.RichTextEditor) return;
+        var rte = editor.RichTextEditor;
+
+        // Remove the default link action (if present) before re-adding.
+        try { rte.remove('link'); } catch (e) { /* not critical */ }
+
+        rte.add('link', {
+            icon: '<span style="font-weight:600;letter-spacing:0.3px;">' +
+                  '<svg style="vertical-align:middle;margin-right:3px;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>' +
+                  'Link</span>',
+            attributes: { title: 'Insert / edit link', 'data-rte-link': '1' },
+            // Show the action as "active" while the cursor is inside an <a>
+            state: function (rte, doc) {
+                if (rte && rte.selection) {
+                    var sel = rte.selection();
+                    var node = sel && sel.anchorNode;
+                    while (node && node !== doc.body) {
+                        if (node.nodeName === 'A') return 1;
+                        node = node.parentNode;
+                    }
+                }
+                return 0;
+            },
+            result: function (rte) {
+                var doc = rte.doc || document;
+                // Find an existing <a> in the current selection, if any
+                var existing = null;
+                var sel = rte.selection ? rte.selection() : null;
+                if (sel && sel.anchorNode) {
+                    var node = sel.anchorNode;
+                    while (node && node !== doc.body) {
+                        if (node.nodeName === 'A') { existing = node; break; }
+                        node = node.parentNode;
+                    }
+                }
+                var currentUrl = existing ? existing.getAttribute('href') || '' : '';
+                var url = window.prompt(
+                    'Enter URL (leave blank to remove the link):',
+                    currentUrl
+                );
+                if (url === null) return; // user cancelled
+
+                url = url.trim();
+                if (url === '') {
+                    // Strip the link if one exists
+                    if (existing) {
+                        var parent = existing.parentNode;
+                        while (existing.firstChild) {
+                            parent.insertBefore(existing.firstChild, existing);
+                        }
+                        parent.removeChild(existing);
+                    }
+                    return;
+                }
+
+                // Auto-prepend https:// for bare domains, but allow
+                // mailto:, tel:, #anchor, and merge tokens unmodified.
+                if (!/^([a-z][a-z0-9+.-]*:|#|\{\{)/i.test(url)) {
+                    url = 'https://' + url;
+                }
+
+                if (existing) {
+                    existing.setAttribute('href', url);
+                    existing.setAttribute('target', '_blank');
+                    existing.setAttribute('rel', 'noopener');
+                } else {
+                    rte.exec('createLink', url);
+                    // Apply target/rel to all new <a> in the selection
+                    setTimeout(function () {
+                        if (sel && sel.anchorNode) {
+                            var n = sel.anchorNode;
+                            while (n && n !== doc.body) {
+                                if (n.nodeName === 'A') {
+                                    n.setAttribute('target', '_blank');
+                                    n.setAttribute('rel', 'noopener');
+                                    break;
+                                }
+                                n = n.parentNode;
+                            }
+                        }
+                    }, 0);
+                }
+            }
         });
     }
 
@@ -1642,24 +1879,49 @@
                 name: attachment.filename
             });
 
+            // CRITICAL: We must update the GrapesJS *component model* (not
+            // just the DOM element). editor.getHtml() serializes from the
+            // model, so a DOM-only update would be invisible at save /
+            // review time and the original placeholder URL would silently
+            // come back when advancing to step 3. If the user clicked a
+            // wrapping <td>/<table>/<a> instead of the <img>, locate the
+            // first descendant image component and update it instead.
+            var imgComponent = component;
+            if (imgComponent.get('tagName') !== 'img') {
+                var found = null;
+                if (typeof imgComponent.find === 'function') {
+                    var matches = imgComponent.find('img');
+                    if (matches && matches.length) {
+                        found = matches[0];
+                    }
+                }
+                if (!found) {
+                    // Manual depth-first search through child components.
+                    (function walk(c) {
+                        if (found) return;
+                        if (c.get && c.get('tagName') === 'img') { found = c; return; }
+                        var children = c.components ? c.components() : null;
+                        if (children && children.each) {
+                            children.each(walk);
+                        }
+                    })(imgComponent);
+                }
+                if (found) imgComponent = found;
+            }
+
             var attrs = { src: attachment.url };
             if (attachment.alt) {
                 attrs.alt = attachment.alt;
             }
-            component.addAttributes(attrs);
+            imgComponent.addAttributes(attrs);
 
-            var el = component.view && component.view.el;
-            if (el) {
-                if (el.tagName === 'IMG') {
-                    el.setAttribute('src', attachment.url);
-                    if (attachment.alt) el.setAttribute('alt', attachment.alt);
-                } else {
-                    var imgEl = el.querySelector('img');
-                    if (imgEl) {
-                        imgEl.setAttribute('src', attachment.url);
-                        if (attachment.alt) imgEl.setAttribute('alt', attachment.alt);
-                    }
-                }
+            // Best-effort DOM sync for instant visual feedback. The model
+            // update above is what actually persists; this just avoids a
+            // brief flash of the old image while the view re-renders.
+            var el = imgComponent.view && imgComponent.view.el;
+            if (el && el.tagName === 'IMG') {
+                el.setAttribute('src', attachment.url);
+                if (attachment.alt) el.setAttribute('alt', attachment.alt);
             }
         });
 
@@ -1930,6 +2192,71 @@
                 $('#subject-chars').css('color', '#646970');
             }
         }).trigger('input');
+    }
+
+    /**
+     * Keep the hidden #newsletter_from input (which the AJAX save reads as
+     * `email|name`) in sync with the visible name/email inputs and the
+     * optional saved-sender picker. This avoids requiring users to set up
+     * pre-saved sender addresses in Newsletter Settings just to send a
+     * newsletter — they can type a sender directly inline.
+     */
+    function initFromFieldSync() {
+        var $hidden = $('#newsletter_from');
+        var $name   = $('#newsletter_from_name_input');
+        var $email  = $('#newsletter_from_email_input');
+        var $picker = $('#newsletter_from_picker');
+
+        if (!$hidden.length || !$name.length || !$email.length) {
+            return;
+        }
+
+        function sync() {
+            var name  = ($name.val() || '').trim();
+            var email = ($email.val() || '').trim();
+            $hidden.val(email + '|' + name);
+        }
+
+        $name.on('input change', sync);
+        $email.on('input change', sync);
+
+        if ($picker.length) {
+            $picker.on('change', function() {
+                var val = $picker.val();
+                if (!val) { return; }
+                var parts = val.split('|');
+                $email.val(parts[0] || '');
+                $name.val(parts[1] || '');
+                sync();
+            });
+        }
+
+        sync();
+    }
+
+    /**
+     * Sticky help bar above the editor canvas. Stays dismissed across
+     * sessions per-user via localStorage, but never blocks usage.
+     */
+    function initEditorHelpBar() {
+        var $bar = $('#editor-help-bar');
+        if (!$bar.length) { return; }
+
+        var STORAGE_KEY = 'pta_newsletter_help_dismissed';
+        try {
+            if (window.localStorage && localStorage.getItem(STORAGE_KEY) === '1') {
+                $bar.addClass('is-dismissed');
+            }
+        } catch (e) { /* localStorage might be blocked; ignore */ }
+
+        $bar.on('click', '.editor-help-dismiss', function () {
+            $bar.addClass('is-dismissed');
+            try {
+                if (window.localStorage) {
+                    localStorage.setItem(STORAGE_KEY, '1');
+                }
+            } catch (e) { /* ignore */ }
+        });
     }
 
     /**

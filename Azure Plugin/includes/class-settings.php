@@ -274,7 +274,12 @@ class Azure_Settings {
             'enable_newsletter' => false,
             'enable_tickets' => false,
             'enable_auction' => false,
-            
+            'auction_display_live' => false,
+            'auction_display_card_scale'    => 80,
+            'auction_display_cards_wide'    => 4,
+            'auction_display_cards_tall'    => 3,
+            'auction_display_slide_seconds' => 5,
+
             // Debug settings
             'debug_mode' => false,
             'debug_modules' => array(), // Empty = all modules, or specific: ['SSO', 'Calendar', 'TEC', ...]
@@ -295,6 +300,7 @@ class Azure_Settings {
             'sso_default_role' => 'subscriber',
             'sso_show_on_login_page' => true,
             'sso_login_button_text' => 'Sign in with Microsoft',
+            'sso_login_org_heading'   => '',
             'sso_use_custom_role' => false,
             'sso_custom_role_name' => 'AzureAD',
             'sso_sync_enabled' => false,

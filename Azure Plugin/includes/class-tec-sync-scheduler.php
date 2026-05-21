@@ -21,9 +21,10 @@ class Azure_TEC_Sync_Scheduler {
     }
     
     public function __construct() {
-        // Register custom cron schedules
-        add_filter('cron_schedules', array($this, 'add_custom_cron_schedules'));
-        
+        // Custom cron intervals (every_15_minutes, every_30_minutes) are now
+        // owned by Azure_PTA_Cron::register_intervals(). This class no longer
+        // needs its own cron_schedules filter.
+
         // Register the global cron hook (legacy support)
         add_action($this->hook_name, array($this, 'execute_scheduled_sync'));
         
@@ -68,25 +69,6 @@ class Azure_TEC_Sync_Scheduler {
                 add_action($hook_name, array($this, 'execute_mapping_sync'));
             }
         }
-    }
-    
-    /**
-     * Add custom cron schedules
-     */
-    public function add_custom_cron_schedules($schedules) {
-        // 15 minutes
-        $schedules['every_15_minutes'] = array(
-            'interval' => 15 * 60,
-            'display' => __('Every 15 Minutes', 'azure-plugin')
-        );
-        
-        // 30 minutes
-        $schedules['every_30_minutes'] = array(
-            'interval' => 30 * 60,
-            'display' => __('Every 30 Minutes', 'azure-plugin')
-        );
-        
-        return $schedules;
     }
     
     /**

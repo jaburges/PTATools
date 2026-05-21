@@ -14,8 +14,34 @@ class Azure_Auction_Product_Type {
         add_filter('woocommerce_product_class', array($this, 'product_class'), 10, 2);
         add_filter('woocommerce_product_data_tabs', array($this, 'add_product_data_tabs'));
         add_action('woocommerce_product_data_panels', array($this, 'add_product_data_panels'));
+
+        // Sync the auction starting bid into the WC_Product object BEFORE
+        // WC saves it. This is the canonical hook — it updates both
+        // postmeta and wp_wc_product_meta_lookup. Hooking only into
+        // woocommerce_process_product_meta (which fires AFTER save()) means
+        // our update_post_meta() never reaches the lookup table, so the
+        // front-end keeps reading an empty regular_price.
+        add_action('woocommerce_admin_process_product_object', array($this, 'sync_auction_object'));
         add_action('woocommerce_process_product_meta', array($this, 'save_product_meta'));
         add_action('admin_footer', array($this, 'product_type_js'));
+    }
+
+    /**
+     * Mirror $_POST['_auction_starting_bid'] onto the product object so
+     * WC_Product::save() persists it correctly. Runs once during the
+     * admin save pipeline, just before $product->save().
+     */
+    public function sync_auction_object($product) {
+        if (!is_object($product) || $product->get_type() !== 'auction') {
+            return;
+        }
+        if (!isset($_POST['_auction_starting_bid'])) {
+            return;
+        }
+        $raw = wc_clean(wp_unslash($_POST['_auction_starting_bid']));
+        $value = ($raw === '' ? '' : (string) wc_format_decimal($raw));
+        $product->set_regular_price($value);
+        $product->set_price($value);
     }
 
     public function add_product_type($types) {
@@ -103,13 +129,13 @@ class Azure_Auction_Product_Type {
             return;
         }
 
-        if (isset($_POST['_auction_starting_bid'])) {
-            update_post_meta($product_id, '_regular_price', wc_clean(wp_unslash($_POST['_auction_starting_bid'])));
-            update_post_meta($product_id, '_price', wc_clean(wp_unslash($_POST['_auction_starting_bid'])));
-        }
+        // Starting bid is handled by sync_auction_object() on the
+        // woocommerce_admin_process_product_object hook so it flows through
+        // WC's data store (postmeta + wc_product_meta_lookup) correctly.
 
         $end_date = isset($_POST['_auction_bidding_end_date']) ? sanitize_text_field($_POST['_auction_bidding_end_date']) : '';
         $end_time = isset($_POST['_auction_bidding_end_time']) ? sanitize_text_field($_POST['_auction_bidding_end_time']) : '';
+        $combined = '';
         if ($end_date && $end_time) {
             $combined = $end_date . ' ' . $end_time . ':00';
             update_post_meta($product_id, '_auction_bidding_end', $combined);
@@ -122,6 +148,19 @@ class Azure_Auction_Product_Type {
             update_post_meta($product_id, '_auction_buy_it_now_price', wc_clean(wp_unslash($_POST['_auction_buy_it_now_price'])));
         }
         update_post_meta($product_id, '_auction_buy_it_now_pay_immediately', isset($_POST['_auction_buy_it_now_pay_immediately']) ? 'yes' : 'no');
+
+        // (Re)schedule the per-auction finalize cron. Idempotent — clears any
+        // existing event for this product first so editing the end time
+        // works. If the auction is already ended/sold, schedule_finalize_event
+        // will no-op via the empty/invalid timestamp branch.
+        if (class_exists('Azure_Auction_Lifecycle')) {
+            $current_status = get_post_meta($product_id, '_auction_status', true);
+            if ($current_status === 'sold' || $current_status === 'ended') {
+                Azure_Auction_Lifecycle::clear_finalize_event_static($product_id);
+            } else {
+                Azure_Auction_Lifecycle::schedule_finalize_event($product_id, $combined);
+            }
+        }
     }
 
     public function product_type_js() {

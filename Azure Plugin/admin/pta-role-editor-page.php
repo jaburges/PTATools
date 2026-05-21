@@ -3,39 +3,11 @@
  * PTA Role Editor - Visual editor for WordPress role capabilities.
  *
  * Lets admins pick any WP role (including custom roles synced from Azure AD)
- * and toggle its capabilities grouped by functional area. Also exposes
- * Add / Clone / Rename / Delete buttons for role types and a Re-seed
- * button to re-apply Azure_Capabilities default cap-to-role mappings.
+ * and toggle its capabilities grouped by functional area.
  */
 if (!defined('ABSPATH')) {
     exit;
 }
-
-// Enqueue the Role CRUD assets (separate from the cap-toggle JS that
-// lives inline at the bottom of this file).
-wp_enqueue_style(
-    'pta-role-editor-crud',
-    AZURE_PLUGIN_URL . 'css/pta-role-editor-crud.css',
-    array(),
-    AZURE_PLUGIN_VERSION
-);
-wp_enqueue_script(
-    'pta-role-editor-crud',
-    AZURE_PLUGIN_URL . 'js/pta-role-editor-crud.js',
-    array('jquery'),
-    AZURE_PLUGIN_VERSION,
-    true
-);
-wp_localize_script('pta-role-editor-crud', 'ptaRoleCrud', array(
-    'ajaxUrl'         => admin_url('admin-ajax.php'),
-    'nonce'           => wp_create_nonce('azure_plugin_nonce'),
-    'protectedRoles'  => array('administrator', 'editor', 'author', 'contributor', 'subscriber', 'azuread'),
-    'pageUrl'         => admin_url('admin.php?page=azure-plugin-pta-role-editor'),
-    'strings'         => array(
-        'confirmDelete' => 'Permanently delete this role?',
-        'reseedSuccess' => 'PTA Tools capabilities re-seeded.',
-    ),
-));
 
 $wp_roles = wp_roles();
 $all_roles = $wp_roles->roles;
@@ -77,9 +49,7 @@ $all_known_caps = array_keys($all_known_caps);
 sort($all_known_caps);
 
 // Group caps by functional area. Anything that doesn't match a known group
-// falls into "Other / Custom". PTA Tools sub-groups come from
-// Azure_Capabilities::get_groups() so adding a new module's caps doesn't
-// require editing this file.
+// falls into "Other / Custom".
 $cap_groups = array(
     'core'       => array('label' => 'Core & Administration', 'icon' => 'admin-settings', 'caps' => array()),
     'users'      => array('label' => 'Users & Profiles',      'icon' => 'admin-users',    'caps' => array()),
@@ -92,29 +62,10 @@ $cap_groups = array(
     'plugins'    => array('label' => 'Plugins',               'icon' => 'admin-plugins',  'caps' => array()),
     'tools'      => array('label' => 'Tools & Import/Export', 'icon' => 'admin-tools',    'caps' => array()),
     'woocommerce'=> array('label' => 'WooCommerce',           'icon' => 'cart',           'caps' => array()),
-    'tec'        => array('label' => 'The Events Calendar (legacy)', 'icon' => 'calendar-alt', 'caps' => array()),
-    // Third-party plugins that used to fall into the PTA bucket. Keep
-    // them in their own groups so PTA Tools / Azure stays clean.
-    'mailpoet'   => array('label' => 'MailPoet',              'icon' => 'email',          'caps' => array()),
-    'forminator' => array('label' => 'Forminator',            'icon' => 'feedback',       'caps' => array()),
-    'beaver'     => array('label' => 'Beaver Builder',        'icon' => 'layout',         'caps' => array()),
-    'fluentcrm'  => array('label' => 'FluentCRM',             'icon' => 'businessperson', 'caps' => array()),
+    'tec'        => array('label' => 'The Events Calendar',   'icon' => 'calendar-alt',   'caps' => array()),
+    'azure'      => array('label' => 'PTA Tools / Azure',     'icon' => 'cloud',          'caps' => array()),
+    'other'      => array('label' => 'Other / Custom',        'icon' => 'admin-generic',  'caps' => array()),
 );
-
-// Insert PTA Tools sub-groups (events, newsletter, backup, ...) before
-// the catch-all azure/other groups so they render in the right order.
-if (class_exists('Azure_Capabilities')) {
-    foreach (Azure_Capabilities::get_groups() as $key => $info) {
-        $cap_groups['pta_' . $key] = array(
-            'label' => 'PTA Tools — ' . $info['label'],
-            'icon'  => $info['icon'],
-            'caps'  => array(),
-        );
-    }
-}
-
-$cap_groups['azure'] = array('label' => 'PTA Tools / Azure (other)', 'icon' => 'cloud',         'caps' => array());
-$cap_groups['other'] = array('label' => 'Other / Custom',            'icon' => 'admin-generic', 'caps' => array());
 
 // Friendly labels for common WP core caps. Caps not in this list are shown verbatim.
 $cap_labels = array(
@@ -213,35 +164,10 @@ $cap_labels = array(
     'edit_files'              => 'Edit files in the admin',
 );
 
-// Merge in PTA Tools cap labels from the registry so each pta_* cap
-// renders with its human-readable label instead of the raw slug.
-if (class_exists('Azure_Capabilities')) {
-    $cap_labels = array_merge($cap_labels, Azure_Capabilities::get_label_map());
-}
-
-// PTA caps marked high-trust get a warning badge in the editor.
-$pta_high_trust_caps = class_exists('Azure_Capabilities')
-    ? Azure_Capabilities::get_high_trust_caps()
-    : array();
-
-// Pre-computed group lookup: cap_slug => 'pta_<group_key>'. Used by the
-// classifier below; declared up here so the closure can capture it.
-$pta_group_map = array();
-if (class_exists('Azure_Capabilities')) {
-    foreach (Azure_Capabilities::get_group_map() as $cap => $group_key) {
-        $pta_group_map[$cap] = 'pta_' . $group_key;
-    }
-}
-
 /**
  * Decide which group a capability belongs to.
  */
-$classify_cap = function($cap) use ($pta_group_map) {
-    // PTA registry caps go to their declared sub-group first.
-    if (isset($pta_group_map[$cap])) {
-        return $pta_group_map[$cap];
-    }
-
+$classify_cap = function($cap) {
     static $core = array(
         'manage_options', 'manage_network', 'manage_sites', 'manage_network_options',
         'manage_network_plugins', 'manage_network_themes', 'manage_network_users',
@@ -281,18 +207,10 @@ $classify_cap = function($cap) use ($pta_group_map) {
     if (in_array($cap, $plugins, true))  return 'plugins';
     if (in_array($cap, $tools, true))    return 'tools';
 
-    // Heuristics for plugin caps. Order matters — more specific patterns
-    // first so a generic regex doesn't claim a third-party cap.
-    if (preg_match('/(woocommerce|shop_order|^product|shop_coupon|shop_webhook)/i', $cap)) return 'woocommerce';
-    if (preg_match('/^(tribe|tec)_|(^|_)tribe_events|^event-ticket|^events_calendar/i', $cap)) return 'tec';
-    if (preg_match('/^mailpoet/i', $cap))                                                  return 'mailpoet';
-    if (preg_match('/(^|_)forminator(_|$)/i', $cap))                                       return 'forminator';
-    if (preg_match('/^(fl_builder|bb_|beaver_|powerpack_)/i', $cap))                       return 'beaver';
-    if (preg_match('/^(fluentcrm|fcrm_)/i', $cap))                                         return 'fluentcrm';
-    // PTA Tools fallback: only caps that look genuinely PTA-ish — registry
-    // caps are already routed above via $pta_group_map. This catches stray
-    // legacy caps like `manage_pta`, `azure_ad_user`, etc.
-    if (preg_match('/^(azure_|pta_)|^manage_pta$|_pta_/i', $cap))                          return 'azure';
+    // Heuristics for plugin caps.
+    if (preg_match('/(woocommerce|shop_order|product|shop_coupon|shop_webhook)/i', $cap)) return 'woocommerce';
+    if (preg_match('/(tribe|tec|event-ticket|events_)/i', $cap))                          return 'tec';
+    if (preg_match('/(azure|pta|forminator|beaver|fl_builder|fluentcrm|mailpoet)/i', $cap)) return 'azure';
 
     return 'other';
 };
@@ -317,19 +235,6 @@ $protected_roles = array('administrator');
 
 // Azure-AD-synced roles have azure_ad_user cap — surface that visually.
 $is_azure_role = !empty($selected_caps['azure_ad_user']);
-
-// Stale-cap probe: detect caps left behind by deactivated plugins (e.g.
-// tribe_* caps after the TEC retirement). The banner is rendered only
-// when at least one target is both inactive AND has caps still on roles.
-$stale_probes = array();
-if (class_exists('Azure_Capabilities')) {
-    foreach (array_keys(Azure_Capabilities::get_stale_cap_targets()) as $tk) {
-        $p = Azure_Capabilities::probe_stale_target($tk);
-        if (!empty($p['plugin_inactive']) && !empty($p['total_caps'])) {
-            $stale_probes[] = $p;
-        }
-    }
-}
 ?>
 
 <div class="wrap azure-role-editor">
@@ -340,28 +245,6 @@ if (class_exists('Azure_Capabilities')) {
     <div class="notice notice-warning inline">
         <p><strong>PTA module is disabled.</strong> Enable it from the <a href="<?php echo admin_url('admin.php?page=azure-plugin'); ?>">main settings</a> to use this feature.</p>
     </div>
-    <?php endif; ?>
-
-    <?php if (!empty($stale_probes)): ?>
-    <?php foreach ($stale_probes as $probe): ?>
-    <div class="notice notice-warning stale-caps-banner" data-target="<?php echo esc_attr($probe['key']); ?>">
-        <p>
-            <span class="dashicons dashicons-trash" style="color:#996800;vertical-align:middle;"></span>
-            <strong>Stale capabilities detected:</strong>
-            The <strong><?php echo esc_html($probe['label']); ?></strong> plugin is no longer active, but
-            <strong><?php echo (int) $probe['total_caps']; ?></strong> cap(s) from it still sit on
-            <strong><?php echo (int) $probe['roles_affected']; ?></strong> role(s).
-            They're inert (no code reads them) but they clutter this editor.
-            <button type="button" class="button stale-caps-cleanup-btn"
-                data-target="<?php echo esc_attr($probe['key']); ?>"
-                data-label="<?php echo esc_attr($probe['label']); ?>"
-                data-count="<?php echo esc_attr($probe['total_caps']); ?>"
-                data-roles="<?php echo esc_attr($probe['roles_affected']); ?>">
-                Clean up <?php echo esc_html($probe['label']); ?> caps
-            </button>
-        </p>
-    </div>
-    <?php endforeach; ?>
     <?php endif; ?>
 
     <!-- Role selector -->
@@ -390,32 +273,6 @@ if (class_exists('Azure_Capabilities')) {
             <?php if ($is_azure_role): ?>
                 <span class="stat-chip stat-chip-info"><span class="dashicons dashicons-cloud"></span> Azure AD role</span>
             <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- Role type CRUD toolbar -->
-    <div class="role-crud-bar" data-current-role="<?php echo esc_attr($selected_role); ?>">
-        <div class="role-crud-bar-left">
-            <strong>Manage roles:</strong>
-            <button type="button" class="button" id="role-crud-add">
-                <span class="dashicons dashicons-plus-alt2"></span> Add role
-            </button>
-            <button type="button" class="button" id="role-crud-clone">
-                <span class="dashicons dashicons-admin-page"></span> Clone "<?php echo esc_html($selected_role_obj ? $selected_role_obj->name : $selected_role); ?>"
-            </button>
-            <button type="button" class="button" id="role-crud-rename"
-                <?php disabled(in_array($selected_role, array('administrator','editor','author','contributor','subscriber'), true)); ?>>
-                <span class="dashicons dashicons-edit"></span> Rename
-            </button>
-            <button type="button" class="button button-link-delete" id="role-crud-delete"
-                <?php disabled(in_array($selected_role, array('administrator','editor','author','contributor','subscriber','azuread'), true)); ?>>
-                <span class="dashicons dashicons-trash"></span> Delete
-            </button>
-        </div>
-        <div class="role-crud-bar-right">
-            <button type="button" class="button" id="role-crud-reseed" title="Re-apply default PTA Tools capability assignments to all roles">
-                <span class="dashicons dashicons-update"></span> Re-seed PTA caps
-            </button>
         </div>
     </div>
 
@@ -460,7 +317,7 @@ if (class_exists('Azure_Capabilities')) {
         <div id="role-editor-notice" class="role-editor-notice" style="display:none;"></div>
 
         <!-- Capability groups -->
-        <div class="role-editor-groups" id="role-editor-groups">
+        <div class="role-editor-groups">
         <?php foreach ($cap_groups as $group_key => $group): ?>
             <?php
             $group_enabled = 0;
@@ -500,7 +357,6 @@ if (class_exists('Azure_Capabilities')) {
                             'edit_files','unfiltered_html','unfiltered_upload','update_core',
                             'delete_users','create_users','promote_users',
                         ), true);
-                        $is_high_trust = in_array($cap, $pta_high_trust_caps, true);
                         ?>
                         <label class="cap-row <?php echo $dangerous_cap ? 'cap-dangerous' : ''; ?>" data-cap="<?php echo esc_attr($cap); ?>">
                             <input type="checkbox" class="cap-checkbox" data-cap="<?php echo esc_attr($cap); ?>" <?php checked($checked); ?>>
@@ -512,9 +368,6 @@ if (class_exists('Azure_Capabilities')) {
                                 <?php if ($dangerous_cap): ?>
                                     <span class="cap-danger-badge" title="This capability can affect site security or stability">Sensitive</span>
                                 <?php endif; ?>
-                                <?php if ($is_high_trust && !$dangerous_cap): ?>
-                                    <span class="cap-trust-badge" title="High-trust action — only grant to roles you fully trust">High-trust</span>
-                                <?php endif; ?>
                             </span>
                         </label>
                     <?php endforeach; ?>
@@ -523,127 +376,6 @@ if (class_exists('Azure_Capabilities')) {
         <?php endforeach; ?>
         </div>
     </form>
-
-    <!-- =============================================================== -->
-    <!-- Role CRUD modals (hidden until JS opens them)                     -->
-    <!-- =============================================================== -->
-
-    <div class="pta-role-modal-backdrop" id="pta-role-modal-backdrop" hidden></div>
-
-    <!-- Add role -->
-    <div class="pta-role-modal" id="pta-role-modal-add" hidden role="dialog" aria-modal="true" aria-labelledby="pta-role-modal-add-title">
-        <div class="pta-role-modal-header">
-            <h2 id="pta-role-modal-add-title">Add a new role</h2>
-            <button type="button" class="pta-role-modal-close" data-modal="add" aria-label="Close">&times;</button>
-        </div>
-        <div class="pta-role-modal-body">
-            <p class="description">Creates a new WordPress role. The slug is permanent — pick carefully.</p>
-            <p>
-                <label for="pta-role-add-slug"><strong>Slug</strong></label>
-                <input type="text" id="pta-role-add-slug" class="regular-text" placeholder="pta_treasurer" maxlength="39" autocomplete="off">
-                <span class="description">Lowercase letters, numbers, underscores. Must start with a letter. Max 39 characters.</span>
-            </p>
-            <p>
-                <label for="pta-role-add-name"><strong>Display name</strong></label>
-                <input type="text" id="pta-role-add-name" class="regular-text" placeholder="PTA Treasurer" autocomplete="off">
-            </p>
-            <p>
-                <label for="pta-role-add-startfrom"><strong>Start from</strong></label>
-                <select id="pta-role-add-startfrom">
-                    <option value="empty">Empty (just the read capability)</option>
-                    <option value="all_pta">All PTA Tools capabilities</option>
-                    <optgroup label="Copy from existing role">
-                        <?php foreach ($all_roles as $slug => $data): ?>
-                            <option value="<?php echo esc_attr($slug); ?>"><?php echo esc_html(translate_user_role($data['name'])); ?> (<?php echo esc_html($slug); ?>)</option>
-                        <?php endforeach; ?>
-                    </optgroup>
-                </select>
-            </p>
-        </div>
-        <div class="pta-role-modal-footer">
-            <button type="button" class="button" data-modal="add" data-action="cancel">Cancel</button>
-            <button type="button" class="button button-primary" id="pta-role-add-submit">Create role</button>
-        </div>
-    </div>
-
-    <!-- Clone role -->
-    <div class="pta-role-modal" id="pta-role-modal-clone" hidden role="dialog" aria-modal="true" aria-labelledby="pta-role-modal-clone-title">
-        <div class="pta-role-modal-header">
-            <h2 id="pta-role-modal-clone-title">Clone role</h2>
-            <button type="button" class="pta-role-modal-close" data-modal="clone" aria-label="Close">&times;</button>
-        </div>
-        <div class="pta-role-modal-body">
-            <p class="description">Creates a copy of <strong id="pta-role-clone-source-label"></strong> under a new slug. All capabilities are duplicated.</p>
-            <p>
-                <label for="pta-role-clone-slug"><strong>New slug</strong></label>
-                <input type="text" id="pta-role-clone-slug" class="regular-text" placeholder="pta_event_lead" maxlength="39" autocomplete="off">
-            </p>
-            <p>
-                <label for="pta-role-clone-name"><strong>Display name</strong></label>
-                <input type="text" id="pta-role-clone-name" class="regular-text" placeholder="PTA Event Lead" autocomplete="off">
-            </p>
-        </div>
-        <div class="pta-role-modal-footer">
-            <button type="button" class="button" data-modal="clone" data-action="cancel">Cancel</button>
-            <button type="button" class="button button-primary" id="pta-role-clone-submit">Clone</button>
-        </div>
-    </div>
-
-    <!-- Rename role -->
-    <div class="pta-role-modal" id="pta-role-modal-rename" hidden role="dialog" aria-modal="true" aria-labelledby="pta-role-modal-rename-title">
-        <div class="pta-role-modal-header">
-            <h2 id="pta-role-modal-rename-title">Rename role</h2>
-            <button type="button" class="pta-role-modal-close" data-modal="rename" aria-label="Close">&times;</button>
-        </div>
-        <div class="pta-role-modal-body">
-            <p class="description">Renaming changes the display name only. The slug stays the same so existing user assignments aren't affected.</p>
-            <p>
-                <label><strong>Slug</strong> (read-only)</label>
-                <input type="text" id="pta-role-rename-slug" class="regular-text" readonly>
-            </p>
-            <p>
-                <label for="pta-role-rename-name"><strong>New display name</strong></label>
-                <input type="text" id="pta-role-rename-name" class="regular-text" autocomplete="off">
-            </p>
-        </div>
-        <div class="pta-role-modal-footer">
-            <button type="button" class="button" data-modal="rename" data-action="cancel">Cancel</button>
-            <button type="button" class="button button-primary" id="pta-role-rename-submit">Rename</button>
-        </div>
-    </div>
-
-    <!-- Delete role -->
-    <div class="pta-role-modal" id="pta-role-modal-delete" hidden role="dialog" aria-modal="true" aria-labelledby="pta-role-modal-delete-title">
-        <div class="pta-role-modal-header">
-            <h2 id="pta-role-modal-delete-title">Delete role</h2>
-            <button type="button" class="pta-role-modal-close" data-modal="delete" aria-label="Close">&times;</button>
-        </div>
-        <div class="pta-role-modal-body">
-            <p>
-                You're about to delete <strong id="pta-role-delete-slug-label"></strong>.
-                <span id="pta-role-delete-user-warning" hidden>
-                    <br><strong class="role-crud-warn"><span class="dashicons dashicons-warning"></span>
-                    <span id="pta-role-delete-user-count"></span> user(s)</strong> are currently assigned to this role.
-                    They must be reassigned before delete.
-                </span>
-            </p>
-            <p id="pta-role-delete-reassign-row" hidden>
-                <label for="pta-role-delete-reassign"><strong>Reassign affected users to:</strong></label>
-                <select id="pta-role-delete-reassign">
-                    <?php foreach ($all_roles as $slug => $data): ?>
-                        <option value="<?php echo esc_attr($slug); ?>"
-                            <?php selected($slug, 'subscriber'); ?>>
-                            <?php echo esc_html(translate_user_role($data['name'])); ?> (<?php echo esc_html($slug); ?>)
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </p>
-        </div>
-        <div class="pta-role-modal-footer">
-            <button type="button" class="button" data-modal="delete" data-action="cancel">Cancel</button>
-            <button type="button" class="button button-link-delete" id="pta-role-delete-submit">Delete role</button>
-        </div>
-    </div>
 </div>
 
 <style>

@@ -8,6 +8,13 @@ if (!defined('ABSPATH')) {
 }
 
 $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'auction';
+// Legacy slugs (v3.67/v3.68) — the Parent Tools / Consolidate / CSV import
+// surfaces moved out of Selling. Bounce visitors who follow old bookmarks
+// to the new User Management page (in PTA Tools) so they don't 404.
+if (in_array($active_tab, array('parent-tools', 'parent-children-import', 'product-fields-consolidate'), true)) {
+    wp_safe_redirect(admin_url('admin.php?page=azure-plugin-user-management&tab=role-editor'));
+    exit;
+}
 $valid_tabs = array('auction', 'classes', 'product-fields', 'donations', 'reports');
 if (!in_array($active_tab, $valid_tabs)) {
     $active_tab = 'auction';

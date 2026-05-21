@@ -28,8 +28,9 @@ class Azure_PTA_Groups_Manager {
         add_action('wp_ajax_pta_get_role_group_mapping', array($this, 'ajax_get_role_group_mapping'));
         add_action('wp_ajax_pta_set_role_group', array($this, 'ajax_set_role_group'));
         
-        // Scheduled sync
-        add_action('init', array($this, 'schedule_group_sync'));
+        // Scheduled sync handlers. The `six_hours` interval and event
+        // scheduling are owned by Azure_PTA_Cron; only the action handlers
+        // need to be bound here.
         add_action('pta_sync_o365_groups_scheduled', array($this, 'sync_all_o365_groups'));
         add_action('pta_sync_group_memberships_scheduled', array($this, 'sync_all_group_memberships'));
     }
@@ -747,29 +748,6 @@ class Azure_PTA_Groups_Manager {
         }
     }
     
-    /**
-     * Schedule group sync operations
-     */
-    public function schedule_group_sync() {
-        // Add custom cron schedule for 6 hours
-        add_filter('cron_schedules', function($schedules) {
-            $schedules['six_hours'] = array(
-                'interval' => 6 * HOUR_IN_SECONDS,
-                'display' => __('Every 6 hours')
-            );
-            return $schedules;
-        });
-        
-        // Schedule O365 groups sync (daily)
-        if (!wp_next_scheduled('pta_sync_o365_groups_scheduled')) {
-            wp_schedule_event(time() + 3600, 'daily', 'pta_sync_o365_groups_scheduled');
-        }
-        
-        // Schedule group memberships sync (every 6 hours)
-        if (!wp_next_scheduled('pta_sync_group_memberships_scheduled')) {
-            wp_schedule_event(time() + 1800, 'six_hours', 'pta_sync_group_memberships_scheduled');
-        }
-    }
     
     /**
      * Sync all Office 365 groups (scheduled task)

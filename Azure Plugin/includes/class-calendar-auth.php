@@ -8,17 +8,31 @@ if (!defined('ABSPATH')) {
 }
 
 class Azure_Calendar_Auth {
-    
+
+    /**
+     * Option key holding per-user token health (status, last error, last check).
+     * Format:
+     *   [
+     *     'jamieb@example.com' => [
+     *        'status'        => 'ok' | 'expires_soon' | 'expired_no_refresh' | 'refresh_failed',
+     *        'last_error'    => string|null,
+     *        'last_error_at' => 'YYYY-mm-dd HH:ii:ss' (UTC),
+     *        'last_check_at' => 'YYYY-mm-dd HH:ii:ss' (UTC),
+     *     ],
+     *   ]
+     */
+    const TOKEN_HEALTH_OPTION = 'azure_calendar_token_health';
+
     private $settings;
     private $credentials;
-    
+
     public function __construct() {
         // Ensure Azure_Settings is available before using it
         if (!class_exists('Azure_Settings')) {
             error_log('Azure_Calendar_Auth: Azure_Settings class not found');
             return;
         }
-        
+
         try {
             $this->settings = Azure_Settings::get_all_settings();
             $this->credentials = Azure_Settings::get_credentials('calendar');
@@ -27,7 +41,7 @@ class Azure_Calendar_Auth {
             $this->settings = array();
             $this->credentials = array();
         }
-        
+
         // AJAX handlers for OAuth flow
         add_action('wp_ajax_nopriv_azure_calendar_callback', array($this, 'handle_callback'));
         add_action('wp_ajax_azure_calendar_callback', array($this, 'handle_callback'));
@@ -35,6 +49,11 @@ class Azure_Calendar_Auth {
         add_action('wp_ajax_azure_calendar_user_callback', array($this, 'handle_user_callback'));
         add_action('wp_ajax_azure_calendar_authorize', array($this, 'ajax_authorize'));
         add_action('wp_ajax_azure_calendar_revoke', array($this, 'ajax_revoke_token'));
+
+        // Proactive hourly token refresh. The cron event itself is registered centrally
+        // by Azure_PTA_Cron::ensure() when enable_calendar is on. We only attach the
+        // handler so the scheduled event has something to invoke.
+        add_action('azure_calendar_token_refresh', array($this, 'refresh_token_if_needed'));
     }
     
     /**
@@ -347,13 +366,16 @@ class Azure_Calendar_Auth {
         
         if ($result !== false) {
             Azure_Logger::info("Calendar Auth: Stored tokens for {$user_email}");
+            // Healthy path: token was successfully obtained/stored, clear any prior error.
+            self::update_token_health($user_email, 'ok', null);
             return true;
         } else {
             Azure_Logger::error("Calendar Auth: Failed to store tokens for {$user_email}");
+            self::update_token_health($user_email, 'refresh_failed', 'db_write_failed');
             return false;
         }
     }
-    
+
     /**
      * Refresh access token for a specific user
      */
@@ -378,21 +400,26 @@ class Azure_Calendar_Auth {
         ));
         
         if (is_wp_error($response)) {
-            Azure_Logger::error("Calendar Auth: Token refresh failed for {$user_email} - " . $response->get_error_message());
+            $msg = $response->get_error_message();
+            Azure_Logger::error("Calendar Auth: Token refresh failed for {$user_email} - " . $msg);
+            self::update_token_health($user_email, 'refresh_failed', 'network: ' . $msg);
             return false;
         }
-        
+
         $response_body = wp_remote_retrieve_body($response);
         $token_data = json_decode($response_body, true);
-        
+
         if (isset($token_data['error'])) {
-            Azure_Logger::error("Calendar Auth: Token refresh error for {$user_email} - " . $token_data['error_description']);
+            $err = isset($token_data['error']) ? $token_data['error'] : 'unknown';
+            $desc = isset($token_data['error_description']) ? $token_data['error_description'] : '';
+            Azure_Logger::error("Calendar Auth: Token refresh error for {$user_email} - {$err}: {$desc}");
+            self::update_token_health($user_email, 'refresh_failed', $err);
             return false;
         }
-        
-        // Store new tokens
+
+        // Store new tokens (this also records 'ok' health)
         $this->store_user_tokens($user_email, $token_data);
-        
+
         return $token_data;
     }
     
@@ -413,38 +440,6 @@ class Azure_Calendar_Auth {
         ));
         
         return !empty($token);
-    }
-    
-    /**
-     * Get authorization URL for specific user (shared mailbox)
-     */
-    public function get_user_authorization_url($user_email, $state = null) {
-        if (empty($this->credentials['client_id']) || empty($this->credentials['tenant_id'])) {
-            Azure_Logger::error('Calendar Auth: Missing client credentials');
-            return false;
-        }
-        
-        $tenant_id = $this->credentials['tenant_id'] ?: 'common';
-        $base_url = "https://login.microsoftonline.com/{$tenant_id}/oauth2/v2.0/authorize";
-        
-        // Generate state with user email encoded
-        $state_data = array(
-            'nonce' => wp_create_nonce('azure_calendar_user_state'),
-            'user_email' => $user_email
-        );
-        $state = base64_encode(json_encode($state_data));
-        
-        $params = array(
-            'client_id' => $this->credentials['client_id'],
-            'response_type' => 'code',
-            'redirect_uri' => home_url('/wp-admin/admin-ajax.php?action=azure_calendar_user_callback'),
-            'response_mode' => 'query',
-            'scope' => 'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/Calendars.Read.Shared https://graph.microsoft.com/Calendars.ReadWrite.Shared offline_access',
-            'state' => $state,
-            'login_hint' => $user_email  // Suggest which account to use
-        );
-        
-        return $base_url . '?' . http_build_query($params);
     }
     
     /**
@@ -750,22 +745,167 @@ class Azure_Calendar_Auth {
     }
     
     /**
-     * Refresh token if needed (scheduled task)
+     * Refresh tokens proactively. Hooked to `azure_calendar_token_refresh` (hourly).
+     *
+     * Handles two stores:
+     *   1. Legacy single-tenant token in wp_options 'azure_calendar_tokens'
+     *   2. Per-user delegated tokens in wp_azure_email_tokens (used by Calendar
+     *      Embed and Calendar Sync today)
+     *
+     * Only tokens within REFRESH_THRESHOLD_SECONDS of expiry are refreshed, so the
+     * worst case per cron run is one wp_remote_post per connected account.
      */
     public function refresh_token_if_needed() {
+        $threshold = 1800; // refresh 30 minutes before expiry
+
+        // ── 1. Legacy single token (backwards compatibility) ───────────────
         $tokens = get_option('azure_calendar_tokens', array());
-        
-        if (empty($tokens['access_token']) || empty($tokens['refresh_token'])) {
+        if (!empty($tokens['access_token']) && !empty($tokens['refresh_token'])) {
+            $expires_at = isset($tokens['expires_at']) ? (int) $tokens['expires_at'] : 0;
+            if (time() >= ($expires_at - $threshold)) {
+                Azure_Logger::info('Calendar Auth: Refreshing legacy token proactively');
+                $this->refresh_access_token($tokens['refresh_token']);
+            }
+        }
+
+        // ── 2. Per-user delegated tokens (the path Embed and Sync use) ─────
+        global $wpdb;
+        $table = Azure_Database::get_table_name('email_tokens');
+        if (!$table) {
             return;
         }
-        
-        $expires_at = $tokens['expires_at'] ?? 0;
-        $refresh_threshold = $expires_at - 1800; // Refresh 30 minutes before expiry
-        
-        if (time() >= $refresh_threshold) {
-            Azure_Logger::info('Calendar Auth: Refreshing token proactively');
-            $this->refresh_access_token($tokens['refresh_token']);
+
+        // Index on `expires_at` already exists; this is a single fast scan.
+        $cutoff = date('Y-m-d H:i:s', time() + $threshold);
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT user_email, refresh_token, expires_at
+               FROM {$table}
+              WHERE refresh_token IS NOT NULL AND refresh_token <> ''
+                AND expires_at <= %s",
+            $cutoff
+        ));
+
+        if (empty($rows)) {
+            return;
         }
+
+        Azure_Logger::info('Calendar Auth: Proactive refresh scanning ' . count($rows) . ' user token(s)');
+
+        foreach ($rows as $row) {
+            $email = $row->user_email;
+            // refresh_user_access_token writes both tokens and health on success/failure.
+            $this->refresh_user_access_token($row->refresh_token, $email);
+        }
+    }
+
+    // ==========================================
+    // Token health surface (dashboard widget feeds off this)
+    // ==========================================
+
+    /**
+     * Record the outcome of a token operation. Single wp_option write per change;
+     * called only on auth/refresh boundaries (never on every page load).
+     */
+    private static function update_token_health($user_email, $status, $error_code) {
+        if (empty($user_email)) {
+            return;
+        }
+        $health = get_option(self::TOKEN_HEALTH_OPTION, array());
+        if (!is_array($health)) { $health = array(); }
+
+        $now_utc = current_time('mysql', true);
+        $entry = isset($health[$user_email]) && is_array($health[$user_email])
+            ? $health[$user_email]
+            : array();
+
+        $entry['status']        = $status;
+        $entry['last_check_at'] = $now_utc;
+        if ($status === 'ok') {
+            $entry['last_error']    = null;
+            $entry['last_error_at'] = null;
+        } elseif ($error_code !== null) {
+            $entry['last_error']    = $error_code;
+            $entry['last_error_at'] = $now_utc;
+        }
+
+        $health[$user_email] = $entry;
+        update_option(self::TOKEN_HEALTH_OPTION, $health, false); // not autoloaded
+    }
+
+    /**
+     * Build a connected-accounts summary for the dashboard widget.
+     * Single SELECT against wp_azure_email_tokens + one option read.
+     *
+     * @return array<int, array{
+     *   user_email:string,
+     *   status:string,
+     *   expires_at:string|null,
+     *   expires_in:int|null,
+     *   has_refresh_token:bool,
+     *   last_error:string|null,
+     *   last_error_at:string|null
+     * }>
+     */
+    public static function get_token_health_summary() {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('email_tokens');
+        if (!$table) {
+            return array();
+        }
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+            return array();
+        }
+
+        $rows = $wpdb->get_results(
+            "SELECT user_email, expires_at,
+                    CASE WHEN refresh_token IS NULL OR refresh_token = '' THEN 0 ELSE 1 END AS has_refresh
+               FROM {$table}
+              ORDER BY user_email ASC"
+        );
+        if (empty($rows)) {
+            return array();
+        }
+
+        $health = get_option(self::TOKEN_HEALTH_OPTION, array());
+        if (!is_array($health)) { $health = array(); }
+        $now = time();
+
+        $out = array();
+        foreach ($rows as $row) {
+            $email = $row->user_email;
+            $expires_ts = !empty($row->expires_at) ? strtotime($row->expires_at . ' UTC') : 0;
+            $expires_in = $expires_ts ? ($expires_ts - $now) : null;
+            $has_refresh = (bool) intval($row->has_refresh);
+
+            $entry = isset($health[$email]) && is_array($health[$email]) ? $health[$email] : array();
+            $stored_status = isset($entry['status']) ? $entry['status'] : null;
+            $last_error    = isset($entry['last_error']) ? $entry['last_error'] : null;
+            $last_error_at = isset($entry['last_error_at']) ? $entry['last_error_at'] : null;
+
+            // Derive live status from observable facts. Stored 'refresh_failed' wins
+            // because it tells us a recent attempt failed and lazy-refresh won't fix it.
+            if ($stored_status === 'refresh_failed') {
+                $status = 'refresh_failed';
+            } elseif (!$has_refresh && $expires_in !== null && $expires_in <= 0) {
+                $status = 'expired_no_refresh';
+            } elseif ($expires_in !== null && $expires_in <= 1800) {
+                $status = 'expires_soon';
+            } else {
+                $status = 'ok';
+            }
+
+            $out[] = array(
+                'user_email'        => $email,
+                'status'            => $status,
+                'expires_at'        => $row->expires_at,
+                'expires_in'        => $expires_in,
+                'has_refresh_token' => $has_refresh,
+                'last_error'        => $last_error,
+                'last_error_at'     => $last_error_at,
+            );
+        }
+
+        return $out;
     }
     
     // ==========================================

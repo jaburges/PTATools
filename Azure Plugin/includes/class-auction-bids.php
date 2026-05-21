@@ -1,6 +1,11 @@
 <?php
 /**
- * Auction Bids - Place bid, max-bid/auto-bid, masked history
+ * Auction Bids - Place bid, masked history
+ *
+ * Manual-bid only. Max-bid / auto-bid was removed in v3.74 because the
+ * auto-bid loop only defended the current high bidder's max (not displaced
+ * bidders), which produced surprising outcomes. Every bid is now a single
+ * manual bid; out-bid notifications are emailed via Azure_Auction_Emails.
  */
 
 if (!defined('ABSPATH')) {
@@ -9,20 +14,51 @@ if (!defined('ABSPATH')) {
 
 class Azure_Auction_Bids {
 
-    const MIN_INCREMENT = 5.00;
+    /**
+     * Smart-tiered minimum bid increment based on the current high price.
+     * Mirrors the typical live-auction pattern: smaller bumps at low prices
+     * so opening rounds aren't gated by a $5 minimum, larger bumps at high
+     * prices so the auction doesn't stall on $5 nudges past $500.
+     *
+     *   < $25     -> $1 increment
+     *   < $100    -> $5
+     *   < $500    -> $10
+     *   >= $500   -> $25
+     *
+     * @param float $current_price
+     * @return float
+     */
+    public static function get_increment($current_price) {
+        $price = (float) $current_price;
+        if ($price < 25)  return 1.00;
+        if ($price < 100) return 5.00;
+        if ($price < 500) return 10.00;
+        return 25.00;
+    }
 
     /**
-     * Place a bid (AJAX entry point: reads POST product_id, amount, max_bid, nonce).
+     * Quick-bid button increments for the bid form. Always shows three
+     * options scaled to the current tier (1x, 2x, 4x) so the buttons
+     * always feel right relative to the current price.
+     *
+     * @param float $current_price
+     * @return array<float>
+     */
+    public static function get_quick_bid_increments($current_price) {
+        $base = self::get_increment($current_price);
+        return array($base, $base * 2, $base * 4);
+    }
+
+    /**
+     * Place a manual bid (AJAX entry point: reads POST product_id, amount, nonce).
      *
      * @return array|WP_Error { current_price, bids: masked list } or WP_Error
      */
     public function place_bid() {
         $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
         $amount = isset($_POST['amount']) ? self::parse_amount($_POST['amount']) : null;
-        $max_bid = isset($_POST['max_bid']) ? self::parse_amount($_POST['max_bid']) : null;
-        $is_max_bid = !empty($_POST['is_max_bid']) && $_POST['is_max_bid'] === '1';
 
-        if (!$product_id || (!is_numeric($amount) && !$is_max_bid) || ($is_max_bid && (!is_numeric($max_bid) || $max_bid <= 0))) {
+        if (!$product_id || !is_numeric($amount)) {
             return new WP_Error('invalid', __('Invalid bid data.', 'azure-plugin'));
         }
 
@@ -47,25 +83,17 @@ class Azure_Auction_Bids {
         $starting_bid = $this->get_starting_bid($product_id);
         $high = $this->get_current_high($product_id);
         $current_price = $high ? (float) $high->bid_amount : $starting_bid;
-        $increment = self::MIN_INCREMENT;
+        $increment = self::get_increment($current_price);
 
-        if ($is_max_bid && $max_bid > 0) {
-            $bid_amount = $current_price + $increment;
-            if ($bid_amount > $max_bid) {
-                return new WP_Error('invalid', sprintf(__('Your max bid must be at least %s to be the high bidder.', 'azure-plugin'), wc_price($bid_amount)));
-            }
-            $bid_amount = min($bid_amount, $max_bid);
-            $insert_max_bid = $max_bid;
-            $is_auto = 1;
-        } else {
-            $required = $high ? ($current_price + $increment) : $starting_bid;
-            if ($amount < $required) {
-                return new WP_Error('invalid', sprintf(__('Minimum bid is %s.', 'azure-plugin'), wc_price($required)));
-            }
-            $bid_amount = $amount;
-            $insert_max_bid = null;
-            $is_auto = 0;
+        $required = $high ? ($current_price + $increment) : $starting_bid;
+        if ($amount < $required) {
+            // wc_price() returns HTML markup; the JS shows error messages via
+            // .text(), so we strip tags + decode entities for a clean "$6.00"
+            // string that renders correctly in the bid form's error banner.
+            $required_label = html_entity_decode(wp_strip_all_tags(wc_price($required)));
+            return new WP_Error('invalid', sprintf(__('Minimum bid is %s.', 'azure-plugin'), $required_label));
         }
+        $bid_amount = $amount;
 
         global $wpdb;
         $table = Azure_Database::get_table_name('auction_bids');
@@ -75,14 +103,16 @@ class Azure_Auction_Bids {
 
         $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : null;
 
+        // max_bid + is_auto_bid columns kept in the schema for backward compat
+        // but always written as null/0 since v3.74 (max-bid feature removed).
         $wpdb->insert(
             $table,
             array(
                 'product_id'  => $product_id,
                 'user_id'     => $user_id,
                 'bid_amount'  => $bid_amount,
-                'max_bid'     => $insert_max_bid,
-                'is_auto_bid' => $is_auto,
+                'max_bid'     => null,
+                'is_auto_bid' => 0,
                 'ip_address'  => $ip,
             ),
             array('%d', '%d', '%f', '%f', '%d', '%s')
@@ -92,7 +122,30 @@ class Azure_Auction_Bids {
             return new WP_Error('error', __('Could not save bid.', 'azure-plugin'));
         }
 
-        $this->process_auto_bids($product_id, $increment, $starting_bid);
+        // Outbid notification: a manual bid by user X always displaces any
+        // previous high bidder Y (where Y != X) because there is no auto-bid
+        // defense path. Email Y so they can come back and re-bid. Failure
+        // here must not break the bid response — the bid already saved, the
+        // email is best-effort.
+        if ($high && (int) $high->user_id !== (int) $user_id) {
+            if (class_exists('Azure_Auction_Emails')) {
+                try {
+                    $emails = new Azure_Auction_Emails();
+                    $emails->send_outbid_email(
+                        $product_id,
+                        (int) $high->user_id,
+                        (float) $high->bid_amount,
+                        (float) $bid_amount
+                    );
+                } catch (\Throwable $e) {
+                    if (class_exists('Azure_Logger')) {
+                        Azure_Logger::error('Auction: outbid email exception: ' . $e->getMessage(), array(
+                            'product_id' => $product_id,
+                        ));
+                    }
+                }
+            }
+        }
 
         $data = $this->get_masked_bid_history($product_id);
         $data['current_price'] = $this->get_current_high_amount($product_id);
@@ -100,43 +153,6 @@ class Azure_Auction_Bids {
             $data['current_price'] = $starting_bid;
         }
         return $data;
-    }
-
-    /**
-     * After a new bid, if the previous high bidder had a max_bid, auto-place up to their max.
-     */
-    private function process_auto_bids($product_id, $increment, $starting_bid) {
-        global $wpdb;
-        $table = Azure_Database::get_table_name('auction_bids');
-        if (!$table) {
-            return;
-        }
-
-        $max_rounds = 50;
-        $rounds = 0;
-        while ($rounds < $max_rounds) {
-            $high = $this->get_current_high($product_id);
-            if (!$high || $high->max_bid === null || $high->max_bid <= (float) $high->bid_amount) {
-                break;
-            }
-            $next_amount = (float) $high->bid_amount + $increment;
-            if ($next_amount > $high->max_bid) {
-                break;
-            }
-            $wpdb->insert(
-                $table,
-                array(
-                    'product_id'  => $product_id,
-                    'user_id'     => $high->user_id,
-                    'bid_amount'  => $next_amount,
-                    'max_bid'     => $high->max_bid,
-                    'is_auto_bid' => 1,
-                    'ip_address'  => null,
-                ),
-                array('%d', '%d', '%f', '%f', '%d', '%s')
-            );
-            $rounds++;
-        }
     }
 
     private function get_starting_bid($product_id) {
@@ -155,7 +171,7 @@ class Azure_Auction_Bids {
             return null;
         }
         return $wpdb->get_row($wpdb->prepare(
-            "SELECT user_id, bid_amount, max_bid FROM {$table} WHERE product_id = %d ORDER BY bid_amount DESC, created_at DESC LIMIT 1",
+            "SELECT user_id, bid_amount FROM {$table} WHERE product_id = %d ORDER BY bid_amount DESC, created_at DESC LIMIT 1",
             $product_id
         ));
     }
@@ -213,9 +229,18 @@ class Azure_Auction_Bids {
         $starting = $product ? $this->get_starting_bid($product_id) : 0;
         $current_price = $current !== null ? $current : $starting;
 
+        // Tiered next-min and quick-bid increments so the JS poller can
+        // refresh the bid input + quick-bid buttons whenever the price
+        // crosses a tier boundary without duplicating the tier table in JS.
+        $next_increment = self::get_increment($current_price);
+        $next_min       = $current !== null ? ($current_price + $next_increment) : $starting;
+
         return array(
-            'bids'          => $bids,
-            'current_price' => $current_price,
+            'bids'              => $bids,
+            'current_price'     => $current_price,
+            'next_min_bid'      => $next_min,
+            'next_increment'    => $next_increment,
+            'quick_increments'  => self::get_quick_bid_increments($current_price),
         );
     }
 }

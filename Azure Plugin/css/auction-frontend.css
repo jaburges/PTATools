@@ -135,25 +135,6 @@
     white-space: nowrap;
 }
 
-.auction-max-bid-row {
-    margin: 0 0 12px;
-    font-size: 13px;
-}
-
-.auction-max-bid-row > label {
-    display: inline;
-    font-weight: 400;
-    cursor: pointer;
-}
-
-.auction-max-bid-amount {
-    margin-left: 8px;
-    padding: 6px 8px;
-    font-size: 14px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-}
-
 .auction-place-bid {
     display: inline-block;
     padding: 10px 24px !important;

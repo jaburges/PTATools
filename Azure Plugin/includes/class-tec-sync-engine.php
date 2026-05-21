@@ -523,6 +523,11 @@ class Azure_TEC_Sync_Engine {
             
             Azure_Logger::info("TEC Sync Engine: Successfully created TEC event {$tec_event_id} from Outlook event {$outlook_event['id']}", 'TEC');
             
+            // Phase 2 dual-write: mirror this event into pta_event when the
+            // pta_calendar_owner flag is 'both' or 'pta'. Skips silently
+            // when flag = 'tec'. See docs/internal/TECmigration.md.
+            $this->mirror_to_pta_event($tec_event_id);
+
             return $tec_event_id;
             
         } catch (Exception $e) {
@@ -552,18 +557,19 @@ class Azure_TEC_Sync_Engine {
             // Store calendar ID
             update_post_meta($tec_event_id, '_outlook_calendar_id', $calendar_id);
             update_post_meta($tec_event_id, '_outlook_last_modified', $outlook_event['lastModifiedDateTime'] ?? current_time('mysql'));
-            
-            // Assign TEC category
-            $term = term_exists($tec_category_name, 'tribe_events_cat');
-            if ($term) {
-                wp_set_object_terms($tec_event_id, array((int) $term['term_id']), 'tribe_events_cat');
-                Azure_Logger::debug("TEC Sync Engine: Assigned category '{$tec_category_name}' to TEC event {$tec_event_id}", 'TEC');
-            } else {
-                Azure_Logger::warning("TEC Sync Engine: Category '{$tec_category_name}' not found for TEC event {$tec_event_id}", 'TEC');
-            }
-            
+
+            // Assign category in every active taxonomy + store the name
+            // in postmeta as the canonical source for mirror lookups.
+            $this->assign_event_category($tec_event_id, $tec_category_name);
+
+            // Phase 2 dual-write: re-mirror so the new category lands on
+            // pta_event too. The category was assigned to tribe_events
+            // AFTER the inner create_tec_event_from_outlook() already
+            // triggered an initial mirror, so we need a second pass.
+            $this->mirror_to_pta_event($tec_event_id);
+
             return $tec_event_id;
-            
+
         } catch (Exception $e) {
             Azure_Logger::error("TEC Sync Engine: Exception creating TEC event with category: " . $e->getMessage(), 'TEC');
             return false;
@@ -666,14 +672,15 @@ class Azure_TEC_Sync_Engine {
             update_post_meta($tec_event_id, '_outlook_last_sync', current_time('mysql'));
             update_post_meta($tec_event_id, '_sync_direction', 'from_outlook');
             
-            // Assign TEC category
-            $term = term_exists($tec_category_name, 'tribe_events_cat');
-            if ($term) {
-                wp_set_object_terms($tec_event_id, array((int) $term['term_id']), 'tribe_events_cat');
-            }
-            
+            // Assign category in every active taxonomy + store the name
+            // in postmeta as the canonical source for mirror lookups.
+            $this->assign_event_category($tec_event_id, $tec_category_name);
+
             Azure_Logger::info("TEC Sync Engine: Successfully updated TEC event {$tec_event_id} from Outlook (Outlook wins)", 'TEC');
-            
+
+            // Phase 2 dual-write: mirror updated state into pta_event.
+            $this->mirror_to_pta_event($tec_event_id);
+
             return $tec_event_id;
             
         } catch (Exception $e) {
@@ -743,6 +750,9 @@ class Azure_TEC_Sync_Engine {
             
             Azure_Logger::info("TEC Sync Engine: Successfully updated TEC event {$tec_event_id} from Outlook", 'TEC');
             
+            // Phase 2 dual-write: mirror updated state into pta_event.
+            $this->mirror_to_pta_event($tec_event_id);
+
             return true;
             
         } catch (Exception $e) {
@@ -1117,5 +1127,374 @@ class Azure_TEC_Sync_Engine {
         } catch (Exception $e) {
             return 'UTC';
         }
+    }
+
+    // =====================================================================
+    // PHASE 2: TEC -> pta_event dual-write mirror
+    //
+    // Every successful Outlook -> tribe_events sync is mirrored into a
+    // pta_event post so the new event domain stays in sync without any
+    // change in user-facing behaviour. See docs/internal/TECmigration.md.
+    // =====================================================================
+
+    /**
+     * Public entry point for the mirror.
+     *
+     * Used by Phase 3 backfill (and the manual test endpoint) to mirror
+     * a single tribe_events post without going through reflection. The
+     * underlying logic is identical to the private method called from
+     * the sync engine; this wrapper just exposes it and threads the
+     * `$allow_no_outlook` flag for backfill mode.
+     *
+     * @param int  $tec_event_id     The tribe_events post ID.
+     * @param bool $allow_no_outlook True to mirror locally-authored events.
+     * @return int|false The pta_event post ID, or false on skip/failure.
+     */
+    public function mirror_one($tec_event_id, $allow_no_outlook = false) {
+        return $this->mirror_to_pta_event($tec_event_id, $allow_no_outlook);
+    }
+
+    /**
+     * List of postmeta keys we mirror from tribe_events into pta_event.
+     *
+     * We deliberately keep TEC's _Event* meta names verbatim on pta_event
+     * so the Phase 3 backfill is a straight copy and rollback is non-
+     * destructive. The list also includes our own sync bookkeeping keys
+     * and the featured image pointer.
+     *
+     * @return array
+     */
+    private function pta_event_mirrored_meta_keys() {
+        return array(
+            // TEC's authoritative event fields.
+            '_EventStartDate',
+            '_EventEndDate',
+            '_EventStartDateUTC',
+            '_EventEndDateUTC',
+            '_EventAllDay',
+            '_EventTimezone',
+            '_EventTimezoneAbbr',
+            '_EventDuration',
+            '_EventVenue',
+            '_EventVenueID',
+            '_EventOrganizer',
+            '_EventOrganizerID',
+            '_EventURL',
+            '_EventCost',
+            '_EventCurrencySymbol',
+            '_EventCurrencyPosition',
+            '_EventShowMap',
+            '_EventShowMapLink',
+            '_EventHideFromUpcoming',
+            // Our sync bookkeeping (also useful on pta_event for parity checks).
+            '_outlook_event_id',
+            '_outlook_sync_status',
+            '_outlook_last_sync',
+            '_outlook_last_modified',
+            '_outlook_calendar_id',
+            '_sync_direction',
+            // Featured image pointer (so the same image surfaces on pta_event).
+            '_thumbnail_id',
+            // Canonical category name written by assign_event_category().
+            // Mirrored so consumers reading pta_event directly (e.g. a
+            // future sync that doesn't go through tribe_events at all)
+            // can recover the category without DB joins.
+            '_pta_event_category_name',
+        );
+    }
+
+    /**
+     * Assign an event category to a tribe_events post in every active
+     * event-category taxonomy AND cache the category name in a
+     * post-type-agnostic postmeta key.
+     *
+     * Why both: pre-migration, the canonical taxonomy is `tribe_events_cat`
+     * (owned by The Events Calendar plugin). Post-migration, TEC is gone
+     * and `tribe_events_cat` isn't registered any more — wp_set_object_terms
+     * to it silently returns a WP_Error and the category is dropped.
+     * Post-migration, `pta_event_category` (registered by Azure_Event_CPT
+     * and attached to tribe_events when in 'both' owner mode) is the
+     * working taxonomy. Writing to whichever ones are registered keeps
+     * the engine working in all three flag states (tec/both/pta).
+     *
+     * Why the postmeta key: it's the authoritative recovery source for
+     * mirror_to_pta_event(). Both taxonomies can become unregistered
+     * mid-deploy (e.g. plugin order issues, opcache lag) but the meta
+     * value is stable and always readable.
+     *
+     * @param int    $tec_event_id  The tribe_events post ID.
+     * @param string $category_name Display name of the category.
+     */
+    private function assign_event_category($tec_event_id, $category_name) {
+        $category_name = (string) $category_name;
+        if ($category_name === '') {
+            return;
+        }
+
+        // Authoritative cache — read by mirror_to_pta_event() and the
+        // backfill endpoint.
+        update_post_meta($tec_event_id, '_pta_event_category_name', $category_name);
+
+        $taxonomies = array();
+        if (taxonomy_exists('tribe_events_cat')
+            && in_array('tribe_events', (array) get_taxonomy('tribe_events_cat')->object_type, true)
+        ) {
+            $taxonomies[] = 'tribe_events_cat';
+        }
+        if (taxonomy_exists('pta_event_category')) {
+            $tax_obj = get_taxonomy('pta_event_category');
+            if ($tax_obj && in_array('tribe_events', (array) $tax_obj->object_type, true)) {
+                $taxonomies[] = 'pta_event_category';
+            }
+        }
+
+        foreach ($taxonomies as $tax) {
+            // Pass NAMES; wp_set_object_terms() will create the term in
+            // the taxonomy on first use. Don't append — replace, so a
+            // category change in Outlook drops the previous one.
+            $result = wp_set_object_terms($tec_event_id, array($category_name), $tax, false);
+            if (is_wp_error($result)) {
+                Azure_Logger::warning(
+                    "TEC Sync Engine: Failed to assign category '{$category_name}' to event {$tec_event_id} in taxonomy '{$tax}': " . $result->get_error_message(),
+                    'TEC'
+                );
+            } else {
+                Azure_Logger::debug(
+                    "TEC Sync Engine: Assigned category '{$category_name}' to event {$tec_event_id} in taxonomy '{$tax}'",
+                    'TEC'
+                );
+            }
+        }
+
+        if (empty($taxonomies)) {
+            Azure_Logger::warning(
+                "TEC Sync Engine: No active event-category taxonomy attached to 'tribe_events' — category '{$category_name}' cached as postmeta only on event {$tec_event_id}",
+                'TEC'
+            );
+        }
+    }
+
+    /**
+     * Locate an existing pta_event by its _outlook_event_id postmeta.
+     *
+     * Used by the mirror to find a previously created mirror post when
+     * the source tribe_events post hasn't yet had its
+     * `_pta_event_mirror_id` pointer written (e.g. mid-Phase-3 backfill).
+     *
+     * @param string $outlook_event_id Outlook calendar item ID.
+     * @return int Found pta_event post ID, or 0 if none.
+     */
+    private function find_pta_event_by_outlook_id($outlook_event_id) {
+        if (empty($outlook_event_id) || !post_type_exists('pta_event')) {
+            return 0;
+        }
+        $q = new WP_Query(array(
+            'post_type'      => 'pta_event',
+            'post_status'    => 'any',
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
+            'meta_query'     => array(array(
+                'key'     => '_outlook_event_id',
+                'value'   => $outlook_event_id,
+                'compare' => '=',
+            )),
+        ));
+        if (empty($q->posts)) {
+            return 0;
+        }
+        return (int) $q->posts[0];
+    }
+
+    /**
+     * Mirror a tribe_events post into a matching pta_event post.
+     *
+     * Idempotent: looks up an existing mirror by stored pointer first,
+     * then by `_outlook_event_id` postmeta, then creates a new pta_event
+     * if neither found.
+     *
+     * Skips silently when:
+     *   - pta_calendar_owner flag is 'tec' (Phase 0/1 default)
+     *   - pta_event post type isn't registered (e.g. Azure_Event_CPT
+     *     hasn't loaded yet, or the flag check is false)
+     *   - the source post isn't actually `tribe_events`
+     *   - the source has no `_outlook_event_id` (we don't backfill
+     *     locally-authored TEC events here — that's Phase 3's job)
+     *
+     * Always writes:
+     *   - post fields: title, content, excerpt, status, slug, author, date
+     *   - the meta keys returned by pta_event_mirrored_meta_keys()
+     *   - tribe_events_cat term assignments (mirrored to pta_event_category,
+     *     which is the same taxonomy registered in Phase 0)
+     *   - bidirectional cross-pointers `_pta_event_mirror_id` and
+     *     `_tec_event_mirror_id` for fast lookup on subsequent syncs
+     *
+     * @param int  $tec_event_id     The tribe_events post ID just written.
+     * @param bool $allow_no_outlook If true, locally-authored TEC events
+     *                               without `_outlook_event_id` are also
+     *                               mirrored (Phase 3 backfill mode).
+     *                               Default false (Phase 2 sync mode).
+     * @return int|false The pta_event post ID, or false on skip/failure.
+     */
+    private function mirror_to_pta_event($tec_event_id, $allow_no_outlook = false) {
+        // Phase 2 dual-write gate.
+        if (!class_exists('Azure_Event_CPT')) {
+            return false;
+        }
+        if (!Azure_Event_CPT::is_pta_owner_active()) {
+            return false;
+        }
+        if (!post_type_exists('pta_event')) {
+            return false;
+        }
+
+        $tec_post = get_post($tec_event_id);
+        if (!$tec_post || $tec_post->post_type !== 'tribe_events') {
+            return false;
+        }
+
+        $outlook_event_id = (string) get_post_meta($tec_event_id, '_outlook_event_id', true);
+        if ($outlook_event_id === '' && !$allow_no_outlook) {
+            // Locally-authored TEC event with no Outlook source. The
+            // live sync path (Phase 2) skips these because they only
+            // appear during Phase 3 backfill. The Phase 3 backfill
+            // endpoint sets $allow_no_outlook=true to mirror them.
+            return false;
+        }
+
+        // Find an existing mirror — prefer the stored cross-pointer
+        // (cheapest lookup, no meta_query), fall back to outlook ID
+        // search when present. For locally-authored events the cross-
+        // pointer is the only join key; nothing else to fall back to.
+        $pta_event_id = (int) get_post_meta($tec_event_id, '_pta_event_mirror_id', true);
+        if (!$pta_event_id && $outlook_event_id !== '') {
+            $pta_event_id = $this->find_pta_event_by_outlook_id($outlook_event_id);
+        }
+
+        // Build the post fields to write. We preserve slug, author, and
+        // both post_date forms so the pta_event reads identically to
+        // its tribe_events twin.
+        $post_data = array(
+            'post_title'        => $tec_post->post_title,
+            'post_content'      => $tec_post->post_content,
+            'post_excerpt'      => $tec_post->post_excerpt,
+            'post_status'       => $tec_post->post_status,
+            'post_name'         => $tec_post->post_name,
+            'post_author'       => $tec_post->post_author,
+            'post_date'         => $tec_post->post_date,
+            'post_date_gmt'     => $tec_post->post_date_gmt,
+            'post_type'         => 'pta_event',
+            'comment_status'    => 'closed',
+            'ping_status'       => 'closed',
+        );
+
+        if ($pta_event_id) {
+            $post_data['ID'] = $pta_event_id;
+            $result = wp_update_post($post_data, true);
+        } else {
+            $result = wp_insert_post($post_data, true);
+        }
+
+        if (is_wp_error($result)) {
+            Azure_Logger::error(
+                "TEC Sync Engine: Mirror to pta_event failed for tec={$tec_event_id}: " . $result->get_error_message(),
+                'TEC'
+            );
+            return false;
+        }
+        $pta_event_id = (int) $result;
+
+        // Mirror the meta keys we care about. We do this with explicit
+        // single-key reads rather than blanket get_post_meta() so we
+        // don't accidentally copy plugin-internal keys (Yoast, ACF, BB).
+        $keys = $this->pta_event_mirrored_meta_keys();
+        foreach ($keys as $k) {
+            $v = get_post_meta($tec_event_id, $k, true);
+            if ($v === '' || $v === null) {
+                // Don't pollute pta_event with empties — and clear any
+                // stale value that may exist on the mirror.
+                delete_post_meta($pta_event_id, $k);
+                continue;
+            }
+            update_post_meta($pta_event_id, $k, $v);
+        }
+
+        // Mirror category terms onto pta_event_category.
+        //
+        // Resolution order for the category NAME (v3.91.12+):
+        //   1. `_pta_event_category_name` postmeta — the canonical
+        //      source written by assign_event_category() during sync.
+        //      Survives TEC plugin removal.
+        //   2. Terms on the tribe_events post in `tribe_events_cat` —
+        //      only resolves while TEC is active (it's TEC's taxonomy).
+        //      Kept as a fallback for events created pre-3.91.12.
+        //   3. Terms on the tribe_events post in `pta_event_category` —
+        //      handles the case where Azure_Event_CPT attached the
+        //      shared taxonomy to tribe_events during the migration
+        //      window.
+        //   4. Calendar mapping lookup — find the calendar this event
+        //      came from via `_outlook_calendar_id` and use its
+        //      `tec_category_name`. Last-resort recovery so backfilled
+        //      events from the legacy era still get categorised.
+        //
+        // wp_set_object_terms() with names will create the term in
+        // pta_event_category on first use, no migration needed.
+        $category_names = array();
+
+        $stored_name = (string) get_post_meta($tec_event_id, '_pta_event_category_name', true);
+        if ($stored_name !== '') {
+            $category_names = array($stored_name);
+        }
+
+        if (empty($category_names) && taxonomy_exists('tribe_events_cat')) {
+            $names = wp_get_object_terms($tec_event_id, 'tribe_events_cat', array('fields' => 'names'));
+            if (!is_wp_error($names) && !empty($names)) {
+                $category_names = $names;
+            }
+        }
+
+        if (empty($category_names) && taxonomy_exists('pta_event_category')) {
+            $names = wp_get_object_terms($tec_event_id, 'pta_event_category', array('fields' => 'names'));
+            if (!is_wp_error($names) && !empty($names)) {
+                $category_names = $names;
+            }
+        }
+
+        if (empty($category_names)) {
+            $cal_id = (string) get_post_meta($tec_event_id, '_outlook_calendar_id', true);
+            if ($cal_id !== '' && class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
+                try {
+                    $mm      = new Azure_TEC_Calendar_Mapping_Manager();
+                    $mapping = $mm->get_mapping_by_calendar_id($cal_id);
+                    if ($mapping && !empty($mapping->tec_category_name)) {
+                        $category_names = array($mapping->tec_category_name);
+                        // Cache it so future mirrors skip the lookup.
+                        update_post_meta($tec_event_id, '_pta_event_category_name', $mapping->tec_category_name);
+                    }
+                } catch (\Throwable $e) {
+                    // Non-fatal; just won't categorise this one event.
+                }
+            }
+        }
+
+        if (!empty($category_names)) {
+            wp_set_object_terms($pta_event_id, $category_names, 'pta_event_category', false);
+        } else {
+            // No category from any source — clear stale terms on the mirror.
+            wp_set_object_terms($pta_event_id, array(), 'pta_event_category', false);
+        }
+
+        // Bidirectional cross-pointers. These let the next sync skip the
+        // meta_query lookup (cheaper) and let the parity diagnostic
+        // identify orphan mirrors quickly.
+        update_post_meta($tec_event_id, '_pta_event_mirror_id', $pta_event_id);
+        update_post_meta($pta_event_id, '_tec_event_mirror_id', $tec_event_id);
+
+        Azure_Logger::debug(
+            "TEC Sync Engine: Mirrored tribe_events#{$tec_event_id} -> pta_event#{$pta_event_id} (outlook={$outlook_event_id})",
+            'TEC'
+        );
+
+        return $pta_event_id;
     }
 }

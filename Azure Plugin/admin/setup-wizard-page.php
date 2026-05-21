@@ -147,10 +147,10 @@ $available_roles = $wp_roles->get_names();
                                    id="org_name" 
                                    name="org_name" 
                                    value="<?php echo esc_attr($settings['org_name'] ?? ''); ?>" 
-                                   placeholder="LWSD PTA"
+                                   placeholder="<?php esc_attr_e('Maple Elementary PTSA', 'azure-plugin'); ?>"
                                    class="regular-text"
                                    required>
-                            <p class="description"><?php _e('What you call yourselves (e.g., "LWSD PTA", "Maple Elementary PTSA")', 'azure-plugin'); ?></p>
+                            <p class="description"><?php _e('What you call yourselves (e.g., "Maple Elementary PTSA", "Lakeside PTA")', 'azure-plugin'); ?></p>
                         </div>
                         
                         <div class="form-row">
@@ -161,9 +161,9 @@ $available_roles = $wp_roles->get_names();
                                    id="org_team_name" 
                                    name="org_team_name" 
                                    value="<?php echo esc_attr($settings['org_team_name'] ?? ''); ?>" 
-                                   placeholder="LWSD PTA Team"
+                                   placeholder="<?php esc_attr_e('Maple PTSA Team', 'azure-plugin'); ?>"
                                    class="regular-text">
-                            <p class="description"><?php _e('How you sign off emails (e.g., "LWSD PTA Team", "Your PTA Administration"). Defaults to Organization Name + "Administration" if left blank.', 'azure-plugin'); ?></p>
+                            <p class="description"><?php _e('How you sign off emails (e.g., "Maple PTSA Team", "Your PTA Administration"). Defaults to Organization Name + "Administration" if left blank.', 'azure-plugin'); ?></p>
                         </div>
                         
                         <div class="form-row">

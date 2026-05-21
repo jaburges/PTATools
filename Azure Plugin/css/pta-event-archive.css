@@ -1,0 +1,364 @@
+/* PTA Tools — events archive (/events/)
+ * Calendar-grid + list-view replacement for TEC's classic
+ * archive page. Loaded only on /events/ via the post-type
+ * archive template hook.
+ */
+
+.pta-events-archive-wrap {
+    padding: 32px 16px 48px;
+    background: #fff;
+}
+
+.pta-events-archive {
+    max-width: 1200px;
+    margin: 0 auto;
+    color: #1a1a1a;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+/* ============================================================
+   Header (title + view toggle)
+   ============================================================ */
+
+.pta-events-archive-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 0 0 20px;
+}
+.pta-events-archive-title {
+    font-size: 32px;
+    font-weight: 700;
+    margin: 0;
+}
+.pta-events-archive-views {
+    display: inline-flex;
+    border: 1px solid #5b21b6;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.pta-evview-btn {
+    padding: 8px 18px;
+    color: #5b21b6;
+    background: #fff;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.pta-evview-btn:hover {
+    background: #f5f3ff;
+    color: #5b21b6;
+    text-decoration: none;
+}
+.pta-evview-btn.is-active {
+    background: #5b21b6;
+    color: #fff;
+}
+.pta-evview-btn + .pta-evview-btn {
+    border-left: 1px solid #5b21b6;
+}
+
+/* ============================================================
+   Month navigation
+   ============================================================ */
+
+.pta-events-monthnav {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+    margin: 0 0 16px;
+    padding: 14px 16px;
+    background: #f9fafb;
+    border-radius: 4px;
+    border: 1px solid #e5e7eb;
+}
+.pta-monthnav-prev,
+.pta-monthnav-next {
+    color: #5b21b6;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+}
+.pta-monthnav-prev { justify-self: start; }
+.pta-monthnav-next { justify-self: end; }
+.pta-monthnav-prev:hover,
+.pta-monthnav-next:hover { text-decoration: underline; }
+.pta-monthnav-current {
+    margin: 0;
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+}
+.pta-monthnav-today-link {
+    margin: 0 0 16px;
+    text-align: center;
+    font-size: 14px;
+}
+.pta-monthnav-today-link a {
+    color: #5b21b6;
+    text-decoration: none;
+}
+.pta-monthnav-today-link a:hover { text-decoration: underline; }
+
+/* ============================================================
+   Calendar grid
+   ============================================================ */
+
+.pta-events-calendar {
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #fff;
+}
+.pta-events-calendar-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}
+.pta-events-calendar-row + .pta-events-calendar-row { border-top: 1px solid #e5e7eb; }
+
+.pta-events-calendar-dow {
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+}
+.pta-events-calendar-dowcell {
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #4b5563;
+    text-align: left;
+}
+.pta-events-calendar-dowcell + .pta-events-calendar-dowcell {
+    border-left: 1px solid #e5e7eb;
+}
+
+.pta-events-calendar-cell {
+    min-height: 120px;
+    padding: 6px 8px 8px;
+    background: #fff;
+    position: relative;
+}
+.pta-events-calendar-cell + .pta-events-calendar-cell {
+    border-left: 1px solid #e5e7eb;
+}
+.pta-events-calendar-cell.is-other-month {
+    background: #f9fafb;
+    color: #9ca3af;
+}
+.pta-events-calendar-cell.is-today {
+    background: #f5f3ff;
+}
+.pta-events-calendar-cell.is-today .pta-events-calendar-daynum {
+    background: #5b21b6;
+    color: #fff;
+}
+
+.pta-events-calendar-daynum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 6px;
+    border-radius: 13px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin-bottom: 4px;
+}
+.is-other-month .pta-events-calendar-daynum { color: #9ca3af; }
+
+.pta-events-calendar-chip {
+    display: block;
+    margin-top: 4px;
+    padding: 4px 6px;
+    background: #ede9fe;
+    border-left: 3px solid #5b21b6;
+    border-radius: 2px;
+    font-size: 12px;
+    line-height: 1.3;
+    color: #1a1a1a;
+    text-decoration: none;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.pta-events-calendar-chip:hover {
+    background: #ddd6fe;
+    text-decoration: none;
+}
+.pta-events-calendar-chip-time {
+    display: inline-block;
+    color: #5b21b6;
+    font-weight: 700;
+    margin-right: 4px;
+}
+.pta-events-calendar-chip-meeting {
+    display: inline-block;
+    color: #4338ca;
+    margin-right: 4px;
+    font-size: 11px;
+}
+.pta-events-calendar-chip.has-meeting {
+    border-left-color: #4338ca;
+}
+.pta-events-calendar-chip-title {
+    color: #1a1a1a;
+    font-weight: 500;
+}
+
+/* Phone: collapse the grid into a vertical "agenda" view per row */
+@media (max-width: 700px) {
+    .pta-events-calendar-dow { display: none; }
+    .pta-events-calendar-row {
+        grid-template-columns: 1fr;
+    }
+    .pta-events-calendar-cell {
+        min-height: 0;
+        border-top: 1px solid #e5e7eb;
+    }
+    .pta-events-calendar-cell + .pta-events-calendar-cell {
+        border-left: none;
+    }
+    .pta-events-calendar-cell.is-other-month { display: none; }
+}
+
+/* ============================================================
+   List view
+   ============================================================ */
+
+.pta-events-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.pta-events-list-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: #6b7280;
+}
+.pta-events-list-month {
+    margin: 24px 0 8px;
+}
+.pta-events-list-month h3 {
+    margin: 0;
+    padding: 8px 12px;
+    background: #f5f3ff;
+    border-left: 4px solid #5b21b6;
+    font-size: 18px;
+    font-weight: 700;
+}
+.pta-events-list-item {
+    margin: 8px 0;
+}
+.pta-events-list-card {
+    display: flex;
+    align-items: stretch;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pta-events-list-card:hover {
+    border-color: #5b21b6;
+    box-shadow: 0 2px 8px rgba(91, 33, 182, 0.08);
+}
+.pta-events-list-card-link {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    flex: 1 1 auto;
+    text-decoration: none;
+    color: inherit;
+    min-width: 0;
+}
+.pta-events-list-card-link:hover {
+    text-decoration: none;
+    color: inherit;
+}
+.pta-events-list-thumb {
+    flex: 0 0 96px;
+    align-self: stretch;
+    min-height: 64px;
+    background-color: #ede9fe;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 4px;
+}
+.pta-events-list-date {
+    flex: 0 0 auto;
+    width: 56px;
+    text-align: center;
+}
+.pta-events-list-date-day {
+    display: block;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+    color: #5b21b6;
+}
+.pta-events-list-date-dow {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #4b5563;
+}
+.pta-events-list-meta {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.pta-events-list-meta h4 {
+    margin: 0 0 4px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1a1a1a;
+}
+.pta-events-list-meta p {
+    margin: 0;
+    font-size: 14px;
+    color: #4b5563;
+}
+.pta-events-list-join {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    padding: 14px 16px;
+    border-left: 1px solid #f3f4f6;
+    background: #fafafa;
+}
+
+@media (max-width: 700px) {
+    .pta-events-list-card {
+        flex-direction: column;
+    }
+    .pta-events-list-card-link {
+        width: 100%;
+    }
+    .pta-events-list-thumb {
+        flex: 0 0 auto;
+        width: 100%;
+        height: 140px;
+    }
+    .pta-events-list-join {
+        border-left: none;
+        border-top: 1px solid #f3f4f6;
+        width: 100%;
+        justify-content: stretch;
+    }
+    .pta-events-list-join .pta-join-meeting {
+        width: 100%;
+        justify-content: center;
+    }
+}

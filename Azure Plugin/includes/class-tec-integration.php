@@ -28,10 +28,25 @@ class Azure_TEC_Integration {
                 return;
             }
             Azure_Logger::debug('TEC Integration: Constructor started', 'TEC');
-            
+
             if (!$this->is_tec_active()) {
-                add_action('admin_notices', array($this, 'tec_dependency_notice'));
-                Azure_Logger::debug('TEC Integration: The Events Calendar not active, showing dependency notice', 'TEC');
+                // Post-migration: when `pta_calendar_owner` is 'pta' (or
+                // 'both') the calendar sync writes into the native
+                // pta_event CPT and does NOT need The Events Calendar
+                // plugin to be present. Suppress the legacy "TEC plugin
+                // required" admin nag in that case — it was misleading
+                // people into thinking the calendar sync was broken
+                // when it was actually working fine.
+                $pta_owner_active = class_exists('Azure_Event_CPT')
+                    && Azure_Event_CPT::is_pta_owner_active();
+                if (!$pta_owner_active) {
+                    add_action('admin_notices', array($this, 'tec_dependency_notice'));
+                }
+                Azure_Logger::debug(
+                    'TEC Integration: The Events Calendar not active'
+                    . ($pta_owner_active ? ' (running in pta mode, no notice)' : ' (showing dependency notice)'),
+                    'TEC'
+                );
                 return;
             }
             Azure_Logger::debug('TEC Integration: The Events Calendar is active, proceeding with initialization', 'TEC');

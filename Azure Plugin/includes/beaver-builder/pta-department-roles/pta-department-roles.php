@@ -3,6 +3,32 @@
  * PTA Department Roles Beaver Builder Module
  */
 
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+// Declare the module class HERE (not in class-pta-beaver-builder.php) so
+// FLBuilderModule's ReflectionClass-based slug computation resolves to
+// 'pta-department-roles'. See sibling pta-roles-directory.php for the full
+// rationale.
+if (!class_exists('PTADepartmentRolesModule') && class_exists('FLBuilderModule')) {
+    class PTADepartmentRolesModule extends FLBuilderModule {
+        public function __construct() {
+            parent::__construct(array(
+                'name'            => __('PTA Department Roles', 'azure-plugin'),
+                'description'     => __('Display roles for a specific department', 'azure-plugin'),
+                'group'           => __('Azure Plugin', 'azure-plugin'),
+                'category'        => __('PTA Modules', 'azure-plugin'),
+                'dir'             => AZURE_PLUGIN_PATH . 'includes/beaver-builder/pta-department-roles/',
+                'url'             => AZURE_PLUGIN_URL . 'includes/beaver-builder/pta-department-roles/',
+                'editor_export'   => true,
+                'enabled'         => true,
+                'icon'            => 'groups.svg',
+            ));
+        }
+    }
+}
+
 FLBuilder::register_module('PTADepartmentRolesModule', array(
     'general' => array(
         'title' => __('General', 'azure-plugin'),

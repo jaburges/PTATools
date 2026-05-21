@@ -21,7 +21,55 @@ class Azure_SSO_Auth {
         add_action('init', array($this, 'check_sso_requirement'));
         add_action('wp_logout', array($this, 'handle_logout'));
         add_filter('authenticate', array($this, 'maybe_bypass_password_auth'), 30, 3);
-        add_action('login_form', array($this, 'add_sso_login_button'));
+        add_action('login_enqueue_scripts', array($this, 'enqueue_login_styles'));
+        add_filter('login_body_class', array($this, 'filter_login_body_class'));
+        add_filter('login_message', array($this, 'prepend_parents_login_heading'));
+        add_action('login_footer', array($this, 'render_sso_login_section'));
+    }
+
+    /**
+     * Styles for the split Parents / SSO login layout on wp-login.php.
+     */
+    public function enqueue_login_styles() {
+        if (!Azure_Settings::get_setting('sso_show_on_login_page', true)) {
+            return;
+        }
+        wp_enqueue_style(
+            'azure-login-page',
+            AZURE_PLUGIN_URL . 'css/login-page.css',
+            array('login'),
+            defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1.0'
+        );
+    }
+
+    /**
+     * @param string[] $classes
+     * @return string[]
+     */
+    public function filter_login_body_class($classes) {
+        if (Azure_Settings::get_setting('sso_show_on_login_page', true)) {
+            $classes[] = 'azure-login-split';
+        }
+        return $classes;
+    }
+
+    /**
+     * Heading above the username/password form (Parents).
+     *
+     * @param string $message Existing login message HTML.
+     * @return string
+     */
+    public function prepend_parents_login_heading($message) {
+        if (!Azure_Settings::get_setting('sso_show_on_login_page', true)) {
+            return $message;
+        }
+
+        $intro  = '<div class="azure-login-parents-intro">';
+        $intro .= '<p class="azure-login-title">' . esc_html__('Login', 'azure-plugin') . '</p>';
+        $intro .= '<p class="azure-login-subtitle">' . esc_html__('Parents', 'azure-plugin') . '</p>';
+        $intro .= '</div>';
+
+        return $intro . $message;
     }
     
     /**
@@ -405,39 +453,58 @@ class Azure_SSO_Auth {
     }
     
     /**
-     * Add SSO login button to login form
+     * Staff / PTA SSO block below the Parents username/password form.
+     *
+     * Rendered on login_footer so it sits after Log In, not between password
+     * and the submit button.
      */
-    public function add_sso_login_button() {
+    public function render_sso_login_section() {
         if (!Azure_Settings::get_setting('sso_show_on_login_page', true)) {
             return;
         }
-        
-        // Check if button has already been rendered to avoid duplicates
-        static $button_rendered = false;
-        if ($button_rendered) {
+
+        static $section_rendered = false;
+        if ($section_rendered) {
             return;
         }
-        $button_rendered = true;
-        
+        $section_rendered = true;
+
         $sso_url = $this->get_authorization_url();
-        
         if (!$sso_url) {
             return;
         }
-        
-        // Get custom button text from settings
+
         $button_text = Azure_Settings::get_setting('sso_login_button_text', 'Sign in with Microsoft');
-        
-        echo '<div style="margin: 20px 0; text-align: center;">';
-        echo '<a href="' . esc_url($sso_url) . '" class="button button-primary" style="width: 100%; padding: 10px; font-size: 14px;">';
-        echo '<span class="dashicons dashicons-admin-users" style="vertical-align: middle; margin-right: 5px;"></span>';
+        $org_heading = Azure_Settings::get_setting('sso_login_org_heading', '');
+        if ($org_heading === '') {
+            $org_heading = get_bloginfo('name');
+        }
+        $org_heading = apply_filters('azure_login_org_heading', $org_heading);
+
+        echo '<div class="azure-login-divider" role="separator" aria-label="' . esc_attr__('Or', 'azure-plugin') . '">';
+        echo '<span>' . esc_html__('OR', 'azure-plugin') . '</span>';
+        echo '</div>';
+
+        echo '<div class="azure-login-sso-section">';
+
+        if ($org_heading !== '') {
+            echo '<p class="azure-login-org">' . esc_html($org_heading) . '</p>';
+        }
+
+        if (isset($_GET['sso_error']) && $_GET['sso_error'] === 'expired') {
+            echo '<div class="azure-login-sso-notice">';
+            echo esc_html__(
+                'Your sign-in link expired or was already used. Use the button below to start a fresh sign-in.',
+                'azure-plugin'
+            );
+            echo '</div>';
+        }
+
+        echo '<a href="' . esc_url($sso_url) . '" class="button button-primary azure-login-sso-btn">';
+        echo '<span class="dashicons dashicons-cloud" aria-hidden="true"></span>';
         echo esc_html($button_text);
         echo '</a>';
-        echo '</div>';
-        
-        echo '<div style="margin: 20px 0; text-align: center; color: #666; position: relative;">';
-        echo '<hr style="border: none; border-top: 1px solid #ddd; margin: 0;">';
-        echo '<span style="background: #fff; padding: 0 15px; position: absolute; top: -10px; left: 50%; transform: translateX(-50%);">OR</span>';
+
         echo '</div>';
     }
     

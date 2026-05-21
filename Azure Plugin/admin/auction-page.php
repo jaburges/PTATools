@@ -7,10 +7,167 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Handle the "Auction Display Page" live toggle inline. Posts back to the
+// current admin URL so the user stays on this tab.
+$display_toggle_notice = '';
+if (
+    isset($_POST['azure_auction_display_toggle'])
+    && current_user_can('manage_options')
+    && check_admin_referer('azure_auction_display_toggle', 'azure_auction_display_nonce')
+) {
+    $new_live = !empty($_POST['auction_display_live']) ? true : false;
+    Azure_Settings::update_setting('auction_display_live', $new_live);
+    $display_toggle_notice = $new_live
+        ? __('Auction display page is now LIVE — visible to the public.', 'azure-plugin')
+        : __('Auction display page is in preview mode — admins only.', 'azure-plugin');
+}
+
+// Handle "Extend all auctions" bulk action. Updates _auction_bidding_end on
+// every published auction product whose status is not yet ended/sold AND
+// reschedules the per-auction finalize cron via the canonical helper. This
+// is the safe path for moving the auction night.
+$extend_notice = '';
+$extend_summary = null;
+if (
+    isset($_POST['azure_auction_extend_all'])
+    && current_user_can('manage_options')
+    && check_admin_referer('azure_auction_extend_all', 'azure_auction_extend_all_nonce')
+) {
+    $new_date = isset($_POST['azure_auction_extend_date']) ? sanitize_text_field($_POST['azure_auction_extend_date']) : '';
+    $new_time = isset($_POST['azure_auction_extend_time']) ? sanitize_text_field($_POST['azure_auction_extend_time']) : '';
+    $reopen   = !empty($_POST['azure_auction_extend_reopen']);
+
+    if ($new_date && $new_time) {
+        $combined = $new_date . ' ' . $new_time . ':00';
+        $end_ts = strtotime($combined);
+
+        if (!$end_ts) {
+            $extend_notice = __('Invalid end date/time.', 'azure-plugin');
+        } elseif ($end_ts <= current_time('timestamp')) {
+            $extend_notice = __('End date/time must be in the future.', 'azure-plugin');
+        } else {
+            global $wpdb;
+            $pt = $wpdb->get_var("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} tt
+                                  JOIN {$wpdb->terms} t ON t.term_id=tt.term_id
+                                  WHERE tt.taxonomy='product_type' AND t.slug='auction'");
+            $ids = $pt ? $wpdb->get_col($wpdb->prepare(
+                "SELECT p.ID FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id=p.ID
+                 WHERE p.post_type='product' AND tr.term_taxonomy_id=%d AND p.post_status='publish'",
+                $pt
+            )) : array();
+
+            $updated = 0; $skipped_winner = 0; $reopened = 0;
+            foreach ($ids as $pid) {
+                $pid    = (int) $pid;
+                $status = get_post_meta($pid, '_auction_status', true);
+                $winner = (int) get_post_meta($pid, '_auction_winner_user_id', true);
+                $order  = (int) get_post_meta($pid, '_auction_winner_order_id', true);
+
+                // Don't blindly extend an item with a winner / order; that path
+                // requires conscious reversal because notifications may have
+                // been sent and orders created.
+                if ($winner || $order) {
+                    $skipped_winner++;
+                    continue;
+                }
+
+                if (in_array($status, array('ended', 'sold'), true)) {
+                    if ($reopen) {
+                        delete_post_meta($pid, '_auction_status');
+                        delete_post_meta($pid, '_auction_ended_at');
+                        $reopened++;
+                    } else {
+                        $skipped_winner++;
+                        continue;
+                    }
+                }
+
+                update_post_meta($pid, '_auction_bidding_end', $combined);
+                if (class_exists('Azure_Auction_Lifecycle')) {
+                    Azure_Auction_Lifecycle::schedule_finalize_event($pid, $combined);
+                }
+                clean_post_cache($pid);
+                if (function_exists('wc_delete_product_transients')) wc_delete_product_transients($pid);
+                $updated++;
+            }
+
+            $extend_summary = array(
+                'new_end'         => $combined,
+                'updated'         => $updated,
+                'reopened'        => $reopened,
+                'skipped_winner'  => $skipped_winner,
+                'total_scanned'   => count($ids),
+            );
+            $extend_notice = sprintf(
+                __('Extended %1$d auction(s) to %2$s. Reopened: %3$d. Skipped (had winner/order): %4$d.', 'azure-plugin'),
+                (int) $updated, esc_html($combined), (int) $reopened, (int) $skipped_winner
+            );
+        }
+    } else {
+        $extend_notice = __('Please choose both a date and a time.', 'azure-plugin');
+    }
+}
+
+// Handle layout settings save (separate form so it can post independently
+// of the live toggle).
+$display_layout_notice = '';
+if (
+    isset($_POST['azure_auction_display_layout'])
+    && current_user_can('manage_options')
+    && check_admin_referer('azure_auction_display_layout', 'azure_auction_display_layout_nonce')
+) {
+    $card_scale = isset($_POST['auction_display_card_scale']) ? (int) $_POST['auction_display_card_scale'] : 80;
+    $cards_wide = isset($_POST['auction_display_cards_wide']) ? (int) $_POST['auction_display_cards_wide'] : 4;
+    $cards_tall = isset($_POST['auction_display_cards_tall']) ? (int) $_POST['auction_display_cards_tall'] : 3;
+    $slide_secs = isset($_POST['auction_display_slide_seconds']) ? (int) $_POST['auction_display_slide_seconds'] : 5;
+
+    Azure_Settings::update_setting('auction_display_card_scale',    max(30, min(100, $card_scale)));
+    Azure_Settings::update_setting('auction_display_cards_wide',    max(1,  min(8,   $cards_wide)));
+    Azure_Settings::update_setting('auction_display_cards_tall',    max(1,  min(6,   $cards_tall)));
+    Azure_Settings::update_setting('auction_display_slide_seconds', max(2,  min(120, $slide_secs)));
+
+    $display_layout_notice = __('Display layout settings saved.', 'azure-plugin');
+}
+
 $settings = Azure_Settings::get_all_settings();
 $auction_enabled = !empty($settings['enable_auction']);
+$display_live = !empty($settings['auction_display_live']);
+$card_scale_v   = isset($settings['auction_display_card_scale'])    ? (int) $settings['auction_display_card_scale']    : 80;
+$cards_wide_v   = isset($settings['auction_display_cards_wide'])    ? (int) $settings['auction_display_cards_wide']    : 4;
+$cards_tall_v   = isset($settings['auction_display_cards_tall'])    ? (int) $settings['auction_display_cards_tall']    : 3;
+$slide_secs_v   = isset($settings['auction_display_slide_seconds']) ? (int) $settings['auction_display_slide_seconds'] : 5;
+
+// Try to find an existing /auction page so we can offer a quick "View" link.
+$auction_page_url = '';
+$auction_page = get_page_by_path('auction');
+if ($auction_page instanceof WP_Post) {
+    $auction_page_url = get_permalink($auction_page);
+}
+
+// Most-common future end date across published auctions, used to pre-fill
+// the "extend all" form so the admin doesn't have to retype the auction
+// night every time.
+$current_common_end = '';
+if (class_exists('WooCommerce')) {
+    global $wpdb;
+    $current_common_end = (string) $wpdb->get_var(
+        "SELECT pm.meta_value FROM {$wpdb->postmeta} pm
+         INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+         WHERE pm.meta_key = '_auction_bidding_end'
+           AND pm.meta_value <> ''
+           AND pm.meta_value > NOW()
+           AND p.post_type = 'product' AND p.post_status = 'publish'
+         GROUP BY pm.meta_value
+         ORDER BY COUNT(*) DESC, pm.meta_value DESC
+         LIMIT 1"
+    );
+}
+$prefill_date = $current_common_end ? date('Y-m-d', strtotime($current_common_end)) : '';
+$prefill_time = $current_common_end ? date('H:i',   strtotime($current_common_end)) : '19:00';
 
 $active_auctions = 0;
+$staged_auctions = 0;
 $total_bids = 0;
 if (class_exists('WooCommerce')) {
     global $wpdb;
@@ -23,6 +180,14 @@ if (class_exists('WooCommerce')) {
          INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_auction_bidding_end'
          WHERE p.post_type = 'product' AND p.post_status = 'publish'
          AND (pm.meta_value = '' OR pm.meta_value > NOW())"
+    );
+    // Staged auctions = auction products that are scheduled (post_status = 'future').
+    // The _auction_bidding_end meta is only set on auction-type products, so it
+    // doubles as a product-type filter without joining the term tables.
+    $staged_auctions = (int) $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->posts} p
+         INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_auction_bidding_end'
+         WHERE p.post_type = 'product' AND p.post_status = 'future'"
     );
 }
 ?>
@@ -57,6 +222,10 @@ if (class_exists('WooCommerce')) {
             <div class="azure-stat-box">
                 <span class="azure-stat-number"><?php echo (int) $active_auctions; ?></span>
                 <span class="azure-stat-label"><?php _e('Active Auctions', 'azure-plugin'); ?></span>
+            </div>
+            <div class="azure-stat-box">
+                <span class="azure-stat-number"><?php echo (int) $staged_auctions; ?></span>
+                <span class="azure-stat-label"><?php _e('Staged Auctions', 'azure-plugin'); ?></span>
             </div>
             <div class="azure-stat-box">
                 <span class="azure-stat-number"><?php echo (int) $total_bids; ?></span>
@@ -103,6 +272,169 @@ if (class_exists('WooCommerce')) {
             ?>
         </div>
         <p class="description"><?php _e('Create a product and select "Auction" as the product type. Set bidding end date/time, optional Buy It Now price, and require immediate payment.', 'azure-plugin'); ?></p>
+
+        <hr style="margin: 24px 0;" />
+
+        <div class="azure-auction-display-panel">
+            <h2 style="margin-top: 0;"><span class="dashicons dashicons-screenoptions"></span> <?php _e('Auction Night Display Page', 'azure-plugin'); ?></h2>
+
+            <?php if (!empty($display_toggle_notice)) : ?>
+            <div class="notice notice-success inline" style="margin: 0 0 12px;">
+                <p><?php echo esc_html($display_toggle_notice); ?></p>
+            </div>
+            <?php endif; ?>
+
+            <p class="description" style="margin-top: 0;">
+                <?php _e('A grid of cards (title, image, masked top bidder, current bid) that auto-refreshes every 30 seconds. Designed to project on a screen during the live auction.', 'azure-plugin'); ?>
+            </p>
+
+            <p>
+                <strong><?php _e('Status:', 'azure-plugin'); ?></strong>
+                <?php if ($display_live) : ?>
+                    <span style="color: #1a7f37; font-weight: 600;"><?php _e('LIVE — visible to the public', 'azure-plugin'); ?></span>
+                <?php else : ?>
+                    <span style="color: #b26100; font-weight: 600;"><?php _e('Preview — admins only (public sees "Coming soon")', 'azure-plugin'); ?></span>
+                <?php endif; ?>
+            </p>
+
+            <p>
+                <strong><?php _e('Setup:', 'azure-plugin'); ?></strong>
+                <?php _e('Create a WordPress page (suggested slug', 'azure-plugin'); ?> <code>/auction</code><?php _e(') and paste this shortcode into it:', 'azure-plugin'); ?>
+            </p>
+            <p>
+                <input type="text" readonly value="[auction-display]" onclick="this.select();" style="font-family: monospace; width: 220px;" />
+            </p>
+
+            <form method="post" style="margin-top: 16px;">
+                <?php wp_nonce_field('azure_auction_display_toggle', 'azure_auction_display_nonce'); ?>
+                <input type="hidden" name="azure_auction_display_toggle" value="1" />
+                <label style="display: inline-flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" name="auction_display_live" value="1" <?php checked($display_live); ?> />
+                    <span><?php _e('Make the /auction page LIVE for the public', 'azure-plugin'); ?></span>
+                </label>
+                <p style="margin-top: 10px;">
+                    <button type="submit" class="button button-primary"><?php _e('Save', 'azure-plugin'); ?></button>
+                    <?php if ($auction_page_url) : ?>
+                    <a href="<?php echo esc_url($auction_page_url); ?>" target="_blank" rel="noopener" class="button">
+                        <span class="dashicons dashicons-external" style="vertical-align: middle;"></span>
+                        <?php _e('View /auction page', 'azure-plugin'); ?>
+                    </a>
+                    <?php endif; ?>
+                </p>
+            </form>
+
+            <hr style="margin: 18px 0;" />
+
+            <h3 style="margin: 0 0 6px;"><?php _e('Extend All Auctions', 'azure-plugin'); ?></h3>
+            <p class="description" style="margin-top: 0;">
+                <?php _e('Bulk-update every published auction product to a new bidding end. Each item is also re-scheduled in WP-Cron so the natural-end finalize fires at the new time. Items with a winner or order are skipped automatically.', 'azure-plugin'); ?>
+            </p>
+
+            <?php if (!empty($extend_notice)) : ?>
+            <div class="notice <?php echo $extend_summary ? 'notice-success' : 'notice-error'; ?> inline" style="margin: 6px 0 12px;">
+                <p><?php echo esc_html($extend_notice); ?></p>
+            </div>
+            <?php endif; ?>
+
+            <form method="post" style="margin-top: 8px;">
+                <?php wp_nonce_field('azure_auction_extend_all', 'azure_auction_extend_all_nonce'); ?>
+                <input type="hidden" name="azure_auction_extend_all" value="1" />
+                <table class="form-table" role="presentation" style="max-width: 640px;">
+                    <tr>
+                        <th scope="row"><label for="azure_auction_extend_date"><?php _e('New end date', 'azure-plugin'); ?></label></th>
+                        <td>
+                            <input type="date" id="azure_auction_extend_date" name="azure_auction_extend_date"
+                                   value="<?php echo esc_attr($prefill_date); ?>" required style="width: 180px;" />
+                            <input type="time" id="azure_auction_extend_time" name="azure_auction_extend_time"
+                                   value="<?php echo esc_attr($prefill_time); ?>" required style="width: 140px; margin-left: 8px;" />
+                            <p class="description"><?php _e('Site timezone. Pre-filled with the most common active end date.', 'azure-plugin'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Reopen ended items?', 'azure-plugin'); ?></th>
+                        <td>
+                            <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" name="azure_auction_extend_reopen" value="1" />
+                                <span><?php _e('Also clear "ended" status on items that had no bids (re-opens them for bidding).', 'azure-plugin'); ?></span>
+                            </label>
+                            <p class="description"><?php _e('Items with a winner or order are never reopened — that path requires manual reversal.', 'azure-plugin'); ?></p>
+                        </td>
+                    </tr>
+                </table>
+                <p>
+                    <button type="submit" class="button button-primary"
+                            onclick="return confirm('<?php echo esc_js(__('Extend all eligible auction items to the chosen date/time?', 'azure-plugin')); ?>');">
+                        <?php _e('Extend all eligible auctions', 'azure-plugin'); ?>
+                    </button>
+                </p>
+            </form>
+
+            <hr style="margin: 18px 0;" />
+
+            <h3 style="margin: 0 0 6px;"><?php _e('Display Layout (projector / TV)', 'azure-plugin'); ?></h3>
+            <p class="description" style="margin-top: 0;">
+                <?php _e('The display page paginates the cards into "screens" of a fixed size and auto-advances between screens so every item is shown on the projector.', 'azure-plugin'); ?>
+            </p>
+
+            <?php if (!empty($display_layout_notice)) : ?>
+            <div class="notice notice-success inline" style="margin: 0 0 12px;">
+                <p><?php echo esc_html($display_layout_notice); ?></p>
+            </div>
+            <?php endif; ?>
+
+            <form method="post" style="margin-top: 8px;">
+                <?php wp_nonce_field('azure_auction_display_layout', 'azure_auction_display_layout_nonce'); ?>
+                <input type="hidden" name="azure_auction_display_layout" value="1" />
+                <table class="form-table" role="presentation" style="max-width: 640px;">
+                    <tr>
+                        <th scope="row"><label for="auction_display_card_scale"><?php _e('Card size', 'azure-plugin'); ?></label></th>
+                        <td>
+                            <input type="number" id="auction_display_card_scale" name="auction_display_card_scale"
+                                   min="30" max="100" step="5"
+                                   value="<?php echo (int) $card_scale_v; ?>" /> %
+                            <p class="description"><?php _e('Scales padding and typography. 100% = original size, 80% recommended for a projector with 12 cards on screen.', 'azure-plugin'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="auction_display_cards_wide"><?php _e('Cards per row', 'azure-plugin'); ?></label></th>
+                        <td>
+                            <input type="number" id="auction_display_cards_wide" name="auction_display_cards_wide"
+                                   min="1" max="8" step="1"
+                                   value="<?php echo (int) $cards_wide_v; ?>" />
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="auction_display_cards_tall"><?php _e('Rows per screen', 'azure-plugin'); ?></label></th>
+                        <td>
+                            <input type="number" id="auction_display_cards_tall" name="auction_display_cards_tall"
+                                   min="1" max="6" step="1"
+                                   value="<?php echo (int) $cards_tall_v; ?>" />
+                            <p class="description">
+                                <?php
+                                $per_page = max(1, $cards_wide_v) * max(1, $cards_tall_v);
+                                printf(
+                                    esc_html__('Each screen shows %d cards (%d wide x %d tall).', 'azure-plugin'),
+                                    (int) $per_page, (int) $cards_wide_v, (int) $cards_tall_v
+                                );
+                                ?>
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="auction_display_slide_seconds"><?php _e('Seconds per screen', 'azure-plugin'); ?></label></th>
+                        <td>
+                            <input type="number" id="auction_display_slide_seconds" name="auction_display_slide_seconds"
+                                   min="2" max="120" step="1"
+                                   value="<?php echo (int) $slide_secs_v; ?>" />
+                            <p class="description"><?php _e('Time before sliding to the next screen. Set to 2-120 seconds.', 'azure-plugin'); ?></p>
+                        </td>
+                    </tr>
+                </table>
+                <p>
+                    <button type="submit" class="button button-primary"><?php _e('Save layout settings', 'azure-plugin'); ?></button>
+                </p>
+            </form>
+        </div>
 
         <?php
         if (class_exists('Azure_Auction_Winners_Report')) {

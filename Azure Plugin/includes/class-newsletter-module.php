@@ -30,11 +30,9 @@ class Azure_Newsletter_Module {
         
         // Enqueue admin styles and scripts
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
-        
-        // Schedule cron events
-        add_action('wp_loaded', array($this, 'schedule_cron_events'));
-        
-        // WP-Cron hooks for queue processing
+
+        // WP-Cron event handlers. Custom intervals + the schedule_event calls
+        // are owned by Azure_PTA_Cron; we only bind the action handlers here.
         add_action('azure_newsletter_process_queue', array($this, 'process_queue'));
         add_action('azure_newsletter_check_bounces', array($this, 'check_bounces'));
         add_action('azure_newsletter_weekly_validation', array($this, 'weekly_email_validation'));
@@ -107,6 +105,7 @@ class Azure_Newsletter_Module {
             'class-newsletter-tracking.php',
             'class-newsletter-lists.php',
             'class-newsletter-bounce.php',
+            'class-newsletter-templates.php',
             'class-newsletter-ajax.php'
         );
         
@@ -132,47 +131,6 @@ class Azure_Newsletter_Module {
         ));
     }
     
-    /**
-     * Schedule WP-Cron events
-     */
-    public function schedule_cron_events() {
-        // Process queue every minute
-        if (!wp_next_scheduled('azure_newsletter_process_queue')) {
-            wp_schedule_event(time(), 'every_minute', 'azure_newsletter_process_queue');
-        }
-        
-        // Check bounces every 15 minutes (for Office 365 IMAP)
-        if (!wp_next_scheduled('azure_newsletter_check_bounces')) {
-            wp_schedule_event(time(), 'every_fifteen_minutes', 'azure_newsletter_check_bounces');
-        }
-        
-        // Weekly email list validation
-        if (!wp_next_scheduled('azure_newsletter_weekly_validation')) {
-            wp_schedule_event(time(), 'weekly', 'azure_newsletter_weekly_validation');
-        }
-        
-        // Sync Mailgun stats hourly (for opens/clicks/bounces)
-        if (!wp_next_scheduled('azure_newsletter_sync_mailgun_stats')) {
-            wp_schedule_event(time(), 'hourly', 'azure_newsletter_sync_mailgun_stats');
-        }
-    }
-    
-    /**
-     * Register custom cron schedules
-     */
-    public static function register_cron_schedules($schedules) {
-        $schedules['every_minute'] = array(
-            'interval' => 60,
-            'display' => __('Every Minute', 'azure-plugin')
-        );
-        
-        $schedules['every_fifteen_minutes'] = array(
-            'interval' => 900,
-            'display' => __('Every 15 Minutes', 'azure-plugin')
-        );
-        
-        return $schedules;
-    }
     
     /**
      * Process the email queue
@@ -1374,6 +1332,4 @@ class Azure_Newsletter_Module {
     }
 }
 
-// Register cron schedules filter
-add_filter('cron_schedules', array('Azure_Newsletter_Module', 'register_cron_schedules'));
-
+// Note: cron interval registration was moved to Azure_PTA_Cron::register_intervals().

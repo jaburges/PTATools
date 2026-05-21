@@ -6,11 +6,24 @@ if (!defined('ABSPATH')) {
 // Get plugin settings
 $settings = Azure_Settings::get_all_settings();
 
-// Check if TEC Integration module is enabled
+// Check if Calendar Sync module is enabled (legacy option key kept
+// for backwards compat — it's named `tec_integration` everywhere in
+// the DB and we don't want to migrate it just for a rename).
 $tec_module_enabled = Azure_Settings::is_module_enabled('tec_integration');
 
-// Check if TEC plugin is installed
-$tec_installed = class_exists('Tribe__Events__Main');
+// Post-migration state: if Azure_Event_CPT is running in 'pta' or
+// 'both' mode then the calendar sync writes into the native
+// pta_event CPT and we don't need The Events Calendar plugin at all.
+// Treat that as "sync ready" so the legacy "TEC not found" error
+// block doesn't fire on a perfectly healthy install.
+$tec_installed     = class_exists('Tribe__Events__Main');
+$pta_native_active = class_exists('Azure_Event_CPT')
+    && Azure_Event_CPT::is_pta_owner_active();
+$sync_target       = $pta_native_active ? 'pta_event' : 'tribe_events';
+$sync_target_label = $pta_native_active
+    ? __('PTA Tools Events (native)', 'azure-plugin')
+    : __('The Events Calendar', 'azure-plugin');
+$sync_ready        = $tec_installed || $pta_native_active;
 
 // Check TEC calendar authentication status
 $tec_user_email = $settings['tec_calendar_user_email'] ?? '';
@@ -43,14 +56,21 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
 <div class="wrap">
     <h1>PTA Tools - Calendar Sync</h1>
 <?php endif; ?>
-    
+
     <!-- Module Toggle Section -->
     <div class="module-status-section">
-        <h2>TEC Integration Module Status</h2>
+        <h2>Calendar Sync Module Status</h2>
         <div class="module-toggle-card module-card <?php echo $tec_module_enabled ? 'enabled' : 'disabled'; ?>">
             <div class="module-info">
-                <h3><span class="dashicons dashicons-calendar"></span> TEC Integration Module</h3>
-                <p>Sync Microsoft Outlook calendars with The Events Calendar plugin</p>
+                <h3><span class="dashicons dashicons-calendar"></span> Outlook Calendar Sync</h3>
+                <p>
+                    <?php if ($pta_native_active): ?>
+                        Sync Microsoft Outlook calendars into the native PTA Tools Events module
+                        (<code>pta_event</code>). No external calendar plugin required.
+                    <?php else: ?>
+                        Sync Microsoft Outlook calendars with The Events Calendar plugin
+                    <?php endif; ?>
+                </p>
             </div>
             <div class="module-control">
                 <label class="switch">
@@ -62,28 +82,53 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
         </div>
         <?php if (!$tec_module_enabled): ?>
         <div class="notice notice-warning inline">
-            <p><strong>TEC Integration module is disabled.</strong> Enable it above to use TEC Calendar Sync functionality.</p>
+            <p><strong>Calendar Sync module is disabled.</strong> Enable it above to sync Outlook calendars.</p>
         </div>
         <?php endif; ?>
     </div>
-    
-    <?php if (!$tec_installed): ?>
+
+    <?php if (!$sync_ready): ?>
     <div class="notice notice-error inline-notice">
-        <p><span class="dashicons dashicons-dismiss"></span> <strong>The Events Calendar Plugin Not Found</strong></p>
-        <p>The Events Calendar plugin must be installed and activated to use the TEC Calendar Sync feature.</p>
-        <p><a href="<?php echo admin_url('plugin-install.php?s=the+events+calendar&tab=search&type=term'); ?>" class="button">Install The Events Calendar</a></p>
+        <p><span class="dashicons dashicons-dismiss"></span> <strong>No calendar destination configured</strong></p>
+        <p>
+            This site has neither The Events Calendar plugin nor the native PTA Tools Events
+            module enabled, so synced events have nowhere to land. Enable the native module
+            (Azure Plugin &rarr; Settings &rarr; <em>pta_calendar_owner</em>) or install
+            The Events Calendar plugin to proceed.
+        </p>
+        <p>
+            <a href="<?php echo admin_url('plugin-install.php?s=the+events+calendar&tab=search&type=term'); ?>" class="button">Install The Events Calendar</a>
+        </p>
     </div>
     <?php elseif ($tec_module_enabled): ?>
-    
-    <!-- TEC Sync Overview -->
+
+    <?php if ($pta_native_active): ?>
+    <div class="notice notice-success inline-notice" style="border-left-color:#46b450;">
+        <p>
+            <span class="dashicons dashicons-yes-alt"></span>
+            <strong>Native mode active.</strong>
+            Outlook events are syncing into the native PTA Tools Events module
+            (<code>pta_event</code>) and rendering on
+            <a href="<?php echo esc_url(home_url('/events/')); ?>" target="_blank">/events/</a>
+            and via the <code>[azure_calendar]</code> / <code>[azure_calendar_events]</code> shortcodes.
+            The Events Calendar plugin is not required.
+        </p>
+    </div>
+    <?php endif; ?>
+
+    <!-- Sync Overview -->
     <div class="tec-sync-overview">
         <div class="info-card">
-            <h2><span class="dashicons dashicons-update"></span> TEC Calendar Synchronization</h2>
-            <p>Sync events from Outlook shared mailbox calendars to The Events Calendar plugin. Events in Outlook will automatically sync to your WordPress site based on your schedule.</p>
+            <h2><span class="dashicons dashicons-update"></span> Outlook Calendar Synchronization</h2>
+            <p>
+                Sync events from Outlook shared mailbox calendars into
+                <strong><?php echo esc_html($sync_target_label); ?></strong>.
+                Events in Outlook will automatically appear on your site based on your schedule.
+            </p>
             <ul>
-                <li><strong>One-way sync:</strong> Outlook → TEC (Outlook always wins)</li>
+                <li><strong>One-way sync:</strong> Outlook &rarr; <?php echo esc_html($sync_target_label); ?> (Outlook always wins)</li>
                 <li><strong>Multi-calendar support:</strong> Select specific calendars from shared mailbox</li>
-                <li><strong>Category mapping:</strong> Assign TEC categories to imported events</li>
+                <li><strong>Category mapping:</strong> Assign categories to imported events</li>
                 <li><strong>Flexible scheduling:</strong> Manual or automatic scheduled sync</li>
             </ul>
         </div>
@@ -166,7 +211,7 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
     <?php if ($tec_calendar_authenticated): ?>
     <div class="tec-calendar-mapping-section">
         <h2><span class="step-number">2</span> Calendar Mapping</h2>
-        <p class="description">Select which Outlook calendars to sync and assign TEC categories for filtering.</p>
+        <p class="description">Select which Outlook calendars to sync and assign event categories for filtering.</p>
         
         <div class="calendar-mappings-container">
             <div class="calendar-mappings-header">
@@ -186,7 +231,7 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
                     <tr>
                         <th style="width: 60px;">Sync</th>
                         <th>Outlook Calendar</th>
-                        <th>TEC Category</th>
+                        <th>Event Category</th>
                         <th style="width: 200px;">Schedule</th>
                         <th style="width: 150px;">Last Sync</th>
                         <th style="width: 150px;">Actions</th>
@@ -358,7 +403,7 @@ if (class_exists('Azure_TEC_Calendar_Mapping_Manager')) {
                     </tr>
                     <tr>
                         <th scope="row">
-                            <label for="tec-category-select">TEC Category</label>
+                            <label for="tec-category-select">Event Category</label>
                         </th>
                         <td>
                             <select id="tec-category-select" name="tec_category_id" class="regular-text">
