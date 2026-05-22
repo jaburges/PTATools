@@ -222,7 +222,8 @@ $settings = Azure_Settings::get_all_settings();
                         <th scope="row">Backup Types</th>
                         <td>
                             <?php
-                            $backup_types = $settings['backup_types'] ?? array('database', 'mu-plugins', 'plugins', 'themes', 'content');
+                            // Default includes 'uploads' -- see docs/backup-review-2026-05-22.md.
+                            $backup_types = $settings['backup_types'] ?? array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads');
                             $selected_plugins = $settings['backup_selected_plugins'] ?? array();
                             $selected_themes  = $settings['backup_selected_themes']  ?? array();
 

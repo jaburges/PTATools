@@ -212,7 +212,10 @@ class Azure_Backup {
 
         $entity_state = json_decode($job->entity_state ?? '{}', true);
         if (empty($entity_state)) {
-            $types = json_decode($job->backup_types, true) ?: array('database', 'mu-plugins', 'plugins', 'themes', 'content');
+            // Default includes 'uploads' so media is captured in the backup zip
+            // even when OneDrive Media sync is disabled or its auth has expired.
+            // See docs/backup-review-2026-05-22.md for context.
+            $types = json_decode($job->backup_types, true) ?: array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads');
             foreach ($types as $t) {
                 $entity_state[$t] = array('status' => 'pending', 'files' => array());
             }
@@ -528,7 +531,8 @@ class Azure_Backup {
         }
 
         try {
-            $backup_types = Azure_Settings::get_setting('backup_types', array('database', 'mu-plugins', 'plugins', 'themes', 'content'));
+            // Default includes 'uploads' -- see class header comment / docs/backup-review-2026-05-22.md.
+            $backup_types = Azure_Settings::get_setting('backup_types', array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads'));
             $backup_name = 'Manual Backup - ' . date('Y-m-d H:i:s');
             $backup_id = 'backup_' . time() . '_' . wp_generate_password(8, false);
 
@@ -866,7 +870,12 @@ class Azure_Backup {
     public function run_scheduled_backup() {
         if (!Azure_Settings::get_setting('backup_schedule_enabled', false)) return;
 
-        $types = Azure_Settings::get_setting('backup_types', array('database', 'mu-plugins', 'plugins', 'themes', 'content'));
+        // Default includes 'uploads' so scheduled backups capture media. The
+        // previous default omitted it on the assumption that OneDrive Media
+        // sync handled media -- but if OneDrive auth expires and isn't
+        // refreshed (as happened 2026-04-02), media stops being backed up
+        // anywhere. See docs/backup-review-2026-05-22.md.
+        $types = Azure_Settings::get_setting('backup_types', array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads'));
         $name = 'Scheduled Backup - ' . date('Y-m-d H:i:s');
         $backup_id = 'backup_' . time() . '_' . wp_generate_password(8, false);
 
