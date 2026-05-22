@@ -1,0 +1,265 @@
+/* ─── Checkout / Cart Widget ───────────────────────────────── */
+.pta-donations-checkout-widget {
+    background: #f8f9fa;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+}
+
+/* Inside WooCommerce Blocks order summary */
+.wc-block-components-sidebar .pta-donations-checkout-widget {
+    margin: 0 0 16px;
+}
+
+.pta-donations-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.pta-donations-header .dashicons {
+    color: #d63638;
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+}
+
+.pta-donations-desc {
+    color: #50575e;
+    font-size: 13px;
+    margin: 0 0 12px;
+}
+
+.pta-donations-row {
+    margin-bottom: 10px;
+}
+
+.pta-donations-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.pta-donations-toggle input {
+    margin: 0;
+}
+
+.pta-donations-label {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: #50575e;
+}
+
+.pta-donations-buttons {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+button.pta-donate-quick {
+    flex: 1;
+    padding: 6px 10px;
+    text-align: center;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    background: #fff;
+    color: #1d2327;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+
+button.pta-donate-quick:hover {
+    border-color: #2271b1;
+    color: #2271b1;
+    background: #f0f6fc;
+}
+
+button.pta-donate-quick.active {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.pta-donate-custom-wrap {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    padding: 0 8px;
+    background: #fff;
+}
+
+.pta-donate-custom-wrap span {
+    color: #50575e;
+}
+
+.pta-donate-custom-wrap input {
+    border: none;
+    outline: none;
+    width: 60px;
+    padding: 6px 0;
+    font-size: 13px;
+    background: transparent;
+}
+
+.pta-donate-custom-wrap input::-webkit-outer-spin-button,
+.pta-donate-custom-wrap input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* ─── Shortcode Donate Form ────────────────────────────────── */
+.pta-donate-form {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 10px;
+    padding: 24px;
+    max-width: 480px;
+    margin: 20px auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+}
+
+.pta-donate-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+}
+
+.pta-donate-desc {
+    color: #50575e;
+    margin: 0 0 16px;
+    font-size: 14px;
+}
+
+.pta-donate-progress {
+    margin-bottom: 18px;
+}
+
+.pta-donate-progress-bar {
+    background: #f0f0f1;
+    border-radius: 6px;
+    height: 12px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.pta-donate-progress-fill {
+    background: linear-gradient(90deg, #2271b1, #135e96);
+    height: 100%;
+    border-radius: 6px;
+    transition: width .3s ease;
+}
+
+.pta-donate-progress-text {
+    font-size: 12px;
+    color: #50575e;
+}
+
+.pta-donate-amounts {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.pta-donate-amount-btn {
+    flex: 1;
+    padding: 8px 10px;
+    border: 2px solid #dcdcde;
+    border-radius: 6px;
+    background: #fff;
+    color: #1d2327;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s ease;
+    text-align: center;
+}
+
+.pta-donate-amount-btn:hover {
+    border-color: #2271b1;
+    color: #2271b1;
+    background: #f0f6fc;
+}
+
+.pta-donate-amount-btn.active {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.pta-donate-custom-input-wrap {
+    margin-bottom: 14px;
+}
+
+.pta-donate-custom-input-wrap label {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 4px;
+    color: #50575e;
+}
+
+.pta-donate-input-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border: 2px solid #dcdcde;
+    border-radius: 6px;
+    padding: 0 12px;
+    background: #fff;
+    max-width: 160px;
+}
+
+.pta-donate-input-group span {
+    color: #50575e;
+    font-weight: 600;
+}
+
+.pta-donate-input-group input {
+    border: none;
+    outline: none;
+    width: 100%;
+    padding: 10px 0;
+    font-size: 15px;
+    background: transparent;
+}
+
+.pta-donate-input-group input::-webkit-outer-spin-button,
+.pta-donate-input-group input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.pta-donate-submit {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    background: #2271b1;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+
+.pta-donate-submit:hover {
+    background: #135e96;
+    color: #fff;
+}
+
+.pta-donate-message {
+    margin-top: 10px;
+    font-size: 14px;
+    text-align: center;
+}
+
+.pta-donate-message a {
+    font-weight: 600;
+}

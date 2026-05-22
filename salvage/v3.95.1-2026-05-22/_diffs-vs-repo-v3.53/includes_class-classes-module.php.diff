@@ -1,0 +1,22 @@
+--- Azure Plugin/includes/class-classes-module.php	2026-05-20 16:15:13
++++ salvage/v3.95.1-2026-05-22/includes/class-classes-module.php	2026-05-21 06:02:22
+@@ -28,9 +28,17 @@
+             return;
+         }
+         
+-        // Check if The Events Calendar is active
++        // Check if The Events Calendar is active.
++        // Suppress the TEC dependency nag when running in pta-owner mode
++        // (pta_calendar_owner = 'pta' or 'both'), where the native
++        // pta_event CPT replaces TEC for the calendar feed. Matches the
++        // guard used in Azure_TEC_Integration.
+         if (!class_exists('Tribe__Events__Main')) {
+-            add_action('admin_notices', array($this, 'tec_missing_notice'));
++            $pta_owner_active = class_exists('Azure_Event_CPT')
++                && Azure_Event_CPT::is_pta_owner_active();
++            if (!$pta_owner_active) {
++                add_action('admin_notices', array($this, 'tec_missing_notice'));
++            }
+             return;
+         }
+         

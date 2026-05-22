@@ -1,0 +1,150 @@
+/**
+ * Azure Plugin — admin tab bar and panels (WP admin color scheme).
+ */
+
+/* Tab bar — horizontal, top of content */
+.azure-tabs-nav {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: 0;
+	margin: 12px 0 20px;
+	padding: 0;
+	border-bottom: 1px solid #c3c4c7;
+	background: transparent;
+}
+
+/* Individual tab */
+.azure-tab-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin: 0 4px -1px 0;
+	padding: 10px 16px;
+	font-size: 13px;
+	line-height: 1;
+	font-weight: 600;
+	color: #50575e;
+	text-decoration: none;
+	background: #f0f0f1;
+	border: 1px solid #c3c4c7;
+	border-bottom-color: transparent;
+	border-radius: 4px 4px 0 0;
+	box-shadow: none;
+	transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+	white-space: nowrap;
+}
+
+.azure-tab-link .dashicons {
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+}
+
+.azure-tab-link:hover {
+	color: #135e96;
+	background: #f6f7f7;
+	border-color: #c3c4c7;
+	border-bottom-color: transparent;
+}
+
+.azure-tab-link:focus {
+	color: #135e96;
+	outline: none;
+}
+
+.azure-tab-link:focus-visible {
+	box-shadow: 0 0 0 2px #fff, 0 0 0 4px #2271b1;
+	border-radius: 4px 4px 0 0;
+}
+
+/* Active tab — sits on the content edge like WP nav-tab-active */
+.azure-tab-link.active {
+	color: #1d2327;
+	background: #fff;
+	border-color: #c3c4c7;
+	border-bottom-color: #fff;
+	position: relative;
+	z-index: 1;
+}
+
+.azure-tab-link.active:hover,
+.azure-tab-link.active:focus {
+	color: #1d2327;
+	background: #fff;
+	border-color: #c3c4c7;
+	border-bottom-color: #fff;
+	box-shadow: none;
+}
+
+/* Page heading icon alignment */
+.wrap > h1 > .dashicons {
+	font-size: 22px;
+	width: 22px;
+	height: 22px;
+	vertical-align: middle;
+	margin-right: 4px;
+}
+
+/* Panels — only .active is visible */
+.azure-tab-panel {
+	display: none;
+	margin: 0;
+	padding: 20px 0 0;
+	clear: both;
+}
+
+.azure-tab-panel.active {
+	display: block;
+}
+
+/* ── Module content shared styles ─────────────────────── */
+
+.azure-module-content {
+	margin-top: 4px;
+}
+
+.azure-stat-row {
+	display: flex;
+	gap: 16px;
+	margin-bottom: 20px;
+}
+
+.azure-stat-box {
+	display: flex;
+	flex-direction: column;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 16px 24px;
+	min-width: 120px;
+}
+
+.azure-stat-number {
+	font-size: 28px;
+	font-weight: 700;
+	color: #1d2327;
+	line-height: 1.2;
+}
+
+.azure-stat-label {
+	font-size: 13px;
+	color: #646970;
+	margin-top: 2px;
+}
+
+.azure-action-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 8px;
+}
+
+.azure-action-row .button .dashicons,
+.azure-action-row .button-primary .dashicons {
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+	vertical-align: text-bottom;
+}

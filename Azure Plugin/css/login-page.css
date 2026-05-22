@@ -1,0 +1,96 @@
+/**
+ * wp-login.php layout: Parents (username/password) then OR then org SSO.
+ */
+body.login.azure-login-split #login {
+    width: 320px;
+    padding: 26px 24px 34px;
+}
+
+body.login.azure-login-split #login h1 {
+    margin-bottom: 16px;
+}
+
+.azure-login-parents-intro {
+    margin: 0 0 18px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+}
+
+.azure-login-parents-intro .azure-login-title {
+    margin: 0 0 6px;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: #1d2327;
+}
+
+.azure-login-parents-intro .azure-login-subtitle {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.azure-login-divider {
+    margin: 22px 0 18px;
+    text-align: center;
+    border-top: 1px solid #c3c4c7;
+    line-height: 0;
+}
+
+.azure-login-divider span {
+    display: inline-block;
+    position: relative;
+    top: -11px;
+    padding: 0 14px;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: #646970;
+    line-height: 1;
+}
+
+.azure-login-sso-section {
+    margin: 0 0 8px;
+    text-align: center;
+}
+
+.azure-login-sso-section .azure-login-org {
+    margin: 0 0 12px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.azure-login-sso-notice {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    text-align: left;
+    background: #fff8e5;
+    border-left: 4px solid #f0b849;
+    color: #5b4a18;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.azure-login-sso-btn {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px !important;
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+    text-align: center;
+    height: auto !important;
+}
+
+.azure-login-sso-btn .dashicons {
+    vertical-align: middle;
+    margin-right: 6px;
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}

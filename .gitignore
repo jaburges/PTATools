@@ -6,3 +6,11 @@ wiki-temp/
 *.env
 .DS_Store
 **/.DS_Store
+
+# Build artifacts (produced by deploy-staging.yml and manual Kudu pushes)
+/build/
+/azure-plugin.zip
+/azure-plugin-flat.zip
+
+# Unrelated vendor drop sitting next to the repo (don't ship)
+/Junotoys_v2.30.0/

@@ -1,0 +1,836 @@
+/* Azure Plugin Admin Styles */
+
+/* =============================================
+   GLOBAL BUTTON ICON STYLES
+   Ensures dashicons are properly centered in all buttons
+   ============================================= */
+
+/* WordPress buttons with dashicons - force flex alignment */
+.wrap .button,
+.wrap .button-primary,
+.wrap .button-secondary,
+.wrap .button-small,
+.wrap a.button,
+.modal .button,
+.modal .button-primary,
+.modal .button-secondary,
+.credentials-section .button,
+.module-card .button,
+.auth-actions-inline .button,
+.auth-actions .button {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px;
+    vertical-align: middle;
+}
+
+/* All dashicons inside buttons - consistent sizing and alignment */
+.wrap .button .dashicons,
+.wrap .button-primary .dashicons,
+.wrap .button-secondary .dashicons,
+.wrap .button-small .dashicons,
+.wrap .button-link-delete .dashicons,
+.wrap a.button .dashicons,
+.modal .button .dashicons,
+.credentials-section .button .dashicons,
+.module-card .button .dashicons,
+.auth-actions-inline .button .dashicons,
+.auth-actions .button .dashicons,
+button .dashicons,
+.button .dashicons {
+    display: inline-block !important;
+    width: 20px !important;
+    height: 20px !important;
+    font-size: 20px !important;
+    line-height: 1 !important;
+    vertical-align: middle !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    position: relative;
+    top: 0;
+    flex-shrink: 0;
+}
+
+/* Specific fix for buttons that still have issues */
+.button > .dashicons:first-child,
+.button-primary > .dashicons:first-child,
+.button-secondary > .dashicons:first-child {
+    margin-right: 2px !important;
+}
+
+/* Status badges with icons */
+.status-badge,
+.status-success,
+.status-error,
+.status-warning {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px;
+}
+
+.status-badge .dashicons,
+.status-success .dashicons,
+.status-error .dashicons,
+.status-warning .dashicons {
+    width: 16px !important;
+    height: 16px !important;
+    font-size: 16px !important;
+    line-height: 1 !important;
+    vertical-align: middle !important;
+}
+
+/* Spinner animation for loading states */
+.dashicons.spin,
+.dashicons-update.spin,
+.spin .dashicons {
+    animation: dashicons-spin 1s linear infinite;
+}
+
+@keyframes dashicons-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Ensure inline buttons in action areas align properly */
+.auth-actions-inline,
+.auth-actions,
+.button-group,
+.action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+/* =============================================
+   END GLOBAL BUTTON ICON STYLES
+   ============================================= */
+
+.azure-plugin-dashboard {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.azure-plugin-modules {
+    grid-column: 1 / -1;
+}
+
+.module-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.module-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+}
+
+.module-card.enabled {
+    border-color: #0073aa;
+    box-shadow: 0 2px 8px rgba(0,115,170,0.1);
+}
+
+.module-card.disabled {
+    opacity: 0.7;
+}
+
+.module-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.module-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.module-header h3 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.module-header .dashicons {
+    font-size: 20px;
+}
+
+.module-description p {
+    margin: 0;
+    color: #666 !important;
+}
+
+.module-actions {
+    text-align: right;
+}
+
+.button-configure {
+    font-size: 13px !important;
+    padding: 6px 12px !important;
+    height: auto !important;
+    line-height: 1.2 !important;
+}
+
+/* Toggle Switch Styles */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    border-radius: 24px;
+    transition: .4s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    border-radius: 50%;
+    transition: .4s;
+}
+
+input:checked + .slider {
+    background-color: #0073aa;
+}
+
+input:checked + .slider:before {
+    transform: translateX(26px);
+}
+
+/* Mini toggle for sub-modules */
+.switch-mini {
+    position: relative;
+    display: inline-block;
+    width: 34px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.switch-mini input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-mini .slider {
+    border-radius: 18px;
+}
+
+.switch-mini .slider:before {
+    height: 12px;
+    width: 12px;
+    left: 3px;
+    bottom: 3px;
+}
+
+.switch-mini input:checked + .slider:before {
+    transform: translateX(16px);
+}
+
+/* Sub-module row layout */
+.sub-modules {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.sub-module-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #50575e;
+}
+
+/* Credentials Section */
+.credentials-section {
+    background: #fff;
+    padding: 20px;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.credentials-section h2,
+.credentials-section h3 {
+    margin-top: 0;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+}
+
+.credentials-status {
+    margin-left: 10px;
+    font-weight: bold;
+}
+
+.credentials-status .spinner {
+    float: none;
+    margin: 0;
+}
+
+/* Info Boxes */
+.azure-plugin-info {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.info-box {
+    background: #fff;
+    padding: 20px;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+}
+
+.info-box h3 {
+    margin-top: 0;
+    color: #0073aa;
+}
+
+.info-box ol,
+.info-box ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.info-box li {
+    margin-bottom: 8px;
+}
+
+/* Form Styling */
+.form-table th {
+    width: 200px;
+}
+
+.form-table input[type="text"],
+.form-table input[type="password"],
+.form-table input[type="email"],
+.form-table input[type="number"],
+.form-table textarea,
+.form-table select {
+    width: 100%;
+    max-width: 400px;
+}
+
+/* Status Indicators */
+.status-indicator {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.status-indicator.enabled {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.status-indicator.disabled {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.status-indicator.warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+/* Test Credentials Button */
+.test-credentials {
+    background: #0073aa !important;
+    color: white !important;
+    border: none !important;
+    padding: 8px 16px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    transition: background-color 0.3s ease !important;
+}
+
+.test-credentials:hover {
+    background: #005a87 !important;
+}
+
+.test-credentials:disabled {
+    background: #ccc !important;
+    cursor: not-allowed !important;
+}
+
+/* Log Viewer Styles */
+.log-viewer {
+    background: #000;
+    color: #0f0;
+    padding: 20px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+.log-controls {
+    margin-bottom: 15px;
+}
+
+.log-controls button {
+    margin-right: 10px;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .azure-plugin-dashboard {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .module-cards {
+        grid-template-columns: 1fr;
+    }
+    
+    .module-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .module-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .azure-plugin-info {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Backup styles moved to backup-frontend.css */
+
+/* Calendar specific styles */
+.calendar-preview {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 20px;
+    background: #fff;
+}
+
+.calendar-embed-list {
+    list-style: none;
+    padding: 0;
+}
+
+.calendar-embed-item {
+    background: #f9f9f9;
+    padding: 15px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Email specific styles */
+.email-queue-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+.email-queue-table th,
+.email-queue-table td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+.email-queue-table th {
+    background: #f9f9f9;
+}
+
+.email-status {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.email-status.pending {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.email-status.sent {
+    background: #d4edda;
+    color: #155724;
+}
+
+.email-status.failed {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.module-card {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+.info-box {
+    animation: fadeIn 0.7s ease-in-out;
+}
+
+/* Notification styles */
+.azure-notification {
+    position: fixed;
+    top: 32px;
+    right: 20px;
+    z-index: 999999;
+    min-width: 300px;
+    max-width: 500px;
+    padding: 15px 20px;
+    background: #fff;
+    border-left: 4px solid #0073aa;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border-radius: 0 4px 4px 0;
+    animation: slideInRight 0.3s ease;
+}
+
+.azure-notification.success {
+    border-left-color: #46b450;
+}
+
+.azure-notification.error {
+    border-left-color: #dc3232;
+}
+
+.azure-notification.warning {
+    border-left-color: #ffb900;
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+/* WordPress Admin Dark Theme Support */
+.wp-core-ui .module-card,
+.wp-core-ui .credentials-section,
+.wp-core-ui .info-box {
+    background: #fff;
+    color: #333;
+}
+
+/* Dark backgrounds need light text */
+.module-card.enabled {
+    background: #fff;
+    color: #333;
+}
+
+.module-card.disabled {
+    background: #fff;
+    color: #333;
+    opacity: 0.7;
+}
+
+/* Status indicators with better contrast */
+.status-indicator {
+    color: #333 !important;
+}
+
+.status-indicator.enabled {
+    background: #d4edda;
+    color: #155724 !important;
+    border: 1px solid #c3e6cb;
+}
+
+.status-indicator.disabled {
+    background: #f8d7da;
+    color: #721c24 !important;
+    border: 1px solid #f5c6cb;
+}
+
+.status-indicator.warning {
+    background: #fff3cd;
+    color: #856404 !important;
+    border: 1px solid #ffeaa7;
+}
+
+/* Ensure text is visible on all backgrounds */
+.module-description p {
+    color: #666 !important;
+}
+
+.module-header h3 {
+    color: #333 !important;
+}
+
+/* Dark mode support - WordPress admin specific */
+@media (prefers-color-scheme: dark) {
+    .wp-core-ui .module-card,
+    .wp-core-ui .credentials-section,
+    .wp-core-ui .info-box {
+        background: #1e1e1e !important;
+        border-color: #444 !important;
+        color: #fff !important;
+    }
+    
+    /* Force light background for backup page specifically */
+    body.toplevel_page_azure-plugin-backup .credentials-section,
+    body.azure-plugin_page_azure-plugin-backup .credentials-section {
+        background: #fff !important;
+        color: #333 !important;
+        border-color: #ccd0d4 !important;
+    }
+    
+    body.toplevel_page_azure-plugin-backup .credentials-section h2,
+    body.azure-plugin_page_azure-plugin-backup .credentials-section h2 {
+        color: #333 !important;
+    }
+    
+    .wp-core-ui .module-header h3 {
+        color: #fff !important;
+    }
+    
+    .wp-core-ui .module-description p {
+        color: #ccc !important;
+    }
+    
+    .log-viewer {
+        background: #1e1e1e;
+        border: 1px solid #444;
+        color: #0f0;
+    }
+}
+
+/* WordPress Dark Admin Theme Specific Fixes */
+body.admin-color-midnight .module-card,
+body.admin-color-midnight .credentials-section,
+body.admin-color-midnight .info-box {
+    background: #fff !important;
+    color: #333 !important;
+    border-color: #ccd0d4 !important;
+}
+
+body.admin-color-midnight .module-header h3 {
+    color: #333 !important;
+}
+
+body.admin-color-midnight .module-description p {
+    color: #666 !important;
+}
+
+/* Force white backgrounds and dark text for readability */
+.azure-plugin-dashboard .module-card,
+.azure-plugin-dashboard .credentials-section,
+.azure-plugin-dashboard .info-box {
+    background: #fff !important;
+    color: #333 !important;
+    border: 1px solid #ccd0d4 !important;
+}
+
+/* Setup Wizard Progress Banner */
+.setup-progress-banner {
+    background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
+    color: #fff;
+    padding: 25px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+}
+
+.setup-progress-banner h3 {
+    margin: 0 0 15px;
+    color: #fff !important;
+    font-size: 18px;
+}
+
+.setup-progress-banner .progress-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.setup-progress-banner .progress-fill {
+    height: 100%;
+    background: #fff;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.setup-progress-banner p {
+    margin: 0 0 15px;
+    opacity: 0.9;
+}
+
+.setup-progress-banner .button {
+    background: #fff !important;
+    color: #0078d4 !important;
+    border: none !important;
+}
+
+.setup-progress-banner .button:hover {
+    background: #f0f0f0 !important;
+    color: #005a9e !important;
+}
+
+/* =============================================
+   GLOBAL STAT CARDS - Used across all modules
+   ============================================= */
+
+.stats-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.stat-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card .stat-number,
+.stat-card .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1d2327;
+    line-height: 1.2;
+    margin-bottom: 5px;
+}
+
+.stat-card .stat-label {
+    font-size: 13px;
+    color: #646970;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Stat card color variants */
+.stat-card.success {
+    border-left: 4px solid #00a32a;
+    background: linear-gradient(135deg, #f0fdf4 0%, #fff 100%);
+}
+
+.stat-card.success .stat-number,
+.stat-card.success .stat-value {
+    color: #00a32a;
+}
+
+.stat-card.warning {
+    border-left: 4px solid #dba617;
+    background: linear-gradient(135deg, #fcf9e8 0%, #fff 100%);
+}
+
+.stat-card.warning .stat-number,
+.stat-card.warning .stat-value {
+    color: #996800;
+}
+
+.stat-card.error {
+    border-left: 4px solid #d63638;
+    background: linear-gradient(135deg, #fef7f7 0%, #fff 100%);
+}
+
+.stat-card.error .stat-number,
+.stat-card.error .stat-value {
+    color: #d63638;
+}
+
+.stat-card.info {
+    border-left: 4px solid #0078d4;
+    background: linear-gradient(135deg, #f0f6fc 0%, #fff 100%);
+}
+
+.stat-card.info .stat-number,
+.stat-card.info .stat-value {
+    color: #0078d4;
+}
+
+.stat-card.highlight {
+    border-color: #2271b1;
+    background: #f0f6fc;
+}
+
+/* Smaller stat cards variant */
+.stats-cards.compact .stat-card {
+    padding: 15px;
+}
+
+.stats-cards.compact .stat-number,
+.stats-cards.compact .stat-value {
+    font-size: 24px;
+}
+
+/* Dashboard widget stat cards */
+.dashboard-widget-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.dashboard-widget-stats .stat-card {
+    padding: 12px;
+}
+
+.dashboard-widget-stats .stat-number {
+    font-size: 22px;
+}
+
+.dashboard-widget-stats .stat-label {
+    font-size: 11px;
+}
