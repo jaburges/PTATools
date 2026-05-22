@@ -37,15 +37,18 @@ We investigated every backup path:
 - **Pre-April 2026 content** can be partially restored from the Azure Storage March 31 backup (`wordpress-backups/wilder-ptsa/2026/03/31/backup_1774996285_H3BvGD2A/`). Estimated coverage: most of 2018–2025, maybe up to 1,000 files.
 - **2026/04 and 2026/05 content is unrecoverable** unless the parallel agent has a local copy on their machine.
 
-## Action plan
+## Actions taken on 2026-05-22
 
-Two-step recovery:
+1. **Inventory** (this folder) — full audit of all 1,465 lost files saved as JSON/CSV/markdown for the PTA team's community re-collection effort.
 
-1. **Inventory + community re-collection** (this folder). The CSV/markdown lists every lost file with its original title. The PTA can ask the community (parents, teachers, board members) to re-submit any photos they have copies of — especially the class-basket auction photos in 2026/05.
+2. **Cleanup of orphan attachment posts** — at user's explicit direction, deleted all 1,465 orphan `wp_posts` rows + cascade-deleted associated `wp_postmeta`, `wp_term_relationships`, and child posts. Done via `infra/ops/cleanup-orphan-attachments.php` (slow per-post via `wp_delete_post`) and `infra/ops/fast-cleanup-orphan-attachments.php` (fast direct SQL).
 
-2. **Clean up orphan attachment posts in WP.** After this incident the Media Library shows 1,465 broken thumbnails. Two ways forward:
-   - Delete the orphan `wp_posts` rows so Media Library stops showing them. Loses titles + alt text + post relationships. Done by running `infra/ops/audit-lost-media.php` in "cleanup mode" (not yet implemented as of writing — gated behind explicit user approval).
-   - Or: re-upload files to the original paths as they become available. Attachment posts work again automatically with metadata intact.
+   **Post-cleanup state (verified 2026-05-22 11:30 PT):**
+   - Total attachment posts in DB: **83** (down from 1,548)
+   - Orphans remaining: **0**
+   - Media Library now shows only valid, on-disk attachments — no more blank thumbnails.
+
+   The 1,465 deleted attachments' metadata (titles, alt text, paths) is **preserved in this folder's CSV/JSON files**. If files are ever recovered, attachment posts can be reconstructed using `wp_insert_attachment()` with the original `_wp_attached_file` paths.
 
 ## Files in this folder
 
