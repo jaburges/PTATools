@@ -144,10 +144,18 @@ unzip -q /tmp/prod-plugin.zip -d /tmp/prod-plugin/
 
 Per-file diffs were generated with `diff -u "Azure Plugin/$f" "$SAL/$f"`.
 
-## Open questions for the human
+## Resolution (2026-05-22)
 
-1. **Who else has Kudu / deploy access to wilderptsa.net?** Whoever it is has been doing significant development without committing to this repo. Find them so we can reconcile.
+Open questions answered:
 
-2. **Was a separate Cursor agent session used?** If so, the chat transcripts of that session may live under `/Users/jamieeburgess/.cursor/projects/*/agent-transcripts/` — worth scanning for "auction display page" or "azure_plugin_best_github_release" markers.
+1. **Who else has Kudu / deploy access?** → A parallel Cursor agent session was working on the same plugin codebase, deploying via direct Kudu pushes without committing back to this repo. User confirmed 2026-05-22.
 
-3. **Are there even MORE features in v3.95.1 beyond the 5 listed?** The auction-page.php diff alone is 20 KB; I only inspected the first hunk. A full read of `_diffs-vs-repo-v3.53/admin_auction-page.php.diff` would surface anything I missed.
+2. **Was a separate Cursor agent session used?** → Yes. The May 20 16:15 mtime cluster on ~50 files in our local working tree matches an rsync from that agent's working copy into ours at that moment.
+
+3. **Were there more v3.95.1 features I missed?** → All deltas were catalogued in `CHANGE-DELTAS.md` (repo root). User reviewed and decided per-feature; the merge to v3.96 is committed in `cb7a371`.
+
+## Going-forward policy
+
+`CONTRIBUTING.md` (repo root) documents that **this repo is the single source of truth**. No more direct Kudu pushes from outside the repo. All deploys originate from a commit on `dev` or `main`. See that file for the workflow.
+
+The forensic recovery branch is `wip-2026-05-22-hybrid` on GitHub — kept indefinitely for debugging only, never to be merged.

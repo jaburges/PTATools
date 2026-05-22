@@ -1,5 +1,10 @@
 name: Deploy plugin to staging slot
 
+# Source-of-truth policy lives in CONTRIBUTING.md at the repo root.
+# Every change to the wilderptsa.net plugin must originate from a
+# commit on this repo. No direct Kudu deploys from outside the repo.
+
+
 on:
   push:
     branches: [dev]
