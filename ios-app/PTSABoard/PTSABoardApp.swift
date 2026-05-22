@@ -15,17 +15,20 @@ struct PTSABoardApp: App {
                 .preferredColorScheme(theme.preferred)
                 .tint(.accentColor)
                 .onOpenURL { url in
-                    MSALPublicClientApplication.handleMSALResponse(
+                    let handled = MSALPublicClientApplication.handleMSALResponse(
                         url,
                         sourceApplication: nil
                     )
+                    print("[MSAL] onOpenURL handled=\(handled) url=\(url.absoluteString)")
                 }
                 .task {
-                    AuthDelegate.shared.tokenProvider = { [weak auth] in
-                        guard let auth else {
-                            throw APIError.notConfigured("AuthService")
-                        }
+                    AuthDelegate.shared.graphTokenProvider = { [weak auth] in
+                        guard let auth else { throw APIError.notConfigured("AuthService") }
                         return try await auth.graphAccessToken()
+                    }
+                    AuthDelegate.shared.wordpressTokenProvider = { [weak auth] in
+                        guard let auth else { throw APIError.notConfigured("AuthService") }
+                        return try await auth.wordpressIdToken()
                     }
                     await auth.restoreSession()
                 }

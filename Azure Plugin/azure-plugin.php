@@ -219,6 +219,23 @@ function pta_load_diagnostics_api() {
     }
 }
 
+/**
+ * Lazy-loader for the PTSA mobile REST API (/wp-json/ptsa/v1/*).
+ * Same shape as the diagnostics loader — runs only on rest_api_init.
+ */
+function pta_load_ptsa_rest_api() {
+    $jwt_path = AZURE_PLUGIN_PATH . 'includes/class-ptsa-jwt.php';
+    $api_path = AZURE_PLUGIN_PATH . 'includes/class-ptsa-rest-api.php';
+    if (file_exists($jwt_path)) require_once $jwt_path;
+    if (file_exists($api_path)) require_once $api_path;
+    if (class_exists('Azure_PTSA_REST_API')) {
+        $api = new Azure_PTSA_REST_API();
+        if (method_exists($api, 'register_routes')) {
+            $api->register_routes();
+        }
+    }
+}
+
 // Auto-update from GitHub Releases (Update URI header must match hostname: github.com).
 // Uses the highest semver tag with a pta-tools.zip asset — never /releases/latest
 // (which can be an older v3.51) and never offers a downgrade.
@@ -589,6 +606,11 @@ class AzurePlugin {
             // and the diagnostics class would never be instantiated.
             if (!has_action('rest_api_init', 'pta_load_diagnostics_api')) {
                 add_action('rest_api_init', 'pta_load_diagnostics_api');
+            }
+
+            // PTSA mobile REST API (ptsa/v1) — same lazy-loading pattern.
+            if (!has_action('rest_api_init', 'pta_load_ptsa_rest_api')) {
+                add_action('rest_api_init', 'pta_load_ptsa_rest_api');
             }
 
             // Frontend-only: add stale-while-revalidate cache headers on

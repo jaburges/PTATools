@@ -14,3 +14,10 @@ wiki-temp/
 
 # Unrelated vendor drop sitting next to the repo (don't ship)
 /Junotoys_v2.30.0/
+
+# Xcode / iOS app — user-specific and machine-specific state
+ios-app/**/xcuserdata/
+ios-app/**/*.xcuserstate
+ios-app/**/xcshareddata/swiftpm/
+ios-app/build/
+ios-app/DerivedData/

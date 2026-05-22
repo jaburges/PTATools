@@ -148,7 +148,49 @@ infra/ops/backup-probe.php                          —       — diagnostic (up
 
 The 1.45 GB backup `backup_1779475460_cHywAX4U` is now in `wilder-ptsa/2026/05/22/` in the `wordpress-backups` container. This is the **first complete backup including uploads since March 31** — keep it. Don't let the 5-day retention auto-delete it before we bump the retention setting.
 
+## 🚨 MAJOR DISCOVERY — OneDrive Media is the missing backup, and most files are likely still there
+
+The Backup admin page explicitly states **"Media is synced from SharePoint/OneDrive after restore"** (line 478 and 941 of `admin/backup-page.php`). The backup module deliberately excludes `uploads`/`media` from the WP backup zip **because the architecture assumes the OneDrive Media integration is the backup path for media.**
+
+Probing the OneDrive Media subsystem on prod reveals:
+
+```text
+wp_azure_onedrive_files table:    1,447 rows, ALL sync_status='synced'
+wp_azure_onedrive_tokens table:   1 row, expired 2026-04-02 01:42
+wp_azure_onedrive_sync_queue:     empty
+Settings — enable_onedrive_media: false  ← currently OFF
+SharePoint folder:                /WordPress Media/2026/
+Latest sync activity:             2026-04-02 ~00:26
+```
+
+**Reconstructed timeline:**
+1. **Early 2026** — someone configured the OneDrive Media integration. 1,447 files synced from `/wp-content/uploads/2026/` to SharePoint `/WordPress Media/2026/`.
+2. **2026-04-02** — the OneDrive auth token expired. **The plugin does not auto-refresh.** All sync silently stopped.
+3. **2026-04-02 → ~2026-05-14** — 18 new media uploads (`1465 - 1447 = 18`) happened on the WP site but never made it to SharePoint. These are gone for good.
+4. **At some point** — `enable_onedrive_media` was toggled off (likely after someone noticed it was failing).
+5. **~2026-05-14** — parallel agent's "clean" wiped `/wp-content/uploads/`. 1,465 files vanished from the WP file system.
+
+**Recovery opportunity:** the 1,447 files **should still be in SharePoint at `/WordPress Media/2026/`** — deleting from WP doesn't delete from SharePoint, and the only reason the WP↔SharePoint sync stopped was the token expiring on the WP side. Need to verify with a fresh Graph API token, but the data shape strongly suggests near-total recovery is possible.
+
+### Recovery plan (separate from backup module work)
+
+1. **Verify SharePoint copies exist** — get fresh Graph API token, list `/WordPress Media/2026/`, count items.
+2. **Reconstruct year/month structure** — `wp-content/uploads/` uses `YYYY/MM/` subdirs but SharePoint stores them flat under `2026/`. Cross-reference the `last_modified` timestamp in `wp_azure_onedrive_files` to determine the right destination month.
+3. **Bulk download + place files** — for each row, download from SharePoint, write to `/home/site/wwwroot/wp-content/uploads/{year}/{month}/{filename}`.
+4. **Re-create attachment records** — we deleted the 1,465 orphan `wp_posts` rows already. To make files visible in the Media Library again, re-create attachments via `wp_insert_attachment()` + `wp_update_attachment_metadata()` — OR leave files in place if URLs are referenced directly in post content (which is the common case).
+
+This is **much more important than getting daily backups running**, because it's potentially the difference between losing 18 files vs losing 1,465 files. **Recommend doing the recovery first.**
+
+### Going-forward fix for OneDrive Media
+
+Independent of recovery:
+- **Add auto-refresh for the OneDrive auth token** in `class-onedrive-media-auth.php` — should be a refresh-token flow with Graph API, not just stash + use until expiry.
+- **Email alert when token expires** — same notification path as backup failures.
+- **Re-enable the integration** once token is healthy.
+- **Add a "Sync now" button** + scheduled hourly resync so files don't drift.
+
 ## Open follow-ups
 
 - `wilderptsa-cleanup.php` MU-plugin on the server (uploaded by the parallel agent) is still untouched. Worth a look to confirm it's not what caused the original media wipe.
 - Run a restore test FROM today's smoke-test backup INTO a recovery slot to verify the full backup→restore round trip works end-to-end. Not done as part of this review.
+- Verify SharePoint copies of the 1,447 files actually exist (Graph API list call) before promising any recovery.

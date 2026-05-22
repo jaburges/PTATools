@@ -1,6 +1,10 @@
 import Foundation
 import UIKit
 
+/// WooCommerce-facing operations, ALL proxied through our own
+/// `/wp-json/ptsa/v1/*` endpoints. The signed-in user's Entra id-token is
+/// validated by the WordPress plugin server-side and the WooCommerce
+/// internals run as the matching WP user — no consumer key/secret needed.
 final class WooCommerceService {
 
     static let shared = WooCommerceService()
@@ -8,11 +12,9 @@ final class WooCommerceService {
 
     private let api = APIClient()
 
-    private var auth: APIClient.AuthMode {
-        guard !AppConfig.wooConsumerKey.hasPrefix("REPLACE_") else {
-            return .none
-        }
-        return .basic(user: AppConfig.wooConsumerKey, pass: AppConfig.wooConsumerSecret)
+    private func wpAuth() async throws -> APIClient.AuthMode {
+        let token = try await AuthDelegate.shared.wordpressToken()
+        return .bearer(token: token)
     }
 
     // MARK: - Orders
@@ -25,9 +27,7 @@ final class WooCommerceService {
     ) async throws -> [WCOrder] {
         var query: [URLQueryItem] = [
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "per_page", value: "\(perPage)"),
-            URLQueryItem(name: "orderby", value: "date"),
-            URLQueryItem(name: "order", value: "desc")
+            URLQueryItem(name: "per_page", value: "\(perPage)")
         ]
         if let status, !status.isEmpty, status != "any" {
             query.append(.init(name: "status", value: status))
@@ -35,36 +35,36 @@ final class WooCommerceService {
         if let search, !search.isEmpty {
             query.append(.init(name: "search", value: search))
         }
-        let url = AppConfig.wcRestBase.appendingPathComponent("orders")
-        return try await api.request(url, query: query, auth: auth, as: [WCOrder].self)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("orders")
+        return try await api.request(url, query: query, auth: try await wpAuth(), as: [WCOrder].self)
     }
 
     func fetchOrder(_ orderId: Int) async throws -> WCOrder {
-        let url = AppConfig.wcRestBase.appendingPathComponent("orders/\(orderId)")
-        return try await api.request(url, auth: auth, as: WCOrder.self)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("orders/\(orderId)")
+        return try await api.request(url, auth: try await wpAuth(), as: WCOrder.self)
     }
 
     func updateOrderStatus(_ orderId: Int, to status: String) async throws -> WCOrder {
         struct Patch: Encodable { let status: String }
         let body = try JSONEncoder().encode(Patch(status: status))
-        let url = AppConfig.wcRestBase.appendingPathComponent("orders/\(orderId)")
-        return try await api.request(url, method: "PUT", body: body, auth: auth, as: WCOrder.self)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("orders/\(orderId)")
+        return try await api.request(url, method: "PUT", body: body, auth: try await wpAuth(), as: WCOrder.self)
     }
 
     func refundOrder(_ orderId: Int, amount: Double, reason: String?) async throws {
-        struct RefundReq: Encodable { let amount: String; let reason: String?; let api_refund: Bool }
+        struct RefundReq: Encodable { let amount: Double; let reason: String?; let api_refund: Bool }
         let body = try JSONEncoder().encode(
-            RefundReq(amount: String(format: "%.2f", amount), reason: reason, api_refund: true)
+            RefundReq(amount: amount, reason: reason, api_refund: true)
         )
-        let url = AppConfig.wcRestBase.appendingPathComponent("orders/\(orderId)/refunds")
-        _ = try await api.raw(url, method: "POST", body: body, auth: auth)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("orders/\(orderId)/refunds")
+        _ = try await api.raw(url, method: "POST", body: body, auth: try await wpAuth())
     }
 
     func addOrderNote(_ orderId: Int, note: String, customerVisible: Bool) async throws {
         struct NoteReq: Encodable { let note: String; let customer_note: Bool }
         let body = try JSONEncoder().encode(NoteReq(note: note, customer_note: customerVisible))
-        let url = AppConfig.wcRestBase.appendingPathComponent("orders/\(orderId)/notes")
-        _ = try await api.raw(url, method: "POST", body: body, auth: auth)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("orders/\(orderId)/notes")
+        _ = try await api.raw(url, method: "POST", body: body, auth: try await wpAuth())
     }
 
     // MARK: - Products
@@ -78,35 +78,33 @@ final class WooCommerceService {
     ) async throws -> [WCProduct] {
         var query: [URLQueryItem] = [
             URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "per_page", value: "\(perPage)"),
-            URLQueryItem(name: "orderby", value: "date"),
-            URLQueryItem(name: "order", value: "desc")
+            URLQueryItem(name: "per_page", value: "\(perPage)")
         ]
         if let search, !search.isEmpty { query.append(.init(name: "search", value: search)) }
         if let type, !type.isEmpty, type != "any" { query.append(.init(name: "type", value: type)) }
         if let status, !status.isEmpty, status != "any" { query.append(.init(name: "status", value: status)) }
-        let url = AppConfig.wcRestBase.appendingPathComponent("products")
-        return try await api.request(url, query: query, auth: auth, as: [WCProduct].self)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("products")
+        return try await api.request(url, query: query, auth: try await wpAuth(), as: [WCProduct].self)
     }
 
     func updateProduct(_ id: Int, patch: [String: Any]) async throws -> WCProduct {
         let body = try JSONSerialization.data(withJSONObject: patch)
-        let url = AppConfig.wcRestBase.appendingPathComponent("products/\(id)")
-        return try await api.request(url, method: "PUT", body: body, auth: auth, as: WCProduct.self)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("products/\(id)")
+        return try await api.request(url, method: "PUT", body: body, auth: try await wpAuth(), as: WCProduct.self)
     }
 
     func createProduct(_ patch: [String: Any]) async throws -> WCProduct {
         let body = try JSONSerialization.data(withJSONObject: patch)
-        let url = AppConfig.wcRestBase.appendingPathComponent("products")
-        return try await api.request(url, method: "POST", body: body, auth: auth, as: WCProduct.self)
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("products")
+        return try await api.request(url, method: "POST", body: body, auth: try await wpAuth(), as: WCProduct.self)
     }
 
     // MARK: - Media (product images)
 
-    /// Upload an image to WordPress media library using app-password Basic auth
-    /// (re-using WC consumer key/secret only works for WC endpoints, so we hit
-    /// the WP REST media endpoint via a custom plugin proxy when available,
-    /// otherwise this requires an application password — see README).
+    /// Upload an image to WordPress media library via the PTSA REST proxy.
+    /// The plugin endpoint validates our Entra id-token and runs the upload
+    /// as the signed-in WP user, so no consumer keys / app passwords are
+    /// needed.
     func uploadImage(_ image: UIImage, filename: String = "product.jpg") async throws -> WCImage {
         guard let jpeg = image.jpegData(compressionQuality: 0.85) else {
             throw APIError.transport(NSError(domain: "Woo", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not encode image"]))
@@ -116,10 +114,8 @@ final class WooCommerceService {
         req.httpMethod = "POST"
         req.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
         req.setValue("attachment; filename=\"\(filename)\"", forHTTPHeaderField: "Content-Disposition")
-        // Plugin endpoint validates the bearer token via Entra ID JWT (see plugin docs in README).
-        if let token = try? await AuthDelegate.shared.token() {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        let token = try await AuthDelegate.shared.wordpressToken()
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.httpBody = jpeg
 
         let (data, resp) = try await URLSession.shared.data(for: req)
@@ -131,16 +127,32 @@ final class WooCommerceService {
     }
 }
 
-/// Tiny adapter so non-MainActor services can ask for an access token without
+/// Tiny adapter so non-MainActor services can ask for tokens without
 /// keeping a reference to AuthService directly. Set on app launch.
+///
+/// The app issues **two** distinct tokens from the same MSAL sign-in:
+///   • `graphToken()`     — `accessToken`, audience = Microsoft Graph.
+///                          Use for graph.microsoft.com calls.
+///   • `wordpressToken()` — `idToken`, audience = our Entra client_id.
+///                          Use for our own /wp-json/ptsa/v1/* endpoints
+///                          (the WordPress plugin validates the JWT).
 @MainActor
 final class AuthDelegate {
     static let shared = AuthDelegate()
-    var tokenProvider: (() async throws -> String)?
 
-    func token() async throws -> String {
-        guard let p = tokenProvider else {
-            throw APIError.notConfigured("AuthDelegate.tokenProvider")
+    var graphTokenProvider: (() async throws -> String)?
+    var wordpressTokenProvider: (() async throws -> String)?
+
+    func graphToken() async throws -> String {
+        guard let p = graphTokenProvider else {
+            throw APIError.notConfigured("AuthDelegate.graphTokenProvider")
+        }
+        return try await p()
+    }
+
+    func wordpressToken() async throws -> String {
+        guard let p = wordpressTokenProvider else {
+            throw APIError.notConfigured("AuthDelegate.wordpressTokenProvider")
         }
         return try await p()
     }

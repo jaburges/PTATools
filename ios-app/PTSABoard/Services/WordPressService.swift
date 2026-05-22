@@ -15,7 +15,7 @@ final class WordPressService {
     private let api = APIClient()
 
     private func wpAuth() async throws -> APIClient.AuthMode {
-        let token = try await AuthDelegate.shared.token()
+        let token = try await AuthDelegate.shared.wordpressToken()
         return .bearer(token: token)
     }
 
@@ -29,15 +29,10 @@ final class WordPressService {
         ]
         if !search.isEmpty { query.append(.init(name: "search", value: search)) }
 
-        // Custom endpoint is preferred (it can return private fields like email).
+        // All user lookups go through our SSO-protected endpoint — wp/v2/users
+        // is intentionally NOT used (it doesn't accept our id-token).
         let url = AppConfig.ptsaRestBase.appendingPathComponent("users")
-        do {
-            return try await api.request(url, query: query, auth: try await wpAuth(), as: [WPUser].self)
-        } catch APIError.http(let code, _) where code == 404 {
-            // Fallback to core wp/v2/users (limited fields, returns only published authors).
-            let core = AppConfig.wpRestBase.appendingPathComponent("users")
-            return try await api.request(core, query: query, auth: try await wpAuth(), as: [WPUser].self)
-        }
+        return try await api.request(url, query: query, auth: try await wpAuth(), as: [WPUser].self)
     }
 
     func fetchUser(_ id: Int) async throws -> WPUser {

@@ -24,6 +24,7 @@ final class AuthService: ObservableObject {
     private var msal: MSALPublicClientApplication?
     private var account: MSALAccount?
     private var cachedAccessToken: String?
+    private var cachedIdToken: String?
     private var cachedTokenExpiry: Date?
 
     // MARK: - Bootstrap
@@ -38,8 +39,11 @@ final class AuthService: ObservableObject {
             )
             config.knownAuthorities = [authority]
             self.msal = try MSALPublicClientApplication(configuration: config)
+            print("[MSAL] init OK — clientId=\(AppConfig.entraClientId) tenant=\(AppConfig.entraTenantId) redirect=\(AppConfig.entraRedirectUri)")
         } catch {
+            let ns = error as NSError
             self.lastError = "MSAL init failed: \(error.localizedDescription)"
+            print("[MSAL] init FAILED domain=\(ns.domain) code=\(ns.code) userInfo=\(ns.userInfo)")
             self.msal = nil
         }
     }
@@ -94,7 +98,24 @@ final class AuthService: ObservableObject {
 
             try await handleSuccessfulLogin(result: result, persistBiometric: true)
         } catch {
-            self.lastError = "Sign-in failed: \(error.localizedDescription)"
+            let ns = error as NSError
+            let internalCode = ns.userInfo["MSALInternalErrorCodeKey"] as? Int
+            let oauthError = ns.userInfo["MSALOAuthErrorKey"] as? String
+            let oauthSub = ns.userInfo["MSALOAuthSubErrorKey"] as? String
+            let serverDesc = ns.userInfo["MSALErrorDescriptionKey"] as? String
+            let correlationId = ns.userInfo["MSALCorrelationIDKey"] as? String
+
+            var detail = "domain=\(ns.domain) code=\(ns.code)"
+            if let internalCode { detail += " internalCode=\(internalCode)" }
+            if let oauthError { detail += " oauthError=\(oauthError)" }
+            if let oauthSub { detail += " oauthSubError=\(oauthSub)" }
+            if let correlationId { detail += " correlationId=\(correlationId)" }
+            if let serverDesc { detail += " serverDesc=\(serverDesc)" }
+            detail += " localized=\(error.localizedDescription)"
+
+            print("[MSAL] signIn FAILED \(detail)")
+            print("[MSAL] full userInfo=\(ns.userInfo)")
+            self.lastError = "Sign-in failed (code \(ns.code)\(internalCode.map { ".\($0)" } ?? "")): \(error.localizedDescription)"
         }
     }
 
@@ -116,6 +137,7 @@ final class AuthService: ObservableObject {
         self.account = nil
         self.profile = nil
         self.cachedAccessToken = nil
+        self.cachedIdToken = nil
         self.cachedTokenExpiry = nil
         KeychainService.clearAll()
         state = .signedOut
@@ -128,7 +150,32 @@ final class AuthService: ObservableObject {
            exp.timeIntervalSinceNow > 60 {
             return token
         }
-        return try await acquireTokenSilent()
+        _ = try await acquireTokenSilent()
+        guard let token = cachedAccessToken else {
+            throw NSError(domain: "AuthService", code: -30, userInfo: [
+                NSLocalizedDescriptionKey: "No Graph access token after silent refresh"
+            ])
+        }
+        return token
+    }
+
+    /// Return a fresh **id token** for our own backend (`/wp-json/ptsa/v1/*`).
+    /// The id token's `aud` is our Entra client_id — it's the right credential
+    /// for endpoints we control. The Graph access token, by contrast, is opaque
+    /// to anyone except graph.microsoft.com.
+    func wordpressIdToken() async throws -> String {
+        if let token = cachedIdToken,
+           let exp = cachedTokenExpiry,
+           exp.timeIntervalSinceNow > 60 {
+            return token
+        }
+        _ = try await acquireTokenSilent()
+        guard let token = cachedIdToken else {
+            throw NSError(domain: "AuthService", code: -31, userInfo: [
+                NSLocalizedDescriptionKey: "No id token after silent refresh"
+            ])
+        }
+        return token
     }
 
     // MARK: - Internals
@@ -176,6 +223,7 @@ final class AuthService: ObservableObject {
 
         self.account = result.account
         self.cachedAccessToken = result.accessToken
+        self.cachedIdToken = result.idToken
         self.cachedTokenExpiry = result.expiresOn
 
         // Fetch /me to populate profile
