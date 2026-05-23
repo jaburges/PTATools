@@ -10,7 +10,10 @@ This rule exists because we recently shipped from two parallel sources without r
 
 ### Allowed deploy paths
 
-1. **GitHub Actions CI** (preferred for staging) — push to `dev` triggers `.github/workflows/deploy-staging.yml`, which deploys to the App Service staging slot at `wilderptsa-staging`. Push to `main` triggers `.github/workflows/promote-prod.yml`, which slot-swaps staging → production.
+1. **GitHub Actions CI** (preferred path for everything) — both workflows trigger on path-filtered pushes:
+   - **Push to `dev`** → only `deploy-staging.yml` fires → code deploys to staging slot.
+   - **Push to `main`** → BOTH `deploy-staging.yml` (since v3.97 — fixes the May 22 outage class) AND `promote-prod.yml` fire. The first deploys the new code to staging; the second waits for manual approval, then runs a pre-swap HTTP integrity probe against staging, then slot-swaps staging → production. If post-swap smoke fails, auto-rollback re-swaps back.
+   - **Manual trigger** via the Actions tab (`workflow_dispatch`) is available on both workflows.
 
 2. **Manual Kudu push** (preferred for hot-fixes / when CI is broken) — only after the change is **committed and pushed to this repo first**. Use:
    ```bash

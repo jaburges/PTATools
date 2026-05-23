@@ -50,7 +50,7 @@ jobs:
         id: preflight
         run: |
           set -uo pipefail
-          # Best-effort: at minimum staging slot must be running.
+          # 1. Slot must be Running (cheap az check)
           STATE=$(az webapp show -g "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" \
             --slot staging --query state -o tsv)
           if [ "$STATE" != "Running" ]; then
@@ -58,6 +58,33 @@ jobs:
             exit 1
           fi
           echo "[OK] Staging slot state=Running"
+
+          # 2. HTTP integrity check against the staging slot. This catches
+          #    the failure mode that caused the 2026-05-22 outage: staging
+          #    looking OK on the homepage (W3 Total Cache HTML cache) but
+          #    PHP execution broken on every dynamic request. The next
+          #    slot-swap would then move that broken state into production.
+          #    We probe THREE endpoints that all go through PHP-FPM:
+          #      - homepage (no query \u2014 may hit page cache, weakest check)
+          #      - wp-json (always PHP)
+          #      - admin-ajax (always PHP)
+          STG_DIRECT="https://${AZURE_WEBAPP_NAME}-staging.azurewebsites.net"
+          FAIL=0
+          for path in "/" "/wp-json/" "/wp-admin/admin-ajax.php?action=heartbeat"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${STG_DIRECT}${path}?_promotecheck=$(date +%s)" || echo "000")
+            if [ "$code" = "200" ] || [ "$code" = "400" ]; then
+              # admin-ajax with action=heartbeat returns 400 without a nonce, which is fine
+              echo "[OK] staging ${path} returned ${code}"
+            else
+              echo "::error::staging ${path} returned ${code} \u2014 staging looks broken, refusing to swap"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" = "1" ]; then
+            echo "::error::Staging pre-swap integrity check failed. Fix staging before promoting."
+            exit 1
+          fi
+          echo "[OK] Staging pre-swap integrity check passed"
 
       - name: Capture pre-swap commit on production (for audit)
         run: |
@@ -94,12 +121,21 @@ jobs:
         run: |
           set -euo pipefail
           echo "::error::Smoke test failed after swap. Rolling back..."
+          # Slot swap is bidirectional. The rollback is the same forward
+          # `--slot staging --target-slot production` (the default for
+          # --target-slot is "production" anyway) \u2014 it re-swaps the
+          # contents that ended up on staging back to production.
+          #
+          # The previous syntax `--slot production --target-slot staging`
+          # is REJECTED by Azure CLI because "production" is not a slot
+          # name; it's the canonical app. That's why the auto-rollback
+          # failed during the 2026-05-22 outage, leaving the broken state
+          # on production for 13 hours.
           az webapp deployment slot swap \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_WEBAPP_NAME" \
-            --slot production \
-            --target-slot staging
-          echo "::warning::Rollback complete. Production restored to previous version. Investigate the failed smoke test and fix the code on dev branch before re-promoting."
+            --slot staging
+          echo "::warning::Rollback complete. Production restored to previous version. Investigate the failed smoke test and fix the code before re-promoting."
           exit 1
 
       - name: Summary
