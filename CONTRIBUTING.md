@@ -10,10 +10,11 @@ This rule exists because we recently shipped from two parallel sources without r
 
 ### Allowed deploy paths
 
-1. **GitHub Actions CI** (preferred path for everything) — both workflows trigger on path-filtered pushes:
-   - **Push to `dev`** → only `deploy-staging.yml` fires → code deploys to staging slot.
-   - **Push to `main`** → BOTH `deploy-staging.yml` (since v3.97 — fixes the May 22 outage class) AND `promote-prod.yml` fire. The first deploys the new code to staging; the second waits for manual approval, then runs a pre-swap HTTP integrity probe against staging, then slot-swaps staging → production. If post-swap smoke fails, auto-rollback re-swaps back.
-   - **Manual trigger** via the Actions tab (`workflow_dispatch`) is available on both workflows.
+1. **GitHub Actions CI** — staging auto-deploys; production is manual:
+   - **Push to `dev` or `main`** (path-filtered) → `deploy-staging.yml` deploys the plugin to the staging slot and runs a tolerant smoke test.
+   - **Production** is never auto-promoted on push. When staging looks good, promote one of two ways:
+     - **Slot swap (preferred when staging is the whole site under test):** run `promote-prod.yml` manually from the Actions tab. It pre-flights staging HTTP health, swaps staging → production, smoke-tests prod, and auto-rolls back on failure.
+     - **Plugin-only Kudu deploy:** use the `az webapp deploy` command below against production directly (same as we've used for hotfixes).
 
 2. **Manual Kudu push** (preferred for hot-fixes / when CI is broken) — only after the change is **committed and pushed to this repo first**. Use:
    ```bash
@@ -51,7 +52,7 @@ Use separate branches and merge through GitHub:
 ```text
 agent-A → branch dev-agent-a → PR into dev
 agent-B → branch dev-agent-b → PR into dev
-dev   → main (CI promotes to prod with manual approval)
+dev   → main (CI deploys to staging; you promote to prod when ready)
 ```
 
 **Before starting work**, always `git fetch && git pull --rebase` on your working branch. If a merge conflict appears, resolve it via `git rebase --interactive` (or open it in Cursor's merge UI). Do not bypass the conflict by hand-copying files between working copies — that's exactly how the v3.95.1 drift happened.

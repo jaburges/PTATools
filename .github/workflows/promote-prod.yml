@@ -1,16 +1,14 @@
 name: Promote staging to production
 
+# Manual-only. Pushes to main deploy to staging via deploy-staging.yml but do
+# NOT auto-promote here. Production is updated when you explicitly run this
+# workflow (slot swap) or deploy via Kudu/az CLI after validating on staging.
+
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'Azure Plugin/**'
-      - '.github/workflows/promote-prod.yml'
-      - 'infra/post-change-smoke.sh'
   workflow_dispatch:
     inputs:
       reason:
-        description: 'Reason for manual promotion (optional)'
+        description: 'Reason for promotion (optional)'
         required: false
         default: 'Manual promotion'
 
@@ -31,10 +29,6 @@ env:
 jobs:
   promote:
     runs-on: ubuntu-latest
-    # The 'production' environment has a manual approval rule configured in GitHub
-    # (Settings -> Environments -> production -> Required reviewers). This job will
-    # pause here until an approver clicks "Review deployments" in the workflow run.
-    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -89,7 +83,7 @@ jobs:
       - name: Capture pre-swap commit on production (for audit)
         run: |
           echo "Promotion at $(date -u)" > /tmp/promotion-info.txt
-          echo "Reason: ${{ github.event.inputs.reason || 'push to main' }}" >> /tmp/promotion-info.txt
+          echo "Reason: ${{ github.event.inputs.reason || 'manual workflow_dispatch' }}" >> /tmp/promotion-info.txt
           echo "Commit (HEAD of main): ${{ github.sha }}" >> /tmp/promotion-info.txt
           cat /tmp/promotion-info.txt
 
@@ -143,7 +137,7 @@ jobs:
         run: |
           echo "## Production Promotion" >> $GITHUB_STEP_SUMMARY
           echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Reason: ${{ github.event.inputs.reason || 'push to main' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Reason: ${{ github.event.inputs.reason || 'manual workflow_dispatch' }}" >> $GITHUB_STEP_SUMMARY
           echo "- Swap: ${{ steps.swap.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Smoke: ${{ steps.smoke.outcome }}" >> $GITHUB_STEP_SUMMARY
           echo "- Final: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

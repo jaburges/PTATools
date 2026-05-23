@@ -5,10 +5,8 @@ name: Deploy plugin to staging slot
 # commit on this repo. No direct Kudu deploys from outside the repo.
 #
 # Triggers on pushes to BOTH `dev` (the normal feature-flow) and `main`
-# (so a hotfix landed directly on main still results in staging having
-# the latest code). Without this, promote-prod.yml swaps a stale
-# staging slot into production -- the failure mode that caused the
-# 2026-05-22 outage.
+# (so a hotfix landed directly on main still lands on staging). Production
+# is NOT auto-promoted; use promote-prod.yml (manual) or Kudu when ready.
 
 on:
   push:
