@@ -379,6 +379,7 @@ class Azure_PTSA_REST_API {
         $args = array(
             'limit'   => max(1, min(100, (int) ($req->get_param('per_page') ?: 25))),
             'paged'   => max(1, (int) ($req->get_param('page') ?: 1)),
+            'type'    => 'shop_order',
             'orderby' => 'date',
             'order'   => 'DESC',
         );
@@ -389,7 +390,10 @@ class Azure_PTSA_REST_API {
 
         $orders = wc_get_orders($args);
         $out = array();
-        foreach ($orders as $o) $out[] = $this->order_to_array($o);
+        foreach ($orders as $o) {
+            $row = $this->order_to_array($o);
+            if ($row !== null) $out[] = $row;
+        }
         return rest_ensure_response($out);
     }
 
@@ -460,6 +464,13 @@ class Azure_PTSA_REST_API {
 
     private function order_to_array($o) {
         if (!$o) return null;
+        // wc_get_orders() can return WC_Order_Refund objects unless the query
+        // is constrained to shop_order. Refunds do not implement the full
+        // order API (for example get_order_number()), so never serialize them
+        // through this order endpoint.
+        if (function_exists('wc_get_order_types') && method_exists($o, 'get_type')) {
+            if ($o->get_type() !== 'shop_order') return null;
+        }
         $items = array();
         foreach ($o->get_items() as $item) {
             $items[] = array(
