@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.99
+ * Version: 3.100
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.99');
+define('AZURE_PLUGIN_VERSION', '3.100');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -79,6 +79,10 @@ function azure_plugin_best_github_release() {
             if (empty($release['tag_name']) || empty($release['assets']) || !empty($release['draft'])) {
                 continue;
             }
+            // Beta / RC GitHub pre-releases are for staging validation only.
+            if (!empty($release['prerelease'])) {
+                continue;
+            }
             $package_url = null;
             foreach ($release['assets'] as $asset) {
                 if (!empty($asset['name']) && $asset['name'] === 'pta-tools.zip' && !empty($asset['browser_download_url'])) {
@@ -90,6 +94,9 @@ function azure_plugin_best_github_release() {
                 continue;
             }
             $version = ltrim((string) $release['tag_name'], 'v');
+            if (preg_match('/-(beta|rc)/i', $version)) {
+                continue;
+            }
             if ($best === null || version_compare($version, $best['version'], '>')) {
                 $best = array(
                     'version' => $version,

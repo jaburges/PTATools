@@ -123,6 +123,10 @@ function initAzurePluginAdmin($) {
         $(document).on('click', '.refresh-logs', function() {
             self.refreshLogs();
         });
+
+        $(document).on('click', '#azure-sync-prod-to-staging-db', function() {
+            self.syncProdToStagingDb($(this));
+        });
         
         // Auto-refresh certain sections
         if ($('.backup-jobs-table').length) {
@@ -594,6 +598,46 @@ function initAzurePluginAdmin($) {
     formatDateTime: function(dateString) {
         var date = new Date(dateString);
         return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    },
+
+    syncProdToStagingDb: function($button) {
+        var $ = window.jQuery || window.$;
+        if (typeof azure_plugin_ajax === 'undefined') {
+            alert('Plugin AJAX is not available.');
+            return;
+        }
+        if (!window.confirm('This will overwrite the staging database with a copy of production. Continue?')) {
+            return;
+        }
+
+        var $status = $('#azure-sync-prod-to-staging-status');
+        $button.prop('disabled', true);
+        $status.html('<span class="spinner is-active" style="float:none;"></span> Syncing…');
+
+        $.ajax({
+            url: azure_plugin_ajax.ajax_url,
+            type: 'POST',
+            dataType: 'json',
+            timeout: 600000,
+            data: {
+                action: 'azure_sync_prod_to_staging_db',
+                nonce: azure_plugin_ajax.nonce
+            },
+            success: function(response) {
+                $button.prop('disabled', false);
+                if (response && response.success) {
+                    var msg = (response.data && response.data.message) ? response.data.message : 'Sync complete.';
+                    $status.html('<span style="color:#008a20;">' + msg + '</span>');
+                } else {
+                    var err = (response && response.data) ? response.data : 'Sync failed.';
+                    $status.html('<span style="color:#b32d2e;">' + err + '</span>');
+                }
+            },
+            error: function(xhr, status, error) {
+                $button.prop('disabled', false);
+                $status.html('<span style="color:#b32d2e;">Request failed: ' + (error || status) + '</span>');
+            }
+        });
     }
     };
 

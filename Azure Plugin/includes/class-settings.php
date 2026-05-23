@@ -259,6 +259,8 @@ class Azure_Settings {
         return array(
             // General settings
             'enable_sso' => false,
+            'platform_staging_database_name' => '',
+            'platform_staging_site_url' => '',
             'enable_backup' => false,
             'enable_calendar' => false,
             'enable_email' => false,

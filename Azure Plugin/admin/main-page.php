@@ -411,11 +411,67 @@ if (!defined('ABSPATH')) {
                         </tr>
                     </table>
                 </div>
+
+                <div class="settings-section" style="margin-top: 20px;">
+                    <h3>Platform (deployment slots)</h3>
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row"><label for="platform_staging_database_name">Staging database name</label></th>
+                            <td>
+                                <input type="text" name="platform_staging_database_name" id="platform_staging_database_name"
+                                       value="<?php echo esc_attr($settings['platform_staging_database_name'] ?? ''); ?>"
+                                       class="regular-text" placeholder="<?php echo esc_attr(DB_NAME . '_staging'); ?>" />
+                                <p class="description">Optional. Leave blank to auto-detect from the production database name.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="platform_staging_site_url">Staging site URL</label></th>
+                            <td>
+                                <input type="text" name="platform_staging_site_url" id="platform_staging_site_url"
+                                       value="<?php echo esc_attr($settings['platform_staging_site_url'] ?? ''); ?>"
+                                       class="regular-text" placeholder="https://yoursite-staging.azurewebsites.net" />
+                                <p class="description">Used for URL search-replace after DB sync.</p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
                 
                 <p class="submit">
                     <input type="submit" name="azure_plugin_submit" class="button-primary" value="Save Settings" />
                 </p>
             </form>
+        </div>
+
+        <?php
+        if (!isset($platform_sync_status)) {
+            require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
+            $platform_sync_status = Azure_Platform_Sync::get_status();
+        }
+        ?>
+        <div class="azure-plugin-settings platform-danger-zone" style="margin-top: 24px; max-width: 960px;">
+            <h2><span class="dashicons dashicons-warning" style="color: #b32d2e;"></span> Platform — Danger Zone</h2>
+            <p class="description">
+                Copy live production content into staging for realistic plugin and theme testing.
+            </p>
+            <div class="danger-zone-panel" style="border: 1px solid #d63638; padding: 16px; background: #fcf0f1;">
+                <h3 style="margin-top: 0;">Sync production database → staging</h3>
+                <?php if (!empty($platform_sync_status['available'])) : ?>
+                    <p>
+                        <strong>Production:</strong> <?php echo esc_html($platform_sync_status['production_site_url']); ?><br>
+                        <strong>Staging DB:</strong> <code><?php echo esc_html($platform_sync_status['staging_database']); ?></code>
+                        <?php if (!empty($platform_sync_status['staging_site_url'])) : ?>
+                            <br><strong>Staging URL:</strong> <?php echo esc_html($platform_sync_status['staging_site_url']); ?>
+                        <?php endif; ?>
+                    </p>
+                    <p class="description">This overwrites the staging database. Consider running a backup first.</p>
+                    <button type="button" class="button button-secondary" id="azure-sync-prod-to-staging-db">
+                        Sync Prod DB to Staging DB
+                    </button>
+                    <span id="azure-sync-prod-to-staging-status" style="margin-left: 10px;"></span>
+                <?php else : ?>
+                    <p><?php echo esc_html($platform_sync_status['reason'] ?? __('Sync is not available on this site.', 'azure-plugin')); ?></p>
+                <?php endif; ?>
+            </div>
         </div>
         
         <div class="azure-plugin-info">

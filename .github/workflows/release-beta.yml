@@ -1,9 +1,13 @@
-name: Build and Release Plugin
+name: Build and Release Plugin (beta)
+
+# Pre-releases for staging validation. Other PTA sites ignore these via the
+# auto-updater (prerelease flag + -beta/-rc semver suffix filter).
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*-beta*'
+      - 'v*-rc*'
 
 permissions:
   contents: write
@@ -31,8 +35,9 @@ jobs:
           cd build
           zip -r ../pta-tools.zip "Azure Plugin/"
 
-      - name: Create GitHub Release
+      - name: Create GitHub pre-release
         uses: softprops/action-gh-release@v2
         with:
           files: pta-tools.zip
           generate_release_notes: true
+          prerelease: true

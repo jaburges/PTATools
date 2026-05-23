@@ -40,7 +40,7 @@ class Azure_Admin {
         add_action('wp_ajax_azure_rename_role', array($this, 'ajax_rename_role'));
         add_action('wp_ajax_azure_delete_role', array($this, 'ajax_delete_role'));
         add_action('wp_ajax_azure_reseed_pta_caps', array($this, 'ajax_reseed_pta_caps'));
-        add_action('wp_ajax_azure_cleanup_stale_caps', array($this, 'ajax_cleanup_stale_caps'));
+        add_action('wp_ajax_azure_sync_prod_to_staging_db', array($this, 'ajax_sync_prod_to_staging_db'));
             
             // Calendar Embed AJAX handlers
             add_action('wp_ajax_azure_save_calendar_embed_email', array($this, 'ajax_save_calendar_embed_email'));
@@ -377,6 +377,12 @@ class Azure_Admin {
             $settings['debug_modules'] = isset($_POST['debug_modules']) 
                 ? array_map('sanitize_text_field', $_POST['debug_modules']) 
                 : array();
+            if (isset($_POST['platform_staging_database_name'])) {
+                $settings['platform_staging_database_name'] = sanitize_text_field(wp_unslash($_POST['platform_staging_database_name']));
+            }
+            if (isset($_POST['platform_staging_site_url'])) {
+                $settings['platform_staging_site_url'] = esc_url_raw(trim(wp_unslash($_POST['platform_staging_site_url'])));
+            }
         }
         
         // Module-specific settings based on which page we're on
@@ -578,6 +584,9 @@ class Azure_Admin {
     public function admin_page() {
         try {
             $settings = Azure_Settings::get_all_settings();
+
+            require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
+            $platform_sync_status = Azure_Platform_Sync::get_status();
             
             // Debug: Log current settings when page loads
             error_log('Azure Plugin: Main page loaded, settings: ' . json_encode(array(
@@ -3303,6 +3312,27 @@ class Azure_Admin {
             'deleted'   => $deleted,
             'remaining' => $remaining,
             'message'   => "Deleted {$deleted} attachments... {$remaining} remaining.",
+        ));
+    }
+
+    public function ajax_sync_prod_to_staging_db() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Unauthorized', 'azure-plugin'));
+        }
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'azure_plugin_nonce')) {
+            wp_send_json_error(__('Invalid nonce', 'azure-plugin'));
+        }
+
+        require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
+        $result = Azure_Platform_Sync::sync_prod_db_to_staging();
+
+        if (empty($result['success'])) {
+            wp_send_json_error($result['message'] ?? __('Sync failed.', 'azure-plugin'));
+        }
+
+        wp_send_json_success(array(
+            'message' => $result['message'],
+            'details' => $result['details'] ?? array(),
         ));
     }
 }

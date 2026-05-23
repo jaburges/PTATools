@@ -11,6 +11,9 @@ name: Deploy plugin to staging slot
 on:
   push:
     branches: [dev, main]
+    tags:
+      - 'v*-beta*'
+      - 'v*-rc*'
     paths:
       - 'Azure Plugin/**'
       - '.github/workflows/deploy-staging.yml'

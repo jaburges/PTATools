@@ -1,0 +1,73 @@
+name: Create production plugin release
+
+# Manual-only. Do not auto-trigger on tag push. Use the /promote-prod Cursor
+# skill (or run this workflow from Actions) after validating a beta on staging.
+# No GitHub Environment approval gate — the human gate is: only the repo owner
+# runs this workflow deliberately (never via agent without explicit user request).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Production semver (must match Azure Plugin/azure-plugin.php), e.g. 3.100.0'
+        required: true
+      confirm:
+        description: 'Type PROMOTE to confirm this is production-ready'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard — human confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "PROMOTE" ]; then
+            echo "::error::Confirmation failed. Type PROMOTE in the confirm field."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify version in source matches input
+        run: |
+          set -euo pipefail
+          EXPECTED="${{ github.event.inputs.version }}"
+          ACTUAL=$(grep -E "define\('AZURE_PLUGIN_VERSION'" "Azure Plugin/azure-plugin.php" | sed -E "s/.*'([^']+)'.*/\1/")
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::azure-plugin.php has AZURE_PLUGIN_VERSION=$ACTUAL but workflow input was $EXPECTED"
+            exit 1
+          fi
+          if echo "$EXPECTED" | grep -Eiq 'beta|rc'; then
+            echo "::error::Production releases must not contain beta or rc in the version string."
+            exit 1
+          fi
+          echo "[OK] Version $ACTUAL matches and is production-ready"
+
+      - name: Build plugin zip
+        run: |
+          mkdir -p build
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.cursor' \
+            --exclude='*.zip' \
+            --exclude='PTATools.wiki' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            --exclude='tests' \
+            "Azure Plugin/" "build/Azure Plugin/"
+          cd build
+          zip -r ../pta-tools.zip "Azure Plugin/"
+
+      - name: Create GitHub production release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: v${{ github.event.inputs.version }}
+          files: pta-tools.zip
+          generate_release_notes: true
+          prerelease: false

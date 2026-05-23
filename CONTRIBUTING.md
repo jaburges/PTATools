@@ -11,12 +11,13 @@ This rule exists because we recently shipped from two parallel sources without r
 ### Allowed deploy paths
 
 1. **GitHub Actions CI** — staging auto-deploys; production is manual:
-   - **Push to `dev` or `main`** (path-filtered) → `deploy-staging.yml` deploys the plugin to the staging slot and runs a tolerant smoke test.
-   - **Production** is never auto-promoted on push. When staging looks good, promote one of two ways:
-     - **Slot swap (preferred when staging is the whole site under test):** run `promote-prod.yml` manually from the Actions tab. It pre-flights staging HTTP health, swaps staging → production, smoke-tests prod, and auto-rolls back on failure.
-     - **Plugin-only Kudu deploy:** use the `az webapp deploy` command below against production directly (same as we've used for hotfixes).
+   - **Push to `dev` or `main`** (path-filtered) → `deploy-staging.yml` deploys the plugin to the staging slot.
+   - **Push tag `v*-beta*` or `v*-rc*`** → `release-beta.yml` creates a GitHub **pre-release** + staging deploy.
+   - **Production GitHub release** → run `release-production.yml` manually only (use `/promote-prod` Cursor skill — see `docs/skills/promote-prod/SKILL.md`). Requires typing `PROMOTE` to confirm. Agents must never run this without explicit user request.
+   - **wilderptsa.net production plugin deploy** → after production release, plugin-only `az webapp deploy` to prod (see promote-prod skill).
+   - **Slot swap** → `promote-prod.yml` manual only, for full-stack changes (WP upgrade, theme), not routine plugin fixes.
 
-2. **Manual Kudu push** (preferred for hot-fixes / when CI is broken) — only after the change is **committed and pushed to this repo first**. Use:
+2. **Manual Kudu push** (when CI is broken) — only after the change is **committed and pushed to this repo first**. Use:
    ```bash
    # build from CLEAN working tree (no uncommitted changes)
    git status   # must show "nothing to commit, working tree clean"
@@ -66,7 +67,8 @@ Current canonical version: see `Azure Plugin/azure-plugin.php` (`define('AZURE_P
 ## Auto-updater
 
 The plugin includes `azure_plugin_best_github_release()` which:
-- Polls `https://api.github.com/repos/jaburges/PTATools/releases/latest`
+- Polls `https://api.github.com/repos/jaburges/PTATools/releases`
+- **Skips draft and pre-release** entries, and tags containing `-beta` or `-rc`
 - Picks the newest release that ships a `pta-tools.zip` asset
 - Refuses to install if the candidate version ≤ installed version
 - Otherwise advertises an update to WP's plugin updater
@@ -76,7 +78,7 @@ This means **GitHub Releases are also part of the source of truth.** A release m
 2. Have a `pta-tools.zip` asset attached
 3. Have a tag name matching the `AZURE_PLUGIN_VERSION` constant in the committed code
 
-The release-building flow is in `.github/workflows/release.yml`.
+The release-building flows are in `.github/workflows/release-beta.yml` (pre-releases) and `release-production.yml` (manual production only).
 
 ## Forensic / recovery branches
 
@@ -92,7 +94,7 @@ The May 2026 incident's full artifacts are in `salvage/v3.95.1-2026-05-22/` and 
 
 ## Quick references
 
-- Deploy workflows: `.github/workflows/deploy-staging.yml`, `promote-prod.yml`, `release.yml`
+- Deploy workflows: `.github/workflows/deploy-staging.yml`, `promote-prod.yml`, `release-beta.yml`, `release-production.yml`
 - Resource Group: `PTSAWebsite` in Azure subscription `97f6936d-7300-4a49-a2ad-cbfee3b28e00` (Microsoft Grant)
 - Active plugin folder: `/home/site/wwwroot/wp-content/plugins/Azure Plugin` (NOTE the space; it is NOT `azure-plugin` lowercase — there's a separate folder by that name on prod that WordPress doesn't load)
 - Plugin slug in `active_plugins`: `Azure Plugin/azure-plugin.php`
