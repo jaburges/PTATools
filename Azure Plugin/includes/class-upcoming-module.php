@@ -2,7 +2,7 @@
 /**
  * Upcoming Events Module
  * 
- * Provides shortcodes for displaying upcoming TEC events in a clean, customizable format.
+ * Provides shortcodes for displaying upcoming pta_event posts in a clean, customizable format.
  * 
  * @package AzurePlugin
  */
@@ -64,16 +64,12 @@ class Azure_Upcoming_Module {
      * @return string HTML output
      */
     public function render_upcoming_shortcode($atts) {
-        // Phase 4 source routing: when pta_calendar_data_source is 'pta'
-        // we read from pta_event posts and don't need TEC at all. Only
-        // require TEC when we're still reading from tribe_events.
-        $tec_required = !class_exists('Azure_Event_CPT')
-            ? true
-            : Azure_Event_CPT::tec_required();
-        if ($tec_required && !class_exists('Tribe__Events__Main')) {
-            return '<p class="upcoming-error">' . __('The Events Calendar plugin is required for this shortcode.', 'azure-plugin') . '</p>';
+        // Reads from the pta_event CPT. Bails out only if the CPT registrar
+        // is missing (which would mean the plugin is partly loaded).
+        if (!class_exists('Azure_Event_CPT')) {
+            return '<p class="upcoming-error">' . __('Event CPT is not available.', 'azure-plugin') . '</p>';
         }
-        
+
         // Parse attributes with defaults
         $atts = shortcode_atts(array(
             'current-week'        => 'true',
@@ -286,22 +282,18 @@ class Azure_Upcoming_Module {
     }
     
     /**
-     * Get TEC events within a date range
-     * 
+     * Get pta_event posts within a date range.
+     *
      * @param DateTime $start Start date
      * @param DateTime $end End date
      * @param array $exclude_categories Categories to exclude
-     * @return array Array of event objects
+     * @return array Array of event post objects
      */
     private function get_events_in_range($start, $end, $exclude_categories = array(), $future_only = false) {
-        // Phase 4 source routing: post type and taxonomy come from the
-        // Azure_Event_CPT helper, which honours pta_calendar_data_source.
-        $post_type = class_exists('Azure_Event_CPT')
-            ? Azure_Event_CPT::query_post_type()
-            : 'tribe_events';
-        $taxonomy  = class_exists('Azure_Event_CPT')
-            ? Azure_Event_CPT::query_taxonomy()
-            : 'tribe_events_cat';
+        $post_type = 'pta_event';
+        // The public taxonomy slug is shared with the legacy TEC taxonomy
+        // (see class-event-cpt.php) so tax_query lookups stay stable.
+        $taxonomy  = 'tribe_events_cat';
 
         $args = array(
             'post_type'      => $post_type,
@@ -460,16 +452,13 @@ class Azure_Upcoming_Module {
     }
     
     /**
-     * Get available TEC categories for admin reference
-     * 
+     * Get available event categories for admin reference.
+     *
      * @return array Array of category names
      */
-    public static function get_tec_categories() {
-        $taxonomy = class_exists('Azure_Event_CPT')
-            ? Azure_Event_CPT::query_taxonomy()
-            : 'tribe_events_cat';
+    public static function get_event_categories() {
         $categories = get_terms(array(
-            'taxonomy'   => $taxonomy,
+            'taxonomy'   => 'tribe_events_cat',
             'hide_empty' => false,
         ));
         

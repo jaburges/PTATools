@@ -3,26 +3,28 @@
  * PTA Event CPT
  *
  * Native Custom Post Types for events, venues, and organizers, plus the
- * matching taxonomy. Replaces the dependency on The Events Calendar (TEC)
- * by giving PTA Tools its own event domain model.
+ * matching taxonomy. This is PTA Tools' canonical event store, replacing
+ * the legacy The Events Calendar (TEC) integration retired in v3.97. See
+ * docs/tec-retirement-audit-2026-05-22.md for the migration audit.
  *
- * Phase 0 of the TEC -> pta_event migration. See docs/internal/TECmigration.md
- * for the full plan.
- *
- * Feature-flag gated:
- *   - `pta_calendar_owner = tec`   -> nothing registers (current behaviour)
- *   - `pta_calendar_owner = both`  -> registers pta_* alongside tribe_*
- *   - `pta_calendar_owner = pta`   -> registers pta_* only (post-cutover)
- *
- * The flag lives in the `azure_plugin_settings` option and is read via
- * Azure_Settings::get_setting() so it shares the per-request cache with
- * every other module setting.
+ * The `pta_calendar_owner` flag still exists for back-compat with installs
+ * mid-migration, but new installs default to `pta`. Recognized values:
+ *   - `pta`   -> registers pta_event/pta_venue/pta_organizer only (default)
+ *   - `both`  -> also registers tribe_events alongside, for sites still
+ *                mid-migration. The retire-tec.php one-shot flips this to
+ *                `pta` once the post-type rename is complete.
+ *   - `tec`   -> historical only; nothing registers. Pre-3.95 setting.
  *
  * Meta key compatibility:
- *   We deliberately keep TEC's meta key names (_EventStartDate, etc.) on
- *   pta_event so the backfill is a straight row copy with no rewrite, and
- *   so any rollback to TEC is non-destructive. Meta keys remain stable
- *   across the entire migration.
+ *   pta_event deliberately reuses TEC's meta key names (_EventStartDate,
+ *   _EventEndDate, _EventVenueID, etc.) so existing data survives the
+ *   migration without a postmeta rewrite, and so any code that reads
+ *   these keys works against both old and new posts during the transition.
+ *
+ * Taxonomy compatibility:
+ *   The public taxonomy slug `tribe_events_cat` is preserved (set in
+ *   $rewrite['slug']) so existing category URLs, term IDs, and tag-archive
+ *   permalinks keep working.
  *
  * @package AzurePlugin
  */
@@ -60,22 +62,22 @@ class Azure_Event_CPT {
     /**
      * Returns the current owner flag. Reads from Azure_Settings if
      * available (cached per-request), falls back to raw get_option()
-     * otherwise.
+     * otherwise. Defaults to 'pta' (post-v3.97 default).
      *
      * @return string One of 'tec', 'both', 'pta'.
      */
     public static function get_owner() {
         if (class_exists('Azure_Settings')) {
-            $val = Azure_Settings::get_setting(self::FLAG_OWNER, 'tec');
+            $val = Azure_Settings::get_setting(self::FLAG_OWNER, 'pta');
         } else {
             $opts = get_option('azure_plugin_settings', array());
             $val = is_array($opts) && isset($opts[self::FLAG_OWNER])
                 ? $opts[self::FLAG_OWNER]
-                : 'tec';
+                : 'pta';
         }
-        $val = is_string($val) ? strtolower(trim($val)) : 'tec';
+        $val = is_string($val) ? strtolower(trim($val)) : 'pta';
         if (!in_array($val, array('tec', 'both', 'pta'), true)) {
-            $val = 'tec';
+            $val = 'pta';
         }
         return $val;
     }

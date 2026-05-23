@@ -322,7 +322,7 @@ class Azure_Logger {
     /**
      * Check if debug logging is enabled for a specific module
      * 
-     * @param string $module Module name (SSO, Calendar, TEC, etc.)
+     * @param string $module Module name (SSO, Calendar, Email, Backup, etc.)
      * @return bool True if debug is enabled for this module
      */
     public static function is_debug_enabled($module = '') {
@@ -353,7 +353,7 @@ class Azure_Logger {
     /**
      * Log debug message only if module debugging is enabled
      * 
-     * @param string $module Module name (SSO, Calendar, TEC, etc.)
+     * @param string $module Module name (SSO, Calendar, Email, Backup, etc.)
      * @param string $message Log message
      * @param array $context Additional context
      */

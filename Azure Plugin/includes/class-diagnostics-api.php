@@ -645,7 +645,7 @@ class Azure_Diagnostics_API {
         ));
 
         // Cleanup audit: one-shot inventory of the plugins we may want
-        // to retire — Printify, Advanced Product Fields for WC, TEC
+        // to retire \u2014 Printify, Advanced Product Fields for WC, etc.
         // Event Aggregator, BB PowerPack, WPCode — plus current WC
         // shipping zones/methods and DB traces of each. Read-only.
         register_rest_route($ns, '/diagnostics/cleanup-audit', array(
@@ -1406,7 +1406,7 @@ class Azure_Diagnostics_API {
         $basedir = $upload_dir['basedir'];
 
         $where_type = $post_type === 'all'
-            ? "p.post_type IN ('post', 'page', 'product', 'tribe_events')"
+            ? "p.post_type IN ('post', 'page', 'product', 'pta_event')"
             : $wpdb->prepare("p.post_type = %s", $post_type);
 
         $rows = $wpdb->get_results(

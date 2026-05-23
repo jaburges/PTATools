@@ -1,51 +1,38 @@
 <?php
 /**
  * Tickets Module - Venues Tab
- * Integrates with The Events Calendar venues
+ *
+ * Manages pta_venue posts with reserved-seating layouts. Legacy tribe_venue
+ * posts are accepted for back-compat; the v3.97 migration MU-plugin renames
+ * them to pta_venue in place so URLs and IDs are preserved.
  */
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
-// Check if TEC is active
-$tec_active = class_exists('Tribe__Events__Main');
-
-// Check if editing a venue
 $action = isset($_GET['action']) ? sanitize_text_field($_GET['action']) : 'list';
 $venue_id = isset($_GET['venue_id']) ? intval($_GET['venue_id']) : 0;
 
 $venue = null;
 $venue_layout = null;
 
-if ($venue_id > 0 && $tec_active) {
+if ($venue_id > 0) {
     $venue = get_post($venue_id);
-    if ($venue && $venue->post_type === 'tribe_venue') {
+    if ($venue && in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
         $venue_layout = get_post_meta($venue_id, '_azure_seating_layout', true);
     }
 }
 
-// Get all TEC venues
-$tec_venues = array();
-if ($tec_active) {
-    $tec_venues = get_posts(array(
-        'post_type' => 'tribe_venue',
-        'posts_per_page' => -1,
-        'orderby' => 'title',
-        'order' => 'ASC',
-        'post_status' => 'publish'
-    ));
-}
+// All venues (pta_venue + legacy tribe_venue).
+$pta_venues = get_posts(array(
+    'post_type'      => array('pta_venue', 'tribe_venue'),
+    'posts_per_page' => -1,
+    'orderby'        => 'title',
+    'order'          => 'ASC',
+    'post_status'    => 'publish',
+));
 ?>
-
-<?php if (!$tec_active): ?>
-<div class="notice notice-warning">
-    <p>
-        <strong><?php _e('The Events Calendar Required', 'azure-plugin'); ?></strong><br>
-        <?php _e('The Tickets module requires The Events Calendar plugin to manage venues. Please install and activate it first.', 'azure-plugin'); ?>
-    </p>
-</div>
-<?php return; endif; ?>
 
 <?php if ($action === 'new' || $action === 'edit'): ?>
 <!-- Venue Designer -->
@@ -86,16 +73,16 @@ if ($tec_active) {
         <?php else: ?>
         <div class="venue-info-display">
             <strong><?php echo esc_html($venue->post_title); ?></strong>
-            <?php 
-            $address = tribe_get_address($venue_id);
-            $city = tribe_get_city($venue_id);
+            <?php
+            $address = get_post_meta($venue_id, '_VenueAddress', true);
+            $city    = get_post_meta($venue_id, '_VenueCity', true);
             if ($address || $city): ?>
             <span class="venue-location">
                 <?php echo esc_html(implode(', ', array_filter(array($address, $city)))); ?>
             </span>
             <?php endif; ?>
             <a href="<?php echo get_edit_post_link($venue_id); ?>" target="_blank" class="edit-venue-link">
-                <?php _e('Edit venue details in TEC', 'azure-plugin'); ?> →
+                <?php _e('Edit venue details', 'azure-plugin'); ?> →
             </a>
         </div>
         <?php endif; ?>
@@ -292,43 +279,39 @@ if ($tec_active) {
 <div class="venues-list-wrap">
     <div class="venues-header">
         <h2><?php _e('Venue Seating Layouts', 'azure-plugin'); ?></h2>
-        <p class="description"><?php _e('Add seating layouts to your TEC venues to enable reserved seating for events.', 'azure-plugin'); ?></p>
+        <p class="description"><?php _e('Add seating layouts to your venues to enable reserved seating for ticketed events.', 'azure-plugin'); ?></p>
     </div>
-    
+
     <div class="venues-actions-bar">
         <a href="?page=azure-plugin-tickets&tab=venues&action=new" class="button button-primary">
             <span class="dashicons dashicons-plus-alt"></span>
             <?php _e('Create New Venue', 'azure-plugin'); ?>
         </a>
-        <a href="<?php echo admin_url('edit.php?post_type=tribe_venue'); ?>" class="button" target="_blank">
+        <a href="<?php echo admin_url('edit.php?post_type=pta_venue'); ?>" class="button" target="_blank">
             <span class="dashicons dashicons-external"></span>
-            <?php _e('Manage All TEC Venues', 'azure-plugin'); ?>
+            <?php _e('Manage All Venues', 'azure-plugin'); ?>
         </a>
     </div>
-    
-    <?php if (empty($tec_venues)): ?>
+
+    <?php if (empty($pta_venues)): ?>
     <div class="no-venues">
         <span class="dashicons dashicons-admin-home" style="font-size: 48px; width: 48px; height: 48px; color: #ccc;"></span>
         <h3><?php _e('No venues found', 'azure-plugin'); ?></h3>
-        <p><?php _e('Create a venue in The Events Calendar first, or create a new one with a seating layout.', 'azure-plugin'); ?></p>
+        <p><?php _e('Create your first venue with a seating layout to start selling reserved tickets.', 'azure-plugin'); ?></p>
         <div class="no-venues-actions">
             <a href="?page=azure-plugin-tickets&tab=venues&action=new" class="button button-primary button-hero">
                 <?php _e('Create New Venue', 'azure-plugin'); ?>
-            </a>
-            <a href="<?php echo admin_url('post-new.php?post_type=tribe_venue'); ?>" class="button button-hero">
-                <?php _e('Create in TEC', 'azure-plugin'); ?>
             </a>
         </div>
     </div>
     <?php else: ?>
     <div class="venues-grid">
-        <?php foreach ($tec_venues as $v): 
+        <?php foreach ($pta_venues as $v):
             $layout_json = get_post_meta($v->ID, '_azure_seating_layout', true);
             $layout = $layout_json ? json_decode($layout_json) : null;
             $block_count = ($layout && isset($layout->blocks)) ? count($layout->blocks) : 0;
             $has_layout = !empty($layout_json);
-            
-            // Calculate capacity from layout
+
             $capacity = 0;
             if ($layout && isset($layout->blocks)) {
                 foreach ($layout->blocks as $block) {
@@ -339,9 +322,9 @@ if ($tec_active) {
                     }
                 }
             }
-            
-            $address = tribe_get_address($v->ID);
-            $city = tribe_get_city($v->ID);
+
+            $address = get_post_meta($v->ID, '_VenueAddress', true);
+            $city    = get_post_meta($v->ID, '_VenueCity', true);
         ?>
         <div class="venue-card <?php echo $has_layout ? 'has-layout' : 'no-layout'; ?>" data-venue-id="<?php echo $v->ID; ?>">
             <div class="venue-preview">

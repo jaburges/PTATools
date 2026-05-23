@@ -95,59 +95,60 @@ add_filter('woocommerce_product_data_tabs', function($tabs) {
 add_action('woocommerce_product_data_panels', function() {
     global $post;
     
-    // Get TEC venues for dropdown (with seating layouts)
+    // Get venues for dropdown (pta_venue + legacy tribe_venue), with
+    // a flag for whether each has a seating layout configured.
     $venues = array();
-    if (class_exists('Tribe__Events__Main')) {
-        $tec_venues = get_posts(array(
-            'post_type' => 'tribe_venue',
-            'posts_per_page' => -1,
-            'orderby' => 'title',
-            'order' => 'ASC',
-            'post_status' => 'publish'
-        ));
-        
-        foreach ($tec_venues as $venue) {
-            $has_layout = get_post_meta($venue->ID, '_azure_seating_layout', true);
-            $venues[] = (object) array(
-                'id' => $venue->ID,
-                'name' => $venue->post_title,
-                'has_layout' => !empty($has_layout)
-            );
-        }
+    $venue_posts = get_posts(array(
+        'post_type'      => array('pta_venue', 'tribe_venue'),
+        'posts_per_page' => -1,
+        'orderby'        => 'title',
+        'order'          => 'ASC',
+        'post_status'    => 'publish',
+    ));
+    foreach ($venue_posts as $venue) {
+        $has_layout = get_post_meta($venue->ID, '_azure_seating_layout', true);
+        $venues[] = (object) array(
+            'id'         => $venue->ID,
+            'name'       => $venue->post_title,
+            'has_layout' => !empty($has_layout),
+        );
     }
-    
-    // Get TEC events if available
-    $events = array();
-    if (class_exists('Tribe__Events__Main')) {
-        $events = tribe_get_events(array(
-            'start_date' => 'now',
-            'posts_per_page' => 50,
-            'orderby' => 'event_date',
-            'order' => 'ASC'
-        ));
-    }
-    
+
+    // Get upcoming events from the pta_event CPT.
+    $events = get_posts(array(
+        'post_type'      => 'pta_event',
+        'posts_per_page' => 50,
+        'orderby'        => 'meta_value',
+        'meta_key'       => '_EventStartDate',
+        'order'          => 'ASC',
+        'meta_query'     => array(array(
+            'key'     => '_EventStartDate',
+            'value'   => date('Y-m-d'),
+            'compare' => '>=',
+            'type'    => 'DATE',
+        )),
+    ));
+
     ?>
     <div id="ticket_event_options" class="panel woocommerce_options_panel">
         <div class="options_group">
             <?php
-            // TEC Event link
             if (!empty($events)) {
                 $event_options = array('' => __('-- Create New Event --', 'azure-plugin'));
                 foreach ($events as $event) {
-                    $event_options[$event->ID] = $event->post_title . ' (' . tribe_get_start_date($event, false, 'M j, Y') . ')';
+                    $start_date = get_post_meta($event->ID, '_EventStartDate', true);
+                    $date_label = $start_date ? date_i18n('M j, Y', strtotime($start_date)) : '';
+                    $event_options[$event->ID] = $event->post_title . ($date_label ? ' (' . $date_label . ')' : '');
                 }
-                
+
                 woocommerce_wp_select(array(
                     'id' => '_ticket_event_id',
                     'label' => __('Link to Event', 'azure-plugin'),
-                    'description' => __('Select an existing TEC event or leave blank to create new.', 'azure-plugin'),
+                    'description' => __('Select an existing PTA event or leave blank to create new.', 'azure-plugin'),
                     'desc_tip' => true,
                     'options' => $event_options
                 ));
             } else {
-                echo '<p class="form-field"><strong>' . __('Note:', 'azure-plugin') . '</strong> ' . __('Install The Events Calendar to link tickets to events.', 'azure-plugin') . '</p>';
-                
                 woocommerce_wp_text_input(array(
                     'id' => '_ticket_event_name',
                     'label' => __('Event Name', 'azure-plugin'),
@@ -164,7 +165,6 @@ add_action('woocommerce_product_data_panels', function() {
                 'type' => 'datetime-local'
             ));
             
-            // Venue selection (TEC venues)
             $venue_options = array('' => __('-- Select Venue --', 'azure-plugin'));
             foreach ($venues as $venue) {
                 $label = $venue->name;
@@ -173,11 +173,11 @@ add_action('woocommerce_product_data_panels', function() {
                 }
                 $venue_options[$venue->id] = $label;
             }
-            
+
             woocommerce_wp_select(array(
                 'id' => '_ticket_venue_id',
                 'label' => __('Venue', 'azure-plugin'),
-                'description' => __('Select a TEC venue with a seating layout.', 'azure-plugin'),
+                'description' => __('Select a venue with a seating layout.', 'azure-plugin'),
                 'desc_tip' => true,
                 'options' => $venue_options
             ));
@@ -201,7 +201,7 @@ add_action('woocommerce_product_data_panels', function() {
                 $layout_json = get_post_meta($venue_id, '_azure_seating_layout', true);
                 $capacity = get_post_meta($venue_id, '_azure_seating_capacity', true);
                 
-                if ($venue && $venue->post_type === 'tribe_venue') {
+                if ($venue && in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
                     ?>
                     <div class="venue-preview-container" style="padding: 12px;">
                         <h4><?php echo esc_html($venue->post_title); ?></h4>
@@ -415,7 +415,7 @@ function azure_tickets_add_to_cart() {
         wp_send_json_error(array('message' => __('Invalid product.', 'azure-plugin')));
     }
     
-    // Get pricing from venue sections (TEC venue)
+    // Get pricing from venue sections (pta_venue or legacy tribe_venue).
     $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
     $layout_json = get_post_meta($venue_id, '_azure_seating_layout', true);
     $layout = $layout_json ? json_decode($layout_json, true) : array();

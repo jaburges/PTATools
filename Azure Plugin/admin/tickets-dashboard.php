@@ -22,38 +22,43 @@ if ($wpdb->get_var("SHOW TABLES LIKE '{$tickets_table}'") === $tickets_table) {
     ");
 }
 
-// Get venue count (TEC venues with seating layouts)
+// Count venues with seating layouts (pta_venue + legacy tribe_venue).
 $venues_with_layouts = 0;
-if (class_exists('Tribe__Events__Main')) {
-    $tec_venues = get_posts(array(
-        'post_type' => 'tribe_venue',
-        'posts_per_page' => -1,
-        'post_status' => 'publish',
-        'fields' => 'ids'
-    ));
-    
-    foreach ($tec_venues as $venue_id) {
-        if (get_post_meta($venue_id, '_azure_seating_layout', true)) {
-            $venues_with_layouts++;
-        }
+$all_venues = get_posts(array(
+    'post_type'      => array('pta_venue', 'tribe_venue'),
+    'posts_per_page' => -1,
+    'post_status'    => 'publish',
+    'fields'         => 'ids',
+));
+foreach ($all_venues as $venue_id) {
+    if (get_post_meta($venue_id, '_azure_seating_layout', true)) {
+        $venues_with_layouts++;
     }
 }
 $stats['total_venues'] = $venues_with_layouts;
 
-// Get upcoming events with tickets
-$upcoming_events = array();
-if (class_exists('Tribe__Events__Main')) {
-    $upcoming_events = tribe_get_events(array(
-        'start_date' => 'now',
-        'posts_per_page' => 5,
-        'meta_query' => array(
-            array(
-                'key' => '_ticket_product_id',
-                'compare' => 'EXISTS'
-            )
-        )
-    ));
-}
+// Upcoming pta_event posts that have a ticket product attached.
+$upcoming_events = get_posts(array(
+    'post_type'      => 'pta_event',
+    'posts_per_page' => 5,
+    'post_status'    => 'publish',
+    'meta_key'       => '_EventStartDate',
+    'orderby'        => 'meta_value',
+    'order'          => 'ASC',
+    'meta_query'     => array(
+        'relation' => 'AND',
+        array(
+            'key'     => '_EventStartDate',
+            'value'   => date('Y-m-d H:i:s'),
+            'compare' => '>=',
+            'type'    => 'DATETIME',
+        ),
+        array(
+            'key'     => '_ticket_product_id',
+            'compare' => 'EXISTS',
+        ),
+    ),
+));
 ?>
 
 <div class="tickets-dashboard">
@@ -175,7 +180,12 @@ if (class_exists('Tribe__Events__Main')) {
                 ?>
                 <tr>
                     <td><?php echo esc_html($event->post_title); ?></td>
-                    <td><?php echo tribe_get_start_date($event); ?></td>
+                    <td>
+                        <?php
+                        $start = get_post_meta($event->ID, '_EventStartDate', true);
+                        echo $start ? esc_html(date_i18n('M j, Y g:i A', strtotime($start))) : '\u2014';
+                        ?>
+                    </td>
                     <td><?php echo number_format($tickets_sold); ?></td>
                     <td>
                         <a href="<?php echo get_edit_post_link($event->ID); ?>" class="button button-small">

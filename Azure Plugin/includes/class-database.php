@@ -204,83 +204,17 @@ class Azure_Database {
             KEY status (status)
         ) $charset_collate;";
         
-        // TEC Sync History table for tracking sync operations
-        $table_tec_sync_history = $wpdb->prefix . 'azure_tec_sync_history';
-        $sql_tec_sync_history = "CREATE TABLE $table_tec_sync_history (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            tec_event_id bigint(20) UNSIGNED NOT NULL,
-            outlook_event_id varchar(255),
-            sync_direction varchar(20) NOT NULL,
-            sync_action varchar(50) NOT NULL,
-            sync_status varchar(50) NOT NULL,
-            sync_message longtext,
-            data_before longtext,
-            data_after longtext,
-            conflict_resolution varchar(50),
-            sync_timestamp datetime DEFAULT CURRENT_TIMESTAMP,
-            created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY tec_event_id (tec_event_id),
-            KEY outlook_event_id (outlook_event_id),
-            KEY sync_direction (sync_direction),
-            KEY sync_status (sync_status),
-            KEY sync_timestamp (sync_timestamp)
-        ) $charset_collate;";
-        
-        // TEC Sync Conflicts table for manual resolution
-        $table_tec_sync_conflicts = $wpdb->prefix . 'azure_tec_sync_conflicts';
-        $sql_tec_sync_conflicts = "CREATE TABLE $table_tec_sync_conflicts (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            tec_event_id bigint(20) UNSIGNED NOT NULL,
-            outlook_event_id varchar(255) NOT NULL,
-            conflict_type varchar(50) NOT NULL,
-            tec_data longtext NOT NULL,
-            outlook_data longtext NOT NULL,
-            resolution_status varchar(50) DEFAULT 'pending',
-            resolution_method varchar(50),
-            resolved_by bigint(20) UNSIGNED,
-            resolved_at datetime,
-            created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY tec_event_id (tec_event_id),
-            KEY outlook_event_id (outlook_event_id),
-            KEY resolution_status (resolution_status),
-            KEY created_at (created_at)
-        ) $charset_collate;";
-        
-        // TEC Sync Queue table for batch processing
-        $table_tec_sync_queue = $wpdb->prefix . 'azure_tec_sync_queue';
-        $sql_tec_sync_queue = "CREATE TABLE $table_tec_sync_queue (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            tec_event_id bigint(20) UNSIGNED NOT NULL,
-            sync_direction varchar(20) NOT NULL,
-            sync_action varchar(50) NOT NULL,
-            priority int(11) DEFAULT 5,
-            status varchar(50) DEFAULT 'pending',
-            attempts int(11) DEFAULT 0,
-            max_attempts int(11) DEFAULT 3,
-            error_message longtext,
-            scheduled_at datetime DEFAULT CURRENT_TIMESTAMP,
-            processed_at datetime,
-            created_at datetime DEFAULT CURRENT_TIMESTAMP,
-            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY tec_event_id (tec_event_id),
-            KEY sync_direction (sync_direction),
-            KEY status (status),
-            KEY priority (priority),
-            KEY scheduled_at (scheduled_at)
-        ) $charset_collate;";
-        
-        // TEC Calendar Mappings table for Outlook calendar to TEC category mappings
-        $table_tec_calendar_mappings = $wpdb->prefix . 'azure_tec_calendar_mappings';
-        $sql_tec_calendar_mappings = "CREATE TABLE $table_tec_calendar_mappings (
+        // Calendar Mappings table: maps Outlook calendar IDs to PTA event
+        // categories for Calendar Sync. Replaces the legacy v3.x
+        // wp_azure_tec_calendar_mappings; the v3.97 migration renames the
+        // existing table and its tec_category_* columns in place.
+        $table_calendar_mappings = $wpdb->prefix . 'azure_calendar_mappings';
+        $sql_calendar_mappings = "CREATE TABLE $table_calendar_mappings (
             id mediumint(9) NOT NULL AUTO_INCREMENT,
             outlook_calendar_id varchar(255) NOT NULL,
             outlook_calendar_name varchar(255) NOT NULL,
-            tec_category_id bigint(20) UNSIGNED,
-            tec_category_name varchar(255) NOT NULL,
+            category_id bigint(20) UNSIGNED,
+            category_name varchar(255) NOT NULL,
             sync_enabled tinyint(1) DEFAULT 1,
             schedule_enabled tinyint(1) DEFAULT 0,
             schedule_frequency varchar(20) DEFAULT 'hourly',
@@ -487,13 +421,16 @@ class Azure_Database {
             KEY meta_key (meta_key(191))
         ) $charset_collate;";
 
-        // Volunteer Sheets table (links to TEC event or standalone)
+        // Volunteer Sheets table (links to a pta_event post or standalone).
+        // Column renamed from tec_event_id\u2192pta_event_id in the v3.97 TEC
+        // retirement; the migration MU-plugin uses ALTER TABLE CHANGE to
+        // preserve existing values.
         $table_volunteer_sheets = $wpdb->prefix . 'azure_volunteer_sheets';
         $sql_volunteer_sheets = "CREATE TABLE $table_volunteer_sheets (
             id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             title varchar(255) NOT NULL,
             description text,
-            tec_event_id bigint(20) UNSIGNED DEFAULT 0,
+            pta_event_id bigint(20) UNSIGNED DEFAULT 0,
             event_date datetime DEFAULT NULL,
             event_location varchar(500) DEFAULT '',
             status varchar(20) DEFAULT 'open',
@@ -501,7 +438,7 @@ class Azure_Database {
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            KEY tec_event_id (tec_event_id),
+            KEY pta_event_id (pta_event_id),
             KEY status (status)
         ) $charset_collate;";
 
@@ -563,10 +500,7 @@ class Azure_Database {
         dbDelta($sql_email_tokens);
         dbDelta($sql_email_logs);
         dbDelta($sql_activity_log);
-        dbDelta($sql_tec_sync_history);
-        dbDelta($sql_tec_sync_conflicts);
-        dbDelta($sql_tec_sync_queue);
-        dbDelta($sql_tec_calendar_mappings);
+        dbDelta($sql_calendar_mappings);
         dbDelta($sql_onedrive_files);
         dbDelta($sql_onedrive_sync_queue);
         dbDelta($sql_onedrive_tokens);
@@ -1087,10 +1021,7 @@ class Azure_Database {
             'email_tokens' => $wpdb->prefix . 'azure_email_tokens',
             'email_logs' => $wpdb->prefix . 'azure_email_logs',
             'activity_log' => $wpdb->prefix . 'azure_activity_log',
-            'tec_sync_history' => $wpdb->prefix . 'azure_tec_sync_history',
-            'tec_sync_conflicts' => $wpdb->prefix . 'azure_tec_sync_conflicts',
-            'tec_sync_queue' => $wpdb->prefix . 'azure_tec_sync_queue',
-            'tec_calendar_mappings' => $wpdb->prefix . 'azure_tec_calendar_mappings',
+            'calendar_mappings' => $wpdb->prefix . 'azure_calendar_mappings',
             'onedrive_files' => $wpdb->prefix . 'azure_onedrive_files',
             'onedrive_sync_queue' => $wpdb->prefix . 'azure_onedrive_sync_queue',
             'onedrive_tokens' => $wpdb->prefix . 'azure_onedrive_tokens',
@@ -1207,31 +1138,7 @@ class Azure_Database {
             ));
         }
         
-        // Clean up old TEC sync history
-        $tec_sync_history_table = self::get_table_name('tec_sync_history');
-        if ($tec_sync_history_table) {
-            $wpdb->query($wpdb->prepare(
-                "DELETE FROM {$tec_sync_history_table} WHERE created_at < %s",
-                $date_threshold
-            ));
-        }
-        
-        // Clean up resolved TEC sync conflicts
-        $tec_sync_conflicts_table = self::get_table_name('tec_sync_conflicts');
-        if ($tec_sync_conflicts_table) {
-            $wpdb->query($wpdb->prepare(
-                "DELETE FROM {$tec_sync_conflicts_table} WHERE created_at < %s AND resolution_status = 'resolved'",
-                $date_threshold
-            ));
-        }
-        
-        // Clean up processed TEC sync queue items
-        $tec_sync_queue_table = self::get_table_name('tec_sync_queue');
-        if ($tec_sync_queue_table) {
-            $wpdb->query($wpdb->prepare(
-                "DELETE FROM {$tec_sync_queue_table} WHERE created_at < %s AND status IN ('completed', 'failed')",
-                $date_threshold
-            ));
-        }
+        // TEC sync history/conflicts/queue tables were retired in v3.97;
+        // the migration MU-plugin drops them. Nothing to clean up here.
     }
 }

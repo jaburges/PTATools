@@ -28,20 +28,13 @@ class Azure_Classes_Module {
             return;
         }
         
-        // Check if The Events Calendar is active.
-        // Suppress the TEC dependency nag when running in pta-owner mode
-        // (pta_calendar_owner = 'pta' or 'both'), where the native
-        // pta_event CPT replaces TEC for the calendar feed. Matches the
-        // guard used in Azure_TEC_Integration.
-        if (!class_exists('Tribe__Events__Main')) {
-            $pta_owner_active = class_exists('Azure_Event_CPT')
-                && Azure_Event_CPT::is_pta_owner_active();
-            if (!$pta_owner_active) {
-                add_action('admin_notices', array($this, 'tec_missing_notice'));
-            }
+        // Event-store dependency: the Classes module needs the pta_event CPT
+        // to be registered. Azure_Event_CPT registers pta_event on `init`.
+        if (!class_exists('Azure_Event_CPT')) {
+            add_action('admin_notices', array($this, 'event_cpt_missing_notice'));
             return;
         }
-        
+
         $this->init_hooks();
         $this->load_dependencies();
         
@@ -408,13 +401,14 @@ class Azure_Classes_Module {
     }
     
     /**
-     * Admin notice for missing The Events Calendar
+     * Admin notice for missing pta_event CPT class (extremely unlikely \u2014
+     * Azure_Event_CPT is part of the plugin itself).
      */
-    public function tec_missing_notice() {
+    public function event_cpt_missing_notice() {
         ?>
         <div class="notice notice-error">
-            <p><strong><?php _e('Azure Classes Module:', 'azure-plugin'); ?></strong> 
-            <?php _e('The Events Calendar is required for the Classes module to function. Please install and activate The Events Calendar.', 'azure-plugin'); ?></p>
+            <p><strong><?php _e('Azure Classes Module:', 'azure-plugin'); ?></strong>
+            <?php _e('The PTA event CPT failed to register. Disable and re-enable the plugin, or check the error log.', 'azure-plugin'); ?></p>
         </div>
         <?php
     }

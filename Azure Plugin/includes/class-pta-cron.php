@@ -68,7 +68,6 @@ class Azure_PTA_Cron {
             );
         }
 
-        // TEC Sync Scheduler
         if (!isset($schedules['every_15_minutes'])) {
             $schedules['every_15_minutes'] = array(
                 'interval' => 15 * 60,
@@ -185,10 +184,10 @@ class Azure_PTA_Cron {
             // ── Logger cleanup (always on; cleans up our own logs) ───────
             self::ensure('azure_plugin_cleanup_logs', 'daily', time() + DAY_IN_SECONDS);
 
-            // Backup, TEC, Auction, and OneDrive Media still schedule their
-            // own positive/feature-specific events (admin-toggled or
-            // per-mapping), but this central pass removes stale rows when
-            // their parent module has been disabled.
+            // Backup, Auction, and OneDrive Media still schedule their own
+            // feature-specific events (admin-toggled or per-mapping), but
+            // this central pass removes stale rows when their parent module
+            // has been disabled.
         } catch (\Throwable $e) {
             if (class_exists('Azure_Logger')) {
                 Azure_Logger::warning('PTA Cron: ensure_events_scheduled error - ' . $e->getMessage(), array('module' => 'Cron'));
@@ -273,12 +272,11 @@ class Azure_PTA_Cron {
             wp_clear_scheduled_hook('azure_sso_scheduled_sync');
         }
 
-        // TEC's per-mapping cron hooks are dynamic (`azure_tec_mapping_sync_42`)
-        // so they need a prefix sweep when the TEC integration module is off.
-        if (empty($settings['enable_tec_integration'])) {
-            wp_clear_scheduled_hook('azure_tec_scheduled_sync');
-            self::clear_hooks_by_prefix('azure_tec_mapping_sync_');
-        }
+        // TEC integration was retired in v3.97. Sweep any lingering cron
+        // rows left over from old installs so wp-cron doesn't keep trying
+        // to fire callbacks that no longer exist.
+        wp_clear_scheduled_hook('azure_tec_scheduled_sync');
+        self::clear_hooks_by_prefix('azure_tec_mapping_sync_');
 
         // Auction has per-auction one-shot events keyed by product id
         // (`azure_auction_finalize` with [product_id] args). When the module

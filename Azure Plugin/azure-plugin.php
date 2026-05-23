@@ -3,8 +3,8 @@
  * Plugin Name: PTA Tools
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
- * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar, email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.96
+ * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
+ * Version: 3.97
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.96');
+define('AZURE_PLUGIN_VERSION', '3.97');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -657,36 +657,11 @@ class AzurePlugin {
                 $this->init_calendar_components($ctx);
             }
 
-            // TEC AJAX handlers must register on every admin request so
-            // settings/toggle/auth AJAX still works while the module is mid-enable.
-            if ($ctx['is_admin']) {
-                $this->require_module_files(array('class-tec-integration-ajax.php'));
-                if (class_exists('Azure_TEC_Integration_Ajax')) {
-                    try {
-                        new Azure_TEC_Integration_Ajax();
-                    } catch (\Throwable $e) {
-                        error_log('Azure Plugin: Failed to init TEC AJAX handlers - ' . $e->getMessage());
-                    }
-                }
-            }
-
             // PTA Tools native event CPT (pta_event/pta_venue/pta_organizer).
-            // Phase 0 of the TEC -> pta_event migration. Feature-flagged
-            // via `pta_calendar_owner`; default 'tec' means this is a
-            // no-op load that just makes the class available without
-            // registering any post types. See docs/internal/TECmigration.md.
-            //
-            // IMPORTANT: must load BEFORE init_tec_components() so that
-            // Azure_TEC_Integration's constructor can call
-            // Azure_Event_CPT::is_pta_owner_active() to suppress the
-            // "TEC plugin required" nag when pta_calendar_owner is
-            // 'pta' or 'both'.
+            // This is the canonical event store \u2014 the legacy TEC integration
+            // and its dual-write phase were retired in v3.97. See
+            // docs/tec-retirement-audit-2026-05-22.md.
             $this->init_events_components($ctx);
-
-            if (!empty($settings['enable_tec_integration'])) {
-                PTA_Trace::module('tec');
-                $this->init_tec_components($ctx);
-            }
 
             // Email Logger filters wp_mail; mail can be sent from any context
             // (form submits, password resets, cron jobs), so keep it global.
@@ -928,54 +903,17 @@ class AzurePlugin {
     }
 
     /**
-     * TEC integration: 100% admin/cron — sync engine, scheduler, mappings.
-     * (TEC AJAX handlers are registered separately in init() so save/auth keeps
-     * working while the toggle is mid-enable.)
-     */
-    private function init_tec_components($ctx) {
-        if (!$ctx['is_backend']) {
-            return;
-        }
-        try {
-            $this->require_module_files(array(
-                'class-tec-integration.php',
-                'class-tec-sync-engine.php',
-                'class-tec-data-mapper.php',
-                'class-tec-calendar-mapping-manager.php',
-                'class-tec-sync-scheduler.php',
-            ));
-
-            if (class_exists('Azure_TEC_Integration')) {
-                Azure_TEC_Integration::get_instance();
-            }
-            if (class_exists('Azure_TEC_Sync_Scheduler')) {
-                new Azure_TEC_Sync_Scheduler();
-            }
-        } catch (\Throwable $e) {
-            Azure_Logger::error('TEC init failed: ' . $e->getMessage(), array('module' => 'TEC', 'file' => $e->getFile(), 'line' => $e->getLine()));
-            error_log('Azure Plugin: TEC init error - ' . $e->getMessage());
-        }
-    }
-
-    /**
      * PTA Tools native event types (pta_event / pta_venue / pta_organizer).
      *
-     * Phase 0 of the TEC -> pta_event migration: load the class on every
-     * context (admin, frontend, REST, cron) so that the post type is
-     * available wherever WP queries it, but only actually register the
-     * types when `pta_calendar_owner` flag is set to 'both' or 'pta'.
-     *
-     * Default flag value is 'tec', which means this is a near-zero-cost
-     * load that just makes the class available without registering
-     * anything. See docs/internal/TECmigration.md.
+     * Loaded on every context (admin, frontend, REST, cron) so the post
+     * types are available wherever WP queries them. This replaced the
+     * legacy TEC integration in v3.97.
      */
     private function init_events_components($ctx) {
         try {
             $this->require_module_files(array('class-event-cpt.php'));
 
             if (class_exists('Azure_Event_CPT')) {
-                // The constructor only attaches an `init` hook; the
-                // hook itself early-exits when the owner flag is 'tec'.
                 Azure_Event_CPT::get_instance();
             }
         } catch (\Throwable $e) {
@@ -1281,12 +1219,8 @@ class AzurePlugin {
      */
     private function register_upcoming_shortcode_lazy() {
         $invalidate_up_next = function ($post_id = 0) {
-            // Phase 4: pta_event is also a valid event source. Both
-            // post types invalidate the [up-next] cache so admins see
-            // updates regardless of which post type they edit.
             if ($post_id && function_exists('get_post_type')) {
-                $pt = get_post_type($post_id);
-                if ($pt !== 'tribe_events' && $pt !== 'pta_event') {
+                if (get_post_type($post_id) !== 'pta_event') {
                     return;
                 }
             }
@@ -1300,12 +1234,10 @@ class AzurePlugin {
         };
 
         // The [up-next] shortcode is cached weekly. Bump the cache version
-        // whenever event posts change so editors see updates without
-        // waiting for the weekly TTL to expire. These hooks are cheap and
-        // only fire on event edits/deletes, not on normal visitor requests.
-        add_action('save_post_tribe_events', $invalidate_up_next, 10, 1);
-        add_action('save_post_pta_event',    $invalidate_up_next, 10, 1);
-        add_action('before_delete_post', $invalidate_up_next, 10, 1);
+        // whenever a pta_event is edited so admins see updates without
+        // waiting for the weekly TTL to expire.
+        add_action('save_post_pta_event', $invalidate_up_next, 10, 1);
+        add_action('before_delete_post',  $invalidate_up_next, 10, 1);
 
         if (shortcode_exists('up-next')) {
             return;
@@ -1600,7 +1532,6 @@ class AzurePlugin {
                     'enable_calendar' => false,
                     'enable_email' => false,
                     'enable_pta' => false,
-                    'enable_tec_integration' => false,
                     
                     // Common credentials
                     'use_common_credentials' => true,
@@ -1663,17 +1594,9 @@ class AzurePlugin {
                     'email_acs_from_email' => '',
                     'email_acs_display_name' => '',
                     'email_acs_override_wp_mail' => false,
-                    
-                    // TEC Integration specific settings
-                    'tec_outlook_calendar_id' => 'primary',
-                    'tec_default_venue' => 'School Campus',
-                    'tec_default_organizer' => 'PTSA',
-                    'tec_organizer_email' => get_option('admin_email'),
-                    'tec_sync_frequency' => 'hourly',
-                    'tec_conflict_resolution' => 'outlook_wins',
-                    'tec_include_event_url' => true,
-                    'tec_event_footer' => '',
-                    'tec_default_category' => 'School Event'
+
+                    // PTA event calendar settings (replaces legacy TEC integration in v3.97)
+                    'pta_calendar_owner' => 'pta',
                 );
                 update_option('azure_plugin_settings', $default_settings);
                 Azure_Logger::info('Default settings created');

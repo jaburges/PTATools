@@ -33,7 +33,7 @@ if (!defined('ABSPATH')) {
             <h2>Module Status</h2>
             
             <?php
-            $calendar_enabled = $settings['enable_calendar'] || ($settings['enable_tec_integration'] ?? false);
+            $calendar_enabled = !empty($settings['enable_calendar']);
             $selling_any = ($settings['enable_auction'] ?? false) || ($settings['enable_classes'] ?? false) || ($settings['enable_product_fields'] ?? false) || ($settings['enable_donations'] ?? false);
             ?>
             <div class="module-cards">
@@ -81,15 +81,8 @@ if (!defined('ABSPATH')) {
                         </div>
                     </div>
                     <div class="module-description">
-                        <p>Calendar embed, sync with The Events Calendar, upcoming events, and volunteer sign-ups.</p>
+                        <p>Calendar embed, native PTA event calendar (pta_event), upcoming events, and volunteer sign-ups.</p>
                         <div class="sub-modules">
-                            <label class="sub-module-item">
-                                <label class="switch-mini">
-                                    <input type="checkbox" class="module-toggle" data-module="tec_integration" <?php checked($settings['enable_tec_integration'] ?? false); ?> />
-                                    <span class="slider"></span>
-                                </label>
-                                Calendar Sync (TEC)
-                            </label>
                             <label class="sub-module-item">
                                 <label class="switch-mini">
                                     <input type="checkbox" class="module-toggle" data-module="volunteer" <?php checked($settings['enable_volunteer'] ?? false); ?> />
@@ -314,7 +307,6 @@ if (!defined('ABSPATH')) {
                 <input type="hidden" name="enable_calendar" id="hidden_enable_calendar" value="<?php echo $settings['enable_calendar'] ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_email" id="hidden_enable_email" value="<?php echo $settings['enable_email'] ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_pta" id="hidden_enable_pta" value="<?php echo $settings['enable_pta'] ? '1' : '0'; ?>" />
-                <input type="hidden" name="enable_tec_integration" id="hidden_enable_tec_integration" value="<?php echo ($settings['enable_tec_integration'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_onedrive_media" id="hidden_enable_onedrive_media" value="<?php echo ($settings['enable_onedrive_media'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_classes" id="hidden_enable_classes" value="<?php echo ($settings['enable_classes'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_newsletter" id="hidden_enable_newsletter" value="<?php echo ($settings['enable_newsletter'] ?? false) ? '1' : '0'; ?>" />
@@ -402,7 +394,7 @@ if (!defined('ABSPATH')) {
                             <td>
                                 <?php
                                 $debug_modules = $settings['debug_modules'] ?? array();
-                                $available_modules = array('Core', 'SSO', 'Calendar', 'TEC', 'Email', 'Backup', 'PTA', 'OneDrive');
+                                $available_modules = array('Core', 'SSO', 'Calendar', 'Email', 'Backup', 'PTA', 'OneDrive');
                                 foreach ($available_modules as $module):
                                 ?>
                                 <label style="display: inline-block; margin-right: 15px; margin-bottom: 5px;">

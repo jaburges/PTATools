@@ -112,7 +112,7 @@ foreach ($class_products as $product) {
                     <span class="dashicons dashicons-building"></span>
                     <?php _e('Manage Providers', 'azure-plugin'); ?>
                 </a>
-                <a href="<?php echo admin_url('edit.php?post_type=tribe_venue'); ?>" class="button">
+                <a href="<?php echo admin_url('edit.php?post_type=pta_venue'); ?>" class="button">
                     <span class="dashicons dashicons-location"></span>
                     <?php _e('Manage Venues', 'azure-plugin'); ?>
                 </a>
@@ -257,7 +257,7 @@ foreach ($class_products as $product) {
             <div class="step">
                 <div class="step-number">2</div>
                 <h4><?php _e('Events Created Automatically', 'azure-plugin'); ?></h4>
-                <p><?php _e('When you save the product, TEC events are automatically created for each session under the "Enrichment" category.', 'azure-plugin'); ?></p>
+                <p><?php _e('When you save the product, calendar events are automatically created for each session under the "Enrichment" category.', 'azure-plugin'); ?></p>
             </div>
             
             <div class="step">

@@ -384,61 +384,58 @@ class Azure_Tickets_Module {
     }
     
     /**
-     * AJAX: Save venue (TEC integration)
-     * Saves seating layout to TEC venue post meta
+     * AJAX: Save venue.
+     * Creates a pta_venue (or updates an existing one) and stores the
+     * seating layout JSON in postmeta. Legacy tribe_venue posts are
+     * accepted for update so existing data keeps working until the
+     * migration runs.
      */
     public function ajax_save_venue() {
         check_ajax_referer('azure_tickets_nonce', 'nonce');
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => 'Permission denied'));
         }
-        
-        // Check if TEC is active
-        if (!class_exists('Tribe__Events__Main')) {
-            wp_send_json_error(array('message' => 'The Events Calendar is required'));
-        }
-        
+
         $venue_id = intval($_POST['venue_id'] ?? 0);
         $layout_json = wp_unslash($_POST['layout_json'] ?? '{}');
-        
-        // Validate JSON
+
         $layout = json_decode($layout_json);
         if (json_last_error() !== JSON_ERROR_NONE) {
             wp_send_json_error(array('message' => 'Invalid layout JSON'));
         }
-        
-        // If no venue_id, we're creating a new TEC venue
+
         if ($venue_id === 0) {
             $name = sanitize_text_field($_POST['name'] ?? '');
             $address = sanitize_text_field($_POST['address'] ?? '');
             $city = sanitize_text_field($_POST['city'] ?? '');
-            
+
             if (empty($name)) {
                 wp_send_json_error(array('message' => 'Venue name is required'));
             }
-            
-            // Create a new TEC venue
-            $venue_data = array(
-                'Venue' => $name,
-                'Address' => $address,
-                'City' => $city,
-            );
-            
-            $venue_id = tribe_create_venue($venue_data);
-            
+
+            // Create a new pta_venue post.
+            $venue_id = wp_insert_post(array(
+                'post_title'  => $name,
+                'post_type'   => 'pta_venue',
+                'post_status' => 'publish',
+            ), true);
+
             if (is_wp_error($venue_id) || !$venue_id) {
                 wp_send_json_error(array('message' => 'Failed to create venue'));
             }
+
+            // Shared meta schema with the legacy TEC tribe_venue (see
+            // class-event-cpt.php) so address fields stay portable.
+            if ($address !== '') update_post_meta($venue_id, '_VenueAddress', $address);
+            if ($city !== '')    update_post_meta($venue_id, '_VenueCity', $city);
         } else {
-            // Verify venue exists and is a TEC venue
             $venue = get_post($venue_id);
-            if (!$venue || $venue->post_type !== 'tribe_venue') {
+            if (!$venue || !in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
                 wp_send_json_error(array('message' => 'Invalid venue'));
             }
         }
-        
-        // Save the seating layout as post meta
+
         update_post_meta($venue_id, '_azure_seating_layout', $layout_json);
         
         // Calculate and store capacity
@@ -475,27 +472,28 @@ class Azure_Tickets_Module {
     }
     
     /**
-     * AJAX: Get venue (TEC integration)
+     * AJAX: Get venue (with seating layout if present).
+     * Accepts pta_venue or legacy tribe_venue posts.
      */
     public function ajax_get_venue() {
         check_ajax_referer('azure_tickets_nonce', 'nonce');
-        
+
         $venue_id = intval($_POST['venue_id'] ?? 0);
         $venue = get_post($venue_id);
-        
-        if (!$venue || $venue->post_type !== 'tribe_venue') {
+
+        if (!$venue || !in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
             wp_send_json_error(array('message' => 'Venue not found'));
         }
-        
+
         $layout_json = get_post_meta($venue_id, '_azure_seating_layout', true);
-        
+
         wp_send_json_success(array(
             'venue' => array(
                 'id' => $venue_id,
                 'name' => $venue->post_title,
                 'layout_json' => $layout_json ?: '{"canvas":{"width":800,"height":600},"blocks":[]}',
-                'address' => tribe_get_address($venue_id),
-                'city' => tribe_get_city($venue_id)
+                'address' => get_post_meta($venue_id, '_VenueAddress', true),
+                'city'    => get_post_meta($venue_id, '_VenueCity', true),
             )
         ));
     }
@@ -504,44 +502,42 @@ class Azure_Tickets_Module {
      * AJAX: Delete venue
      */
     /**
-     * AJAX: Delete venue seating layout (TEC integration)
-     * Only removes the seating layout, not the TEC venue itself
+     * AJAX: Delete venue seating layout.
+     * Only removes the seating layout, not the venue post itself.
      */
     public function ajax_delete_venue() {
         check_ajax_referer('azure_tickets_nonce', 'nonce');
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => 'Permission denied'));
         }
-        
+
         $venue_id = intval($_POST['venue_id'] ?? 0);
         $venue = get_post($venue_id);
-        
-        if (!$venue || $venue->post_type !== 'tribe_venue') {
+
+        if (!$venue || !in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
             wp_send_json_error(array('message' => 'Invalid venue'));
         }
-        
-        // Remove the seating layout from the venue
+
         delete_post_meta($venue_id, '_azure_seating_layout');
         delete_post_meta($venue_id, '_azure_seating_capacity');
-        
+
         wp_send_json_success(array('message' => 'Seating layout removed from venue'));
     }
-    
+
     /**
-     * AJAX: Get seat availability (TEC integration)
+     * AJAX: Get seat availability for a ticket product's venue.
      */
     public function ajax_get_availability() {
         $product_id = intval($_POST['product_id'] ?? 0);
         $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
-        
+
         if (!$venue_id) {
             wp_send_json_error(array('message' => 'No venue configured'));
         }
-        
-        // Get venue from TEC
+
         $venue = get_post($venue_id);
-        if (!$venue || $venue->post_type !== 'tribe_venue') {
+        if (!$venue || !in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
             wp_send_json_error(array('message' => 'Venue not found'));
         }
         
@@ -780,19 +776,16 @@ class Azure_Tickets_Module {
             )) ?: 0;
         }
         
-        // Count TEC venues with seating layouts
-        if (class_exists('Tribe__Events__Main')) {
-            $tec_venues = get_posts(array(
-                'post_type' => 'tribe_venue',
-                'posts_per_page' => -1,
-                'post_status' => 'publish',
-                'fields' => 'ids'
-            ));
-            
-            foreach ($tec_venues as $venue_id) {
-                if (get_post_meta($venue_id, '_azure_seating_layout', true)) {
-                    $stats['total_venues']++;
-                }
+        // Count venues with seating layouts (pta_venue + legacy tribe_venue).
+        $venues = get_posts(array(
+            'post_type'      => array('pta_venue', 'tribe_venue'),
+            'posts_per_page' => -1,
+            'post_status'    => 'publish',
+            'fields'         => 'ids',
+        ));
+        foreach ($venues as $venue_id) {
+            if (get_post_meta($venue_id, '_azure_seating_layout', true)) {
+                $stats['total_venues']++;
             }
         }
         

@@ -51,10 +51,6 @@ class Azure_Admin {
             add_action('wp_ajax_azure_save_calendar_timezone', array($this, 'ajax_save_calendar_timezone'));
             add_action('wp_ajax_azure_calendar_get_events', array($this, 'ajax_calendar_get_events'));
             
-            // TEC Calendar AJAX handlers live in Azure_TEC_Integration_Ajax
-            // (registered unconditionally in azure-plugin.php init so they fire
-            // even when enable_tec_integration has just been toggled on)
-
             
             // OneDrive Media AJAX handlers
             add_action('wp_ajax_azure_onedrive_authorize', array($this, 'ajax_onedrive_authorize'));
@@ -310,15 +306,7 @@ class Azure_Admin {
                 wp_enqueue_style('azure-email-frontend', AZURE_PLUGIN_URL . 'css/email-frontend.css', array(), $cache_version);
                 break;
             case 'azure-plugin-calendar':
-                $tab = isset($_GET['tab']) ? $_GET['tab'] : 'embed';
                 wp_enqueue_style('azure-calendar-frontend', AZURE_PLUGIN_URL . 'css/calendar-frontend.css', array(), $cache_version);
-                if ($tab === 'sync') {
-                    wp_enqueue_script('azure-tec-admin', AZURE_PLUGIN_URL . 'js/tec-admin.js', array('jquery'), $cache_version, true);
-                    wp_localize_script('azure-tec-admin', 'azureTecAdmin', array(
-                        'ajaxUrl' => admin_url('admin-ajax.php'),
-                        'nonce' => wp_create_nonce('azure_plugin_nonce')
-                    ));
-                }
                 break;
             case 'azure-plugin-newsletter':
                 // Newsletter admin styles and scripts
@@ -645,15 +633,6 @@ class Azure_Admin {
         }
     }
     
-    public function admin_page_tec() {
-        try {
-            $settings = Azure_Settings::get_all_settings();
-            include AZURE_PLUGIN_PATH . 'admin/tec-integration-page.php';
-        } catch (Exception $e) {
-            $this->render_error_page('TEC Calendar Sync', $e);
-        }
-    }
-    
     public function admin_page_email() {
         try {
             $settings = Azure_Settings::get_all_settings();
@@ -929,7 +908,7 @@ class Azure_Admin {
         $enabled = $_POST['enabled'] === 'true';
         
         // Validate module name
-        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'tec_integration', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer');
+        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer');
         if (!in_array($module, $valid_modules)) {
             wp_send_json_error('Invalid module name: ' . $module);
         }
@@ -2242,11 +2221,6 @@ class Azure_Admin {
         }
     }
     
-    // ==========================================
-    // TEC Calendar AJAX Handlers moved to Azure_TEC_Integration_Ajax
-    // (see includes/class-tec-integration-ajax.php)
-    // ==========================================
-
     /**
      * AJAX: OneDrive authorization
      */
@@ -2639,14 +2613,13 @@ class Azure_Admin {
             );
         }
         
-        // TEC Events widget (if The Events Calendar is active)
-        if (class_exists('Tribe__Events__Main')) {
-            wp_add_dashboard_widget(
-                'azure_tec_events_stats',
-                __('Upcoming Events', 'azure-plugin'),
-                array($this, 'render_tec_events_widget')
-            );
-        }
+        // Upcoming events widget (reads from pta_event CPT).
+        wp_add_dashboard_widget(
+            'azure_pta_events_stats',
+            __('Upcoming Events', 'azure-plugin'),
+            array($this, 'render_pta_events_widget')
+        );
+
         
         // OneDrive Media widget (if enabled)
         if (Azure_Settings::is_module_enabled('onedrive_media')) {
@@ -2713,11 +2686,9 @@ class Azure_Admin {
             <div class="enabled-modules">
                 <?php
                 $deps = array(
-                    array('The Events Calendar', class_exists('Tribe__Events__Main'), 'the-events-calendar'),
                     array('WooCommerce', class_exists('WooCommerce'), 'woocommerce'),
                     array('Forminator', class_exists('Forminator'), 'forminator'),
                     array('Beaver Builder', class_exists('FLBuilder'), 'beaver-builder-lite-version'),
-                    array('Event Tickets', class_exists('Tribe__Tickets__Main'), 'event-tickets'),
                 );
                 foreach ($deps as $dep):
                     $color = $dep[1] ? '#46b450' : '#dc3232';
@@ -2985,28 +2956,25 @@ class Azure_Admin {
             'sync_errors' => 0
         );
         
-        // Get calendar mappings
-        $mappings_table = Azure_Database::get_table_name('tec_calendar_mappings');
+        // Get calendar mappings (was wp_azure_tec_calendar_mappings, renamed
+        // to wp_azure_calendar_mappings in the v3.97 TEC retirement migration).
+        $mappings_table = Azure_Database::get_table_name('calendar_mappings');
         if ($mappings_table && $wpdb->get_var("SHOW TABLES LIKE '{$mappings_table}'") === $mappings_table) {
             $stats['mappings_count'] = $wpdb->get_var("SELECT COUNT(*) FROM {$mappings_table} WHERE sync_enabled = 1") ?: 0;
-            
-            // Get last sync time
             $last_sync = $wpdb->get_var("SELECT MAX(last_sync) FROM {$mappings_table} WHERE sync_enabled = 1");
             $stats['last_sync'] = $last_sync;
         }
-        
-        // Count events with Outlook sync
-        if (class_exists('Tribe__Events__Main')) {
-            $stats['events_synced'] = $wpdb->get_var(
-                "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
-                 INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
-                 WHERE p.post_type = 'tribe_events' 
-                 AND p.post_status = 'publish'
-                 AND pm.meta_key = '_outlook_event_id'
-                 AND pm.meta_value IS NOT NULL 
-                 AND pm.meta_value != ''"
-            ) ?: 0;
-        }
+
+        // Count pta_event posts with an Outlook source ID (i.e. Calendar Sync pulled them in).
+        $stats['events_synced'] = (int) $wpdb->get_var(
+            "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
+             WHERE p.post_type = 'pta_event'
+             AND p.post_status = 'publish'
+             AND pm.meta_key = '_outlook_event_id'
+             AND pm.meta_value IS NOT NULL
+             AND pm.meta_value != ''"
+        );
         ?>
         <style>
             .azure-calendar-sync-widget .dashboard-widget-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 15px; }
@@ -3043,59 +3011,39 @@ class Azure_Admin {
     }
     
     /**
-     * Render TEC Events Widget
+     * Render Upcoming Events Widget (reads from pta_event CPT).
      */
-    public function render_tec_events_widget() {
+    public function render_pta_events_widget() {
+        global $wpdb;
+
+        $count_in_range = function ($start_sql, $end_sql) use ($wpdb) {
+            return (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p
+                 INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
+                 WHERE p.post_type = 'pta_event'
+                 AND p.post_status = 'publish'
+                 AND pm.meta_key = '_EventStartDate'
+                 AND pm.meta_value BETWEEN %s AND %s",
+                $start_sql,
+                $end_sql
+            ));
+        };
+
         $stats = array(
-            'this_week' => 0,
-            'next_week' => 0,
-            'total_upcoming' => 0
+            'this_week'      => $count_in_range(date('Y-m-d 00:00:00'), date('Y-m-d 23:59:59', strtotime('next Sunday'))),
+            'next_week'      => $count_in_range(date('Y-m-d 00:00:00', strtotime('next Monday')), date('Y-m-d 23:59:59', strtotime('next Monday +6 days'))),
+            'total_upcoming' => $count_in_range(date('Y-m-d 00:00:00'), date('Y-m-d 23:59:59', strtotime('+30 days'))),
         );
-        
-        if (class_exists('Tribe__Events__Main')) {
-            // Events this week
-            $this_week_start = date('Y-m-d');
-            $this_week_end = date('Y-m-d', strtotime('next Sunday'));
-            
-            $this_week_events = tribe_get_events(array(
-                'start_date' => $this_week_start,
-                'end_date' => $this_week_end,
-                'posts_per_page' => -1,
-                'fields' => 'ids'
-            ));
-            $stats['this_week'] = count($this_week_events);
-            
-            // Events next week
-            $next_week_start = date('Y-m-d', strtotime('next Monday'));
-            $next_week_end = date('Y-m-d', strtotime('next Monday +6 days'));
-            
-            $next_week_events = tribe_get_events(array(
-                'start_date' => $next_week_start,
-                'end_date' => $next_week_end,
-                'posts_per_page' => -1,
-                'fields' => 'ids'
-            ));
-            $stats['next_week'] = count($next_week_events);
-            
-            // Total upcoming (next 30 days)
-            $upcoming_events = tribe_get_events(array(
-                'start_date' => 'now',
-                'end_date' => date('Y-m-d', strtotime('+30 days')),
-                'posts_per_page' => -1,
-                'fields' => 'ids'
-            ));
-            $stats['total_upcoming'] = count($upcoming_events);
-        }
         ?>
         <style>
-            .azure-tec-events-widget .dashboard-widget-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
-            .azure-tec-events-widget .stat-card { background: #f9f9f9; padding: 12px; text-align: center; border-radius: 4px; border-left: 3px solid #0078d4; }
-            .azure-tec-events-widget .stat-card .stat-number { font-size: 22px; font-weight: 700; color: #1d2327; }
-            .azure-tec-events-widget .stat-card .stat-label { font-size: 11px; color: #646970; text-transform: uppercase; }
-            .azure-tec-events-widget .stat-card.primary { border-left-color: #0078d4; }
-            .azure-tec-events-widget .stat-card.info { border-left-color: #72aee6; }
+            .azure-pta-events-widget .dashboard-widget-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
+            .azure-pta-events-widget .stat-card { background: #f9f9f9; padding: 12px; text-align: center; border-radius: 4px; border-left: 3px solid #0078d4; }
+            .azure-pta-events-widget .stat-card .stat-number { font-size: 22px; font-weight: 700; color: #1d2327; }
+            .azure-pta-events-widget .stat-card .stat-label { font-size: 11px; color: #646970; text-transform: uppercase; }
+            .azure-pta-events-widget .stat-card.primary { border-left-color: #0078d4; }
+            .azure-pta-events-widget .stat-card.info { border-left-color: #72aee6; }
         </style>
-        <div class="azure-tec-events-widget">
+        <div class="azure-pta-events-widget">
             <div class="dashboard-widget-stats">
                 <div class="stat-card primary">
                     <div class="stat-number"><?php echo number_format($stats['this_week']); ?></div>
@@ -3110,8 +3058,8 @@ class Azure_Admin {
                     <div class="stat-label"><?php _e('Next 30 Days', 'azure-plugin'); ?></div>
                 </div>
             </div>
-            
-            <a href="<?php echo admin_url('edit.php?post_type=tribe_events'); ?>" class="button">
+
+            <a href="<?php echo admin_url('edit.php?post_type=pta_event'); ?>" class="button">
                 <?php _e('View Events', 'azure-plugin'); ?>
             </a>
         </div>

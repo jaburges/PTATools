@@ -12,9 +12,9 @@ if (!defined('ABSPATH')) {
 }
 
 // Get TEC categories for reference
-$tec_categories = array();
+$event_categories = array();
 if (class_exists('Azure_Upcoming_Module')) {
-    $tec_categories = Azure_Upcoming_Module::get_tec_categories();
+    $event_categories = Azure_Upcoming_Module::get_event_categories();
 }
 ?>
 
@@ -153,13 +153,13 @@ if (class_exists('Azure_Upcoming_Module')) {
     next-week-title="Coming Up"]</pre>
         </div>
         
-        <?php if (!empty($tec_categories)) : ?>
+        <?php if (!empty($event_categories)) : ?>
         <!-- Available Categories Card -->
         <div class="azure-card">
             <h2><?php _e('Available TEC Categories', 'azure-plugin'); ?></h2>
             <p><?php _e('These are the event categories currently configured in The Events Calendar. Use these exact names (case-sensitive) in the <code>exclude-categories</code> attribute:', 'azure-plugin'); ?></p>
             <div class="azure-category-list">
-                <?php foreach ($tec_categories as $cat) : ?>
+                <?php foreach ($event_categories as $cat) : ?>
                 <span class="azure-category-tag"><?php echo esc_html($cat); ?></span>
                 <?php endforeach; ?>
             </div>

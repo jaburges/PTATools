@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) {
 $settings = Azure_Settings::get_all_settings();
 $volunteer_enabled = $settings['enable_volunteer'] ?? false;
 $sheets = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::get_sheets() : array();
-$tec_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::get_tec_events_for_dropdown() : array();
+$pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::get_pta_events_for_dropdown() : array();
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -101,19 +101,20 @@ $tec_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
                     <th><label for="azure-vs-description"><?php _e('Description', 'azure-plugin'); ?></label></th>
                     <td><textarea id="azure-vs-description" rows="2" class="large-text"></textarea></td>
                 </tr>
-                <?php if (!empty($tec_events)): ?>
+                <?php if (!empty($pta_events)): ?>
                 <tr>
-                    <th><label for="azure-vs-tec-event"><?php _e('Link to TEC Event', 'azure-plugin'); ?></label></th>
+                    <th><label for="azure-vs-pta-event"><?php _e('Link to PTA Event', 'azure-plugin'); ?></label></th>
                     <td>
-                        <select id="azure-vs-tec-event" class="regular-text">
+                        <select id="azure-vs-pta-event" class="regular-text">
                             <option value="0"><?php _e('— None (standalone) —', 'azure-plugin'); ?></option>
-                            <?php foreach ($tec_events as $ev): ?>
+                            <?php foreach ($pta_events as $ev): ?>
                                 <option value="<?php echo esc_attr($ev['id']); ?>"
                                         data-date="<?php echo esc_attr($ev['date']); ?>"
                                         data-location="<?php echo esc_attr($ev['location'] ?? ''); ?>"
                                 ><?php echo esc_html($ev['title']); ?> (<?php echo esc_html(date_i18n('M j', strtotime($ev['date']))); ?>)</option>
                             <?php endforeach; ?>
                         </select>
+                        <p class="description"><?php _e('Auto-populates date and location from the linked event.', 'azure-plugin'); ?></p>
                     </td>
                 </tr>
                 <?php endif; ?>
@@ -180,7 +181,7 @@ jQuery(function($) {
         $('#azure-vs-sheet-id').val(0);
         $('#azure-vs-title').val('');
         $('#azure-vs-description').val('');
-        $('#azure-vs-tec-event').val(0);
+        $('#azure-vs-pta-event').val(0);
         $('#azure-vs-event-date').val('');
         $('#azure-vs-event-location').val('');
         $('#azure-vs-status').val('open');
@@ -193,7 +194,7 @@ jQuery(function($) {
                 $('#azure-vs-sheet-id').val(s.id);
                 $('#azure-vs-title').val(s.title);
                 $('#azure-vs-description').val(s.description || '');
-                $('#azure-vs-tec-event').val(s.tec_event_id || 0);
+                $('#azure-vs-pta-event').val(s.pta_event_id || s.tec_event_id || 0);
                 if (s.event_date) {
                     var d = s.event_date.replace(' ', 'T').substring(0, 16);
                     $('#azure-vs-event-date').val(d);
@@ -240,7 +241,7 @@ jQuery(function($) {
             sheet_id: $('#azure-vs-sheet-id').val(),
             title: $('#azure-vs-title').val(),
             description: $('#azure-vs-description').val(),
-            tec_event_id: $('#azure-vs-tec-event').val() || 0,
+            pta_event_id: $('#azure-vs-pta-event').val() || 0,
             event_date: eventDate,
             event_location: $('#azure-vs-event-location').val(),
             status: $('#azure-vs-status').val(),
@@ -267,7 +268,7 @@ jQuery(function($) {
         });
     });
 
-    $('#azure-vs-tec-event').on('change', function() {
+    $('#azure-vs-pta-event').on('change', function() {
         var $opt = $(this).find(':selected');
         var date = $opt.data('date') || '';
         var location = $opt.data('location') || '';

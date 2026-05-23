@@ -309,18 +309,19 @@ class Azure_Classes_Product_Type {
                 </p>
                 
                 <?php
-                // Get TEC Venues
+                // Get PTA Venues (pta_venue CPT \u2014 shared schema with the
+                // legacy TEC tribe_venue; existing tribe_venue posts are
+                // migrated in the TEC retirement one-shot).
                 $venue_options = array('' => __('Select Venue...', 'azure-plugin'));
-                if (class_exists('Tribe__Events__Main')) {
-                    $venues = get_posts(array(
-                        'post_type'      => 'tribe_venue',
-                        'posts_per_page' => -1,
-                        'orderby'        => 'title',
-                        'order'          => 'ASC'
-                    ));
-                    foreach ($venues as $venue) {
-                        $venue_options[$venue->ID] = $venue->post_title;
-                    }
+                $venues = get_posts(array(
+                    'post_type'      => array('pta_venue', 'tribe_venue'),
+                    'post_status'    => 'publish',
+                    'posts_per_page' => -1,
+                    'orderby'        => 'title',
+                    'order'          => 'ASC'
+                ));
+                foreach ($venues as $venue) {
+                    $venue_options[$venue->ID] = $venue->post_title;
                 }
                 
                 woocommerce_wp_select(array(
@@ -1093,7 +1094,7 @@ class WC_Product_Class extends WC_Product {
     }
     
     /**
-     * Get linked TEC event IDs
+     * Get linked pta_event post IDs for this class product.
      */
     public function get_event_ids() {
         $ids = get_post_meta($this->get_id(), '_class_event_ids', true);

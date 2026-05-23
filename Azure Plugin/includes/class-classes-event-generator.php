@@ -1,10 +1,19 @@
 <?php
 /**
- * Classes Module - TEC Event Generator
- * 
- * Generates and manages The Events Calendar events for class products.
+ * Classes Module - Event Generator
+ *
+ * Generates and manages pta_event posts for class products.
  * Creates hierarchical categories (Enrichment > Class Name - Year - Season)
  * for Outlook calendar sync.
+ *
+ * The `tribe_events_cat` taxonomy slug is intentionally retained because
+ * it is the SHARED public slug used by both `pta_event` and the legacy
+ * `tribe_events` post type (see class-event-cpt.php). Term IDs and URLs
+ * are preserved across the TEC retirement.
+ *
+ * Event meta keys (_EventStartDate, _EventEndDate, _EventVenueID, etc.)
+ * are also retained — pta_event inherits TEC's meta schema so the
+ * migration is a straight post_type rewrite with no postmeta rewrite.
  */
 
 if (!defined('ABSPATH')) {
@@ -28,7 +37,7 @@ class Azure_Classes_Event_Generator {
     }
     
     /**
-     * Generate TEC events for a class product
+     * Generate pta_event posts for a class product (one per scheduled session).
      */
     public function generate_events($product_id) {
         $product = wc_get_product($product_id);
@@ -116,20 +125,18 @@ class Azure_Classes_Event_Generator {
                 'post_title'   => $event_title,
                 'post_content' => $this->build_event_description($product),
                 'post_status'  => $product_status,
-                'post_type'    => 'tribe_events'
+                'post_type'    => 'pta_event'
             );
-            
+
             if ($event_id) {
-                // Update existing event
                 $event_data['ID'] = $event_id;
                 wp_update_post($event_data);
             } else {
-                // Create new event
                 $event_id = wp_insert_post($event_data);
             }
-            
+
             if ($event_id && !is_wp_error($event_id)) {
-                // Set TEC meta
+                // Event meta (shared with the legacy TEC schema for back-compat)
                 update_post_meta($event_id, '_EventStartDate', $event_start);
                 update_post_meta($event_id, '_EventEndDate', $event_end);
                 update_post_meta($event_id, '_EventStartDateUTC', get_gmt_from_date($event_start));
@@ -394,7 +401,10 @@ class Azure_Classes_Event_Generator {
         $events = array();
         foreach ($event_ids as $event_id) {
             $event = get_post($event_id);
-            if ($event && $event->post_type === 'tribe_events') {
+            // Accept both post types during the back-compat window: prod still
+            // has ~129 historical `tribe_events` rows that the one-shot
+            // migration will rename to `pta_event`.
+            if ($event && in_array($event->post_type, array('pta_event', 'tribe_events'), true)) {
                 $events[] = array(
                     'id'             => $event_id,
                     'title'          => $event->post_title,

@@ -164,13 +164,6 @@ class Azure_Settings {
                     'tenant_id' => self::get_setting('onedrive_media_tenant_id', 'common')
                 );
             
-            case 'tec':
-                return array(
-                    'client_id' => self::get_setting('tec_client_id', ''),
-                    'client_secret' => self::get_setting('tec_client_secret', ''),
-                    'tenant_id' => self::get_setting('tec_tenant_id', 'common')
-                );
-            
             default:
                 return array(
                     'client_id' => '',
@@ -282,7 +275,7 @@ class Azure_Settings {
 
             // Debug settings
             'debug_mode' => false,
-            'debug_modules' => array(), // Empty = all modules, or specific: ['SSO', 'Calendar', 'TEC', ...]
+            'debug_modules' => array(), // Empty = all modules, or specific: ['SSO', 'Calendar', 'Email', 'Backup', ...]
             
             // Common credentials
             'use_common_credentials' => true,
@@ -384,14 +377,6 @@ class Azure_Settings {
             'pta_forminator_lname_field_id' => '',
             'pta_forminator_email_field_id' => '',
             'pta_forminator_open_roles_only' => true,
-            
-            // TEC Calendar Sync specific settings
-            'tec_calendar_user_email' => '',
-            'tec_calendar_mailbox_email' => '',
-            'tec_sync_schedule_enabled' => false,
-            'tec_sync_schedule_frequency' => 'hourly',
-            'tec_sync_lookback_days' => 30,
-            'tec_sync_lookahead_days' => 365,
             
             // OneDrive Media specific settings
             'onedrive_media_client_id' => '',

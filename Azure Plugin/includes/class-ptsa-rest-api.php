@@ -203,23 +203,25 @@ class Azure_PTSA_REST_API {
     }
 
     /* =================================================================
-     * Calendars (from tec_calendar_mappings) + Events (from pta_event)
+     * Calendars (Outlook mappings) + Events (from pta_event CPT)
+     * Calendar mappings table renamed from azure_tec_calendar_mappings to
+     * azure_calendar_mappings in the v3.97 TEC retirement. Column names
+     * dropped the `tec_` prefix at the same time (category_id, category_name).
      * ================================================================= */
 
     public function get_calendars(WP_REST_Request $req) {
         global $wpdb;
-        $table = $wpdb->prefix . 'azure_tec_calendar_mappings';
+        $table = $wpdb->prefix . 'azure_calendar_mappings';
         $rows  = $wpdb->get_results("SELECT * FROM $table ORDER BY sync_enabled DESC, outlook_calendar_name ASC", ARRAY_A);
         if (!is_array($rows)) $rows = array();
 
         // Count events per calendar so the iOS picker can show "(N events)".
-        $post_type   = class_exists('Azure_Event_CPT') ? Azure_Event_CPT::query_post_type() : 'tribe_events';
         $count_by_id = array();
         foreach ($rows as $row) {
             $cid = (string) ($row['outlook_calendar_id'] ?? '');
             if ($cid === '') continue;
             $q = new WP_Query(array(
-                'post_type'      => $post_type,
+                'post_type'      => 'pta_event',
                 'post_status'    => array('publish', 'private'),
                 'meta_query'     => array(array('key' => '_outlook_calendar_id', 'value' => $cid)),
                 'fields'         => 'ids',
@@ -232,12 +234,16 @@ class Azure_PTSA_REST_API {
         $out = array();
         foreach ($rows as $row) {
             $cid = (string) ($row['outlook_calendar_id'] ?? '');
+            // Read new column names, fall back to legacy `tec_*` for a release
+            // in case the migration MU-plugin hasn't run yet.
+            $cat_id   = $row['category_id']   ?? $row['tec_category_id']   ?? null;
+            $cat_name = $row['category_name'] ?? $row['tec_category_name'] ?? '';
             $out[] = array(
                 'id'             => (int) $row['id'],
                 'calendar_id'    => $cid,
                 'name'           => (string) ($row['outlook_calendar_name'] ?? ''),
-                'category_id'    => isset($row['tec_category_id']) ? (int) $row['tec_category_id'] : null,
-                'category_name'  => (string) ($row['tec_category_name'] ?? ''),
+                'category_id'    => $cat_id !== null ? (int) $cat_id : null,
+                'category_name'  => (string) $cat_name,
                 'sync_enabled'   => !empty($row['sync_enabled']),
                 'last_sync'      => $row['last_sync'] ?? null,
                 'event_count'    => $count_by_id[$cid] ?? 0,
@@ -259,7 +265,7 @@ class Azure_PTSA_REST_API {
             return new WP_Error('ptsa_events_bad_range', 'Invalid from/to date range.', array('status' => 400));
         }
 
-        $post_type = class_exists('Azure_Event_CPT') ? Azure_Event_CPT::query_post_type() : 'tribe_events';
+        $post_type = 'pta_event';
 
         $meta_query = array(
             'relation' => 'AND',
@@ -302,7 +308,7 @@ class Azure_PTSA_REST_API {
 
         // Pre-fetch calendar id → name map.
         global $wpdb;
-        $table = $wpdb->prefix . 'azure_tec_calendar_mappings';
+        $table = $wpdb->prefix . 'azure_calendar_mappings';
         $name_rows = $wpdb->get_results("SELECT outlook_calendar_id, outlook_calendar_name FROM $table", ARRAY_A);
         $name_by_id = array();
         foreach ((array) $name_rows as $r) {

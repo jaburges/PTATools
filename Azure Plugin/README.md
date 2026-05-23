@@ -3,9 +3,9 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.50-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.97-orange.svg)](https://github.com/jaburges/PTATools)
 
-**A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, PTA role management, The Events Calendar integration, and more.
+**A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
 > 💡 **Perfect for nonprofits!** Microsoft offers [300 free Business Basic licenses](https://nonprofit.microsoft.com/en-us/getting-started) and [$3,500 annual Azure credits](https://www.microsoft.com/en-us/nonprofits/azure) to qualifying nonprofits.
 
@@ -44,8 +44,8 @@
 | Module | Description |
 |--------|-------------|
 | **[Calendar Embed](https://github.com/jaburges/AzureSSO/wiki/Calendar-Embed-Module)** | Embed Outlook calendars with shortcodes, shared mailbox support |
-| **[Calendar Sync (TEC)](https://github.com/jaburges/AzureSSO/wiki/Calendar-Sync-Module)** | Sync Outlook → The Events Calendar with category mapping |
-| **[Upcoming Events](https://github.com/jaburges/AzureSSO/wiki/Upcoming-Events-Module)** | Display upcoming TEC events with customizable shortcode |
+| **[Calendar Sync](https://github.com/jaburges/AzureSSO/wiki/Calendar-Sync-Module)** | Sync Outlook calendars into the native `pta_event` CPT with category mapping |
+| **[Upcoming Events](https://github.com/jaburges/AzureSSO/wiki/Upcoming-Events-Module)** | Display upcoming `pta_event` posts with the customizable `[up-next]` shortcode |
 
 ### 📧 Communication
 | Module | Description |
@@ -61,7 +61,7 @@
 ### 🛒 E-Commerce
 | Module | Description |
 |--------|-------------|
-| **[Classes (WooCommerce)](https://github.com/jaburges/PTATools/wiki/Classes-Module)** | Create class products with TEC integration, variable pricing, commit-to-buy |
+| **[Classes (WooCommerce)](https://github.com/jaburges/PTATools/wiki/Classes-Module)** | Create class products that auto-generate `pta_event` sessions on the calendar, variable pricing, commit-to-buy |
 | **[Auction](https://github.com/jaburges/PTATools/wiki/Auction-Module)** | Timed manual bidding, Buy It Now, confirm-bid modal, outbid + winner emails, instant updates |
 | **[Product Fields](https://github.com/jaburges/PTATools/wiki/Product-Fields-Module)** | Custom checkout fields with children profiles, applied by category |
 | **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, campaigns with goals, `[pta-donate]` shortcode |
@@ -69,7 +69,7 @@
 ### 🙋 Volunteering
 | Module | Description |
 |--------|-------------|
-| **[Volunteer Sign Up](https://github.com/jaburges/PTATools/wiki/Volunteer-Signup-Module)** | SignUpGenius-style sheets with TEC integration, reminders, `[volunteer_signup]` shortcode |
+| **[Volunteer Sign Up](https://github.com/jaburges/PTATools/wiki/Volunteer-Signup-Module)** | SignUpGenius-style sheets that link to `pta_event` posts, reminders, `[volunteer_signup]` shortcode |
 
 ### 📁 Media
 | Module | Description |
@@ -93,7 +93,6 @@
 ### Optional Plugin Dependencies
 | Plugin | Required For |
 |--------|--------------|
-| [The Events Calendar](https://theeventscalendar.com/) | Calendar Sync, Classes, Upcoming Events |
 | [WooCommerce](https://woocommerce.com/) | Classes, Event Tickets, Auction modules |
 | [Forminator](https://wpmudev.com/project/forminator/) | PTA Roles signup form integration |
 | [Beaver Builder](https://www.wpbeaverbuilder.com/) | Page builder integration |
@@ -226,16 +225,18 @@ Credentials: Required (OAuth flow)
 [azure_calendar email="calendar@org.net" id="CALENDAR_ID" view="month"]
 ```
 
-### Calendar Sync (TEC Integration)
+### Calendar Sync
 ```
 Location: Azure Plugin → Calendar Sync
 Credentials: Required (OAuth flow)
-Dependencies: The Events Calendar plugin
+Dependencies: None (uses the plugin's own pta_event CPT)
 ```
-- Sync Outlook calendars to TEC events
-- Category mapping per calendar
-- Scheduled synchronization
+- Sync Outlook calendars into the native `pta_event` CPT
+- Map each Outlook calendar to an event category
+- Scheduled synchronization (Calendar Sync owns the cron)
 - Recurring event support
+- No third-party plugin dependency \u2014 the legacy The Events Calendar
+  integration was retired in v3.97
 
 ### Email via Graph API
 ```
@@ -282,10 +283,11 @@ Credentials: Required for O365 Groups sync
 ```
 Location: Azure Plugin → Classes
 Credentials: None required
-Dependencies: WooCommerce, The Events Calendar
+Dependencies: WooCommerce
 ```
 - Custom "Class" product type
-- Automatic TEC event generation
+- Automatic `pta_event` session generation, one per scheduled occurrence,
+  categorised under "Enrichment / Class Name - Year - Season"
 - Variable pricing with commit-to-buy flow
 - Provider taxonomy management
 
@@ -299,9 +301,9 @@ Dependencies: WooCommerce, The Events Calendar
 ```
 Location: Azure Plugin → Upcoming Events
 Credentials: None required
-Dependencies: The Events Calendar
+Dependencies: None (uses the plugin's own pta_event CPT)
 ```
-- Display upcoming TEC events
+- Display upcoming `pta_event` posts
 - Customizable layout and filtering
 - No credentials needed
 
@@ -390,10 +392,27 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 ## 🙏 Credits
 
 - **Microsoft Graph API** - Azure and M365 integration
-- **The Events Calendar** - Event management foundation
 - **WooCommerce** - E-commerce foundation
 - **WordPress** - The platform we love
 
 ---
 
-**Version 3.50** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.97** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.97
+
+- **Retired The Events Calendar dependency.** PTA Tools now stores all
+  events in its own `pta_event` CPT (added in v3.95) and no longer depends
+  on The Events Calendar being installed. The Classes module's auto-event
+  generator, Volunteer Sign Up's event linker, the Upcoming Events
+  shortcode, Calendar Sync, and the Tickets/seating module all read and
+  write directly to `pta_event`. Existing `tribe_events`/`tribe_venue`/
+  `tribe_organizer` posts are migrated in place via a one-shot script
+  (`infra/ops/retire-tec.php`) without postmeta rewrites \u2014 the schema
+  was kept identical between TEC and pta_event throughout the migration.
+- 12 retired source files removed (`class-tec-*.php`, `tec-admin.js`,
+  `admin/tec-integration-page.php`, etc.) and 3 retired DB tables dropped
+  (`wp_azure_tec_sync_history`, `_conflicts`, `_queue`).
+- Calendar mappings table renamed `wp_azure_tec_calendar_mappings` \u2192
+  `wp_azure_calendar_mappings`; columns `tec_category_*` \u2192 `category_*`.
+- See `docs/tec-retirement-audit-2026-05-22.md` for the full audit.

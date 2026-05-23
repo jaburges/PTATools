@@ -670,7 +670,7 @@
                 layout_json: this.getLayoutJSON()
             };
             
-            // Include venue details only for new venues (TEC venue creation)
+            // Include venue details only for new venues (pta_venue creation)
             if (!venueId) {
                 data.name = $('#venue-name').val().trim();
                 data.address = $('#venue-address').val().trim();

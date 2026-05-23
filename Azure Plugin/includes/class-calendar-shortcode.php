@@ -165,7 +165,9 @@ class Azure_Calendar_Shortcode {
         // If we have a mailbox but no user_email, get the authenticated user from settings
         if ($mailbox_email && !$user_email) {
             $settings = Azure_Settings::get_all_settings();
-            // Try calendar embed user first, then TEC calendar user
+            // Use the calendar-embed user email if set (legacy tec_calendar_user_email
+            // is read as fall-back during the TEC retirement and will be removed
+            // when the one-shot migration deletes the option).
             $user_email = $settings['calendar_embed_user_email'] ?? $settings['tec_calendar_user_email'] ?? '';
             
             if (empty($user_email)) {

@@ -2,8 +2,13 @@
 /**
  * Volunteer Sign Up Module
  *
- * SignUpGenius-style volunteer coordination integrated with TEC events.
+ * SignUpGenius-style volunteer coordination linked to PTA events.
  * Admins create sign-up sheets with activities/slots; users claim spots.
+ *
+ * Linked event posts are the plugin's own `pta_event` CPT (see
+ * class-event-cpt.php). Meta keys (_EventStartDate, _EventVenueID) are
+ * intentionally shared with the legacy TEC schema for backward-compat;
+ * see docs/tec-retirement-audit-2026-05-22.md for the migration history.
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -129,7 +134,9 @@ class Azure_Volunteer_Signup {
         $sheet_id    = absint($_POST['sheet_id'] ?? 0);
         $title       = sanitize_text_field($_POST['title'] ?? '');
         $description = sanitize_textarea_field($_POST['description'] ?? '');
-        $tec_event   = absint($_POST['tec_event_id'] ?? 0);
+        // `pta_event_id` is the new field; accept the legacy `tec_event_id` POST
+        // key too so any cached admin JS keeps working until the next refresh.
+        $event_id    = absint($_POST['pta_event_id'] ?? $_POST['tec_event_id'] ?? 0);
         $event_date  = sanitize_text_field($_POST['event_date'] ?? '');
         $event_loc   = sanitize_text_field($_POST['event_location'] ?? '');
         $status      = in_array($_POST['status'] ?? '', array('open', 'closed'), true) ? $_POST['status'] : 'open';
@@ -138,18 +145,20 @@ class Azure_Volunteer_Signup {
             wp_send_json_error('Title is required.');
         }
 
-        // Pull TEC event data if linked
-        if ($tec_event && class_exists('Tribe__Events__Main')) {
-            $tec_post = get_post($tec_event);
-            if ($tec_post) {
+        // Auto-populate from the linked pta_event if the admin picked one.
+        // Meta keys (_EventStartDate, _EventVenueID) are inherited from TEC's
+        // schema so this is a straight read regardless of legacy origin.
+        if ($event_id) {
+            $event_post = get_post($event_id);
+            if ($event_post && in_array($event_post->post_type, array('pta_event', 'tribe_events'), true)) {
                 if (empty($title)) {
-                    $title = $tec_post->post_title;
+                    $title = $event_post->post_title;
                 }
-                $start = get_post_meta($tec_event, '_EventStartDate', true);
+                $start = get_post_meta($event_id, '_EventStartDate', true);
                 if ($start) {
                     $event_date = $start;
                 }
-                $venue_id = get_post_meta($tec_event, '_EventVenueID', true);
+                $venue_id = get_post_meta($event_id, '_EventVenueID', true);
                 if ($venue_id && empty($event_loc)) {
                     $event_loc = get_the_title($venue_id);
                 }
@@ -159,7 +168,7 @@ class Azure_Volunteer_Signup {
         $data = array(
             'title'          => $title,
             'description'    => $description,
-            'tec_event_id'   => $tec_event,
+            'pta_event_id'   => $event_id,
             'event_date'     => $event_date ?: null,
             'event_location' => $event_loc,
             'status'         => $status,
@@ -610,15 +619,16 @@ class Azure_Volunteer_Signup {
     }
 
     // ──────────────────────────────────────────────
-    // Admin helpers (for TEC event dropdown)
+    // Admin helpers (PTA event picker)
     // ──────────────────────────────────────────────
 
-    public static function get_tec_events_for_dropdown() {
-        if (!class_exists('Tribe__Events__Main')) {
-            return array();
-        }
+    /**
+     * List upcoming pta_event posts for the admin "link to event" picker.
+     * Returns an array of {id, title, date, location} sorted by start date.
+     */
+    public static function get_pta_events_for_dropdown() {
         $events = get_posts(array(
-            'post_type'      => 'tribe_events',
+            'post_type'      => 'pta_event',
             'posts_per_page' => 100,
             'post_status'    => 'publish',
             'orderby'        => 'meta_value',
@@ -647,5 +657,14 @@ class Azure_Volunteer_Signup {
             );
         }
         return $out;
+    }
+
+    /**
+     * Back-compat shim: any external code still calling the legacy
+     * `get_tec_events_for_dropdown()` continues to work and now reads
+     * pta_event under the hood. Safe to remove in a future major.
+     */
+    public static function get_tec_events_for_dropdown() {
+        return self::get_pta_events_for_dropdown();
     }
 }

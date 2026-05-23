@@ -127,7 +127,14 @@ class Azure_Classes_Shortcodes {
             $venue = get_post($venue_id);
             if ($venue) {
                 $venue_name = $venue->post_title;
-                $venue_address = tribe_get_full_address($venue_id);
+                // Build a venue address from the shared _Venue* postmeta keys
+                // (used by both pta_venue and the legacy tribe_venue posts).
+                // Falls back to TEC's helper if it happens to be available
+                // (TEC plugin not installed on prod \u2014 helper is normally absent).
+                $venue_address = self::format_venue_address($venue_id);
+                if (empty($venue_address) && function_exists('tribe_get_full_address')) {
+                    $venue_address = tribe_get_full_address($venue_id);
+                }
             }
         }
         
@@ -154,11 +161,12 @@ class Azure_Classes_Shortcodes {
         $short_description = $product ? $product->get_short_description() : '';
         $full_description = $product ? $product->get_description() : '';
         
-        // Get TEC category for calendar subscription
+        // Get event category for calendar subscription. The taxonomy slug
+        // `tribe_events_cat` is the shared public slug used by both
+        // pta_event and (legacy) tribe_events posts; see class-event-cpt.php.
         $category_id = $product_id ? get_post_meta($product_id, '_class_category_id', true) : 0;
         $calendar_url = '';
         if ($category_id) {
-            // Build iCal subscription URL for this class's TEC category
             $category = get_term($category_id, 'tribe_events_cat');
             if ($category && !is_wp_error($category)) {
                 $calendar_url = add_query_arg(array(
@@ -257,8 +265,29 @@ class Azure_Classes_Shortcodes {
     }
     
     /**
-     * Parse venue address from TEC HTML to clean format
-     * Returns HTML with street on one line and city/state/zip on another
+     * Build a plain-text venue address from the shared _Venue* postmeta keys.
+     *
+     * These meta keys (_VenueAddress, _VenueCity, _VenueState, _VenueZip,
+     * _VenueCountry) come from the TEC schema and are kept identical on
+     * pta_venue for back-compat. Returns an empty string if the venue has
+     * no address meta.
+     */
+    private static function format_venue_address($venue_id) {
+        $street  = get_post_meta($venue_id, '_VenueAddress', true);
+        $city    = get_post_meta($venue_id, '_VenueCity', true);
+        $state   = get_post_meta($venue_id, '_VenueState', true)
+            ?: get_post_meta($venue_id, '_VenueStateProvince', true);
+        $zip     = get_post_meta($venue_id, '_VenueZip', true);
+
+        $city_line = trim($city . (($state || $zip) ? ', ' : '') . $state . ' ' . $zip);
+        $parts = array_filter(array($street, $city_line), 'strlen');
+        return $parts ? implode("\n", $parts) : '';
+    }
+
+    /**
+     * Parse a TEC-style HTML venue address into a clean two-line format.
+     * Still used as a fall-back when an existing post stored its address
+     * as TEC HTML. New pta_venue rows store plain meta and skip this.
      */
     private function parse_venue_address($venue_html) {
         if (empty($venue_html)) {
