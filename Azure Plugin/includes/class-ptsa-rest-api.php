@@ -40,6 +40,17 @@ class Azure_PTSA_REST_API {
         $client = defined('PTSA_REST_CLIENT_ID') ? PTSA_REST_CLIENT_ID : '';
         $domain = 'wilderptsa.net';
 
+        if (empty($tenant)) {
+            $env_tenant = getenv('PTSA_REST_TENANT_ID');
+            if (is_string($env_tenant) && $env_tenant !== '') $tenant = $env_tenant;
+        }
+        if (empty($client)) {
+            $env_client = getenv('PTSA_REST_CLIENT_ID');
+            if (is_string($env_client) && $env_client !== '') $client = $env_client;
+        }
+        $env_domain = getenv('PTSA_REST_ALLOWED_DOMAIN');
+        if (is_string($env_domain) && $env_domain !== '') $domain = $env_domain;
+
         if ((empty($tenant) || empty($client)) && class_exists('Azure_Settings')) {
             $creds = Azure_Settings::get_credentials('sso');
             if (is_array($creds)) {
