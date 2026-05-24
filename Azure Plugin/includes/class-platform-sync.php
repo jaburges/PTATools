@@ -86,6 +86,94 @@ class Azure_Platform_Sync {
     }
 
     /**
+     * Status of Redis cache isolation between this slot and any sibling
+     * (staging) slot. We can't query the other slot from here, but we
+     * can detect the local config that determines whether keys would
+     * collide. Returns one of three states:
+     *
+     *   - "isolated"   — slot has both/either a non-default WP_REDIS_DATABASE
+     *                   or a slot-specific WP_CACHE_KEY_SALT. Safe.
+     *   - "shared"    — slot uses the default Redis DB 0 AND a generic salt.
+     *                   Cross-contamination is possible.
+     *   - "no_cache"  — Redis Object Cache drop-in isn't active. Nothing to
+     *                   isolate; defaults to safe.
+     *
+     * The check is intentionally local-only: each slot evaluates its own
+     * config. Both slots running this check should show "isolated" when
+     * the runbook in docs/runbooks/redis-isolation.md has been applied.
+     *
+     * @return array{
+     *   state: string,
+     *   summary: string,
+     *   redis_database: int|null,
+     *   key_salt: string,
+     *   key_salt_is_slot_specific: bool,
+     *   afd_domain: string
+     * }
+     */
+    public static function get_redis_isolation_status() {
+        $cache_active = (defined('WP_CACHE') && WP_CACHE) && wp_using_ext_object_cache();
+        $redis_db   = defined('WP_REDIS_DATABASE') ? (int) WP_REDIS_DATABASE : null;
+        $salt       = defined('WP_CACHE_KEY_SALT') ? (string) WP_CACHE_KEY_SALT : '';
+        $afd_domain = (string) (getenv('AFD_DOMAIN') ?: '');
+
+        // Slot-specific salt = the salt contains the slot's AFD_DOMAIN.
+        // Generic salts (e.g. "wilderptsa.net:" used on both slots) would
+        // fail this test on the staging slot but pass on prod, which is
+        // exactly what we want — the warning surfaces on the slot that
+        // would silently overwrite the other slot's keys.
+        $salt_slot_specific = ($afd_domain !== '' && stripos($salt, $afd_domain) !== false);
+
+        if (!$cache_active) {
+            return array(
+                'state'                      => 'no_cache',
+                'summary'                    => __('Redis Object Cache is not active. Nothing to isolate.', 'azure-plugin'),
+                'redis_database'             => $redis_db,
+                'key_salt'                   => $salt,
+                'key_salt_is_slot_specific'  => $salt_slot_specific,
+                'afd_domain'                 => $afd_domain,
+            );
+        }
+
+        // Isolated when EITHER mechanism is in place:
+        //  - non-default logical DB (1+), OR
+        //  - slot-specific key salt.
+        $isolated = ($redis_db !== null && $redis_db > 0) || $salt_slot_specific;
+
+        // Production slot legitimately uses DB 0. So for prod, salt must
+        // be slot-specific (or there's nothing distinguishing prod from
+        // staging which is also on DB 0 default).
+        if (self::is_production_slot() && ($redis_db === null || $redis_db === 0) && !$salt_slot_specific) {
+            $isolated = false;
+        }
+
+        if ($isolated) {
+            return array(
+                'state'                     => 'isolated',
+                'summary'                   => sprintf(
+                    /* translators: 1: Redis DB number, 2: key salt prefix */
+                    __('Redis isolated. DB #%1$d, salt "%2$s".', 'azure-plugin'),
+                    (int) ($redis_db ?? 0),
+                    $salt
+                ),
+                'redis_database'            => $redis_db,
+                'key_salt'                  => $salt,
+                'key_salt_is_slot_specific' => $salt_slot_specific,
+                'afd_domain'                => $afd_domain,
+            );
+        }
+
+        return array(
+            'state'                     => 'shared',
+            'summary'                   => __('Redis is shared with the sibling slot. Cache writes can leak across slots. See docs/runbooks/redis-isolation.md to fix.', 'azure-plugin'),
+            'redis_database'            => $redis_db,
+            'key_salt'                  => $salt,
+            'key_salt_is_slot_specific' => $salt_slot_specific,
+            'afd_domain'                => $afd_domain,
+        );
+    }
+
+    /**
      * Copy production database contents into the staging database.
      *
      * @return array{success:bool,message:string,details?:array}

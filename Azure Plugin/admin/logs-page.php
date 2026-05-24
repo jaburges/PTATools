@@ -387,11 +387,33 @@ if ($activity_table) {
             require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
         }
         $platform_sync_status = Azure_Platform_Sync::get_status();
+        $redis_isolation      = Azure_Platform_Sync::get_redis_isolation_status();
+
+        $redis_badge = array(
+            'isolated' => array('bg' => '#dff5e4', 'border' => '#008a20', 'text' => '#005a16', 'label' => __('Isolated', 'azure-plugin')),
+            'shared'   => array('bg' => '#fcf0f1', 'border' => '#d63638', 'text' => '#8a1a1c', 'label' => __('Shared (risky)', 'azure-plugin')),
+            'no_cache' => array('bg' => '#f6f7f7', 'border' => '#8c8f94', 'text' => '#50575e', 'label' => __('No Redis cache', 'azure-plugin')),
+        );
+        $badge = $redis_badge[$redis_isolation['state']] ?? $redis_badge['no_cache'];
         ?>
         <div style="margin-top: 30px; padding: 20px; background: #fff; border: 2px solid #d63638; border-radius: 4px;">
             <h2 style="color: #d63638; margin: 0 0 15px; display: flex; align-items: center; gap: 8px;">
                 <span class="dashicons dashicons-warning"></span> Danger Zone
             </h2>
+
+            <div style="margin: 0 0 18px; padding: 10px 14px; background: <?php echo esc_attr($badge['bg']); ?>; border-left: 4px solid <?php echo esc_attr($badge['border']); ?>; color: <?php echo esc_attr($badge['text']); ?>; border-radius: 3px;">
+                <strong>Redis isolation:</strong>
+                <span style="display:inline-block; padding:1px 8px; margin-left:4px; background:<?php echo esc_attr($badge['border']); ?>; color:#fff; border-radius:10px; font-size:11px; vertical-align:middle;"><?php echo esc_html($badge['label']); ?></span>
+                <span style="margin-left:8px;"><?php echo esc_html($redis_isolation['summary']); ?></span>
+                <?php if ($redis_isolation['state'] !== 'no_cache') : ?>
+                    <div style="margin-top:6px; font-size:12px; color:#50575e;">
+                        DB <code><?php echo (int) ($redis_isolation['redis_database'] ?? 0); ?></code>
+                        &middot; Salt <code><?php echo esc_html($redis_isolation['key_salt'] ?: '(empty)'); ?></code>
+                        &middot; AFD <code><?php echo esc_html($redis_isolation['afd_domain'] ?: '(unset)'); ?></code>
+                    </div>
+                <?php endif; ?>
+            </div>
+
             <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
                 <div style="flex: 1; min-width: 250px;">
                     <h4 style="margin: 0 0 5px;">Clear Media Library</h4>
