@@ -30,7 +30,7 @@ class Azure_Platform_Sync {
         if (!$is_prod_slot) {
             return array(
                 'available'          => false,
-                'reason'             => __('Run this action from the production slot. You are currently on a deployment slot (staging).', 'azure-plugin'),
+                'reason'             => __('You are viewing this on the staging slot. Open the same page on the production slot to sync prod → staging.', 'azure-plugin'),
                 'is_production_slot' => false,
                 'staging_database'   => $staging_db,
                 'staging_site_url'   => $staging_url,
@@ -200,14 +200,52 @@ class Azure_Platform_Sync {
         );
     }
 
+    /**
+     * Heuristic: are we running on the production slot (not staging)?
+     *
+     * Checks, in order:
+     *   1. WEBSITE_SLOT_NAME env var (Azure App Service slot identifier).
+     *      Returns "Production" on prod, the slot name on others.
+     *   2. Same env var read via $_SERVER (some Azure WP images expose it
+     *      there but not via getenv()).
+     *   3. DB_NAME ending in `_staging` — strong signal we're on staging.
+     *   4. HTTP host containing `-staging` (Azure default + AFD endpoints).
+     */
     public static function is_production_slot() {
         $slot = getenv('WEBSITE_SLOT_NAME');
-        if ($slot === false || $slot === '') {
-            return true;
+        if (is_string($slot) && $slot !== '') {
+            return strtolower($slot) === 'production';
         }
-        return strtolower($slot) === 'production';
+        if (!empty($_SERVER['WEBSITE_SLOT_NAME'])) {
+            return strtolower((string) $_SERVER['WEBSITE_SLOT_NAME']) === 'production';
+        }
+        if (defined('DB_NAME') && preg_match('/_staging$/i', (string) DB_NAME)) {
+            return false;
+        }
+        $host = '';
+        if (!empty($_SERVER['HTTP_HOST'])) {
+            $host = (string) $_SERVER['HTTP_HOST'];
+        } elseif (function_exists('home_url')) {
+            $parsed = parse_url(home_url(), PHP_URL_HOST);
+            if (is_string($parsed)) {
+                $host = $parsed;
+            }
+        }
+        if ($host !== '' && stripos($host, '-staging') !== false) {
+            return false;
+        }
+        return true;
     }
 
+    /**
+     * Resolve the staging database name. Used both for the sync target
+     * and for display in the Danger Zone status panel.
+     *
+     * - Explicit user setting wins.
+     * - Then STAGING_DATABASE_NAME env var.
+     * - Otherwise derive from DB_NAME by appending `_staging` — but never
+     *   double-suffix when called from the staging slot itself.
+     */
     public static function get_staging_database_name() {
         $configured = trim((string) Azure_Settings::get_setting('platform_staging_database_name', ''));
         if ($configured !== '') {
@@ -219,12 +257,13 @@ class Azure_Platform_Sync {
             return $env;
         }
 
-        $prod = DB_NAME;
-        if (preg_match('/_database$/', $prod)) {
-            return $prod . '_staging';
+        $current = (string) DB_NAME;
+        if (preg_match('/_staging$/i', $current)) {
+            // We ARE the staging DB — return ourselves so callers don't
+            // accidentally suggest `_staging_staging`.
+            return $current;
         }
-
-        return $prod . '_staging';
+        return $current . '_staging';
     }
 
     public static function get_staging_site_url() {
