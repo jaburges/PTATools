@@ -2639,14 +2639,11 @@ class Azure_Admin {
             );
         }
         
-        // Auction widget (if enabled)
-        if (Azure_Settings::is_module_enabled('auction')) {
-            wp_add_dashboard_widget(
-                'azure_auction_stats',
-                __('Auction', 'azure-plugin'),
-                array($this, 'render_auction_widget')
-            );
-        }
+        // Auction dashboard widget is owned by Azure_Auction_Module
+        // (class-auction-module.php → register_dashboard_widget) which
+        // renders the Active / Staged / Bids / Total $$ stat grid. The
+        // legacy 2-line text widget that used to live here has been
+        // removed so the two registrations don't fight each other.
     }
     
     /**
@@ -3146,36 +3143,9 @@ class Azure_Admin {
         <?php
     }
     
-    /**
-     * Render Auction dashboard widget
-     */
-    public function render_auction_widget() {
-        global $wpdb;
-        $stats = array(
-            'active_auctions' => 0,
-            'recent_bids' => 0,
-        );
-        $bids_table = Azure_Database::get_table_name('auction_bids');
-        if ($bids_table && $wpdb->get_var("SHOW TABLES LIKE '{$bids_table}'") === $bids_table) {
-            $stats['recent_bids'] = $wpdb->get_var("SELECT COUNT(*) FROM {$bids_table} WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)") ?: 0;
-        }
-        if (class_exists('WooCommerce')) {
-            $stats['active_auctions'] = $wpdb->get_var(
-                "SELECT COUNT(*) FROM {$wpdb->posts} p
-                 INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_auction_bidding_end'
-                 WHERE p.post_type = 'product' AND p.post_status = 'publish'
-                 AND (pm.meta_value = '' OR pm.meta_value > NOW())"
-            ) ?: 0;
-        }
-        ?>
-        <div class="azure-auction-widget">
-            <p><strong><?php echo (int) $stats['active_auctions']; ?></strong> <?php _e('active auction(s)', 'azure-plugin'); ?></p>
-            <p><strong><?php echo (int) $stats['recent_bids']; ?></strong> <?php _e('bids in last 7 days', 'azure-plugin'); ?></p>
-            <a href="<?php echo admin_url('admin.php?page=azure-plugin-selling&tab=auction'); ?>" class="button"><?php _e('Auction', 'azure-plugin'); ?></a>
-            <a href="<?php echo admin_url('edit.php?post_type=product'); ?>" class="button"><?php _e('Products', 'azure-plugin'); ?></a>
-        </div>
-        <?php
-    }
+    // render_auction_widget() removed in v3.101 — superseded by
+    // Azure_Auction_Module::render_dashboard_widget() in
+    // class-auction-module.php (Active / Staged / Bids / Total $$ stat grid).
 
     /**
      * AJAX: Clear the entire WordPress media library in batches.

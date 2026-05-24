@@ -91,8 +91,12 @@ class Azure_Auction_Module {
 
         // Admin dashboard widget (Active / Staged / Bids / Total $$). Only
         // registered on the dashboard screen so it costs nothing elsewhere.
+        // Priority 99 so we run AFTER any legacy registration that may
+        // still try to claim the same widget id, and the explicit
+        // remove_meta_box() in register_dashboard_widget() guarantees the
+        // old one is gone before we add ours.
         if (is_admin()) {
-            add_action('wp_dashboard_setup', array($this, 'register_dashboard_widget'));
+            add_action('wp_dashboard_setup', array($this, 'register_dashboard_widget'), 99);
         }
     }
 
@@ -223,9 +227,14 @@ class Azure_Auction_Module {
      * renders.
      */
     public function register_dashboard_widget() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') && !current_user_can('manage_woocommerce')) {
             return;
         }
+        // Defensive: drop any previously registered widget with the same id
+        // (e.g. the legacy Azure_Admin::render_auction_widget) so the new
+        // stat-grid version unambiguously wins.
+        remove_meta_box('azure_auction_stats', 'dashboard', 'normal');
+        remove_meta_box('azure_auction_stats', 'dashboard', 'side');
         wp_add_dashboard_widget(
             'azure_auction_stats',
             __('Auctions', 'azure-plugin'),
