@@ -585,9 +585,6 @@ class Azure_Admin {
         try {
             $settings = Azure_Settings::get_all_settings();
 
-            require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
-            $platform_sync_status = Azure_Platform_Sync::get_status();
-            
             // Debug: Log current settings when page loads
             error_log('Azure Plugin: Main page loaded, settings: ' . json_encode(array(
                 'enable_sso' => $settings['enable_sso'] ?? 'not_set',

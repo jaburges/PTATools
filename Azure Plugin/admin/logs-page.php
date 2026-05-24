@@ -382,6 +382,12 @@ if ($activity_table) {
         </div>
 
         <!-- Danger Zone -->
+        <?php
+        if (!class_exists('Azure_Platform_Sync')) {
+            require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
+        }
+        $platform_sync_status = Azure_Platform_Sync::get_status();
+        ?>
         <div style="margin-top: 30px; padding: 20px; background: #fff; border: 2px solid #d63638; border-radius: 4px;">
             <h2 style="color: #d63638; margin: 0 0 15px; display: flex; align-items: center; gap: 8px;">
                 <span class="dashicons dashicons-warning"></span> Danger Zone
@@ -395,6 +401,30 @@ if ($activity_table) {
                         Clear Entire Media Library
                     </button>
                     <span id="clear-media-result" style="display: none; margin-left: 10px;"></span>
+                </div>
+
+                <div style="flex: 1; min-width: 280px;">
+                    <h4 style="margin: 0 0 5px;">Sync Production DB → Staging DB</h4>
+                    <p class="description" style="margin: 0 0 10px;">
+                        Overwrites the staging database with a fresh copy of production (pages, posts, settings) and rewrites URLs. Use before testing plugin or theme changes on staging so it reflects live content.
+                    </p>
+                    <?php if (!empty($platform_sync_status['available'])) : ?>
+                        <p class="description" style="margin: 0 0 10px;">
+                            <strong>Staging DB:</strong> <code><?php echo esc_html($platform_sync_status['staging_database']); ?></code>
+                            <?php if (!empty($platform_sync_status['staging_site_url'])) : ?>
+                                &middot; <strong>Staging URL:</strong> <?php echo esc_html($platform_sync_status['staging_site_url']); ?>
+                            <?php endif; ?>
+                        </p>
+                        <button type="button" class="button" id="azure-sync-prod-to-staging-db" style="background-color: #d63638; border-color: #d63638; color: white;">
+                            <span class="dashicons dashicons-database-import" style="vertical-align: middle; line-height: 1; margin-right: 4px;"></span>
+                            Sync Prod DB to Staging DB
+                        </button>
+                        <span id="azure-sync-prod-to-staging-status" style="margin-left: 10px;"></span>
+                    <?php else : ?>
+                        <p class="description" style="color: #50575e;">
+                            <?php echo esc_html($platform_sync_status['reason'] ?? __('Sync is not available on this site.', 'azure-plugin')); ?>
+                        </p>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
