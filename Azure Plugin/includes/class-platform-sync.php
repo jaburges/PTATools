@@ -112,7 +112,13 @@ class Azure_Platform_Sync {
      * }
      */
     public static function get_redis_isolation_status() {
-        $cache_active = (defined('WP_CACHE') && WP_CACHE) && wp_using_ext_object_cache();
+        // Object caching (Redis) is independent of the WP_CACHE constant —
+        // WP_CACHE only controls page caching via advanced-cache.php. The
+        // Redis Object Cache plugin loads its drop-in via wp-settings.php
+        // and sets wp_using_ext_object_cache() to true regardless of
+        // WP_CACHE. So this check only asks "is an external object cache
+        // active?" which is precisely what we need to know for isolation.
+        $cache_active = function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache();
         $redis_db   = defined('WP_REDIS_DATABASE') ? (int) WP_REDIS_DATABASE : null;
         $salt       = defined('WP_CACHE_KEY_SALT') ? (string) WP_CACHE_KEY_SALT : '';
         $afd_domain = (string) (getenv('AFD_DOMAIN') ?: '');
