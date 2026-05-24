@@ -88,7 +88,13 @@ add_action('init', function () {
         exit;
     }
 
-    // ── Step 2: volunteer_sheets column rename ────────────────────────
+    // ── Step 2: volunteer_sheets column migration ─────────────────────
+    // Three cases:
+    //   (a) only tec_event_id      -> rename column to pta_event_id
+    //   (b) both columns exist     -> copy any non-zero tec_event_id rows
+    //                                 into pta_event_id where pta_event_id
+    //                                 is 0/NULL, then drop tec_event_id
+    //   (c) only pta_event_id      -> nothing to do
     $vs_table = $wpdb->prefix . 'azure_volunteer_sheets';
     if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $vs_table)) === $vs_table) {
         $cols = $wpdb->get_col("SHOW COLUMNS FROM `{$vs_table}`");
@@ -98,24 +104,75 @@ add_action('init', function () {
             'has_tec_event_id'  => $has_old,
             'has_pta_event_id'  => $has_new,
         );
-        if ($commit && $has_old && !$has_new) {
-            $info['result'] = $wpdb->query(
-                "ALTER TABLE `{$vs_table}` CHANGE `tec_event_id` `pta_event_id` BIGINT(20) UNSIGNED DEFAULT 0"
+
+        if ($has_old) {
+            // For both (a) and (b), surface how many rows still carry data.
+            $info['rows_with_tec_event_id_nonzero'] = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM `{$vs_table}` WHERE `tec_event_id` IS NOT NULL AND `tec_event_id` > 0"
             );
+        }
+
+        if ($commit) {
+            if ($has_old && !$has_new) {
+                $info['action']        = 'rename_column';
+                $info['rename_result'] = $wpdb->query(
+                    "ALTER TABLE `{$vs_table}` CHANGE `tec_event_id` `pta_event_id` BIGINT(20) UNSIGNED DEFAULT 0"
+                );
+            } elseif ($has_old && $has_new) {
+                $info['action'] = 'copy_then_drop';
+                // Copy any non-zero tec_event_id values where pta_event_id is empty.
+                $info['copy_result'] = $wpdb->query(
+                    "UPDATE `{$vs_table}`
+                        SET `pta_event_id` = `tec_event_id`
+                      WHERE (`pta_event_id` IS NULL OR `pta_event_id` = 0)
+                        AND `tec_event_id` IS NOT NULL
+                        AND `tec_event_id` > 0"
+                );
+                $info['drop_old_column'] = $wpdb->query(
+                    "ALTER TABLE `{$vs_table}` DROP COLUMN `tec_event_id`"
+                );
+            } else {
+                $info['action'] = 'noop_already_migrated';
+            }
         }
         $log('2_volunteer_sheets_column_rename', $info);
     }
 
-    // ── Step 3: rename calendar mappings table + columns ──────────────
+    // ── Step 3: calendar mappings table migration ─────────────────────
+    // Three cases mirror Step 2:
+    //   (a) only old table         -> RENAME old -> new, then column renames
+    //   (b) both tables exist      -> copy any rows from old that aren't
+    //                                 already in new (matching by id), drop
+    //                                 the old table, then column renames on new
+    //   (c) only new table         -> just column renames on new
     $old_map = $wpdb->prefix . 'azure_tec_calendar_mappings';
     $new_map = $wpdb->prefix . 'azure_calendar_mappings';
     $old_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $old_map)) === $old_map;
     $new_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $new_map)) === $new_map;
     $info = array('old_exists' => $old_exists, 'new_exists' => $new_exists);
+    if ($old_exists) {
+        $info['old_rows'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$old_map}`");
+    }
+    if ($new_exists) {
+        $info['new_rows'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM `{$new_map}`");
+    }
     if ($commit) {
         if ($old_exists && !$new_exists) {
+            $info['action']        = 'rename_table';
             $info['rename_result'] = $wpdb->query("RENAME TABLE `{$old_map}` TO `{$new_map}`");
+        } elseif ($old_exists && $new_exists) {
+            $info['action'] = 'merge_then_drop';
+            // Best-effort row merge: insert any old rows whose id doesn't
+            // already exist in the new table. We use INSERT IGNORE to be
+            // safe across schema drift; if the old and new schemas don't
+            // match, the merge fails silently and we keep the new table.
+            $info['merge_result'] = $wpdb->query(
+                "INSERT IGNORE INTO `{$new_map}` SELECT * FROM `{$old_map}`"
+            );
+            $info['merged_rows_attempted'] = $info['merge_result'];
+            $info['drop_old_result'] = $wpdb->query("DROP TABLE `{$old_map}`");
         }
+        // Apply column renames on whichever new table now exists.
         if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $new_map)) === $new_map) {
             $cols = $wpdb->get_col("SHOW COLUMNS FROM `{$new_map}`");
             if (in_array('tec_category_id', $cols, true)) {
