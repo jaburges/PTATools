@@ -47,6 +47,11 @@ struct APIClient {
         do { return try decoder.decode(T.self, from: data) }
         catch {
             let snippet = String(data: data.prefix(400), encoding: .utf8) ?? ""
+            #if DEBUG
+            print("[API] Decoding failed for \(T.self) from \(url.absoluteString)")
+            logDecodingError(error)
+            print("[API] decode response body=\(snippet)")
+            #endif
             throw APIError.decode("\(error) — body: \(snippet)")
         }
     }
@@ -73,6 +78,10 @@ struct APIClient {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("PTSABoard-iOS/1.0", forHTTPHeaderField: "User-Agent")
 
+        #if DEBUG
+        print("[API] \(method) \(req.url?.absoluteString ?? "<missing-url>")")
+        #endif
+
         switch auth {
         case .none: break
         case .bearer(let token):
@@ -89,6 +98,11 @@ struct APIClient {
             }
             guard (200..<300).contains(http.statusCode) else {
                 let snippet = String(data: data.prefix(800), encoding: .utf8)
+                #if DEBUG
+                print("[API] HTTP \(http.statusCode) \(req.url?.absoluteString ?? "<missing-url>")")
+                print("[API] response headers=\(http.allHeaderFields)")
+                print("[API] response body=\(snippet ?? "<non-utf8>")")
+                #endif
                 throw APIError.http(http.statusCode, snippet)
             }
             return data
@@ -105,3 +119,28 @@ struct APIClient {
         return d
     }()
 }
+
+#if DEBUG
+private func logDecodingError(_ error: Error) {
+    func path(_ codingPath: [CodingKey]) -> String {
+        codingPath.map { key in
+            if let intValue = key.intValue { return "[\(intValue)]" }
+            return key.stringValue
+        }
+        .joined(separator: ".")
+    }
+
+    switch error {
+    case DecodingError.keyNotFound(let key, let context):
+        print("[API] DecodingError.keyNotFound key=\(key.stringValue) path=\(path(context.codingPath)) debug=\(context.debugDescription)")
+    case DecodingError.typeMismatch(let type, let context):
+        print("[API] DecodingError.typeMismatch type=\(type) path=\(path(context.codingPath)) debug=\(context.debugDescription)")
+    case DecodingError.valueNotFound(let type, let context):
+        print("[API] DecodingError.valueNotFound type=\(type) path=\(path(context.codingPath)) debug=\(context.debugDescription)")
+    case DecodingError.dataCorrupted(let context):
+        print("[API] DecodingError.dataCorrupted path=\(path(context.codingPath)) debug=\(context.debugDescription)")
+    default:
+        print("[API] DecodingError other=\(error)")
+    }
+}
+#endif

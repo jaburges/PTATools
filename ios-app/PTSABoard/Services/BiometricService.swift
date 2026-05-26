@@ -47,4 +47,32 @@ enum BiometricService {
             }
         }
     }
+
+    /// Prompt only the enrolled biometric sensor. Use this for first-run
+    /// Face ID / Touch ID enrollment so the user sees the OS biometric
+    /// prompt rather than silently accepting a passcode fallback.
+    @MainActor
+    static func authenticateBiometricsOnly(reason: String) async throws {
+        let ctx = LAContext()
+        ctx.localizedReason = reason
+        ctx.localizedFallbackTitle = ""
+
+        var err: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &err) else {
+            throw err ?? NSError(domain: "Biometric", code: -1)
+        }
+
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            ctx.evaluatePolicy(
+                .deviceOwnerAuthenticationWithBiometrics,
+                localizedReason: reason
+            ) { success, evalErr in
+                if success {
+                    cont.resume()
+                } else {
+                    cont.resume(throwing: evalErr ?? NSError(domain: "Biometric", code: -2))
+                }
+            }
+        }
+    }
 }

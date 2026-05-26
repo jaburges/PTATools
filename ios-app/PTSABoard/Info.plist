@@ -8,10 +8,10 @@
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>CFBundleURLName</key>
-            <string>net.wilderptsa.PTSABoard.msal</string>
+            <string>com.burgess.PTAtools.msal</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>msauth.net.wilderptsa.PTSABoard</string>
+                <string>msauth.com.burgess.PTAtools</string>
             </array>
         </dict>
     </array>

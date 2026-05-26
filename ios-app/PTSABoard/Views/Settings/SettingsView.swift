@@ -65,18 +65,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Security") {
-                    HStack {
-                        Label("Biometric unlock", systemImage: biometricIcon)
-                        Spacer()
-                        Text(biometricLabel)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text("Your sign-in is cached on this device. We use \(biometricLabel) to confirm it's still you the next time the app opens.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
                 Section("About") {
                     HStack { Text("Version"); Spacer(); Text(appVersion).foregroundStyle(.secondary) }
                     HStack { Text("WordPress"); Spacer(); Text(AppConfig.wordpressBaseURL.host ?? "").foregroundStyle(.secondary) }
@@ -112,24 +100,6 @@ struct SettingsView: View {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(v) (\(b))"
-    }
-
-    private var biometricIcon: String {
-        switch BiometricService.available {
-        case .faceID: return "faceid"
-        case .touchID: return "touchid"
-        case .opticID: return "opticid"
-        case .none: return "lock"
-        }
-    }
-
-    private var biometricLabel: String {
-        switch BiometricService.available {
-        case .faceID: return "Face ID"
-        case .touchID: return "Touch ID"
-        case .opticID: return "Optic ID"
-        case .none: return "Disabled"
-        }
     }
 
     @MainActor

@@ -67,3 +67,29 @@ struct GraphResponseStatus: Codable, Hashable {
 struct GraphEventList: Codable {
     let value: [GraphEvent]
 }
+
+/// A configured shared mailbox/calendar source for the Calendar tab.
+/// The iOS app reads these directly from Microsoft Graph using the signed-in
+/// user's delegated calendar permissions.
+struct SharedGraphCalendar: Identifiable, Codable, Hashable {
+    let id: String
+    let mailbox: String
+    let name: String
+}
+
+/// Graph event decorated with the calendar source it came from. This keeps
+/// the Calendar UI independent of whether the source is WordPress or Graph.
+struct SharedGraphCalendarEvent: Identifiable, Hashable {
+    let event: GraphEvent
+    let calendar: SharedGraphCalendar
+
+    var id: String { "\(calendar.id):\(event.id)" }
+    var subject: String { event.subject ?? "(No title)" }
+    var bodyPreview: String? { event.bodyPreview }
+    var start: Date? { event.startDate }
+    var end: Date? { event.endDate }
+    var allDay: Bool { event.isAllDay ?? false }
+    var location: String? { event.location?.displayName }
+    var calendarId: String { calendar.id }
+    var calendarName: String { calendar.name }
+}

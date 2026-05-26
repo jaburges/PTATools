@@ -20,6 +20,27 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: auth.state)
+        .alert(
+            "Sign-in expired",
+            isPresented: Binding(
+                get: { auth.signInExpiredAlert },
+                set: { if !$0 { auth.dismissSignInExpiredAlert() } }
+            )
+        ) {
+            Button("Sign in") {
+                Task {
+                    auth.dismissSignInExpiredAlert()
+                    if let vc = TopController.current() {
+                        await auth.signIn(presenter: vc)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                auth.dismissSignInExpiredAlert()
+            }
+        } message: {
+            Text("You need to sign in again to continue.")
+        }
     }
 }
 

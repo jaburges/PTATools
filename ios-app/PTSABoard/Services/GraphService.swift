@@ -28,13 +28,18 @@ final class GraphService {
 
     // MARK: - Shared calendar
 
-    /// Read events from the shared mailbox (`Calendar@wilderptsa.net`) between
-    /// `from` and `to`. Uses Graph's `calendarView` endpoint via the shared user.
-    func sharedCalendarEvents(accessToken: String, from: Date, to: Date) async throws -> [GraphEvent] {
+    /// Read events from a shared mailbox between `from` and `to`. Uses
+    /// Microsoft Graph's delegated `/users/{mailbox}/calendarView` endpoint,
+    /// so the signed-in user must have access to that mailbox/calendar.
+    func sharedCalendarEvents(
+        accessToken: String,
+        mailbox: String = AppConfig.sharedCalendarMailbox,
+        from: Date,
+        to: Date
+    ) async throws -> [GraphEvent] {
         let isoFrom = ISO8601DateFormatter().string(from: from)
         let isoTo = ISO8601DateFormatter().string(from: to)
 
-        let mailbox = AppConfig.sharedCalendarMailbox
         let url = graphRoot
             .appendingPathComponent("users/\(mailbox)/calendarView")
 
@@ -50,6 +55,27 @@ final class GraphService {
             as: GraphEventList.self
         )
         return resp.value
+    }
+
+    func sharedCalendarEvents(
+        accessToken: String,
+        calendars: [SharedGraphCalendar],
+        from: Date,
+        to: Date
+    ) async throws -> [SharedGraphCalendarEvent] {
+        var output: [SharedGraphCalendarEvent] = []
+        for calendar in calendars {
+            let events = try await sharedCalendarEvents(
+                accessToken: accessToken,
+                mailbox: calendar.mailbox,
+                from: from,
+                to: to
+            )
+            output.append(contentsOf: events.map {
+                SharedGraphCalendarEvent(event: $0, calendar: calendar)
+            })
+        }
+        return output.sorted { ($0.start ?? .distantPast) < ($1.start ?? .distantPast) }
     }
 
     /// Create a new event on the shared calendar. Requires Calendars.ReadWrite.Shared.

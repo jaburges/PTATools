@@ -1,29 +1,24 @@
 import SwiftUI
 
-/// Multi-select sheet listing every Outlook calendar known to the PTA
-/// Tools Calendars module. Lets the user check/uncheck which ones the
-/// Calendar view should pull events from.
+/// Multi-select sheet listing every shared Microsoft 365 calendar configured
+/// for the app. The Calendar view reads selected calendars directly from
+/// Microsoft Graph using the signed-in user's delegated permissions.
 ///
 /// The set of selected calendar IDs is persisted across launches via
 /// `@AppStorage` (a comma-joined string), so each device remembers its
 /// own preferences.
 struct CalendarPickerSheet: View {
-    let mappings: [CalendarMapping]
+    let calendars: [SharedGraphCalendar]
     @Binding var selection: Set<String>
 
     @Environment(\.dismiss) private var dismiss
-    @State private var showDisabled = false
-
-    private var visibleMappings: [CalendarMapping] {
-        showDisabled ? mappings : mappings.filter { $0.syncEnabled }
-    }
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     Button {
-                        selection = Set(visibleMappings.map { $0.calendarId })
+                        selection = Set(calendars.map { $0.id })
                     } label: {
                         Label("Select all", systemImage: "checkmark.circle.fill")
                     }
@@ -35,57 +30,37 @@ struct CalendarPickerSheet: View {
                 }
 
                 Section {
-                    ForEach(visibleMappings) { m in
+                    ForEach(calendars) { calendar in
                         Button {
-                            if selection.contains(m.calendarId) {
-                                selection.remove(m.calendarId)
+                            if selection.contains(calendar.id) {
+                                selection.remove(calendar.id)
                             } else {
-                                selection.insert(m.calendarId)
+                                selection.insert(calendar.id)
                             }
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: selection.contains(m.calendarId)
+                                Image(systemName: selection.contains(calendar.id)
                                       ? "checkmark.square.fill" : "square")
-                                    .foregroundStyle(selection.contains(m.calendarId)
+                                    .foregroundStyle(selection.contains(calendar.id)
                                                      ? Color.accentColor : Color.secondary)
                                     .font(.title3)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        Text(m.name).font(.body).foregroundStyle(.primary)
-                                        if !m.syncEnabled {
-                                            Text("paused")
-                                                .font(.caption2.weight(.semibold))
-                                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                                .background(Color.orange.opacity(0.15))
-                                                .foregroundStyle(.orange)
-                                                .clipShape(Capsule())
-                                        }
-                                    }
-                                    Text(m.calendarId)
+                                    Text(calendar.name).font(.body).foregroundStyle(.primary)
+                                    Text(calendar.mailbox)
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
                                 }
-                                Spacer(minLength: 8)
-                                Text("\(m.eventCount)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
                             }
                         }
                         .buttonStyle(.plain)
                     }
                 } header: {
-                    Text("Calendars (\(visibleMappings.count))")
+                    Text("Calendars (\(calendars.count))")
                 } footer: {
-                    if !showDisabled {
-                        Text("Sync-paused calendars are hidden. Tap “Show paused” to see them.")
-                            .font(.caption)
-                    }
-                }
-
-                Section {
-                    Toggle("Show paused calendars", isOn: $showDisabled)
+                    Text("Only calendars that have been shared with your Microsoft account will load.")
+                        .font(.caption)
                 }
             }
             .navigationTitle("Pick calendars")

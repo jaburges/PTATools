@@ -3,6 +3,7 @@ import SwiftUI
 struct BiometricLockView: View {
     @EnvironmentObject var auth: AuthService
     @State private var attempting = false
+    @State private var autoAttempted = false
 
     var body: some View {
         ZStack {
@@ -33,11 +34,7 @@ struct BiometricLockView: View {
 
                 VStack(spacing: 14) {
                     Button {
-                        Task {
-                            attempting = true
-                            await auth.unlockWithBiometrics()
-                            attempting = false
-                        }
+                        Task { await unlock() }
                     } label: {
                         HStack(spacing: 12) {
                             if attempting {
@@ -45,7 +42,7 @@ struct BiometricLockView: View {
                             } else {
                                 Image(systemName: iconName)
                             }
-                            Text(attempting ? "Authenticating…" : "Unlock with \(label)")
+                            Text(attempting ? "Checking…" : "Try \(label) Again")
                                 .fontWeight(.semibold)
                         }
                         .frame(maxWidth: .infinity, minHeight: 52)
@@ -55,19 +52,38 @@ struct BiometricLockView: View {
                     }
                     .disabled(attempting)
 
-                    Button("Use a different account") {
-                        Task { await auth.signOut() }
+                    Button("Sign in with Microsoft") {
+                        auth.useMicrosoftSignInFromLock()
                     }
                     .foregroundStyle(.white.opacity(0.9))
+
+                    if let err = auth.lastError {
+                        Text(err)
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                            .padding(10)
+                            .background(.white.opacity(0.18))
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 50)
             }
         }
         .task {
-            // Auto-prompt on entry.
-            await auth.unlockWithBiometrics()
+            guard !autoAttempted else { return }
+            autoAttempted = true
+            await unlock()
         }
+    }
+
+    @MainActor
+    private func unlock() async {
+        guard !attempting else { return }
+        attempting = true
+        await auth.unlockWithBiometrics()
+        attempting = false
     }
 
     private var iconName: String {

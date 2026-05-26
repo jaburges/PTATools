@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Orders
 
-struct WCOrder: Codable, Identifiable, Hashable {
+struct WCOrder: Decodable, Identifiable, Hashable {
     let id: Int
     let number: String
     let status: String
@@ -32,6 +32,39 @@ struct WCOrder: Codable, Identifiable, Hashable {
     var displayStatus: String {
         status.replacingOccurrences(of: "-", with: " ").capitalized
     }
+
+    enum CodingKeys: String, CodingKey {
+        case id, number, status, currency, date_created, date_modified, total
+        case customer_id, billing, shipping, line_items, items
+        case payment_method_title, payment_method, customer_note
+        case customer_email, customer_name
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        number = try c.decodeFlexibleStringIfPresent(forKey: .number) ?? "\(id)"
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
+        currency = try c.decodeIfPresent(String.self, forKey: .currency) ?? ""
+        date_created = try c.decodeIfPresent(String.self, forKey: .date_created)
+        date_modified = try c.decodeIfPresent(String.self, forKey: .date_modified)
+        total = try c.decodeFlexibleStringIfPresent(forKey: .total) ?? "0"
+        customer_id = try c.decodeIfPresent(Int.self, forKey: .customer_id)
+        shipping = try c.decodeIfPresent(WCAddress.self, forKey: .shipping)
+        payment_method_title = try c.decodeIfPresent(String.self, forKey: .payment_method_title)
+            ?? (try c.decodeIfPresent(String.self, forKey: .payment_method))
+        customer_note = try c.decodeIfPresent(String.self, forKey: .customer_note)
+        if let nativeBilling = try c.decodeIfPresent(WCAddress.self, forKey: .billing) {
+            billing = nativeBilling
+        } else {
+            let displayName = try c.decodeIfPresent(String.self, forKey: .customer_name)
+            let email = try c.decodeIfPresent(String.self, forKey: .customer_email)
+            billing = WCAddress(displayName: displayName, email: email)
+        }
+        let nativeItems = try c.decodeIfPresent([WCLineItem].self, forKey: .line_items)
+        let proxyItems = try c.decodeIfPresent([WCLineItem].self, forKey: .items)
+        line_items = nativeItems ?? proxyItems ?? []
+    }
 }
 
 struct WCAddress: Codable, Hashable {
@@ -45,9 +78,37 @@ struct WCAddress: Codable, Hashable {
     var country: String?
     var email: String?
     var phone: String?
+
+    init(
+        first_name: String? = nil,
+        last_name: String? = nil,
+        address_1: String? = nil,
+        address_2: String? = nil,
+        city: String? = nil,
+        state: String? = nil,
+        postcode: String? = nil,
+        country: String? = nil,
+        email: String? = nil,
+        phone: String? = nil
+    ) {
+        self.first_name = first_name
+        self.last_name = last_name
+        self.address_1 = address_1
+        self.address_2 = address_2
+        self.city = city
+        self.state = state
+        self.postcode = postcode
+        self.country = country
+        self.email = email
+        self.phone = phone
+    }
+
+    init(displayName: String?, email: String?) {
+        self.init(first_name: displayName, email: email)
+    }
 }
 
-struct WCLineItem: Codable, Identifiable, Hashable {
+struct WCLineItem: Decodable, Identifiable, Hashable {
     let id: Int
     let name: String
     let product_id: Int
@@ -55,11 +116,26 @@ struct WCLineItem: Codable, Identifiable, Hashable {
     let quantity: Int
     let total: String
     let sku: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, product_id, variation_id, quantity, total, sku
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        product_id = try c.decodeIfPresent(Int.self, forKey: .product_id) ?? 0
+        variation_id = try c.decodeIfPresent(Int.self, forKey: .variation_id)
+        quantity = try c.decodeIfPresent(Int.self, forKey: .quantity) ?? 0
+        total = try c.decodeFlexibleStringIfPresent(forKey: .total) ?? "0"
+        sku = try c.decodeIfPresent(String.self, forKey: .sku)
+    }
 }
 
 // MARK: - Products
 
-struct WCProduct: Codable, Identifiable, Hashable {
+struct WCProduct: Decodable, Identifiable, Hashable {
     var id: Int
     var name: String
     var slug: String? = nil
@@ -108,6 +184,119 @@ struct WCProduct: Codable, Identifiable, Hashable {
         default:         return type.capitalized
         }
     }
+
+    init(
+        id: Int,
+        name: String,
+        slug: String? = nil,
+        permalink: String? = nil,
+        type: String,
+        status: String,
+        featured: Bool? = nil,
+        description: String? = nil,
+        short_description: String? = nil,
+        sku: String? = nil,
+        price: String? = nil,
+        regular_price: String? = nil,
+        sale_price: String? = nil,
+        on_sale: Bool? = nil,
+        manage_stock: Bool? = nil,
+        stock_quantity: Int? = nil,
+        stock_status: String? = nil,
+        weight: String? = nil,
+        dimensions: WCDimensions? = nil,
+        shipping_required: Bool? = nil,
+        shipping_taxable: Bool? = nil,
+        shipping_class: String? = nil,
+        tax_status: String? = nil,
+        tax_class: String? = nil,
+        categories: [WCRef]? = nil,
+        tags: [WCRef]? = nil,
+        images: [WCImage]? = nil,
+        attributes: [WCAttribute]? = nil,
+        date_created: String? = nil,
+        date_modified: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.slug = slug
+        self.permalink = permalink
+        self.type = type
+        self.status = status
+        self.featured = featured
+        self.description = description
+        self.short_description = short_description
+        self.sku = sku
+        self.price = price
+        self.regular_price = regular_price
+        self.sale_price = sale_price
+        self.on_sale = on_sale
+        self.manage_stock = manage_stock
+        self.stock_quantity = stock_quantity
+        self.stock_status = stock_status
+        self.weight = weight
+        self.dimensions = dimensions
+        self.shipping_required = shipping_required
+        self.shipping_taxable = shipping_taxable
+        self.shipping_class = shipping_class
+        self.tax_status = tax_status
+        self.tax_class = tax_class
+        self.categories = categories
+        self.tags = tags
+        self.images = images
+        self.attributes = attributes
+        self.date_created = date_created
+        self.date_modified = date_modified
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, slug, permalink, type, status, featured, description
+        case short_description, sku, price, regular_price, sale_price, on_sale
+        case manage_stock, stock_quantity, stock_status, weight, dimensions
+        case shipping_required, shipping_taxable, shipping_class, tax_status
+        case tax_class, categories, tags, images, image, attributes
+        case date_created, date_modified
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        slug = try c.decodeIfPresent(String.self, forKey: .slug)
+        permalink = try c.decodeIfPresent(String.self, forKey: .permalink)
+        type = try c.decodeIfPresent(String.self, forKey: .type) ?? "simple"
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "publish"
+        featured = try c.decodeIfPresent(Bool.self, forKey: .featured)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        short_description = try c.decodeIfPresent(String.self, forKey: .short_description)
+        sku = try c.decodeIfPresent(String.self, forKey: .sku)
+        price = try c.decodeFlexibleStringIfPresent(forKey: .price)
+        regular_price = try c.decodeFlexibleStringIfPresent(forKey: .regular_price)
+        sale_price = try c.decodeFlexibleStringIfPresent(forKey: .sale_price)
+        on_sale = try c.decodeIfPresent(Bool.self, forKey: .on_sale)
+        manage_stock = try c.decodeIfPresent(Bool.self, forKey: .manage_stock)
+        stock_quantity = try c.decodeIfPresent(Int.self, forKey: .stock_quantity)
+        stock_status = try c.decodeIfPresent(String.self, forKey: .stock_status)
+        weight = try c.decodeFlexibleStringIfPresent(forKey: .weight)
+        dimensions = try c.decodeIfPresent(WCDimensions.self, forKey: .dimensions)
+        shipping_required = try c.decodeIfPresent(Bool.self, forKey: .shipping_required)
+        shipping_taxable = try c.decodeIfPresent(Bool.self, forKey: .shipping_taxable)
+        shipping_class = try c.decodeIfPresent(String.self, forKey: .shipping_class)
+        tax_status = try c.decodeIfPresent(String.self, forKey: .tax_status)
+        tax_class = try c.decodeIfPresent(String.self, forKey: .tax_class)
+        categories = try c.decodeIfPresent([WCRef].self, forKey: .categories)
+        tags = try c.decodeIfPresent([WCRef].self, forKey: .tags)
+        if let nativeImages = try c.decodeIfPresent([WCImage].self, forKey: .images) {
+            images = nativeImages
+        } else if let src = try c.decodeIfPresent(String.self, forKey: .image), !src.isEmpty {
+            images = [WCImage(id: nil, src: src, name: nil, alt: nil)]
+        } else {
+            images = nil
+        }
+        attributes = try c.decodeIfPresent([WCAttribute].self, forKey: .attributes)
+        date_created = try c.decodeIfPresent(String.self, forKey: .date_created)
+        date_modified = try c.decodeIfPresent(String.self, forKey: .date_modified)
+    }
 }
 
 struct WCDimensions: Codable, Hashable {
@@ -127,6 +316,13 @@ struct WCImage: Codable, Hashable, Identifiable {
     var src: String
     var name: String?
     var alt: String?
+
+    init(id: Int?, src: String, name: String?, alt: String?) {
+        self.id = id
+        self.src = src
+        self.name = name
+        self.alt = alt
+    }
 }
 
 struct WCAttribute: Codable, Hashable, Identifiable {
@@ -136,4 +332,19 @@ struct WCAttribute: Codable, Hashable, Identifiable {
     var visible: Bool?
     var variation: Bool?
     var options: [String]
+}
+
+private extension KeyedDecodingContainer {
+    func decodeFlexibleStringIfPresent(forKey key: Key) throws -> String? {
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decodeIfPresent(Double.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return String(value)
+        }
+        return nil
+    }
 }

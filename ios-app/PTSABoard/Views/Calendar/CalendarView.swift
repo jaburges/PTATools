@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Calendar tab — lists upcoming PTSA events sourced from `pta_event`
-/// posts via `/wp-json/ptsa/v1/events`, with a multi-select picker driven
-/// by the Calendars module mappings (`/ptsa/v1/calendars`).
+/// Calendar tab — lists upcoming PTSA events read directly from Microsoft
+/// Graph shared calendars using the signed-in user's delegated permissions.
 struct CalendarView: View {
     @EnvironmentObject var auth: AuthService
 
@@ -10,19 +9,19 @@ struct CalendarView: View {
     @AppStorage("calendar.selectedIds") private var selectedIdsCSV: String = ""
 
     @State private var selectedDate = Date()
-    @State private var mappings: [CalendarMapping] = []
-    @State private var events: [PtaEvent] = []
+    @State private var calendars: [SharedGraphCalendar] = AppConfig.sharedGraphCalendars
+    @State private var events: [SharedGraphCalendarEvent] = []
     @State private var selection: Set<String> = []
     @State private var loading = false
     @State private var error: String?
     @State private var showCreate = false
     @State private var showPicker = false
 
-    private var mappingsById: [String: CalendarMapping] {
-        Dictionary(uniqueKeysWithValues: mappings.map { ($0.calendarId, $0) })
+    private var calendarsById: [String: SharedGraphCalendar] {
+        Dictionary(uniqueKeysWithValues: calendars.map { ($0.id, $0) })
     }
 
-    private var eventsToday: [PtaEvent] {
+    private var eventsToday: [SharedGraphCalendarEvent] {
         let cal = Calendar.current
         return events
             .filter { ev in
@@ -84,11 +83,11 @@ struct CalendarView: View {
             }
         }
         .refreshable {
-            await loadMappings()
+            loadCalendarSources()
             await loadEvents()
         }
         .task {
-            await loadMappings()
+            loadCalendarSources()
             await loadEvents()
         }
         .sheet(isPresented: $showCreate) {
@@ -99,7 +98,7 @@ struct CalendarView: View {
             }
         }
         .sheet(isPresented: $showPicker) {
-            CalendarPickerSheet(mappings: mappings, selection: $selection)
+            CalendarPickerSheet(calendars: calendars, selection: $selection)
                 .onDisappear {
                     selectedIdsCSV = selection.sorted().joined(separator: ",")
                     Task { await loadEvents() }
@@ -123,7 +122,7 @@ struct CalendarView: View {
                 Text("All calendars")
                     .font(.subheadline.weight(.medium))
             } else {
-                let names = selection.compactMap { mappingsById[$0]?.name }.sorted()
+                let names = selection.compactMap { calendarsById[$0]?.name }.sorted()
                 Text(names.prefix(2).joined(separator: ", ")
                      + (names.count > 2 ? " +\(names.count - 2)" : ""))
                     .font(.subheadline.weight(.medium))
@@ -142,29 +141,29 @@ struct CalendarView: View {
     // MARK: - Data loading
 
     @MainActor
-    private func loadMappings() async {
-        do {
-            let list = try await CalendarsService.shared.mappings()
-            self.mappings = list
+    private func loadCalendarSources() {
+        calendars = AppConfig.sharedGraphCalendars
+        guard selection.isEmpty else { return }
 
-            // Restore persisted selection (drop any IDs no longer present).
-            if selection.isEmpty {
-                let saved = selectedIdsCSV
-                    .split(separator: ",")
-                    .map { String($0) }
-                    .filter { !$0.isEmpty }
-                if !saved.isEmpty {
-                    let valid = Set(list.map { $0.calendarId })
-                    selection = Set(saved).intersection(valid)
-                } else {
-                    // Default to all sync-enabled mappings on first run.
-                    selection = Set(list.filter { $0.syncEnabled }.map { $0.calendarId })
-                    selectedIdsCSV = selection.sorted().joined(separator: ",")
-                }
-            }
-        } catch {
-            self.error = "Could not load calendars: \(error.localizedDescription)"
+        let saved = selectedIdsCSV
+            .split(separator: ",")
+            .map { String($0) }
+            .filter { !$0.isEmpty }
+
+        if !saved.isEmpty {
+            let valid = Set(calendars.map { $0.id })
+            selection = Set(saved).intersection(valid)
+        } else {
+            selection = Set(calendars.map { $0.id })
+            selectedIdsCSV = selection.sorted().joined(separator: ",")
         }
+    }
+
+    private var selectedCalendars: [SharedGraphCalendar] {
+        if selection.isEmpty {
+            return calendars
+        }
+        return calendars.filter { selection.contains($0.id) }
     }
 
     @MainActor
@@ -174,17 +173,28 @@ struct CalendarView: View {
             let cal = Calendar.current
             let start = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: selectedDate)) ?? selectedDate
             let end   = cal.date(byAdding: .day, value: 60, to: cal.startOfDay(for: selectedDate)) ?? selectedDate
-            let ids = Array(selection)
-            events = try await CalendarsService.shared.events(from: start, to: end, calendarIds: ids)
+            let token = try await auth.graphAccessToken()
+            events = try await GraphService.shared.sharedCalendarEvents(
+                accessToken: token,
+                calendars: selectedCalendars,
+                from: start,
+                to: end
+            )
             error = nil
         } catch {
-            self.error = error.localizedDescription
+            if let api = error as? APIError,
+               case .http(let code, let body) = api,
+               code == 403 || code == 404 {
+                self.error = "Calendar access is not available yet. Make sure your Microsoft account has been granted access to the selected shared calendar."
+            } else {
+                self.error = error.localizedDescription
+            }
         }
     }
 }
 
 private struct EventRow: View {
-    let event: PtaEvent
+    let event: SharedGraphCalendarEvent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

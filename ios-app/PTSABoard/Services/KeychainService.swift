@@ -6,7 +6,7 @@ import Security
 /// biometric-gated lock flag, WooCommerce key cache, etc).
 enum KeychainService {
 
-    private static let service = "net.wilderptsa.PTSABoard"
+    private static let service = "com.burgess.PTAtools"
 
     @discardableResult
     static func set(_ value: String, for key: String, biometricGate: Bool = false) -> Bool {

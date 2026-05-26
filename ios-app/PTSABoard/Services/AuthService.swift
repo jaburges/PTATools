@@ -18,6 +18,7 @@ final class AuthService: ObservableObject {
     @Published private(set) var state: AuthState = .loading
     @Published private(set) var profile: UserProfile?
     @Published private(set) var lastError: String?
+    @Published private(set) var signInExpiredAlert = false
 
     // MARK: - MSAL
 
@@ -26,6 +27,8 @@ final class AuthService: ObservableObject {
     private var cachedAccessToken: String?
     private var cachedIdToken: String?
     private var cachedTokenExpiry: Date?
+
+    private let biometricEnrolledKey = "biometricEnrolled"
 
     // MARK: - Bootstrap
 
@@ -73,13 +76,15 @@ final class AuthService: ObservableObject {
            KeychainService.get("biometricEnrolled") == "1" {
             state = .locked
         } else {
-            await refreshSilent()
+            await refreshSilent(enrollBiometricsIfNeeded: true)
         }
     }
 
     /// First-time / explicit interactive sign in.
     func signIn(presenter: UIViewController) async {
         guard let msal else { lastError = "MSAL not initialized"; return }
+        lastError = nil
+        signInExpiredAlert = false
 
         let webParams = MSALWebviewParameters(authPresentationViewController: presenter)
         let params = MSALInteractiveTokenParameters(
@@ -120,13 +125,26 @@ final class AuthService: ObservableObject {
     }
 
     /// Biometric unlock after the app has been killed/foregrounded.
-    func unlockWithBiometrics() async {
+    @discardableResult
+    func unlockWithBiometrics() async -> Bool {
+        lastError = nil
         do {
             try await BiometricService.authenticate(reason: "Unlock PTSA Board")
-            await refreshSilent()
+            return await refreshSilentAfterLocalUnlock()
         } catch {
-            self.lastError = "Biometric unlock failed: \(error.localizedDescription)"
+            self.lastError = "Face ID wasn't completed. Try again or sign in with Microsoft."
+            return false
         }
+    }
+
+    /// The user chose to use Microsoft sign-in from the local lock screen.
+    func useMicrosoftSignInFromLock() {
+        lastError = nil
+        state = .signedOut
+    }
+
+    func dismissSignInExpiredAlert() {
+        signInExpiredAlert = false
     }
 
     /// Sign out and forget cached tokens / biometric enrolment.
@@ -180,13 +198,32 @@ final class AuthService: ObservableObject {
 
     // MARK: - Internals
 
-    private func refreshSilent() async {
+    private func refreshSilent(enrollBiometricsIfNeeded: Bool = false) async {
         do {
             _ = try await acquireTokenSilent()
+            if enrollBiometricsIfNeeded {
+                await autoEnrollBiometricsIfAppropriate()
+            }
             state = .signedIn
         } catch {
             self.lastError = "Could not refresh session, please sign in again."
             state = .signedOut
+        }
+    }
+
+    private func refreshSilentAfterLocalUnlock() async -> Bool {
+        do {
+            _ = try await acquireTokenSilent()
+            state = .signedIn
+            return true
+        } catch {
+            cachedAccessToken = nil
+            cachedIdToken = nil
+            cachedTokenExpiry = nil
+            lastError = nil
+            signInExpiredAlert = true
+            state = .signedOut
+            return false
         }
     }
 
@@ -233,11 +270,28 @@ final class AuthService: ObservableObject {
             KeychainService.setData(data, for: "profile.json")
         }
 
-        if persistBiometric, BiometricService.available != .none {
-            KeychainService.set("1", for: "biometricEnrolled")
+        if persistBiometric {
+            await autoEnrollBiometricsIfAppropriate()
         }
 
         state = .signedIn
+    }
+
+    private func autoEnrollBiometricsIfAppropriate() async {
+        let available = BiometricService.available
+        print("[Auth] biometric enrollment check available=\(available) enrolled=\(KeychainService.get(biometricEnrolledKey) ?? "nil")")
+        guard available != .none else { return }
+        guard KeychainService.get(biometricEnrolledKey) != "1" else { return }
+
+        do {
+            try await BiometricService.authenticateBiometricsOnly(reason: "Enable Face ID for PTSA Board")
+            KeychainService.set("1", for: biometricEnrolledKey)
+            print("[Auth] biometric enrollment enabled")
+        } catch {
+            // User cancellation should not block first-run access. The app will
+            // continue to use Microsoft sign-in until biometrics are enrolled.
+            print("[Auth] biometric enrollment skipped: \(error.localizedDescription)")
+        }
     }
 }
 
