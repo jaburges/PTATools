@@ -7,7 +7,7 @@ Apple, not in git.
 ## App Store Connect App
 
 - App name: `PTA Tools`
-- Bundle ID: `net.wilderptsa.PTSABoard`
+- Bundle ID: `com.burgess.PTAtools`
 - SKU: `6773496257`
 - Primary language: English
 - Platform: iOS
@@ -79,7 +79,7 @@ next to `PTSABoard.xcodeproj`.
   - Resolves Swift packages before the build.
 - `ci_pre_xcodebuild.sh`
   - Fails early if `AppConfig.swift` contains placeholders.
-  - Verifies the bundle ID is `net.wilderptsa.PTSABoard`.
+  - Verifies the bundle ID is `com.burgess.PTAtools`.
 - `ci_post_xcodebuild.sh`
   - Prints build metadata and archive path for diagnostics.
 
@@ -90,7 +90,7 @@ The project uses automatic signing:
 ```text
 DEVELOPMENT_TEAM = X25R9XDCN3
 CODE_SIGN_STYLE = Automatic
-PRODUCT_BUNDLE_IDENTIFIER = net.wilderptsa.PTSABoard
+PRODUCT_BUNDLE_IDENTIFIER = com.burgess.PTAtools
 ```
 
 Make sure the App Store Connect app, bundle ID, and team all belong to the
@@ -102,7 +102,7 @@ workflow is connected to that team.
 The Entra iOS app registration must continue to include this redirect URI:
 
 ```text
-msauth.net.wilderptsa.PTSABoard://auth
+msauth.com.burgess.PTAtools://auth
 ```
 
 The iOS app client ID and tenant ID are public identifiers in

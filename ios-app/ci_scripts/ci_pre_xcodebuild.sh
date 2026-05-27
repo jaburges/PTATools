@@ -28,7 +28,7 @@ BUNDLE_ID=$(
     awk -F'= ' '/^[[:space:]]+PRODUCT_BUNDLE_IDENTIFIER = / {print $2; exit}'
 )
 
-if [ "$BUNDLE_ID" != "net.wilderptsa.PTSABoard" ]; then
+if [ "$BUNDLE_ID" != "com.burgess.PTAtools" ]; then
   echo "::error::Unexpected PRODUCT_BUNDLE_IDENTIFIER: $BUNDLE_ID"
   exit 1
 fi

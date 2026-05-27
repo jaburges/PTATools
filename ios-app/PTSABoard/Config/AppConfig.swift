@@ -13,7 +13,7 @@ enum AppConfig {
 
     /// The Application (client) ID of the iOS app registration in Entra ID.
     /// App: "Wilder PTSA Board (iOS)" — single-tenant, public client,
-    /// redirect URI msauth.net.wilderptsa.PTSABoard://auth, admin consent
+    /// redirect URI msauth.com.burgess.PTAtools://auth, admin consent
     /// granted for User.Read, User.ReadBasic.All, Calendars.ReadWrite.Shared,
     /// Mail.Send, openid, profile, offline_access.
     static let entraClientId: String = "62d983db-f1e9-49cf-a833-b332ea3af84e"
@@ -23,7 +23,7 @@ enum AppConfig {
 
     /// MSAL redirect URI — must match the Info.plist URL scheme AND the
     /// "iOS / macOS" platform redirect URI in the app registration.
-    static let entraRedirectUri: String = "msauth.net.wilderptsa.PTSABoard://auth"
+    static let entraRedirectUri: String = "msauth.com.burgess.PTAtools://auth"
 
     /// MSAL keychain access group (optional). Leave nil to use default.
     static let entraKeychainGroup: String? = nil
