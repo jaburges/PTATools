@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.106
+ * Version: 3.107
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.106');
+define('AZURE_PLUGIN_VERSION', '3.107');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -494,6 +494,20 @@ class AzurePlugin {
                     // 10) captures the ruleset before late-registered endpoints
                     // like /my-account/profile/ are added, which 404s them.
                     add_action('wp_loaded', 'flush_rewrite_rules');
+
+                    // v3.107: clear stale pages containing [up-next] during
+                    // deploy/promotion as well as on future pta_event changes.
+                    // The event-change hook fixes new syncs going forward, but
+                    // without this upgrade-time purge a homepage cached before
+                    // deployment can keep showing "No upcoming events."
+                    $upcoming_path = AZURE_PLUGIN_PATH . 'includes/class-upcoming-module.php';
+                    if (file_exists($upcoming_path)) {
+                        require_once $upcoming_path;
+                    }
+                    if (class_exists('Azure_Upcoming_Module')) {
+                        Azure_Upcoming_Module::invalidate_cache();
+                    }
+
                     update_option('azure_plugin_db_version', AZURE_PLUGIN_VERSION);
 
                     // Auction: schedule per-auction finalize events for any
