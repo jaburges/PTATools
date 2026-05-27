@@ -18,6 +18,6 @@ wiki-temp/
 # Xcode / iOS app — user-specific and machine-specific state
 ios-app/**/xcuserdata/
 ios-app/**/*.xcuserstate
-ios-app/**/xcshareddata/swiftpm/
+ios-app/**/xcshareddata/swiftpm/configuration/
 ios-app/build/
 ios-app/DerivedData/
