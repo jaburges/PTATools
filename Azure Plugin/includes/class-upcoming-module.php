@@ -16,7 +16,7 @@ class Azure_Upcoming_Module {
     private static $instance = null;
     private const CACHE_VERSION_OPTION = 'azure_up_next_cache_version';
     /** Bump when query/render logic changes so stale transients are ignored. */
-    private const CACHE_SCHEMA = '4';
+    private const CACHE_SCHEMA = '5';
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -325,9 +325,9 @@ class Azure_Upcoming_Module {
      */
     private function get_events_in_range($start, $end, $exclude_categories = array(), $future_only = false) {
         $post_type = 'pta_event';
-        // The public taxonomy slug is shared with the legacy TEC taxonomy
-        // (see class-event-cpt.php) so tax_query lookups stay stable.
-        $taxonomy  = 'tribe_events_cat';
+        $taxonomy = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::query_taxonomy()
+            : 'pta_event_category';
 
         $args = array(
             'post_type'      => $post_type,
@@ -355,7 +355,7 @@ class Azure_Upcoming_Module {
         );
 
         // Exclude categories if specified
-        if (!empty($exclude_categories)) {
+        if (!empty($exclude_categories) && taxonomy_exists($taxonomy)) {
             $args['tax_query'] = array(
                 array(
                     'taxonomy' => $taxonomy,
