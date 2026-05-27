@@ -16,7 +16,7 @@ class Azure_Upcoming_Module {
     private static $instance = null;
     private const CACHE_VERSION_OPTION = 'azure_up_next_cache_version';
     /** Bump when query/render logic changes so stale transients are ignored. */
-    private const CACHE_SCHEMA = '5';
+    private const CACHE_SCHEMA = '6';
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -370,9 +370,15 @@ class Azure_Upcoming_Module {
         $events = array();
         
         if ($query->have_posts()) {
+            $seen_event_ids = array();
             while ($query->have_posts()) {
                 $query->the_post();
                 $event_id = get_the_ID();
+
+                if (isset($seen_event_ids[$event_id])) {
+                    continue;
+                }
+                $seen_event_ids[$event_id] = true;
 
                 if (get_post_meta($event_id, '_EventHideFromUpcoming', true) === 'yes') {
                     continue;
