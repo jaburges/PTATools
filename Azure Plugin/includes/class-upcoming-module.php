@@ -271,14 +271,48 @@ class Azure_Upcoming_Module {
     }
 
     /**
-     * Invalidate cached [up-next] output.
+     * Invalidate cached [up-next] output and any page cache that may contain it.
      *
-     * This intentionally bumps a version option instead of scanning/deleting
-     * transient rows by prefix. On Redis-backed sites this is one option write;
-     * old transient keys naturally expire on their weekly TTL.
+     * Bumping the shortcode cache version is necessary but not sufficient on
+     * production: the homepage/page cache can still serve stale rendered HTML
+     * that already contains the old [up-next] output. Whenever a pta_event is
+     * created, synced, edited, or deleted, purge the page-cache layer too so
+     * newly synced events appear immediately.
+     *
+     * @param int $post_id Optional pta_event post ID being changed.
      */
-    public static function invalidate_cache() {
+    public static function invalidate_cache($post_id = 0) {
         update_option(self::CACHE_VERSION_OPTION, (string) time(), false);
+
+        if ($post_id) {
+            clean_post_cache((int) $post_id);
+        }
+
+        // W3 Total Cache.
+        if (function_exists('w3tc_flush_all')) {
+            @w3tc_flush_all();
+            return;
+        }
+        if (function_exists('w3tc_pgcache_flush')) {
+            @w3tc_pgcache_flush();
+        }
+        if (function_exists('w3tc_flush_url')) {
+            @w3tc_flush_url(home_url('/'));
+        }
+
+        // WP Rocket / LiteSpeed if those plugins are ever used on another host.
+        if (function_exists('rocket_clean_domain')) {
+            @rocket_clean_domain();
+        }
+        if (has_action('litespeed_purge_all')) {
+            do_action('litespeed_purge_all');
+        }
+
+        // Last resort: clear object cache so stale transient/object-cache reads
+        // don't outlive the page-cache purge.
+        if (function_exists('wp_cache_flush')) {
+            @wp_cache_flush();
+        }
     }
     
     /**
