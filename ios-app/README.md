@@ -69,10 +69,10 @@ Xcode picks up new files automatically when you drop them under
 2. Name: `Wilder PTSA Board (iOS)`
 3. Supported account types: **Single tenant**
 4. Redirect URI: select **Public client / native (mobile & desktop)** and use
-   `msauth.com.burgess.PTAtools://auth`
+   `msauth.net.wilderptsa.PTSABoard://auth`
 5. Save, then on **Authentication**:
    - Add an **iOS / macOS** platform redirect with bundle ID
-     `com.burgess.PTAtools`. Azure will generate the correct
+     `net.wilderptsa.PTSABoard`. Azure will generate the correct
      `msauth.<bundle>://auth` URL.
    - Allow public client flows: **Yes** (mobile flows require this).
 6. On **API permissions**, add delegated Microsoft Graph permissions:
