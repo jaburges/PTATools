@@ -16,7 +16,7 @@ class Azure_Upcoming_Module {
     private static $instance = null;
     private const CACHE_VERSION_OPTION = 'azure_up_next_cache_version';
     /** Bump when query/render logic changes so stale transients are ignored. */
-    private const CACHE_SCHEMA = '6';
+    private const CACHE_SCHEMA = '7';
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -371,6 +371,7 @@ class Azure_Upcoming_Module {
         
         if ($query->have_posts()) {
             $seen_event_ids = array();
+            $seen_event_keys = array();
             while ($query->have_posts()) {
                 $query->the_post();
                 $event_id = get_the_ID();
@@ -380,6 +381,17 @@ class Azure_Upcoming_Module {
                 }
                 $seen_event_ids[$event_id] = true;
 
+                $start_date = get_post_meta($event_id, '_EventStartDate', true);
+                $end_date   = get_post_meta($event_id, '_EventEndDate', true);
+                $outlook_id = (string) get_post_meta($event_id, '_outlook_event_id', true);
+                $event_key = $outlook_id !== ''
+                    ? 'outlook:' . $outlook_id
+                    : 'fallback:' . md5(get_the_title() . '|' . $start_date . '|' . $end_date);
+                if (isset($seen_event_keys[$event_key])) {
+                    continue;
+                }
+                $seen_event_keys[$event_key] = true;
+
                 if (get_post_meta($event_id, '_EventHideFromUpcoming', true) === 'yes') {
                     continue;
                 }
@@ -388,8 +400,8 @@ class Azure_Upcoming_Module {
                     'id'         => $event_id,
                     'title'      => get_the_title(),
                     'url'        => get_permalink(),
-                    'start_date' => get_post_meta($event_id, '_EventStartDate', true),
-                    'end_date'   => get_post_meta($event_id, '_EventEndDate', true),
+                    'start_date' => $start_date,
+                    'end_date'   => $end_date,
                     'all_day'    => get_post_meta($event_id, '_EventAllDay', true) === 'yes',
                     'online_url' => $this->get_online_meeting_url($event_id),
                 );
