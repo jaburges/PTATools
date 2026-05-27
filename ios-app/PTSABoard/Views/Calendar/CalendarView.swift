@@ -183,7 +183,7 @@ struct CalendarView: View {
             error = nil
         } catch {
             if let api = error as? APIError,
-               case .http(let code, let body) = api,
+               case .http(let code, _) = api,
                code == 403 || code == 404 {
                 self.error = "Calendar access is not available yet. Make sure your Microsoft account has been granted access to the selected shared calendar."
             } else {
