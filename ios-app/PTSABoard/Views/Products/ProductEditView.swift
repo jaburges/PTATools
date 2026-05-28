@@ -83,6 +83,67 @@ struct ProductEditView: View {
                 } header: { Text(product.type == "donation" ? "Suggested Amount" : "Price") }
             }
 
+            if product.type == "auction" {
+                Section {
+                    HStack {
+                        Text("Starting $")
+                        TextField("0.00", text: Binding(
+                            get: { product.auction?.starting_bid ?? product.regular_price ?? product.price ?? "" },
+                            set: {
+                                ensureAuction()
+                                product.auction?.starting_bid = $0
+                                product.regular_price = $0
+                                product.price = $0
+                            }
+                        ))
+                        .keyboardType(.decimalPad)
+                    }
+                    TextField("Bidding end (YYYY-MM-DD HH:mm:ss)", text: Binding(
+                        get: { product.auction?.bidding_end ?? "" },
+                        set: {
+                            ensureAuction()
+                            product.auction?.bidding_end = $0
+                        }
+                    ))
+                    Toggle("Buy It Now", isOn: Binding(
+                        get: { product.auction?.buy_it_now_enabled ?? false },
+                        set: {
+                            ensureAuction()
+                            product.auction?.buy_it_now_enabled = $0
+                        }
+                    ))
+                    if product.auction?.buy_it_now_enabled == true {
+                        HStack {
+                            Text("Buy It Now $")
+                            TextField("0.00", text: Binding(
+                                get: { product.auction?.buy_it_now_price ?? "" },
+                                set: {
+                                    ensureAuction()
+                                    product.auction?.buy_it_now_price = $0
+                                }
+                            ))
+                            .keyboardType(.decimalPad)
+                        }
+                        Toggle("Require immediate payment", isOn: Binding(
+                            get: { product.auction?.buy_it_now_pay_immediately ?? false },
+                            set: {
+                                ensureAuction()
+                                product.auction?.buy_it_now_pay_immediately = $0
+                            }
+                        ))
+                    }
+                    if let status = product.auction?.status, !status.isEmpty {
+                        HStack {
+                            Text("Auction status")
+                            Spacer()
+                            Text(status.capitalized).foregroundStyle(.secondary)
+                        }
+                    }
+                } header: { Text("Auction Settings") } footer: {
+                    Text("Times are saved in the WordPress site timezone.")
+                }
+            }
+
             Section {
                 Picker("Status", selection: $product.status) {
                     Text("Published").tag("publish")
@@ -226,6 +287,19 @@ struct ProductEditView: View {
     }
     private var taxVisible: Bool { true }
 
+    private func ensureAuction() {
+        if product.auction == nil {
+            product.auction = AuctionSettings(
+                starting_bid: product.regular_price ?? product.price,
+                bidding_end: nil,
+                buy_it_now_enabled: false,
+                buy_it_now_price: nil,
+                buy_it_now_pay_immediately: false,
+                status: nil
+            )
+        }
+    }
+
     @MainActor
     private func save() async {
         saving = true; defer { saving = false }
@@ -255,7 +329,22 @@ struct ProductEditView: View {
             patch["tax_class"]         = product.tax_class ?? ""
 
             if let images = product.images, !images.isEmpty {
-                patch["images"] = images.map { ["src": $0.src] }
+                patch["images"] = images.map { image in
+                    var out: [String: Any] = ["src": image.src]
+                    if let id = image.id { out["id"] = id }
+                    return out
+                }
+            }
+
+            if product.type == "auction" {
+                ensureAuction()
+                patch["auction"] = [
+                    "starting_bid": product.auction?.starting_bid ?? product.regular_price ?? "",
+                    "bidding_end": product.auction?.bidding_end ?? "",
+                    "buy_it_now_enabled": product.auction?.buy_it_now_enabled ?? false,
+                    "buy_it_now_price": product.auction?.buy_it_now_price ?? "",
+                    "buy_it_now_pay_immediately": product.auction?.buy_it_now_pay_immediately ?? false
+                ]
             }
 
             if isCreating {

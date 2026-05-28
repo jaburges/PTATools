@@ -163,13 +163,16 @@ struct WCProduct: Decodable, Identifiable, Hashable {
     var categories: [WCRef]? = nil
     var tags: [WCRef]? = nil
     var images: [WCImage]? = nil
+    var image: String? = nil
+    var auction: AuctionSettings? = nil
     var attributes: [WCAttribute]? = nil
     var date_created: String? = nil
     var date_modified: String? = nil
 
     var primaryImageURL: URL? {
-        guard let src = images?.first?.src else { return nil }
-        return URL(string: src)
+        if let src = images?.first?.src, let url = URL(string: src) { return url }
+        if let image, !image.isEmpty { return URL(string: image) }
+        return nil
     }
 
     /// Friendly "type" label for the badge.
@@ -213,6 +216,8 @@ struct WCProduct: Decodable, Identifiable, Hashable {
         categories: [WCRef]? = nil,
         tags: [WCRef]? = nil,
         images: [WCImage]? = nil,
+        image: String? = nil,
+        auction: AuctionSettings? = nil,
         attributes: [WCAttribute]? = nil,
         date_created: String? = nil,
         date_modified: String? = nil
@@ -244,6 +249,8 @@ struct WCProduct: Decodable, Identifiable, Hashable {
         self.categories = categories
         self.tags = tags
         self.images = images
+        self.image = image
+        self.auction = auction
         self.attributes = attributes
         self.date_created = date_created
         self.date_modified = date_modified
@@ -255,7 +262,7 @@ struct WCProduct: Decodable, Identifiable, Hashable {
         case manage_stock, stock_quantity, stock_status, weight, dimensions
         case shipping_required, shipping_taxable, shipping_class, tax_status
         case tax_class, categories, tags, images, image, attributes
-        case date_created, date_modified
+        case auction, date_created, date_modified
     }
 
     init(from decoder: Decoder) throws {
@@ -293,10 +300,21 @@ struct WCProduct: Decodable, Identifiable, Hashable {
         } else {
             images = nil
         }
+        image = try c.decodeIfPresent(String.self, forKey: .image)
+        auction = try c.decodeIfPresent(AuctionSettings.self, forKey: .auction)
         attributes = try c.decodeIfPresent([WCAttribute].self, forKey: .attributes)
         date_created = try c.decodeIfPresent(String.self, forKey: .date_created)
         date_modified = try c.decodeIfPresent(String.self, forKey: .date_modified)
     }
+}
+
+struct AuctionSettings: Codable, Hashable {
+    var starting_bid: String?
+    var bidding_end: String?
+    var buy_it_now_enabled: Bool?
+    var buy_it_now_price: String?
+    var buy_it_now_pay_immediately: Bool?
+    var status: String?
 }
 
 struct WCDimensions: Codable, Hashable {

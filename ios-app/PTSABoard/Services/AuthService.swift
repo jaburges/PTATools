@@ -27,6 +27,7 @@ final class AuthService: ObservableObject {
     private var cachedAccessToken: String?
     private var cachedIdToken: String?
     private var cachedTokenExpiry: Date?
+    private var shouldLockOnForeground = false
 
     private let biometricEnrolledKey = "biometricEnrolled"
 
@@ -61,11 +62,13 @@ final class AuthService: ObservableObject {
         guard let msal else { state = .signedOut; return }
 
         let accounts = (try? msal.allAccounts()) ?? []
+        print("[MSAL] restoreSession accounts=\(accounts.count)")
         guard let acct = accounts.first else {
             state = .signedOut
             return
         }
         self.account = acct
+        print("[MSAL] restoreSession selected=\(acct.username ?? "(unknown)")")
 
         if let cachedJson = KeychainService.getData("profile.json"),
            let profile = try? JSONDecoder().decode(UserProfile.self, from: cachedJson) {
@@ -78,6 +81,22 @@ final class AuthService: ObservableObject {
         } else {
             await refreshSilent(enrollBiometricsIfNeeded: true)
         }
+    }
+
+    func appDidEnterBackground() {
+        if state == .signedIn, BiometricService.available != .none, KeychainService.get(biometricEnrolledKey) == "1" {
+            shouldLockOnForeground = true
+        }
+    }
+
+    func appDidBecomeActive() {
+        if shouldLockOnForeground, state == .signedIn {
+            cachedAccessToken = nil
+            cachedIdToken = nil
+            cachedTokenExpiry = nil
+            state = .locked
+        }
+        shouldLockOnForeground = false
     }
 
     /// First-time / explicit interactive sign in.
@@ -202,10 +221,14 @@ final class AuthService: ObservableObject {
         do {
             _ = try await acquireTokenSilent()
             if enrollBiometricsIfNeeded {
-                await autoEnrollBiometricsIfAppropriate()
+                guard await autoEnrollBiometricsIfAppropriate() else {
+                    state = .signedOut
+                    return
+                }
             }
             state = .signedIn
         } catch {
+            logSilentFailure(error, context: "refreshSilent")
             self.lastError = "Could not refresh session, please sign in again."
             state = .signedOut
         }
@@ -217,6 +240,7 @@ final class AuthService: ObservableObject {
             state = .signedIn
             return true
         } catch {
+            logSilentFailure(error, context: "localUnlock")
             cachedAccessToken = nil
             cachedIdToken = nil
             cachedTokenExpiry = nil
@@ -262,6 +286,7 @@ final class AuthService: ObservableObject {
         self.cachedAccessToken = result.accessToken
         self.cachedIdToken = result.idToken
         self.cachedTokenExpiry = result.expiresOn
+        print("[MSAL] token success username=\(email) expires=\(result.expiresOn?.description ?? "nil") persistBiometric=\(persistBiometric)")
 
         // Fetch /me to populate profile
         let me = try await GraphService.shared.fetchMe(accessToken: result.accessToken)
@@ -271,27 +296,40 @@ final class AuthService: ObservableObject {
         }
 
         if persistBiometric {
-            await autoEnrollBiometricsIfAppropriate()
+            guard await autoEnrollBiometricsIfAppropriate() else {
+                throw NSError(domain: "AuthService", code: -40, userInfo: [
+                    NSLocalizedDescriptionKey: "Face ID is required to use PTSA Board on this device."
+                ])
+            }
         }
 
         state = .signedIn
     }
 
-    private func autoEnrollBiometricsIfAppropriate() async {
+    private func autoEnrollBiometricsIfAppropriate() async -> Bool {
         let available = BiometricService.available
         print("[Auth] biometric enrollment check available=\(available) enrolled=\(KeychainService.get(biometricEnrolledKey) ?? "nil")")
-        guard available != .none else { return }
-        guard KeychainService.get(biometricEnrolledKey) != "1" else { return }
+        guard available != .none else { return true }
+        guard KeychainService.get(biometricEnrolledKey) != "1" else { return true }
 
         do {
             try await BiometricService.authenticateBiometricsOnly(reason: "Enable Face ID for PTSA Board")
             KeychainService.set("1", for: biometricEnrolledKey)
             print("[Auth] biometric enrollment enabled")
+            return true
         } catch {
-            // User cancellation should not block first-run access. The app will
-            // continue to use Microsoft sign-in until biometrics are enrolled.
-            print("[Auth] biometric enrollment skipped: \(error.localizedDescription)")
+            print("[Auth] biometric enrollment required but failed: \(error.localizedDescription)")
+            return false
         }
+    }
+
+    private func logSilentFailure(_ error: Error, context: String) {
+        let ns = error as NSError
+        let internalCode = ns.userInfo["MSALInternalErrorCodeKey"] as? Int
+        let oauthError = ns.userInfo["MSALOAuthErrorKey"] as? String
+        let oauthSub = ns.userInfo["MSALOAuthSubErrorKey"] as? String
+        let correlationId = ns.userInfo["MSALCorrelationIDKey"] as? String
+        print("[MSAL] silent FAILED context=\(context) domain=\(ns.domain) code=\(ns.code) internalCode=\(internalCode.map(String.init) ?? "nil") oauthError=\(oauthError ?? "nil") oauthSubError=\(oauthSub ?? "nil") correlationId=\(correlationId ?? "nil") localized=\(error.localizedDescription)")
     }
 }
 

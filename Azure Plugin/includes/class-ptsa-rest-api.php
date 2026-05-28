@@ -126,6 +126,20 @@ class Azure_PTSA_REST_API {
             'methods' => 'POST', 'callback' => array($this, 'reset_password_self'), 'permission_callback' => $auth,
         ));
 
+        register_rest_route($ns, '/wp-roles', array(
+            'methods' => 'GET', 'callback' => array($this, 'list_wp_roles'), 'permission_callback' => $auth,
+        ));
+
+        register_rest_route($ns, '/pta-roles/org', array(
+            'methods' => 'GET', 'callback' => array($this, 'get_pta_roles_org'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/pta-roles/assignments', array(
+            'methods' => 'POST', 'callback' => array($this, 'create_pta_role_assignment'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/pta-roles/assignments/(?P<id>\d+)', array(
+            'methods' => 'DELETE', 'callback' => array($this, 'delete_pta_role_assignment'), 'permission_callback' => $auth,
+        ));
+
         register_rest_route($ns, '/todos', array(
             array('methods' => 'GET',  'callback' => array($this, 'list_todos'),  'permission_callback' => $auth),
             array('methods' => 'POST', 'callback' => array($this, 'create_todo'), 'permission_callback' => $auth),
@@ -535,6 +549,11 @@ class Azure_PTSA_REST_API {
         $p = new $class();
         $this->apply_product_patch($p, $body);
         $p->save();
+        if (isset($body['auction']) && is_array($body['auction'])) {
+            $p = wc_get_product($p->get_id());
+            $this->apply_auction_patch($p, $body['auction']);
+            $p->save();
+        }
         return rest_ensure_response($this->product_to_array(wc_get_product($p->get_id())));
     }
 
@@ -566,15 +585,30 @@ class Azure_PTSA_REST_API {
                 if (count($ids) > 1) $p->set_gallery_image_ids(array_slice($ids, 1));
             }
         }
+        if (isset($body['images']) && is_array($body['images'])) {
+            $ids = array();
+            foreach ($body['images'] as $image) {
+                if (!is_array($image)) continue;
+                $id = isset($image['id']) ? (int) $image['id'] : 0;
+                if (!$id && !empty($image['src']) && function_exists('attachment_url_to_postid')) {
+                    $id = (int) attachment_url_to_postid((string) $image['src']);
+                }
+                if ($id > 0) $ids[] = $id;
+            }
+            if (!empty($ids)) {
+                $p->set_image_id((int) $ids[0]);
+                $p->set_gallery_image_ids(array_slice($ids, 1));
+            }
+        }
+        if ($p->get_id() && isset($body['auction']) && is_array($body['auction'])) {
+            $this->apply_auction_patch($p, $body['auction']);
+        }
     }
 
     private function product_to_array($p) {
         if (!$p) return null;
-        $img = '';
-        if ($p->get_image_id()) {
-            $src = wp_get_attachment_image_src($p->get_image_id(), 'medium');
-            if (is_array($src)) $img = (string) $src[0];
-        }
+        $images = $this->product_images($p);
+        $img = !empty($images) ? (string) ($images[0]['src'] ?? '') : '';
         return array(
             'id'             => (int) $p->get_id(),
             'name'           => $p->get_name(),
@@ -587,9 +621,66 @@ class Azure_PTSA_REST_API {
             'stock_quantity' => $p->get_stock_quantity(),
             'manage_stock'   => $p->get_manage_stock(),
             'image'          => $img,
+            'images'         => $images,
+            'auction'        => $this->auction_to_array($p),
             'permalink'      => get_permalink($p->get_id()),
             'short_description' => $p->get_short_description(),
         );
+    }
+
+    private function product_images($p) {
+        $ids = array();
+        if ($p->get_image_id()) $ids[] = (int) $p->get_image_id();
+        foreach ((array) $p->get_gallery_image_ids() as $gid) {
+            $gid = (int) $gid;
+            if ($gid > 0 && !in_array($gid, $ids, true)) $ids[] = $gid;
+        }
+        $out = array();
+        foreach ($ids as $id) {
+            $src = wp_get_attachment_image_url($id, 'medium');
+            if (!$src) $src = wp_get_attachment_url($id);
+            if (!$src) continue;
+            $out[] = array(
+                'id'   => $id,
+                'src'  => (string) $src,
+                'name' => get_the_title($id),
+                'alt'  => (string) get_post_meta($id, '_wp_attachment_image_alt', true),
+            );
+        }
+        return $out;
+    }
+
+    private function auction_to_array($p) {
+        if (!$p || $p->get_type() !== 'auction') return null;
+        $id = (int) $p->get_id();
+        return array(
+            'starting_bid'                  => (string) get_post_meta($id, '_regular_price', true),
+            'bidding_end'                   => (string) get_post_meta($id, '_auction_bidding_end', true),
+            'buy_it_now_enabled'            => get_post_meta($id, '_auction_buy_it_now_enabled', true) === 'yes',
+            'buy_it_now_price'              => (string) get_post_meta($id, '_auction_buy_it_now_price', true),
+            'buy_it_now_pay_immediately'    => get_post_meta($id, '_auction_buy_it_now_pay_immediately', true) === 'yes',
+            'status'                        => (string) get_post_meta($id, '_auction_status', true),
+        );
+    }
+
+    private function apply_auction_patch($p, array $auction) {
+        $id = (int) $p->get_id();
+        if (isset($auction['starting_bid'])) {
+            $value = $auction['starting_bid'] === '' ? '' : wc_format_decimal((string) $auction['starting_bid']);
+            $p->set_regular_price($value);
+        }
+        if (isset($auction['bidding_end'])) {
+            update_post_meta($id, '_auction_bidding_end', sanitize_text_field((string) $auction['bidding_end']));
+        }
+        if (isset($auction['buy_it_now_enabled'])) {
+            update_post_meta($id, '_auction_buy_it_now_enabled', !empty($auction['buy_it_now_enabled']) ? 'yes' : 'no');
+        }
+        if (isset($auction['buy_it_now_price'])) {
+            update_post_meta($id, '_auction_buy_it_now_price', wc_format_decimal((string) $auction['buy_it_now_price']));
+        }
+        if (isset($auction['buy_it_now_pay_immediately'])) {
+            update_post_meta($id, '_auction_buy_it_now_pay_immediately', !empty($auction['buy_it_now_pay_immediately']) ? 'yes' : 'no');
+        }
     }
 
     /* =================================================================
@@ -657,9 +748,23 @@ class Azure_PTSA_REST_API {
         if (!$u) return new WP_Error('ptsa_user_not_found', "User $id not found", array('status' => 404));
         $body = $req->get_json_params() ?: array();
         if (isset($body['roles']) && is_array($body['roles'])) {
-            $u->set_role(''); // clear
+            $valid_roles = function_exists('wp_roles') ? array_keys((array) wp_roles()->roles) : array();
+            $requested_roles = array();
             foreach ($body['roles'] as $role) {
-                $u->add_role(sanitize_key((string) $role));
+                $slug = sanitize_key((string) $role);
+                if ($slug !== '') $requested_roles[] = $slug;
+            }
+            $invalid_roles = array_values(array_diff($requested_roles, $valid_roles));
+            if (!empty($invalid_roles)) {
+                return new WP_Error(
+                    'ptsa_user_invalid_roles',
+                    'One or more roles are not assignable: ' . implode(', ', $invalid_roles),
+                    array('status' => 400)
+                );
+            }
+            $u->set_role(''); // clear
+            foreach ($requested_roles as $role) {
+                $u->add_role($role);
             }
         }
         return rest_ensure_response($this->user_to_array(get_user_by('id', $id)));
@@ -696,6 +801,148 @@ class Azure_PTSA_REST_API {
         );
     }
 
+    public function list_wp_roles(WP_REST_Request $req) {
+        if (!current_user_can('promote_users') && !current_user_can('edit_users')) {
+            return $this->forbidden();
+        }
+        if (!function_exists('wp_roles')) {
+            return rest_ensure_response(array());
+        }
+        $out = array();
+        foreach ((array) wp_roles()->roles as $slug => $role) {
+            $out[] = array(
+                'slug' => sanitize_key($slug),
+                'name' => translate_user_role((string) ($role['name'] ?? $slug)),
+            );
+        }
+        usort($out, function ($a, $b) {
+            return strcasecmp($a['name'], $b['name']);
+        });
+        return rest_ensure_response($out);
+    }
+
+    public function get_pta_roles_org(WP_REST_Request $req) {
+        if (!current_user_can('list_users')) return $this->forbidden();
+        $manager = $this->pta_manager();
+        if (!$manager) return new WP_Error('ptsa_pta_manager_missing', 'PTA roles manager is unavailable.', array('status' => 500));
+
+        $departments = $manager->get_departments(true);
+        $users = array();
+        $department_out = array();
+        foreach ((array) $departments as $dept) {
+            $roles = array();
+            foreach ((array) ($dept->roles ?? array()) as $role) {
+                $assignments = array();
+                foreach ((array) ($role->assignments ?? array()) as $assignment) {
+                    $user = get_user_by('id', (int) $assignment->user_id);
+                    if ($user && !isset($users[$user->ID])) {
+                        $users[$user->ID] = $this->pta_user_identity($user);
+                    }
+                    $assignments[] = array(
+                        'id'         => (int) $assignment->id,
+                        'role_id'    => (int) $assignment->role_id,
+                        'user_id'    => (int) $assignment->user_id,
+                        'is_primary' => !empty($assignment->is_primary),
+                        'status'     => (string) ($assignment->status ?? 'active'),
+                        'user'       => $user ? $this->pta_user_identity($user) : null,
+                    );
+                }
+                $max = (int) ($role->max_occupants ?? 1);
+                $assigned = count($assignments);
+                $roles[] = array(
+                    'id'             => (int) $role->id,
+                    'department_id'  => (int) $role->department_id,
+                    'name'           => (string) $role->name,
+                    'slug'           => (string) ($role->slug ?? ''),
+                    'description'    => (string) ($role->description ?? ''),
+                    'max_occupants'  => $max,
+                    'assigned_count' => $assigned,
+                    'vacancy_count'  => max(0, $max - $assigned),
+                    'status'         => (string) ($role->status ?? ''),
+                    'assignments'    => $assignments,
+                );
+            }
+            $vp = !empty($dept->vp_user_id) ? get_user_by('id', (int) $dept->vp_user_id) : null;
+            if ($vp && !isset($users[$vp->ID])) {
+                $users[$vp->ID] = $this->pta_user_identity($vp);
+            }
+            $department_out[] = array(
+                'id'          => (int) $dept->id,
+                'name'        => (string) $dept->name,
+                'slug'        => (string) ($dept->slug ?? ''),
+                'description' => (string) ($dept->description ?? ''),
+                'vp_user_id'  => !empty($dept->vp_user_id) ? (int) $dept->vp_user_id : null,
+                'vp_user'     => $vp ? $this->pta_user_identity($vp) : null,
+                'roles'       => $roles,
+            );
+        }
+
+        return rest_ensure_response(array(
+            'departments' => $department_out,
+            'users'       => array_values($users),
+        ));
+    }
+
+    public function create_pta_role_assignment(WP_REST_Request $req) {
+        if (!current_user_can('edit_users')) return $this->forbidden();
+        $manager = $this->pta_manager();
+        if (!$manager) return new WP_Error('ptsa_pta_manager_missing', 'PTA roles manager is unavailable.', array('status' => 500));
+        $body = $req->get_json_params() ?: array();
+        $user_id = isset($body['user_id']) ? (int) $body['user_id'] : 0;
+        $role_id = isset($body['role_id']) ? (int) $body['role_id'] : 0;
+        $is_primary = !empty($body['is_primary']);
+        if ($user_id <= 0 || $role_id <= 0) {
+            return new WP_Error('ptsa_assignment_bad_request', 'user_id and role_id are required.', array('status' => 400));
+        }
+        try {
+            $assignment_id = $manager->assign_user_to_role($user_id, $role_id, $is_primary, get_current_user_id());
+            return rest_ensure_response(array('ok' => true, 'id' => (int) $assignment_id));
+        } catch (Exception $e) {
+            return new WP_Error('ptsa_assignment_failed', $e->getMessage(), array('status' => 400));
+        }
+    }
+
+    public function delete_pta_role_assignment(WP_REST_Request $req) {
+        if (!current_user_can('edit_users')) return $this->forbidden();
+        $manager = $this->pta_manager();
+        if (!$manager) return new WP_Error('ptsa_pta_manager_missing', 'PTA roles manager is unavailable.', array('status' => 500));
+        $assignment = $this->pta_assignment_by_id((int) $req['id']);
+        if (!$assignment) {
+            return new WP_Error('ptsa_assignment_not_found', 'Assignment not found.', array('status' => 404));
+        }
+        try {
+            $manager->remove_user_from_role((int) $assignment->user_id, (int) $assignment->role_id);
+            return rest_ensure_response(array('ok' => true));
+        } catch (Exception $e) {
+            return new WP_Error('ptsa_assignment_remove_failed', $e->getMessage(), array('status' => 400));
+        }
+    }
+
+    private function pta_manager() {
+        if (!class_exists('Azure_PTA_Manager')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-pta-manager.php';
+            if (file_exists($path)) require_once $path;
+        }
+        if (!class_exists('Azure_PTA_Manager')) return null;
+        return Azure_PTA_Manager::get_instance();
+    }
+
+    private function pta_user_identity($u) {
+        return array(
+            'id'           => (int) $u->ID,
+            'email'        => $u->user_email,
+            'display_name' => $u->display_name,
+            'username'     => $u->user_login,
+        );
+    }
+
+    private function pta_assignment_by_id($id) {
+        global $wpdb;
+        if ($id <= 0 || !class_exists('Azure_PTA_Database')) return null;
+        $table = Azure_PTA_Database::get_table_name('assignments');
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id = %d AND status = 'active'", $id));
+    }
+
     /* =================================================================
      * Tech backlog (todos) — uses wp_options for tiny payload, no schema
      * ================================================================= */
@@ -722,11 +969,20 @@ class Azure_PTSA_REST_API {
         $item = array(
             'id'         => $id,
             'title'      => $title,
-            'notes'      => isset($body['notes']) ? wp_kses_post((string) $body['notes']) : '',
+            'details'    => isset($body['details']) ? wp_kses_post((string) $body['details']) : (isset($body['notes']) ? wp_kses_post((string) $body['notes']) : ''),
+            'due_date'   => isset($body['dueDate']) ? sanitize_text_field((string) $body['dueDate']) : (isset($body['due_date']) ? sanitize_text_field((string) $body['due_date']) : null),
+            'priority'   => isset($body['priority']) ? sanitize_key((string) $body['priority']) : 'normal',
             'completed'  => false,
             'created_at' => current_time('c'),
-            'created_by' => $u ? $u->user_email : '',
+            'created_by_email' => $u ? $u->user_email : '',
+            'created_by_name'  => $u ? $u->display_name : '',
         );
+        $github = $this->create_github_issue_for_todo($item);
+        if (is_wp_error($github)) {
+            $item['github_issue_error'] = $github->get_error_message();
+        } elseif (is_array($github)) {
+            $item = array_merge($item, $github);
+        }
         $items[] = $item;
         update_option(self::TODO_OPT, $items, false);
         return rest_ensure_response($item);
@@ -741,8 +997,14 @@ class Azure_PTSA_REST_API {
         foreach ($items as &$it) {
             if ((int) ($it['id'] ?? 0) === $id) {
                 if (isset($body['title']))     $it['title']     = sanitize_text_field((string) $body['title']);
-                if (isset($body['notes']))     $it['notes']     = wp_kses_post((string) $body['notes']);
+                if (isset($body['details']))   $it['details']   = wp_kses_post((string) $body['details']);
+                if (isset($body['notes']))     $it['details']   = wp_kses_post((string) $body['notes']);
+                if (isset($body['dueDate']))   $it['due_date']  = sanitize_text_field((string) $body['dueDate']);
+                if (isset($body['due_date']))  $it['due_date']  = sanitize_text_field((string) $body['due_date']);
+                if (isset($body['priority']))  $it['priority']  = sanitize_key((string) $body['priority']);
                 if (isset($body['completed'])) $it['completed'] = (bool) $body['completed'];
+                if (isset($body['completedAt'])) $it['completed_at'] = sanitize_text_field((string) $body['completedAt']);
+                if (isset($body['completedByEmail'])) $it['completed_by_email'] = sanitize_email((string) $body['completedByEmail']);
                 $found = true; break;
             }
         }
@@ -761,6 +1023,52 @@ class Azure_PTSA_REST_API {
         }
         update_option(self::TODO_OPT, array_values($new), false);
         return rest_ensure_response(array('ok' => true));
+    }
+
+    private function create_github_issue_for_todo(array $item) {
+        $token = getenv('PTSA_GITHUB_TOKEN');
+        if (!is_string($token) || $token === '') {
+            $token = (string) get_option('ptsa_github_token', '');
+        }
+        if ($token === '') {
+            return new WP_Error('ptsa_github_not_configured', 'PTSA_GITHUB_TOKEN is not configured.');
+        }
+        $title = 'iOS app - ' . (string) ($item['title'] ?? 'Backlog item');
+        $body = "Created from the PTATools iOS app.\n\n";
+        if (!empty($item['details'])) {
+            $body .= (string) $item['details'] . "\n\n";
+        }
+        $body .= '- Priority: ' . (string) ($item['priority'] ?? 'normal') . "\n";
+        if (!empty($item['due_date'])) {
+            $body .= '- Due: ' . (string) $item['due_date'] . "\n";
+        }
+        if (!empty($item['created_by_email'])) {
+            $body .= '- Created by: ' . (string) $item['created_by_email'] . "\n";
+        }
+        $response = wp_remote_post('https://api.github.com/repos/jaburges/PTATools/issues', array(
+            'timeout' => 15,
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $token,
+                'Accept'        => 'application/vnd.github+json',
+                'User-Agent'    => 'PTATools-iOS-Backlog',
+                'X-GitHub-Api-Version' => '2022-11-28',
+            ),
+            'body' => wp_json_encode(array(
+                'title' => $title,
+                'body'  => $body,
+            )),
+        ));
+        if (is_wp_error($response)) return $response;
+        $code = (int) wp_remote_retrieve_response_code($response);
+        $data = json_decode((string) wp_remote_retrieve_body($response), true);
+        if ($code < 200 || $code >= 300 || !is_array($data)) {
+            return new WP_Error('ptsa_github_issue_failed', 'GitHub issue creation failed with HTTP ' . $code);
+        }
+        return array(
+            'github_issue_number' => isset($data['number']) ? (int) $data['number'] : null,
+            'github_issue_url'    => isset($data['html_url']) ? esc_url_raw((string) $data['html_url']) : null,
+            'github_issue_state'  => isset($data['state']) ? sanitize_text_field((string) $data['state']) : null,
+        );
     }
 
     /* =================================================================

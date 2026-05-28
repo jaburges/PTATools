@@ -6,6 +6,7 @@ struct PTSABoardApp: App {
 
     @StateObject private var auth = AuthService()
     @StateObject private var theme = ThemeManager()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -31,6 +32,16 @@ struct PTSABoardApp: App {
                         return try await auth.wordpressIdToken()
                     }
                     await auth.restoreSession()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    switch phase {
+                    case .background:
+                        auth.appDidEnterBackground()
+                    case .active:
+                        auth.appDidBecomeActive()
+                    default:
+                        break
+                    }
                 }
         }
     }

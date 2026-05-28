@@ -74,6 +74,35 @@ struct TodoDetailView: View {
                     }
                 }
 
+                if item.githubIssueNumber != nil || item.githubIssueError != nil {
+                    Section("GitHub") {
+                        if let number = item.githubIssueNumber {
+                            HStack {
+                                Text("Issue")
+                                Spacer()
+                                Text("#\(number)").foregroundStyle(.secondary)
+                            }
+                        }
+                        if let state = item.githubIssueState, !state.isEmpty {
+                            HStack {
+                                Text("State")
+                                Spacer()
+                                Text(state.capitalized).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let url = item.githubIssueURL {
+                            Link(destination: url) {
+                                Label("Open in GitHub", systemImage: "arrow.up.right.square")
+                            }
+                        }
+                        if let error = item.githubIssueError, !error.isEmpty {
+                            Text(error)
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+
                 Section("Status") {
                     if canToggleComplete {
                         Button {

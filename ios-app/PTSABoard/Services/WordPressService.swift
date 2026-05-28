@@ -60,6 +60,34 @@ final class WordPressService {
         return try await api.request(url, method: "PUT", body: body, auth: try await wpAuth(), as: WPUser.self)
     }
 
+    func roles() async throws -> [WPRole] {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("wp-roles")
+        return try await api.request(url, auth: try await wpAuth(), as: [WPRole].self)
+    }
+
+    // MARK: - PTA Roles
+
+    func ptaRolesOrg() async throws -> PTAOrgResponse {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("pta-roles/org")
+        return try await api.request(url, auth: try await wpAuth(), as: PTAOrgResponse.self)
+    }
+
+    func assignPTAUser(userId: Int, roleId: Int, isPrimary: Bool = false) async throws {
+        struct Req: Encodable {
+            let user_id: Int
+            let role_id: Int
+            let is_primary: Bool
+        }
+        let body = try JSONEncoder().encode(Req(user_id: userId, role_id: roleId, is_primary: isPrimary))
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("pta-roles/assignments")
+        _ = try await api.raw(url, method: "POST", body: body, auth: try await wpAuth())
+    }
+
+    func removePTAAssignment(_ id: Int) async throws {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("pta-roles/assignments/\(id)")
+        _ = try await api.raw(url, method: "DELETE", auth: try await wpAuth())
+    }
+
     // MARK: - Todo / Tech backlog (custom endpoint)
 
     func listTodos() async throws -> [TodoItem] {

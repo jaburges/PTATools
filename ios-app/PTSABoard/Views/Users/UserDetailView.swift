@@ -7,11 +7,7 @@ struct UserDetailView: View {
     @State private var working = false
     @State private var showRoleEditor = false
     @State private var roleDraft: Set<String> = []
-
-    private let availableRoles = [
-        "administrator", "editor", "author", "contributor",
-        "shop_manager", "subscriber", "customer"
-    ]
+    @State private var availableRoles: [WPRole] = []
 
     var body: some View {
         Form {
@@ -39,6 +35,7 @@ struct UserDetailView: View {
                 Button {
                     roleDraft = Set(user.roles ?? [])
                     showRoleEditor = true
+                    Task { await loadRoles() }
                 } label: {
                     Label("Edit roles", systemImage: "person.crop.circle.badge.checkmark")
                 }
@@ -76,15 +73,23 @@ struct UserDetailView: View {
         .sheet(isPresented: $showRoleEditor) {
             NavigationStack {
                 List {
-                    ForEach(availableRoles, id: \.self) { role in
+                    if availableRoles.isEmpty {
+                        ProgressView("Loading roles")
+                    }
+                    ForEach(availableRoles) { role in
                         Button {
-                            if roleDraft.contains(role) { roleDraft.remove(role) }
-                            else { roleDraft.insert(role) }
+                            if roleDraft.contains(role.slug) { roleDraft.remove(role.slug) }
+                            else { roleDraft.insert(role.slug) }
                         } label: {
                             HStack {
-                                Text(role.replacingOccurrences(of: "_", with: " ").capitalized)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(role.name)
+                                    Text(role.slug)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                                 Spacer()
-                                if roleDraft.contains(role) {
+                                if roleDraft.contains(role.slug) {
                                     Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
                                 }
                             }
@@ -102,6 +107,24 @@ struct UserDetailView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    @MainActor
+    private func loadRoles() async {
+        do {
+            availableRoles = try await WordPressService.shared.roles()
+        } catch {
+            self.error = error.localizedDescription
+            if availableRoles.isEmpty {
+                availableRoles = [
+                    WPRole(slug: "administrator", name: "Administrator"),
+                    WPRole(slug: "editor", name: "Editor"),
+                    WPRole(slug: "shop_manager", name: "Shop Manager"),
+                    WPRole(slug: "subscriber", name: "Subscriber"),
+                    WPRole(slug: "customer", name: "Customer")
+                ]
             }
         }
     }

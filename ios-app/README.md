@@ -104,9 +104,13 @@ WordPress plugin:
 | `/wp-json/ptsa/v1/media`                       | Image upload for product photos (binary body, JPEG)                   |
 | `/wp-json/ptsa/v1/users`                       | Search/list users with `email`/`roles` (Entra JWT auth)               |
 | `/wp-json/ptsa/v1/users/{id}` (PUT)            | Update roles                                                          |
+| `/wp-json/ptsa/v1/wp-roles`                    | List assignable WordPress roles, including custom roles               |
+| `/wp-json/ptsa/v1/pta-roles/org`               | Load PTA departments, roles, assignments, and vacancies               |
+| `/wp-json/ptsa/v1/pta-roles/assignments`       | Assign a user to an existing PTA role                                 |
+| `/wp-json/ptsa/v1/pta-roles/assignments/{id}`  | Remove an active PTA role assignment                                  |
 | `/wp-json/ptsa/v1/users/reset-password`        | Trigger a reset email for a given user                                |
 | `/wp-json/ptsa/v1/users/reset-password-self`   | Trigger a reset for the signed-in user                                |
-| `/wp-json/ptsa/v1/todos`                       | GET/POST tech-backlog items                                           |
+| `/wp-json/ptsa/v1/todos`                       | GET/POST tech-backlog items, with server-created GitHub issues        |
 | `/wp-json/ptsa/v1/todos/{id}` (PUT/DELETE)     | Update / delete a backlog item                                        |
 | `/wp-json/ptsa/v1/auction/email-items` (POST)  | Send the bulk "auction items list" email via the website mailer       |
 
