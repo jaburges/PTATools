@@ -170,9 +170,34 @@ struct WCProduct: Decodable, Identifiable, Hashable {
     var date_modified: String? = nil
 
     var primaryImageURL: URL? {
-        if let src = images?.first?.src, let url = URL(string: src) { return url }
-        if let image, !image.isEmpty { return URL(string: image) }
+        if let src = images?.first?.src, let url = Self.normalizedImageURL(from: src) { return url }
+        if let image, let url = Self.normalizedImageURL(from: image) { return url }
         return nil
+    }
+
+    private static func normalizedImageURL(from rawValue: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let resolved: String
+        if trimmed.hasPrefix("//") {
+            resolved = "https:\(trimmed)"
+        } else if trimmed.hasPrefix("/") {
+            resolved = AppConfig.wordpressBaseURL.absoluteString + trimmed
+        } else {
+            resolved = trimmed
+        }
+
+        let encoded = resolved.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? resolved
+        guard var components = URLComponents(string: encoded) else { return URL(string: encoded) }
+        if components.scheme == nil {
+            return URL(string: encoded, relativeTo: AppConfig.wordpressBaseURL)?.absoluteURL
+        }
+        if components.scheme == "http",
+           components.host?.lowercased() == AppConfig.wordpressBaseURL.host?.lowercased() {
+            components.scheme = "https"
+        }
+        return components.url
     }
 
     /// Friendly "type" label for the badge.
@@ -293,14 +318,14 @@ struct WCProduct: Decodable, Identifiable, Hashable {
         tax_class = try c.decodeIfPresent(String.self, forKey: .tax_class)
         categories = try c.decodeIfPresent([WCRef].self, forKey: .categories)
         tags = try c.decodeIfPresent([WCRef].self, forKey: .tags)
-        if let nativeImages = try c.decodeIfPresent([WCImage].self, forKey: .images) {
+        if let nativeImages = try c.decodeFlexibleImagesIfPresent(forKey: .images), !nativeImages.isEmpty {
             images = nativeImages
-        } else if let src = try c.decodeIfPresent(String.self, forKey: .image), !src.isEmpty {
-            images = [WCImage(id: nil, src: src, name: nil, alt: nil)]
+        } else if let singleImage = try c.decodeFlexibleImageIfPresent(forKey: .image) {
+            images = [singleImage]
         } else {
             images = nil
         }
-        image = try c.decodeIfPresent(String.self, forKey: .image)
+        image = try c.decodeFlexibleImageIfPresent(forKey: .image)?.src
         auction = try c.decodeIfPresent(AuctionSettings.self, forKey: .auction)
         attributes = try c.decodeIfPresent([WCAttribute].self, forKey: .attributes)
         date_created = try c.decodeIfPresent(String.self, forKey: .date_created)
@@ -341,6 +366,43 @@ struct WCImage: Codable, Hashable, Identifiable {
         self.name = name
         self.alt = alt
     }
+
+    enum CodingKeys: String, CodingKey {
+        case id, src, url, source_url, name, alt
+    }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(),
+           let src = try? single.decode(String.self) {
+            self.init(id: nil, src: src, name: nil, alt: nil)
+            return
+        }
+
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let src = try c.decodeIfPresent(String.self, forKey: .src)
+            ?? c.decodeIfPresent(String.self, forKey: .url)
+            ?? c.decodeIfPresent(String.self, forKey: .source_url)
+        guard let src, !src.isEmpty else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.src,
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Expected product image src/url/source_url")
+            )
+        }
+        self.init(
+            id: try c.decodeIfPresent(Int.self, forKey: .id),
+            src: src,
+            name: try c.decodeIfPresent(String.self, forKey: .name),
+            alt: try c.decodeIfPresent(String.self, forKey: .alt)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(id, forKey: .id)
+        try c.encode(src, forKey: .src)
+        try c.encodeIfPresent(name, forKey: .name)
+        try c.encodeIfPresent(alt, forKey: .alt)
+    }
 }
 
 struct WCAttribute: Codable, Hashable, Identifiable {
@@ -362,6 +424,31 @@ private extension KeyedDecodingContainer {
         }
         if let value = try? decodeIfPresent(Int.self, forKey: key) {
             return String(value)
+        }
+        return nil
+    }
+
+    func decodeFlexibleImageIfPresent(forKey key: Key) throws -> WCImage? {
+        if let image = try? decodeIfPresent(WCImage.self, forKey: key) {
+            return image
+        }
+        if let src = try? decodeIfPresent(String.self, forKey: key), !src.isEmpty {
+            return WCImage(id: nil, src: src, name: nil, alt: nil)
+        }
+        return nil
+    }
+
+    func decodeFlexibleImagesIfPresent(forKey key: Key) throws -> [WCImage]? {
+        if let images = try? decodeIfPresent([WCImage].self, forKey: key) {
+            return images
+        }
+        if let strings = try? decodeIfPresent([String].self, forKey: key) {
+            return strings
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map { WCImage(id: nil, src: $0, name: nil, alt: nil) }
+        }
+        if let image = try decodeFlexibleImageIfPresent(forKey: key) {
+            return [image]
         }
         return nil
     }

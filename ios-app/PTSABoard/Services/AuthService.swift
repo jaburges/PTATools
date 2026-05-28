@@ -91,9 +91,6 @@ final class AuthService: ObservableObject {
 
     func appDidBecomeActive() {
         if shouldLockOnForeground, state == .signedIn {
-            cachedAccessToken = nil
-            cachedIdToken = nil
-            cachedTokenExpiry = nil
             state = .locked
         }
         shouldLockOnForeground = false
@@ -235,12 +232,21 @@ final class AuthService: ObservableObject {
     }
 
     private func refreshSilentAfterLocalUnlock() async -> Bool {
+        if hasFreshCachedTokens {
+            state = .signedIn
+            return true
+        }
+
         do {
             _ = try await acquireTokenSilent()
             state = .signedIn
             return true
         } catch {
             logSilentFailure(error, context: "localUnlock")
+            if hasFreshCachedTokens {
+                state = .signedIn
+                return true
+            }
             cachedAccessToken = nil
             cachedIdToken = nil
             cachedTokenExpiry = nil
@@ -252,7 +258,17 @@ final class AuthService: ObservableObject {
     }
 
     private func acquireTokenSilent() async throws -> String {
-        guard let msal, let account else {
+        guard let msal else {
+            throw NSError(domain: "AuthService", code: -10, userInfo: [
+                NSLocalizedDescriptionKey: "MSAL is not initialized"
+            ])
+        }
+
+        if account == nil {
+            account = try msal.allAccounts().first
+        }
+
+        guard let account else {
             throw NSError(domain: "AuthService", code: -10, userInfo: [
                 NSLocalizedDescriptionKey: "No MSAL account"
             ])
@@ -270,6 +286,14 @@ final class AuthService: ObservableObject {
 
         try await handleSuccessfulLogin(result: result, persistBiometric: false)
         return result.accessToken
+    }
+
+    private var hasFreshCachedTokens: Bool {
+        guard cachedAccessToken != nil,
+              cachedIdToken != nil,
+              let expiry = cachedTokenExpiry
+        else { return false }
+        return expiry.timeIntervalSinceNow > 60
     }
 
     private func handleSuccessfulLogin(result: MSALResult, persistBiometric: Bool) async throws {
