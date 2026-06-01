@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Get TEC categories for reference
+// Get native pta_event categories for reference
 $event_categories = array();
 if (class_exists('Azure_Upcoming_Module')) {
     $event_categories = Azure_Upcoming_Module::get_event_categories();
@@ -32,17 +32,8 @@ if (class_exists('Azure_Upcoming_Module')) {
         <div class="azure-card">
             <h2><?php _e('Overview', 'azure-plugin'); ?></h2>
             <p>
-                <?php _e('The <code>[up-next]</code> shortcode displays upcoming events from The Events Calendar in a clean, customizable format. Perfect for sidebars, home pages, or anywhere you want to highlight upcoming events.', 'azure-plugin'); ?>
+                <?php _e('The <code>[up-next]</code> shortcode displays upcoming events from PTA Tools native <code>pta_event</code> posts in a clean, customizable format. Perfect for sidebars, home pages, or anywhere you want to highlight upcoming events.', 'azure-plugin'); ?>
             </p>
-            
-            <?php if (!class_exists('Tribe__Events__Main')) : ?>
-            <div class="notice notice-warning inline">
-                <p>
-                    <strong><?php _e('Note:', 'azure-plugin'); ?></strong>
-                    <?php _e('The Events Calendar plugin is required for this shortcode to work.', 'azure-plugin'); ?>
-                </p>
-            </div>
-            <?php endif; ?>
         </div>
         
         <!-- Basic Usage Card -->
@@ -59,7 +50,7 @@ if (class_exists('Azure_Upcoming_Module')) {
             
             <h3><?php _e('Exclude Categories', 'azure-plugin'); ?></h3>
             <pre class="azure-code">[up-next exclude-categories="Art,Music,Private Events"]</pre>
-            <p class="description"><?php _e('Hides events from specific TEC categories.', 'azure-plugin'); ?></p>
+            <p class="description"><?php _e('Hides events from specific pta_event categories.', 'azure-plugin'); ?></p>
             
             <h3><?php _e('This Week Only', 'azure-plugin'); ?></h3>
             <pre class="azure-code">[up-next next-week="false"]</pre>
@@ -97,7 +88,7 @@ if (class_exists('Azure_Upcoming_Module')) {
                     <tr>
                         <td><code>exclude-categories</code></td>
                         <td><code>""</code></td>
-                        <td><?php _e('Comma-separated list of TEC category names to exclude.', 'azure-plugin'); ?></td>
+                        <td><?php _e('Comma-separated list of pta_event category names to exclude.', 'azure-plugin'); ?></td>
                     </tr>
                     <tr>
                         <td><code>week-start</code></td>
@@ -156,8 +147,8 @@ if (class_exists('Azure_Upcoming_Module')) {
         <?php if (!empty($event_categories)) : ?>
         <!-- Available Categories Card -->
         <div class="azure-card">
-            <h2><?php _e('Available TEC Categories', 'azure-plugin'); ?></h2>
-            <p><?php _e('These are the event categories currently configured in The Events Calendar. Use these exact names (case-sensitive) in the <code>exclude-categories</code> attribute:', 'azure-plugin'); ?></p>
+            <h2><?php _e('Available Event Categories', 'azure-plugin'); ?></h2>
+            <p><?php _e('These are the event categories currently configured for PTA Tools events. Use these exact names (case-sensitive) in the <code>exclude-categories</code> attribute:', 'azure-plugin'); ?></p>
             <div class="azure-category-list">
                 <?php foreach ($event_categories as $cat) : ?>
                 <span class="azure-category-tag"><?php echo esc_html($cat); ?></span>
@@ -169,13 +160,9 @@ if (class_exists('Azure_Upcoming_Module')) {
         <!-- Preview Card -->
         <div class="azure-card">
             <h2><?php _e('Live Preview', 'azure-plugin'); ?></h2>
-            <?php if (class_exists('Tribe__Events__Main')) : ?>
             <div class="azure-preview-container">
                 <?php echo do_shortcode('[up-next columns="2"]'); ?>
             </div>
-            <?php else : ?>
-            <p class="description"><?php _e('Preview not available - The Events Calendar is not installed.', 'azure-plugin'); ?></p>
-            <?php endif; ?>
         </div>
         
     </div>

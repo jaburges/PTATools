@@ -43,7 +43,7 @@ $GLOBALS['azure_tab_mode'] = true;
             include AZURE_PLUGIN_PATH . 'admin/calendar-page.php';
             break;
         case 'sync':
-            include AZURE_PLUGIN_PATH . 'admin/tec-integration-page.php';
+            include AZURE_PLUGIN_PATH . 'admin/calendar-sync-page.php';
             break;
         case 'upcoming':
             include AZURE_PLUGIN_PATH . 'admin/upcoming-page.php';
