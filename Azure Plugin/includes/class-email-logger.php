@@ -45,6 +45,7 @@ class Azure_Email_Logger {
         add_action('wp_ajax_azure_clear_email_logs', array($this, 'ajax_clear_email_logs'));
         add_action('wp_ajax_azure_resend_email', array($this, 'ajax_resend_email'));
         add_action('wp_ajax_azure_resend_email_log', array($this, 'ajax_resend_email_log'));
+        add_action('wp_ajax_azure_dismiss_email_errors', array($this, 'ajax_dismiss_email_errors'));
         
         // Debug: Log that AJAX handlers are registered
         if (class_exists('Azure_Logger')) {
@@ -654,16 +655,45 @@ class Azure_Email_Logger {
             LIMIT 5
         ");
         
-        // Recent errors
-        $stats['recent_errors'] = $wpdb->get_results("
-            SELECT to_email, subject, error_message, timestamp 
-            FROM {$table} 
-            WHERE status = 'failed' 
-            ORDER BY timestamp DESC 
-            LIMIT 5
-        ");
-        
+        // Recent errors — honors the `azure_email_errors_dismissed_until`
+        // option so admins can "Dismiss all" without deleting the
+        // underlying rows. Defaults to 0 = show everything. Individual
+        // row dismissal is handled by ajax_delete_email_log (existing).
+        $dismissed_until = (int) get_option('azure_email_errors_dismissed_until', 0);
+        $cutoff_sql = $dismissed_until > 0
+            ? $wpdb->prepare('AND timestamp > %s', gmdate('Y-m-d H:i:s', $dismissed_until))
+            : '';
+        $stats['recent_errors'] = $wpdb->get_results(
+            "SELECT id, to_email, subject, error_message, timestamp
+             FROM {$table}
+             WHERE status = 'failed' {$cutoff_sql}
+             ORDER BY timestamp DESC
+             LIMIT 5"
+        );
+
         return $stats;
+    }
+
+    /**
+     * AJAX: dismiss all currently-visible email errors from the
+     * dashboard panel WITHOUT deleting the log rows. Persists a
+     * timestamp option; `get_email_stats()` filters the
+     * `recent_errors` list to rows newer than that timestamp.
+     *
+     * Wired via wp_ajax_azure_dismiss_email_errors. The Logs tab
+     * (with status=failed filter) still shows everything for audit
+     * — this just clears the at-a-glance dashboard panel.
+     */
+    public function ajax_dismiss_email_errors() {
+        if (!current_user_can('manage_options') || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+            wp_send_json_error('Unauthorized');
+        }
+        try {
+            update_option('azure_email_errors_dismissed_until', time(), false);
+            wp_send_json_success(array('dismissed_at' => time()));
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
     }
 }
 

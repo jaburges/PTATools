@@ -58,11 +58,19 @@ if (!defined('ABSPATH')) {
             <!-- Recent Errors -->
             <?php if (!empty($email_stats['recent_errors'])): ?>
             <div class="recent-errors-section">
-                <h3>Recent Email Errors</h3>
+                <h3 style="display:flex;align-items:center;gap:10px;">
+                    <span>Recent Email Errors</span>
+                    <button type="button" class="button button-small" id="dismiss-all-email-errors" title="Hide these errors from the dashboard. The log rows stay in the Logs tab below for audit.">
+                        <span class="dashicons dashicons-hidden" style="vertical-align:text-top;"></span>
+                        Dismiss all
+                    </button>
+                </h3>
                 <div class="errors-list">
                     <?php foreach ($email_stats['recent_errors'] as $error): ?>
-                    <div class="error-item">
-                        <div class="error-header">
+                    <div class="error-item" data-log-id="<?php echo isset($error->id) ? (int) $error->id : 0; ?>" style="position:relative;">
+                        <button type="button" class="error-dismiss-btn" title="Delete this log row" aria-label="Delete this log row"
+                                style="position:absolute;top:8px;right:8px;background:transparent;border:0;color:#646970;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;">&times;</button>
+                        <div class="error-header" style="padding-right:28px;">
                             <span class="error-time"><?php echo date('M j, Y H:i', strtotime($error->timestamp)); ?></span>
                             <span class="error-recipient"><?php echo esc_html($error->to_email); ?></span>
                         </div>
@@ -717,7 +725,63 @@ jQuery(document).ready(function($) {
     $('.modal-close').click(function() {
         $(this).closest('.modal').hide();
     });
-    
+
+    // -----------------------------------------------------------------
+    // Recent Email Errors panel — individual dismiss + bulk Dismiss all
+    // -----------------------------------------------------------------
+    $(document).on('click', '.recent-errors-section .error-dismiss-btn', function (e) {
+        e.preventDefault();
+        var $item = $(this).closest('.error-item');
+        var logId = parseInt($item.data('log-id'), 10) || 0;
+        if (!logId) {
+            $item.fadeOut(150, function () { $(this).remove(); });
+            return;
+        }
+        $item.css('opacity', 0.5);
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'azure_delete_email_log',
+            log_id: logId,
+            nonce: azure_plugin_ajax.nonce
+        }, function (response) {
+            if (response && response.success) {
+                $item.slideUp(150, function () {
+                    $(this).remove();
+                    if ($('.recent-errors-section .error-item').length === 0) {
+                        $('.recent-errors-section').fadeOut(150);
+                    }
+                });
+            } else {
+                $item.css('opacity', 1);
+                alert('Failed to dismiss: ' + ((response && response.data) || 'unknown error'));
+            }
+        }).fail(function () {
+            $item.css('opacity', 1);
+            alert('Network error dismissing log entry.');
+        });
+    });
+
+    $(document).on('click', '#dismiss-all-email-errors', function (e) {
+        e.preventDefault();
+        if (!window.confirm('Hide all currently-listed email errors from this dashboard? The log rows stay in the Logs tab for audit.')) {
+            return;
+        }
+        var $btn = $(this).prop('disabled', true);
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'azure_dismiss_email_errors',
+            nonce: azure_plugin_ajax.nonce
+        }, function (response) {
+            if (response && response.success) {
+                $('.recent-errors-section').fadeOut(200);
+            } else {
+                $btn.prop('disabled', false);
+                alert('Failed to dismiss: ' + ((response && response.data) || 'unknown error'));
+            }
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            alert('Network error dismissing errors.');
+        });
+    });
+
     // Auto-refresh every 30 seconds
     setInterval(loadEmailLogs, 30000);
 });
