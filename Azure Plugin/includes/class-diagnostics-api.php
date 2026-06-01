@@ -413,6 +413,21 @@ class Azure_Diagnostics_API {
             ),
         ));
 
+        // Generic wp_mail() test that exercises whatever pre_wp_mail
+        // interceptors are currently installed (AcyMailing, the ACS
+        // App Service email plugin, our own pre_wp_mail in
+        // class-email-mailer.php, etc.). Use this to verify which
+        // transport "wins" for a given From: header. POST body:
+        //   { "to": "you@x.com", "from": "Name <addr@x.com>", "subject": "..." }
+        // Returns the wp_mail return value plus a snapshot of all
+        // currently-registered pre_wp_mail callbacks so you can see
+        // which plugin would have intercepted.
+        register_rest_route($ns, '/diagnostics/wp-mail-test', array(
+            'methods'             => 'POST',
+            'callback'            => array($this, 'route_wp_mail_test'),
+            'permission_callback' => $auth,
+        ));
+
         // Idempotent register/refresh of the Parent role. POST writes,
         // GET reports current state. Used to repair sites where the
         // upgrade-path role registration was short-circuited.
@@ -2270,6 +2285,116 @@ class Azure_Diagnostics_API {
             'method_used' => $result['method'],
             'to'          => $to,
             'subject'     => $subject,
+        ));
+    }
+
+    /**
+     * POST /diagnostics/wp-mail-test
+     *
+     * Sends a plain wp_mail() that traverses every pre_wp_mail
+     * interceptor currently registered on the site. Reports back
+     * which callbacks were in play so the admin can see which one
+     * "won" for the given From: header (e.g. AcyMailing vs ACS
+     * App Service email plugin vs our own override).
+     *
+     * Body:
+     *   to      (required) — recipient
+     *   from    (optional) — "Name <addr@x.com>" or "addr@x.com"
+     *   subject (optional) — default "PTA Tools wp_mail pipeline test"
+     */
+    public function route_wp_mail_test($request) {
+        $body = json_decode($request->get_body(), true);
+        if (!is_array($body) || empty($body['to'])) {
+            return new WP_Error('bad_request', 'Body must be JSON with a "to" address.', array('status' => 400));
+        }
+        $to = sanitize_email($body['to']);
+        if (!is_email($to)) {
+            return new WP_Error('bad_request', 'Invalid "to" address.', array('status' => 400));
+        }
+        $from_raw = isset($body['from']) ? trim((string) $body['from']) : '';
+        $subject  = !empty($body['subject'])
+            ? sanitize_text_field($body['subject'])
+            : 'PTA Tools wp_mail pipeline test ' . current_time('mysql');
+
+        $marker = wp_generate_password(8, false);
+        $html_body = '<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;line-height:1.5;color:#1d2327;">' .
+            '<h2>wp_mail pipeline test</h2>' .
+            '<p>If this arrived in your inbox, the wp_mail pipeline is alive.</p>' .
+            '<p>Confirm the <strong>From:</strong> header above matches what you expected for this routing rule:</p>' .
+            '<ul>' .
+            '<li>WC order → <code>shop@wilderptsa.net</code></li>' .
+            '<li>System / password reset → <code>info@wilderptsa.net</code></li>' .
+            '<li>Newsletter → <code>news@wilderptsa.net</code></li>' .
+            '</ul>' .
+            '<p style="color:#646970;font-size:12px;">Test marker: <code>' . esc_html($marker) . '</code> · sent at ' . esc_html(current_time('mysql')) . '</p>' .
+            '</body></html>';
+
+        $headers = array('Content-Type: text/html; charset=UTF-8');
+        if ($from_raw !== '') {
+            $headers[] = 'From: ' . $from_raw;
+        }
+
+        // Snapshot of pre_wp_mail callbacks BEFORE the send so we can
+        // attribute who would have intercepted. We name-resolve each
+        // callback for readability (class::method, function name, or
+        // 'Closure').
+        global $wp_filter;
+        $callbacks_snapshot = array();
+        if (!empty($wp_filter['pre_wp_mail']) && isset($wp_filter['pre_wp_mail']->callbacks)) {
+            foreach ($wp_filter['pre_wp_mail']->callbacks as $priority => $cbs) {
+                foreach ($cbs as $cb) {
+                    $fn = $cb['function'] ?? null;
+                    $name = '(unknown)';
+                    if (is_string($fn)) {
+                        $name = $fn;
+                    } elseif (is_array($fn) && isset($fn[0], $fn[1])) {
+                        $name = (is_object($fn[0]) ? get_class($fn[0]) : (string) $fn[0]) . '::' . $fn[1];
+                    } elseif ($fn instanceof \Closure) {
+                        $name = 'Closure';
+                    }
+                    $callbacks_snapshot[] = array('priority' => (int) $priority, 'callback' => $name);
+                }
+            }
+        }
+
+        // Send.
+        $started_at = microtime(true);
+        $result     = wp_mail($to, $subject, $html_body, $headers);
+        $elapsed_ms = (int) ((microtime(true) - $started_at) * 1000);
+
+        // Try to find the email-logger row this send produced (if our
+        // email-logger captured it — interceptors that short-circuit
+        // pre_wp_mail bypass our logger's wp_mail filter).
+        $logged = null;
+        if (class_exists('Azure_Database')) {
+            global $wpdb;
+            $log_table = Azure_Database::get_table_name('email_logs');
+            if ($log_table) {
+                $logged = $wpdb->get_row($wpdb->prepare(
+                    "SELECT id, method, status, from_email, to_email, LENGTH(message) AS body_bytes, error_message
+                     FROM {$log_table}
+                     WHERE to_email = %s
+                       AND subject  = %s
+                     ORDER BY id DESC LIMIT 1",
+                    $to,
+                    $subject
+                ), ARRAY_A);
+            }
+        }
+
+        return rest_ensure_response(array(
+            'ok'                       => (bool) $result,
+            'to'                       => $to,
+            'from_header_requested'    => $from_raw,
+            'subject'                  => $subject,
+            'marker'                   => $marker,
+            'elapsed_ms'               => $elapsed_ms,
+            'pre_wp_mail_callbacks'    => $callbacks_snapshot,
+            'logger_captured_row'      => $logged,
+            'logger_captured'          => !empty($logged),
+            'note'                     => empty($logged)
+                ? 'No row in wp_azure_email_logs — most likely a pre_wp_mail interceptor short-circuited before our logger. Check your inbox for the actual From: header.'
+                : 'Logger captured the send. method=' . (is_array($logged) ? $logged['method'] : '?'),
         ));
     }
 
