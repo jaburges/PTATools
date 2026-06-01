@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.117-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.118-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,23 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.117** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.118** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.118
+
+- **Calendar Sync now removes deleted-in-Outlook events.** The v3.113
+  sync engine was upsert-only — events deleted from Outlook lingered
+  forever as orphan `pta_event` posts (a "New Event" deleted in Outlook
+  would still show on the home page after a manual sync). Added
+  `prune_deleted_events()` to `Azure_Calendar_Sync_Engine`: after the
+  upsert loop completes for a calendar, any `pta_event` post matching
+  the same `_outlook_calendar_id` AND whose `_EventStartDate` falls
+  inside the same Graph query window AND whose `_outlook_event_id` was
+  NOT in the Graph response is moved to Trash (recoverable for 30 days
+  via WP's standard trash retention). Locally-authored events (no
+  `_outlook_event_id`) are never touched. Sync results now include
+  `events_deleted` alongside `events_synced`, surfaced in the Sync Now
+  status line and the Recent Sync History panel.
 
 ### What's new in v3.117
 

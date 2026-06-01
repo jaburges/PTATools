@@ -67,9 +67,10 @@ class Azure_Calendar_Sync_Engine {
                 'sync',
                 null,
                 array(
-                    'calendars'     => $results['total_calendars'] ?? 0,
-                    'events_synced' => $results['total_events_synced'] ?? 0,
-                    'errors'        => $results['total_errors'] ?? 0,
+                    'calendars'      => $results['total_calendars']      ?? 0,
+                    'events_synced'  => $results['total_events_synced']  ?? 0,
+                    'events_deleted' => $results['total_events_deleted'] ?? 0,
+                    'errors'         => $results['total_errors']         ?? 0,
                 ),
                 ($results['success'] ?? false) ? 'success' : 'error'
             );
@@ -129,10 +130,11 @@ class Azure_Calendar_Sync_Engine {
                 'sync',
                 (string) $mapping_id,
                 array(
-                    'mapping_id'    => $mapping_id,
-                    'calendar_name' => $mapping->outlook_calendar_name,
-                    'events_synced' => $result['events_synced'] ?? 0,
-                    'errors'        => $result['errors'] ?? 0,
+                    'mapping_id'     => $mapping_id,
+                    'calendar_name'  => $mapping->outlook_calendar_name,
+                    'events_synced'  => $result['events_synced']  ?? 0,
+                    'events_deleted' => $result['events_deleted'] ?? 0,
+                    'errors'         => $result['errors']         ?? 0,
                 ),
                 ($result['success'] ?? false) ? 'success' : 'error'
             );
@@ -194,11 +196,12 @@ class Azure_Calendar_Sync_Engine {
         Azure_Logger::info('Calendar Sync Engine: starting multi-calendar sync for ' . count($mappings) . ' calendars', 'Calendar');
 
         $overall = array(
-            'success'             => true,
-            'total_calendars'     => count($mappings),
-            'total_events_synced' => 0,
-            'total_errors'        => 0,
-            'calendar_results'    => array(),
+            'success'              => true,
+            'total_calendars'      => count($mappings),
+            'total_events_synced'  => 0,
+            'total_events_deleted' => 0,
+            'total_errors'         => 0,
+            'calendar_results'     => array(),
         );
 
         foreach ($mappings as $mapping) {
@@ -212,8 +215,9 @@ class Azure_Calendar_Sync_Engine {
             );
 
             $overall['calendar_results'][$mapping->outlook_calendar_id] = $result;
-            $overall['total_events_synced'] += (int) ($result['events_synced'] ?? 0);
-            $overall['total_errors']        += (int) ($result['errors'] ?? 0);
+            $overall['total_events_synced']  += (int) ($result['events_synced']  ?? 0);
+            $overall['total_events_deleted'] += (int) ($result['events_deleted'] ?? 0);
+            $overall['total_errors']         += (int) ($result['errors']         ?? 0);
 
             if (empty($result['success'])) {
                 $overall['success'] = false;
@@ -223,7 +227,7 @@ class Azure_Calendar_Sync_Engine {
         }
 
         Azure_Logger::info(
-            "Calendar Sync Engine: multi-calendar sync complete. Events: {$overall['total_events_synced']}, errors: {$overall['total_errors']}",
+            "Calendar Sync Engine: multi-calendar sync complete. Events synced: {$overall['total_events_synced']}, deleted: {$overall['total_events_deleted']}, errors: {$overall['total_errors']}",
             'Calendar'
         );
 
@@ -239,16 +243,17 @@ class Azure_Calendar_Sync_Engine {
      * @param string|null $end_date           ISO 8601 (Z) range end.
      * @param string|null $user_email         Authenticated M365 user email.
      * @param string|null $mailbox_email      Shared mailbox to read from.
-     * @return array { success, calendar_id, events_synced, errors, error_message? }
+     * @return array { success, calendar_id, events_synced, events_deleted, errors, error_message? }
      */
     public function sync_single_calendar($calendar_id, $category_name, $start_date = null, $end_date = null, $user_email = null, $mailbox_email = null) {
         if (!$this->graph_api) {
             return array(
-                'success'       => false,
-                'calendar_id'   => $calendar_id,
-                'events_synced' => 0,
-                'errors'        => 1,
-                'error_message' => 'Graph API client unavailable',
+                'success'        => false,
+                'calendar_id'    => $calendar_id,
+                'events_synced'  => 0,
+                'events_deleted' => 0,
+                'errors'         => 1,
+                'error_message'  => 'Graph API client unavailable',
             );
         }
 
@@ -277,32 +282,35 @@ class Azure_Calendar_Sync_Engine {
         } catch (\Throwable $e) {
             Azure_Logger::error('Calendar Sync Engine: Graph fetch threw - ' . $e->getMessage(), 'Calendar');
             return array(
-                'success'       => false,
-                'calendar_id'   => $calendar_id,
-                'events_synced' => 0,
-                'errors'        => 1,
-                'error_message' => $e->getMessage(),
+                'success'        => false,
+                'calendar_id'    => $calendar_id,
+                'events_synced'  => 0,
+                'events_deleted' => 0,
+                'errors'         => 1,
+                'error_message'  => $e->getMessage(),
             );
         }
 
-        if (!is_array($events) || empty($events)) {
-            Azure_Logger::info("Calendar Sync Engine: no events for {$calendar_id}", 'Calendar');
-            return array(
-                'success'       => true,
-                'calendar_id'   => $calendar_id,
-                'events_synced' => 0,
-                'errors'        => 0,
-            );
+        // Normalize to array even if Graph returned null / empty so the
+        // prune step still runs — if Outlook now has zero events for
+        // this calendar in this window, every local pta_event that
+        // pointed at it is an orphan and should be trashed.
+        if (!is_array($events)) {
+            $events = array();
         }
 
-        $synced = 0;
-        $errors = 0;
+        $synced       = 0;
+        $errors       = 0;
+        $seen_ids     = array();
 
         foreach ($events as $event) {
             try {
                 $result = $this->upsert_event($event, $calendar_id, $category_name);
                 if ($result) {
                     $synced++;
+                    if (!empty($event['id'])) {
+                        $seen_ids[(string) $event['id']] = true;
+                    }
                 } else {
                     $errors++;
                 }
@@ -313,14 +321,137 @@ class Azure_Calendar_Sync_Engine {
             }
         }
 
-        Azure_Logger::info("Calendar Sync Engine: {$calendar_id} done. synced={$synced}, errors={$errors}", 'Calendar');
+        // Prune pta_event posts whose Outlook source has been deleted.
+        // Scoped to (a) this calendar and (b) the same date window we
+        // just asked Graph about, so absence-from-response is a
+        // genuine deletion signal and not a query-window artefact.
+        $deleted = $this->prune_deleted_events($calendar_id, $seen_ids, $start_date, $end_date);
+
+        Azure_Logger::info(
+            "Calendar Sync Engine: {$calendar_id} done. synced={$synced}, deleted={$deleted}, errors={$errors}",
+            'Calendar'
+        );
 
         return array(
-            'success'       => true,
-            'calendar_id'   => $calendar_id,
-            'events_synced' => $synced,
-            'errors'        => $errors,
+            'success'        => true,
+            'calendar_id'    => $calendar_id,
+            'events_synced'  => $synced,
+            'events_deleted' => $deleted,
+            'errors'         => $errors,
         );
+    }
+
+    /**
+     * Trash every pta_event whose `_outlook_calendar_id` matches and
+     * whose `_outlook_event_id` is NOT in the seen set, provided its
+     * `_EventStartDate` falls within the supplied sync window.
+     *
+     * Why the window filter: Graph was only asked about events in
+     * [$start, $end]. An older or further-future pta_event is missing
+     * from the response for a benign reason (we didn't ask), not
+     * because it was deleted at source. Restricting the prune to the
+     * same window avoids false-positive deletions.
+     *
+     * Why trash (not force-delete): the prune fires on every sync run
+     * and a malformed Graph response (rate-limit, partial result) could
+     * temporarily return zero events. Trash is reversible from the WP
+     * admin Events list within the standard 30-day retention.
+     *
+     * Locally-authored events (no `_outlook_event_id` meta or empty
+     * string) are never touched.
+     *
+     * @param string $calendar_id    Outlook calendar id (matches `_outlook_calendar_id`).
+     * @param array  $seen_ids       map of outlook_event_id => true that came back from Graph.
+     * @param string $start_date_iso ISO 8601 window start (UTC, e.g. `2026-05-01T00:00:00Z`).
+     * @param string $end_date_iso   ISO 8601 window end.
+     * @return int Count of pta_event posts trashed.
+     */
+    private function prune_deleted_events($calendar_id, array $seen_ids, $start_date_iso, $end_date_iso) {
+        global $wpdb;
+
+        // Convert ISO-Z to WP-local 'Y-m-d H:i:s' to compare against
+        // `_EventStartDate` (which is WP-local in TEC's schema, see
+        // upsert_event() above).
+        $wp_tz       = (string) (get_option('timezone_string') ?: 'UTC');
+        $window_start = $this->iso_to_wp_local($start_date_iso, $wp_tz);
+        $window_end   = $this->iso_to_wp_local($end_date_iso,   $wp_tz);
+        if ($window_start === false || $window_end === false) {
+            return 0;
+        }
+
+        // Candidate posts: same calendar, start date inside the window,
+        // not already trashed. Limit defensively so a pathological
+        // result set can't run away.
+        $candidates = $wpdb->get_results($wpdb->prepare(
+            "SELECT p.ID,
+                    cal.meta_value  AS outlook_calendar_id,
+                    oeid.meta_value AS outlook_event_id,
+                    start.meta_value AS start_date
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} cal
+                 ON p.ID = cal.post_id AND cal.meta_key = '_outlook_calendar_id'
+             INNER JOIN {$wpdb->postmeta} oeid
+                 ON p.ID = oeid.post_id AND oeid.meta_key = '_outlook_event_id'
+             INNER JOIN {$wpdb->postmeta} start
+                 ON p.ID = start.post_id AND start.meta_key = '_EventStartDate'
+             WHERE p.post_type   = 'pta_event'
+               AND p.post_status IN ('publish','future','draft','private')
+               AND cal.meta_value = %s
+               AND oeid.meta_value <> ''
+               AND start.meta_value >= %s
+               AND start.meta_value <= %s
+             LIMIT 2000",
+            (string) $calendar_id,
+            $window_start,
+            $window_end
+        ));
+
+        if (empty($candidates)) {
+            return 0;
+        }
+
+        $deleted = 0;
+        foreach ($candidates as $row) {
+            $outlook_id = (string) $row->outlook_event_id;
+            if ($outlook_id === '' || isset($seen_ids[$outlook_id])) {
+                // Still present in Outlook — leave alone.
+                continue;
+            }
+
+            $post_id = (int) $row->ID;
+            $result  = wp_trash_post($post_id);
+            if ($result) {
+                $deleted++;
+                Azure_Logger::info(
+                    "Calendar Sync Engine: trashed orphan pta_event #{$post_id} (outlook_event_id={$outlook_id})",
+                    'Calendar'
+                );
+            } else {
+                Azure_Logger::warning(
+                    "Calendar Sync Engine: failed to trash orphan pta_event #{$post_id} (outlook_event_id={$outlook_id})",
+                    'Calendar'
+                );
+            }
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Convert an ISO 8601 (Z) string used for Graph windows into the
+     * WP-local datetime form used by `_EventStartDate`.
+     *
+     * @return string|false
+     */
+    private function iso_to_wp_local($iso, $wp_timezone) {
+        if (!is_string($iso) || $iso === '') return false;
+        try {
+            $dt = new DateTime($iso);
+            $dt->setTimezone(new DateTimeZone($wp_timezone ?: 'UTC'));
+            return $dt->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**

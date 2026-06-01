@@ -135,15 +135,23 @@
         post('azure_calendar_manual_sync').done(function (response) {
             if (response && response.success) {
                 var d = response.data || {};
-                var msg = 'Synced ' + (d.total_events_synced || 0) + ' event(s) across ' +
-                          (d.calendars_synced || 0) + ' calendar(s)';
-                if (d.total_errors) {
-                    msg += ' (' + d.total_errors + ' error' + (d.total_errors === 1 ? '' : 's') + ')';
+                var synced = parseInt(d.total_events_synced, 10) || 0;
+                var deleted = parseInt(d.total_events_deleted, 10) || 0;
+                var cals = parseInt(d.calendars_synced, 10) || 0;
+                var errs = parseInt(d.total_errors, 10) || 0;
+
+                var msg = 'Synced ' + synced + ' event(s)';
+                if (deleted) {
+                    msg += ', trashed ' + deleted + ' deleted-in-Outlook event(s)';
+                }
+                msg += ' across ' + cals + ' calendar(s)';
+                if (errs) {
+                    msg += ' (' + errs + ' error' + (errs === 1 ? '' : 's') + ')';
                 }
                 $('#sync-status-message').text(msg);
                 refreshSyncHistory();
                 // Refresh stats by reloading after a brief delay.
-                setTimeout(function () { window.location.reload(); }, 1200);
+                setTimeout(function () { window.location.reload(); }, 1500);
             } else {
                 $('#sync-status-message').text('Sync failed: ' + errorText(response));
             }

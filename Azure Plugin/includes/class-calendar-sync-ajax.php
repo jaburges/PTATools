@@ -398,9 +398,10 @@ class Azure_Calendar_Sync_Ajax {
                 'sync',
                 null,
                 array(
-                    'calendars'     => $results['total_calendars']     ?? 0,
-                    'events_synced' => $results['total_events_synced'] ?? 0,
-                    'errors'        => $results['total_errors']        ?? 0,
+                    'calendars'      => $results['total_calendars']      ?? 0,
+                    'events_synced'  => $results['total_events_synced']  ?? 0,
+                    'events_deleted' => $results['total_events_deleted'] ?? 0,
+                    'errors'         => $results['total_errors']         ?? 0,
                 ),
                 ($results['success'] ?? false) ? 'success' : 'error'
             );
@@ -408,10 +409,11 @@ class Azure_Calendar_Sync_Ajax {
 
         if (!empty($results['success'])) {
             wp_send_json_success(array(
-                'calendars_synced'    => $results['total_calendars'] ?? 0,
-                'total_events_synced' => $results['total_events_synced'] ?? 0,
-                'total_errors'        => $results['total_errors'] ?? 0,
-                'calendar_results'    => $results['calendar_results'] ?? array(),
+                'calendars_synced'     => $results['total_calendars']      ?? 0,
+                'total_events_synced'  => $results['total_events_synced']  ?? 0,
+                'total_events_deleted' => $results['total_events_deleted'] ?? 0,
+                'total_errors'         => $results['total_errors']         ?? 0,
+                'calendar_results'     => $results['calendar_results']     ?? array(),
             ));
         } else {
             wp_send_json_error($results['message'] ?? 'Sync failed');
