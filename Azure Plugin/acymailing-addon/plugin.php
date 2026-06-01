@@ -44,9 +44,15 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-use AcyMailing\Core\AcymPlugin;
+// AcyMailing's WordPress build exposes the base class at
+// `\AcyMailing\Libraries\acymPlugin` (lowercase "a") — that's the
+// canonical namespace per the WP "Making a custom add-on" docs:
+// https://docs.acymailing.com/developers/making-a-custom-add-on
+// (The dynamic-text WP doc page shows AcyMailing\Core\AcymPlugin
+//  but that's the Joomla namespace and doesn't exist on WP installs.)
+use AcyMailing\Libraries\acymPlugin;
 
-class plgAcymPtatools extends AcymPlugin
+class plgAcymPtatools extends acymPlugin
 {
     /**
      * Whitelist of `[up-next]` shortcode attributes we accept from

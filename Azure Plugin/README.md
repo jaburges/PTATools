@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.116-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.117-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,21 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.116** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.117** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.117
+
+- **AcyMailing add-on — namespace + timing fix.** The v3.116 build used
+  `AcyMailing\Core\AcymPlugin` (capital A), which is the Joomla
+  namespace and doesn't exist on WP installs, so AcyMailing failed to
+  instantiate the class and the "PTA Tools" tile never rendered.
+  Switched to the WP namespace `AcyMailing\Libraries\acymPlugin`
+  (lowercase a) per the canonical
+  [Making a custom add-on](https://docs.acymailing.com/developers/making-a-custom-add-on)
+  docs. Also moved the loader bootstrap from the `init` action to
+  `plugins_loaded` priority 1 so our `acym_load_installed_integrations`
+  hook is in place before AcyMailing's plugin scan runs (which can
+  fire as early as their own bootstrap).
 
 ### What's new in v3.116
 

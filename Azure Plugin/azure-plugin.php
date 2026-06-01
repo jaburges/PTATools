@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.116
+ * Version: 3.117
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.116');
+define('AZURE_PLUGIN_VERSION', '3.117');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -322,6 +322,13 @@ class AzurePlugin {
             // Register hooks
             add_action('plugins_loaded', array($this, 'load_dependencies'), 5);
             add_action('init', array($this, 'init'), 10);
+
+            // AcyMailing's `acym_load_installed_integrations` action
+            // can fire as early as AcyMailing's own plugin bootstrap
+            // (well before `init`). Register our loader on
+            // `plugins_loaded` priority 1 so it's guaranteed in place
+            // by the time AcyMailing scans for add-ons.
+            add_action('plugins_loaded', array($this, 'register_acymailing_addon'), 1);
 
             // Activation/deactivation hooks must be registered immediately
             register_activation_hook(__FILE__, array($this, 'activate'));
@@ -713,12 +720,12 @@ class AzurePlugin {
             // when a page actually contains the shortcode.
             $this->register_upcoming_shortcode_lazy();
 
-            // Register the AcyMailing dynamic-text add-on so the
-            // "PTA Tools" tile (with `[up-next]` presets) appears in
-            // AcyMailing's editor under Dynamic text type. The class
-            // self-detects AcyMailing — it's a no-op when AcyMailing
-            // isn't installed.
-            $this->register_acymailing_addon();
+            // AcyMailing integration registration is wired on
+            // `plugins_loaded` priority 1 (see init_hooks() in this
+            // file). It MUST happen before AcyMailing fires the
+            // `acym_load_installed_integrations` action, which can
+            // happen as early as their plugin bootstrap — too early
+            // for our `init`-tied callbacks. Nothing to do here.
 
             if (!empty($settings['enable_newsletter'])) {
                 PTA_Trace::module('newsletter');
@@ -1303,8 +1310,12 @@ class AzurePlugin {
      * with `[up-next]` shortcode presets. The loader hooks
      * `acym_load_installed_integrations` and is inert when AcyMailing
      * isn't installed.
+     *
+     * Public because it's wired as a `plugins_loaded` callback in
+     * __construct() — early enough to beat AcyMailing's own integration
+     * scan, which is too early for our `init`-time component bootstrap.
      */
-    private function register_acymailing_addon() {
+    public function register_acymailing_addon() {
         $path = AZURE_PLUGIN_PATH . 'includes/class-acymailing-addon-loader.php';
         if (!file_exists($path)) {
             return;
