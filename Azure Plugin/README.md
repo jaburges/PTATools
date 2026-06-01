@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.118-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.119-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,25 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.118** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.119** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.119
+
+- **Email Logs preview is real.** Replaced the `alert('Email preview
+  functionality will be implemented')` placeholder with a working modal:
+  status badge + transport method, sender / recipient / subject /
+  plugin source / timestamp / body byte count, a tabbed body view
+  (Rendered in a sandboxed iframe via `srcdoc`, HTML source, Headers),
+  attachments list, error message banner when status was failed, and
+  an empty-body warning when the captured message was 0 bytes (helps
+  diagnose AcyMailing/transport pipelines that strip content). New
+  AJAX endpoint `azure_get_email_log_detail` returns the full row.
+- **Resend from the preview modal.** New `azure_resend_email_log`
+  endpoint re-sends a logged email through wp_mail() — including
+  whatever `pre_wp_mail` intercepts are installed (so an AcyMailing
+  intercept still applies). Optional "override recipient" field lets
+  you safely resend to your own address before re-spamming the
+  original buyer.
 
 ### What's new in v3.118
 

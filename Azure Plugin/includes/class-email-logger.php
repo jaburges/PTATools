@@ -39,10 +39,12 @@ class Azure_Email_Logger {
         
         // AJAX handlers
         add_action('wp_ajax_azure_get_email_logs', array($this, 'ajax_get_email_logs'));
+        add_action('wp_ajax_azure_get_email_log_detail', array($this, 'ajax_get_email_log_detail'));
         add_action('wp_ajax_azure_delete_email_log', array($this, 'ajax_delete_email_log'));
         add_action('wp_ajax_azure_bulk_delete_email_logs', array($this, 'ajax_bulk_delete_email_logs'));
         add_action('wp_ajax_azure_clear_email_logs', array($this, 'ajax_clear_email_logs'));
         add_action('wp_ajax_azure_resend_email', array($this, 'ajax_resend_email'));
+        add_action('wp_ajax_azure_resend_email_log', array($this, 'ajax_resend_email_log'));
         
         // Debug: Log that AJAX handlers are registered
         if (class_exists('Azure_Logger')) {
@@ -498,7 +500,121 @@ class Azure_Email_Logger {
             wp_send_json_error($e->getMessage());
         }
     }
-    
+
+    /**
+     * Return one full email log row as JSON for the preview modal.
+     *
+     * Exposes every column we store: to_email, from_email, subject,
+     * message (full body), headers, attachments (json), method,
+     * status, error_message, plugin_source, ip_address, user_agent,
+     * timestamp. The preview iframe in email-logs-page.php srcdoc's
+     * the body into an isolated document so the admin chrome isn't
+     * polluted by the captured email's CSS.
+     */
+    public function ajax_get_email_log_detail() {
+        if (!current_user_can('manage_options') || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        try {
+            $log_id = intval($_POST['log_id'] ?? 0);
+            if (!$log_id) {
+                wp_send_json_error('Invalid log id');
+                return;
+            }
+
+            global $wpdb;
+            $table = Azure_Database::get_table_name('email_logs');
+            if (!$table) {
+                wp_send_json_error('Email logs table not found');
+                return;
+            }
+
+            $row = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$table} WHERE id = %d",
+                $log_id
+            ));
+            if (!$row) {
+                wp_send_json_error('Log not found');
+                return;
+            }
+
+            // Surface byte sizes so the modal can flag "this email
+            // body was 47 bytes" (likely empty) without needing JS
+            // string math on potentially-huge HTML bodies.
+            $payload = (array) $row;
+            $payload['message_bytes'] = is_string($row->message) ? strlen($row->message) : 0;
+            $payload['headers_bytes'] = is_string($row->headers) ? strlen($row->headers) : 0;
+            // Decode attachments if it's a JSON-encoded list of paths.
+            $atts = $row->attachments;
+            if (is_string($atts) && $atts !== '') {
+                $decoded = json_decode($atts, true);
+                if (is_array($decoded)) {
+                    $payload['attachments_list'] = array_map(function ($p) {
+                        return is_string($p) ? basename($p) : '';
+                    }, $decoded);
+                } else {
+                    $payload['attachments_list'] = array();
+                }
+            } else {
+                $payload['attachments_list'] = array();
+            }
+
+            wp_send_json_success($payload);
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
+    }
+
+    /**
+     * Re-send a previously logged email through wp_mail() so the
+     * admin can confirm whether the issue is reproducible and which
+     * transport is in play. Goes back through whatever pre_wp_mail
+     * intercepts are installed — including AcyMailing's if the global
+     * wp_mail replacement is active.
+     */
+    public function ajax_resend_email_log() {
+        if (!current_user_can('manage_options') || !isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        try {
+            $log_id = intval($_POST['log_id'] ?? 0);
+            $override_to = isset($_POST['override_to']) ? sanitize_email($_POST['override_to']) : '';
+
+            if (!$log_id) {
+                wp_send_json_error('Invalid log id');
+                return;
+            }
+
+            global $wpdb;
+            $table = Azure_Database::get_table_name('email_logs');
+            $row   = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$table} WHERE id = %d",
+                $log_id
+            ));
+            if (!$row) {
+                wp_send_json_error('Log not found');
+                return;
+            }
+
+            $to       = $override_to !== '' ? $override_to : $row->to_email;
+            $subject  = '[Resend #' . $log_id . '] ' . (string) $row->subject;
+            $message  = (string) $row->message;
+            $headers  = $row->headers ? array_filter(array_map('trim', preg_split('/\r?\n/', (string) $row->headers))) : array();
+
+            $sent = wp_mail($to, $subject, $message, $headers);
+
+            wp_send_json_success(array(
+                'resent_to'    => $to,
+                'sent'         => (bool) $sent,
+                'message_bytes' => strlen($message),
+            ));
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
+    }
+
     /**
      * Get email statistics
      */

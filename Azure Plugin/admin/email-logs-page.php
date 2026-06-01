@@ -542,11 +542,137 @@ jQuery(document).ready(function($) {
         }
     }
     
-    function viewEmail(id) {
-        // Implementation for viewing email details
-        alert('Email preview functionality will be implemented');
+    function escapeHtml(s) {
+        if (s === null || s === undefined) return '';
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
-    
+
+    function viewEmail(id) {
+        var $modal = $('#email-preview-modal');
+        var $content = $('#email-preview-content');
+        $content.html('<p style="padding:24px;color:#646970;">Loading\u2026</p>');
+        $modal.show();
+
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'azure_get_email_log_detail',
+            log_id: id,
+            nonce: azure_plugin_ajax.nonce
+        }, function (response) {
+            if (!response || !response.success || !response.data) {
+                $content.html('<p style="padding:24px;color:#b32d2e;">Failed to load: ' + escapeHtml((response && response.data) || 'unknown error') + '</p>');
+                return;
+            }
+            var r = response.data;
+            var statusBadge = r.status === 'sent'
+                ? '<span style="background:#e7f5ea;color:#1f6e2a;padding:2px 8px;border-radius:3px;font-weight:600;">SENT</span>'
+                : '<span style="background:#fdecea;color:#b32d2e;padding:2px 8px;border-radius:3px;font-weight:600;">' + escapeHtml((r.status || '').toUpperCase()) + '</span>';
+
+            var attachments = '';
+            if (r.attachments_list && r.attachments_list.length) {
+                attachments = '<p><strong>Attachments:</strong> ' + r.attachments_list.map(escapeHtml).join(', ') + '</p>';
+            }
+
+            var errorBlock = '';
+            if (r.error_message) {
+                errorBlock = '<div style="background:#fdecea;border:1px solid #b32d2e;color:#b32d2e;padding:10px 14px;margin:0 0 12px;border-radius:4px;"><strong>Error:</strong> ' + escapeHtml(r.error_message) + '</div>';
+            }
+
+            var bodyHasContent = parseInt(r.message_bytes, 10) > 0;
+            var emptyWarning = bodyHasContent
+                ? ''
+                : '<div style="background:#fff8e5;border:1px solid #dba617;color:#8a6100;padding:10px 14px;margin:0 0 12px;border-radius:4px;"><strong>\u26a0\ufe0f Empty body.</strong> The captured message was 0 bytes. The send pipeline (e.g. AcyMailing\u2019s wp_mail replacement) may be stripping it, or the calling code never produced a body.</div>';
+
+            var meta = [
+                '<table class="form-table" style="margin-top:0;">',
+                '<tr><th style="width:120px;">Status</th><td>' + statusBadge + ' &middot; <code>' + escapeHtml(r.method || 'wp_mail') + '</code></td></tr>',
+                '<tr><th>Sent at</th><td>' + escapeHtml(r.timestamp || '') + '</td></tr>',
+                '<tr><th>From</th><td><code>' + escapeHtml(r.from_email || '(unset)') + '</code></td></tr>',
+                '<tr><th>To</th><td><code>' + escapeHtml(r.to_email || '') + '</code></td></tr>',
+                '<tr><th>Subject</th><td>' + escapeHtml(r.subject || '') + '</td></tr>',
+                '<tr><th>Plugin source</th><td><code>' + escapeHtml(r.plugin_source || '(unknown)') + '</code></td></tr>',
+                '<tr><th>Body size</th><td>' + (parseInt(r.message_bytes, 10) || 0) + ' bytes</td></tr>',
+                '</table>'
+            ].join('');
+
+            // srcdoc isolates the captured HTML from the admin chrome
+            // so the email\u2019s own CSS can\u2019t leak into wp-admin.
+            var iframeSrcdoc = (r.message || '').replace(/"/g, '&quot;');
+            var bodyTabs =
+                '<div style="margin-top:14px;border:1px solid #dcdcde;border-radius:4px;">' +
+                '  <div style="display:flex;gap:0;border-bottom:1px solid #dcdcde;">' +
+                '    <button type="button" class="button button-link tab-btn" data-target="tab-rendered" style="border-radius:0;border:0;border-right:1px solid #dcdcde;padding:8px 14px;background:#fff;">Rendered</button>' +
+                '    <button type="button" class="button button-link tab-btn" data-target="tab-source" style="border-radius:0;border:0;border-right:1px solid #dcdcde;padding:8px 14px;background:#f6f7f7;">HTML source</button>' +
+                '    <button type="button" class="button button-link tab-btn" data-target="tab-headers" style="border-radius:0;border:0;padding:8px 14px;background:#f6f7f7;">Headers</button>' +
+                '  </div>' +
+                '  <div id="tab-rendered" class="tab-pane">' +
+                '    <iframe sandbox="" srcdoc="' + iframeSrcdoc + '" style="width:100%;height:420px;border:0;background:#fff;"></iframe>' +
+                '  </div>' +
+                '  <div id="tab-source" class="tab-pane" style="display:none;">' +
+                '    <pre style="margin:0;padding:14px;max-height:420px;overflow:auto;background:#f6f7f7;font-size:12px;line-height:1.4;white-space:pre-wrap;word-break:break-all;">' + escapeHtml(r.message || '') + '</pre>' +
+                '  </div>' +
+                '  <div id="tab-headers" class="tab-pane" style="display:none;">' +
+                '    <pre style="margin:0;padding:14px;max-height:420px;overflow:auto;background:#f6f7f7;font-size:12px;line-height:1.4;white-space:pre-wrap;word-break:break-all;">' + escapeHtml(r.headers || '(no headers captured)') + '</pre>' +
+                '  </div>' +
+                '</div>';
+
+            var resendUI =
+                '<div style="margin-top:14px;padding:12px 14px;background:#f6f7f7;border-radius:4px;">' +
+                '  <label style="display:block;margin-bottom:6px;font-weight:600;">Resend this email (sends through current wp_mail pipeline)</label>' +
+                '  <input type="email" id="email-resend-to" placeholder="Override recipient (default: ' + escapeHtml(r.to_email || '') + ')" class="regular-text" style="margin-right:6px;">' +
+                '  <button type="button" class="button button-primary" id="email-resend-btn" data-log-id="' + escapeHtml(String(r.id || id)) + '">Resend</button>' +
+                '  <span id="email-resend-status" style="margin-left:10px;color:#646970;"></span>' +
+                '</div>';
+
+            $content.html(emptyWarning + errorBlock + attachments + meta + bodyTabs + resendUI);
+        }).fail(function (xhr, status, error) {
+            $content.html('<p style="padding:24px;color:#b32d2e;">Network error: ' + escapeHtml(error || status) + '</p>');
+        });
+    }
+
+    // Tab switcher inside the preview modal
+    $(document).on('click', '#email-preview-content .tab-btn', function () {
+        var target = $(this).data('target');
+        $('#email-preview-content .tab-btn').css('background', '#f6f7f7');
+        $(this).css('background', '#fff');
+        $('#email-preview-content .tab-pane').hide();
+        $('#email-preview-content #' + target).show();
+    });
+
+    // Resend button inside the preview modal
+    $(document).on('click', '#email-resend-btn', function () {
+        var $btn = $(this);
+        var logId = $btn.data('log-id');
+        var overrideTo = $('#email-resend-to').val();
+        var $status = $('#email-resend-status');
+
+        $btn.prop('disabled', true);
+        $status.css('color', '#646970').text('Sending\u2026');
+
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'azure_resend_email_log',
+            log_id: logId,
+            override_to: overrideTo || '',
+            nonce: azure_plugin_ajax.nonce
+        }, function (response) {
+            if (response && response.success) {
+                var d = response.data || {};
+                $status.css('color', '#1f6e2a').text('\u2713 Re-sent to ' + (d.resent_to || '?') + ' (' + (d.message_bytes || 0) + ' body bytes)');
+                setTimeout(loadEmailLogs, 1500);
+            } else {
+                $status.css('color', '#b32d2e').text('\u2717 ' + ((response && response.data) || 'Failed'));
+            }
+        }).fail(function () {
+            $status.css('color', '#b32d2e').text('\u2717 Network error');
+        }).always(function () {
+            $btn.prop('disabled', false);
+        });
+    });
+
     function deleteEmail(id) {
         $.post(azure_plugin_ajax.ajax_url, {
             action: 'azure_delete_email_log',
@@ -560,9 +686,12 @@ jQuery(document).ready(function($) {
             }
         });
     }
-    
+
     function resendEmail(id) {
-        alert('Resend functionality will be implemented');
+        // Open the preview modal and let the user use the in-modal
+        // Resend control (with optional override-to). Keeps a single
+        // resend code path.
+        viewEmail(id);
     }
     
     function bulkDeleteEmails(ids) {
