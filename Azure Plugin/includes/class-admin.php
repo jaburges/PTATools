@@ -307,6 +307,21 @@ class Azure_Admin {
                 break;
             case 'azure-plugin-calendar':
                 wp_enqueue_style('azure-calendar-frontend', AZURE_PLUGIN_URL . 'css/calendar-frontend.css', array(), $cache_version);
+                // Calendar Sync tab interactions (mapping CRUD, Sync
+                // Now, history). The script is small and idempotent so
+                // we enqueue it for the whole Calendar page rather
+                // than gating on the active tab.
+                wp_enqueue_script(
+                    'azure-calendar-sync-admin',
+                    AZURE_PLUGIN_URL . 'js/calendar-sync-admin.js',
+                    array('jquery'),
+                    $cache_version,
+                    true
+                );
+                wp_localize_script('azure-calendar-sync-admin', 'azureCalendarSync', array(
+                    'ajaxUrl' => admin_url('admin-ajax.php'),
+                    'nonce'   => wp_create_nonce('azure_plugin_nonce'),
+                ));
                 break;
             case 'azure-plugin-newsletter':
                 // Newsletter admin styles and scripts

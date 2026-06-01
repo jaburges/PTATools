@@ -338,6 +338,14 @@ class Azure_Settings {
             'calendar_default_color_theme' => 'blue',
             'calendar_cache_duration' => 3600,
             'calendar_max_events_per_calendar' => 100,
+
+            // Calendar Sync (Outlook -> pta_event) — v3.113 restore.
+            // Default frequency is consumed by Azure_PTA_Cron when
+            // scheduling the global `azure_calendar_sync_events` hook.
+            // Lookback/lookahead control the manual-sync date window.
+            'calendar_sync_default_frequency' => 'hourly',
+            'calendar_sync_lookback_days'     => 30,
+            'calendar_sync_lookahead_days'    => 365,
             
             // Email specific settings
             'email_client_id' => '',

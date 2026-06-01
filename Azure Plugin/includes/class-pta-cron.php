@@ -146,9 +146,24 @@ class Azure_PTA_Cron {
                 self::ensure('azure_newsletter_sync_mailgun_stats', 'hourly');
             }
 
-            // ── Calendar (token refresh) ──────────────────────────────────
+            // ── Calendar (token refresh + Outlook→pta_event sync) ──────────
             if (!empty($settings['enable_calendar'])) {
                 self::ensure('azure_calendar_token_refresh', 'hourly', time() + HOUR_IN_SECONDS);
+
+                // Schedule the global Outlook → pta_event sync hook
+                // when there is at least one mapping with sync_enabled=1.
+                // The handler is registered in
+                // Azure_Calendar_Sync_Engine::__construct(). Per-mapping
+                // schedules are owned by Azure_Calendar_Mapping_Manager
+                // and dispatched via `azure_calendar_mapping_sync`.
+                if (self::calendar_sync_has_enabled_mappings()) {
+                    $freq = !empty($settings['calendar_sync_default_frequency'])
+                        ? (string) $settings['calendar_sync_default_frequency']
+                        : 'hourly';
+                    self::ensure('azure_calendar_sync_events', $freq, time() + 300);
+                } else {
+                    wp_clear_scheduled_hook('azure_calendar_sync_events');
+                }
             }
 
             // ── Email (token refresh) ─────────────────────────────────────
@@ -355,5 +370,27 @@ class Azure_PTA_Cron {
             $first_run = time();
         }
         wp_schedule_event($first_run, $recurrence, $hook);
+    }
+
+    /**
+     * Whether `wp_azure_calendar_mappings` contains at least one row
+     * with `sync_enabled = 1`. Used to decide whether to schedule the
+     * global `azure_calendar_sync_events` cron event.
+     *
+     * @return bool
+     */
+    private static function calendar_sync_has_enabled_mappings() {
+        global $wpdb;
+        $table = class_exists('Azure_Database')
+            ? Azure_Database::get_table_name('calendar_mappings')
+            : $wpdb->prefix . 'azure_calendar_mappings';
+        if (!$table) {
+            return false;
+        }
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
+        if (!$exists) {
+            return false;
+        }
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE sync_enabled = 1") > 0;
     }
 }

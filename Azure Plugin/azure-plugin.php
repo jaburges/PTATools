@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.112
+ * Version: 3.113
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.112');
+define('AZURE_PLUGIN_VERSION', '3.113');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -902,6 +902,11 @@ class AzurePlugin {
                     'class-calendar-graph-api.php',
                     'class-calendar-manager.php',
                     'class-calendar-ical-sync.php',
+                    // v3.113: native Outlook -> pta_event sync replacement
+                    // for the v3.97-retired class-tec-sync-engine.php.
+                    'class-calendar-mapping-manager.php',
+                    'class-calendar-sync-engine.php',
+                    'class-calendar-sync-ajax.php',
                 ));
 
                 if (class_exists('Azure_Calendar_Auth')) {
@@ -915,6 +920,16 @@ class AzurePlugin {
                 }
                 if (class_exists('Azure_Calendar_ICalSync')) {
                     new Azure_Calendar_ICalSync();
+                }
+                // Mapping manager is created on demand by callers; the
+                // sync engine MUST be instantiated here so its cron and
+                // per-mapping action handlers are registered before
+                // WP-Cron fires them.
+                if (class_exists('Azure_Calendar_Sync_Engine')) {
+                    new Azure_Calendar_Sync_Engine();
+                }
+                if (class_exists('Azure_Calendar_Sync_Ajax')) {
+                    new Azure_Calendar_Sync_Ajax();
                 }
             }
         } catch (\Throwable $e) {

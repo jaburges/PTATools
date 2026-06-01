@@ -370,6 +370,184 @@ if (!defined('ABSPATH')) {
                         </table>
                     </div>
                 </div>
+
+                <?php
+                // ── Calendar Sync Connection ────────────────────────
+                // Consolidated M365 sign-in for the Calendar Embed and
+                // Calendar Sync tabs. Reuses the existing AJAX
+                // handlers in class-admin.php
+                // (azure_save_calendar_embed_email,
+                //  azure_calendar_embed_authorize,
+                //  azure_calendar_embed_revoke).
+                $calendar_module_enabled = !empty($settings['enable_calendar']);
+                $cal_user_email          = (string) ($settings['calendar_embed_user_email'] ?? '');
+                $cal_mailbox_email       = (string) ($settings['calendar_embed_mailbox_email'] ?? '');
+                $cal_authenticated       = false;
+                if ($calendar_module_enabled && !empty($cal_user_email) && class_exists('Azure_Calendar_Auth')) {
+                    try {
+                        $cal_auth_check    = new Azure_Calendar_Auth();
+                        $cal_authenticated = (bool) $cal_auth_check->has_valid_user_token($cal_user_email);
+                    } catch (\Throwable $e) {
+                        $cal_authenticated = false;
+                    }
+                }
+                ?>
+                <div class="credentials-section calendar-sync-connection" style="margin-top:24px;">
+                    <h2><span class="dashicons dashicons-calendar-alt"></span> Calendar Sync Connection</h2>
+                    <?php if (!$calendar_module_enabled): ?>
+                        <p class="description" style="margin-top:8px;">
+                            Enable the Calendar module above to configure the M365 calendar sign-in used by both Calendar Embed and Calendar Sync.
+                        </p>
+                    <?php else: ?>
+                        <p class="description" style="margin-top:8px;">
+                            Sign in once here with the M365 account that has delegated access to the shared mailbox. The Calendar Embed and Calendar Sync tabs both read this connection.
+                        </p>
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row"><label for="calendar_embed_user_email">Your M365 account</label></th>
+                                <td>
+                                    <input type="email"
+                                           id="calendar_embed_user_email"
+                                           name="calendar_embed_user_email"
+                                           value="<?php echo esc_attr($cal_user_email); ?>"
+                                           placeholder="admin@yourorg.net"
+                                           class="regular-text">
+                                    <p class="description">The Microsoft 365 account you'll sign in with (delegated access only).</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="calendar_embed_mailbox_email">Shared mailbox email</label></th>
+                                <td>
+                                    <input type="email"
+                                           id="calendar_embed_mailbox_email"
+                                           name="calendar_embed_mailbox_email"
+                                           value="<?php echo esc_attr($cal_mailbox_email); ?>"
+                                           placeholder="calendar@yourorg.net"
+                                           class="regular-text">
+                                    <p class="description">The shared mailbox whose calendars you want to embed/sync.</p>
+                                    <button type="button" class="button button-primary" id="save-calendar-emails" style="margin-top:6px;">
+                                        <span class="dashicons dashicons-saved"></span> Save Connection
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Status</th>
+                                <td>
+                                    <div class="auth-status-display">
+                                        <?php if ($cal_authenticated): ?>
+                                            <span class="status-badge status-success">
+                                                <span class="dashicons dashicons-yes-alt" style="color:#1f6e2a;"></span>
+                                                Authenticated as <strong><?php echo esc_html($cal_user_email); ?></strong>
+                                            </span>
+                                            <p class="description" style="margin-top:4px;">
+                                                Reading calendars from: <strong><?php echo esc_html($cal_mailbox_email); ?></strong>
+                                            </p>
+                                            <div class="auth-actions-inline" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                                                <button type="button" class="button button-secondary" id="calendar-reauth">Re-authenticate</button>
+                                                <button type="button" class="button button-link-delete" id="revoke-calendar-auth">Revoke access</button>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="status-badge status-error">
+                                                <span class="dashicons dashicons-warning" style="color:#b32d2e;"></span>
+                                                Not authenticated
+                                            </span>
+                                            <div class="auth-actions-inline" style="margin-top:8px;">
+                                                <?php if (!empty($cal_user_email) && !empty($cal_mailbox_email)): ?>
+                                                    <button type="button" class="button button-primary" id="calendar-auth">
+                                                        <span class="dashicons dashicons-admin-network"></span> Authenticate Calendar
+                                                    </button>
+                                                <?php else: ?>
+                                                    <p class="description">Enter and save both email addresses above, then authenticate.</p>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    <?php endif; ?>
+                </div>
+
+                <script>
+                jQuery(function ($) {
+                    function ajaxNonce() {
+                        return (window.azure_plugin_ajax && azure_plugin_ajax.nonce) ? azure_plugin_ajax.nonce : '';
+                    }
+                    function ajaxUrl() {
+                        return (window.azure_plugin_ajax && azure_plugin_ajax.ajax_url) ? azure_plugin_ajax.ajax_url : (window.ajaxurl || '/wp-admin/admin-ajax.php');
+                    }
+
+                    $('#save-calendar-emails').on('click', function () {
+                        var $btn = $(this);
+                        var userEmail = $('#calendar_embed_user_email').val();
+                        var mailboxEmail = $('#calendar_embed_mailbox_email').val();
+                        if (!userEmail) { alert('Enter your M365 account email.'); return; }
+                        if (!mailboxEmail) { alert('Enter the shared mailbox email.'); return; }
+
+                        $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span> Saving...');
+                        $.post(ajaxUrl(), {
+                            action: 'azure_save_calendar_embed_email',
+                            user_email: userEmail,
+                            mailbox_email: mailboxEmail,
+                            nonce: ajaxNonce()
+                        }).done(function (resp) {
+                            if (resp && resp.success) {
+                                window.location.reload();
+                            } else {
+                                alert('Failed to save: ' + (resp && resp.data ? resp.data : 'Unknown error'));
+                                $btn.prop('disabled', false).html('<span class="dashicons dashicons-saved"></span> Save Connection');
+                            }
+                        }).fail(function () {
+                            alert('Network error saving calendar connection.');
+                            $btn.prop('disabled', false).html('<span class="dashicons dashicons-saved"></span> Save Connection');
+                        });
+                    });
+
+                    $('#calendar-auth, #calendar-reauth').on('click', function () {
+                        var $btn = $(this);
+                        var userEmail = $('#calendar_embed_user_email').val();
+                        if (!userEmail) { alert('Save your M365 account email first.'); return; }
+                        $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span> Redirecting...');
+                        $.post(ajaxUrl(), {
+                            action: 'azure_calendar_embed_authorize',
+                            user_email: userEmail,
+                            nonce: ajaxNonce()
+                        }).done(function (resp) {
+                            if (resp && resp.success && resp.data && resp.data.auth_url) {
+                                window.location.href = resp.data.auth_url;
+                            } else {
+                                alert('Failed to start authorization: ' + (resp && resp.data ? resp.data : 'Unknown error'));
+                                $btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-network"></span> Authenticate Calendar');
+                            }
+                        }).fail(function () {
+                            alert('Network error starting authorization.');
+                            $btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-network"></span> Authenticate Calendar');
+                        });
+                    });
+
+                    $('#revoke-calendar-auth').on('click', function () {
+                        if (!window.confirm('Revoke calendar access? You will need to re-authenticate before syncing or embedding calendars.')) return;
+                        var $btn = $(this);
+                        var mailboxEmail = $('#calendar_embed_mailbox_email').val();
+                        $btn.prop('disabled', true).text('Revoking...');
+                        $.post(ajaxUrl(), {
+                            action: 'azure_calendar_embed_revoke',
+                            email: mailboxEmail,
+                            nonce: ajaxNonce()
+                        }).done(function (resp) {
+                            if (resp && resp.success) {
+                                window.location.reload();
+                            } else {
+                                alert('Failed to revoke: ' + (resp && resp.data ? resp.data : 'Unknown error'));
+                                $btn.prop('disabled', false).text('Revoke access');
+                            }
+                        }).fail(function () {
+                            alert('Network error during revoke.');
+                            $btn.prop('disabled', false).text('Revoke access');
+                        });
+                    });
+                });
+                </script>
                 
                 <div class="debug-section" style="margin-top: 20px;">
                     <h2>Debug Settings</h2>

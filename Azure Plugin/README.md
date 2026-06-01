@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.112-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.113-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,24 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.112** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.113** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.113
+
+- **Calendar Sync engine restored.** Outlook → `pta_event` sync now runs
+  natively again after the v3.97 TEC retirement removed the underlying
+  engine. New `Azure_Calendar_Sync_Engine`, `Azure_Calendar_Mapping_Manager`,
+  and `Azure_Calendar_Sync_Ajax` classes write directly into `pta_event`
+  posts using the existing `_EventStartDate` / `_outlook_event_id` meta
+  schema. Per-mapping cron schedules and a global
+  `azure_calendar_sync_events` hook are owned by `Azure_PTA_Cron`.
+- **Calendar Sync admin UI.** The Calendar Sync tab now exposes the full
+  mapping table (add/edit/delete + per-row sync toggle), Sync Now / Repair
+  Metadata buttons, and an activity-log-backed Recent Sync History panel.
+- **Auth consolidated on Config.** The M365 sign-in (user account, shared
+  mailbox, authenticate/revoke buttons) used by both Calendar Embed and
+  Calendar Sync now lives on the PTA Tools Config screen. Embed and Sync
+  tabs show a deep link to Config when not yet authenticated.
 
 ### What's new in v3.112
 
