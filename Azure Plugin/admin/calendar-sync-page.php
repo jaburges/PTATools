@@ -66,7 +66,7 @@ $last_sync = $mappings_table
     ? (string) $wpdb->get_var("SELECT MAX(last_sync) FROM {$mappings_table}")
     : '';
 
-$config_url = admin_url('admin.php?page=azure-plugin');
+$config_url = admin_url('admin.php?page=azure-plugin-calendar&tab=config');
 
 $frequency_labels = array(
     '15min'      => __('Every 15 min', 'azure-plugin'),
@@ -120,9 +120,9 @@ $frequency_labels = array(
         <div class="notice notice-warning inline" style="padding:14px 16px;">
             <p>
                 <strong><?php esc_html_e('Calendar sign-in required.', 'azure-plugin'); ?></strong><br>
-                <?php esc_html_e('Calendar Sync needs an authenticated M365 account and a shared mailbox configured on the Config page.', 'azure-plugin'); ?>
+                <?php esc_html_e('Calendar Sync needs an authenticated M365 account and a shared mailbox configured on the Config tab.', 'azure-plugin'); ?>
                 <a class="button button-primary" style="margin-left:8px;" href="<?php echo esc_url($config_url); ?>">
-                    <?php esc_html_e('Open Config', 'azure-plugin'); ?>
+                    <?php esc_html_e('Open Calendar Config', 'azure-plugin'); ?>
                 </a>
             </p>
         </div>

@@ -519,16 +519,61 @@ class Azure_Admin {
     
     private function save_calendar_settings(&$settings) {
         if (!Azure_Settings::get_setting('use_common_credentials')) {
-            $settings['calendar_client_id'] = sanitize_text_field($_POST['calendar_client_id'] ?? '');
-            $settings['calendar_client_secret'] = sanitize_text_field($_POST['calendar_client_secret'] ?? '');
-            $settings['calendar_tenant_id'] = sanitize_text_field($_POST['calendar_tenant_id'] ?? 'common');
+            // Only overwrite credentials when the field is actually
+            // present on the posted form (Config tab posts these;
+            // Sync Defaults form on the same tab does not, so we
+            // mustn't blank them out on every save).
+            if (isset($_POST['calendar_client_id'])) {
+                $settings['calendar_client_id'] = sanitize_text_field($_POST['calendar_client_id']);
+            }
+            if (isset($_POST['calendar_client_secret'])) {
+                $settings['calendar_client_secret'] = sanitize_text_field($_POST['calendar_client_secret']);
+            }
+            if (isset($_POST['calendar_tenant_id'])) {
+                $settings['calendar_tenant_id'] = sanitize_text_field($_POST['calendar_tenant_id']);
+            }
         }
-        
-        $settings['calendar_default_timezone'] = sanitize_text_field($_POST['calendar_default_timezone'] ?? 'America/New_York');
-        $settings['calendar_default_view'] = sanitize_text_field($_POST['calendar_default_view'] ?? 'month');
-        $settings['calendar_default_color_theme'] = sanitize_text_field($_POST['calendar_default_color_theme'] ?? 'blue');
-        $settings['calendar_cache_duration'] = intval($_POST['calendar_cache_duration'] ?? 3600);
-        $settings['calendar_max_events_per_calendar'] = intval($_POST['calendar_max_events_per_calendar'] ?? 100);
+
+        // Embed tab — display defaults. Same guard so the Config tab's
+        // Sync Defaults form doesn't accidentally reset display settings.
+        if (isset($_POST['calendar_default_timezone'])) {
+            $settings['calendar_default_timezone'] = sanitize_text_field($_POST['calendar_default_timezone']);
+        }
+        if (isset($_POST['calendar_default_view'])) {
+            $settings['calendar_default_view'] = sanitize_text_field($_POST['calendar_default_view']);
+        }
+        if (isset($_POST['calendar_default_color_theme'])) {
+            $settings['calendar_default_color_theme'] = sanitize_text_field($_POST['calendar_default_color_theme']);
+        }
+        if (isset($_POST['calendar_cache_duration'])) {
+            $settings['calendar_cache_duration'] = intval($_POST['calendar_cache_duration']);
+        }
+        if (isset($_POST['calendar_max_events_per_calendar'])) {
+            $settings['calendar_max_events_per_calendar'] = intval($_POST['calendar_max_events_per_calendar']);
+        }
+
+        // Config tab > Sync Defaults form (v3.115). Drive the global
+        // azure_calendar_sync_events cron schedule + manual-sync date
+        // window. Reconcile the cron entry immediately so the user
+        // doesn't wait for the next ensure_events_scheduled pass.
+        $sync_keys_present = isset($_POST['calendar_sync_default_frequency'])
+            || isset($_POST['calendar_sync_lookback_days'])
+            || isset($_POST['calendar_sync_lookahead_days']);
+
+        if (isset($_POST['calendar_sync_default_frequency'])) {
+            $settings['calendar_sync_default_frequency'] = sanitize_text_field($_POST['calendar_sync_default_frequency']);
+        }
+        if (isset($_POST['calendar_sync_lookback_days'])) {
+            $settings['calendar_sync_lookback_days'] = max(0, min(3650, intval($_POST['calendar_sync_lookback_days'])));
+        }
+        if (isset($_POST['calendar_sync_lookahead_days'])) {
+            $settings['calendar_sync_lookahead_days'] = max(0, min(3650, intval($_POST['calendar_sync_lookahead_days'])));
+        }
+
+        if ($sync_keys_present && class_exists('Azure_PTA_Cron')) {
+            // Defer to after Azure_Settings::update_settings() runs.
+            add_action('shutdown', array('Azure_PTA_Cron', 'ensure_events_scheduled'));
+        }
     }
     
     private function save_email_settings(&$settings) {

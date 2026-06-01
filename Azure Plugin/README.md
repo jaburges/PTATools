@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.114-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.115-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,20 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.114** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.115** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.115
+
+- **Calendar > Config tab.** New first tab inside the Calendar admin
+  (Config | Calendar Embed | Calendar Sync | Upcoming Events | Volunteer
+  Sign Up). Houses the Microsoft 365 connection (user account, shared
+  mailbox, Authenticate / Re-auth / Revoke), Azure App credential
+  inheritance / per-calendar override (with Test Credentials), and the
+  global sync defaults (frequency, lookback, lookahead). The v3.113
+  Calendar Sync Connection panel has been removed from the global PTA
+  Tools Config page — auth lives with the rest of the calendar admin
+  now. Unauthenticated admins (and post-OAuth callbacks) land on the
+  Config tab automatically.
 
 ### What's new in v3.114
 

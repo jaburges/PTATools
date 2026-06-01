@@ -68,8 +68,8 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
             <p>
                 <strong>Calendar sign-in required.</strong>
                 Connect your M365 account and shared mailbox on the
-                <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin')); ?>">PTA Tools Config screen</a>
-                before managing calendar embeds here.
+                <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=config')); ?>">Calendar &rsaquo; Config</a>
+                tab before managing calendar embeds here.
             </p>
         </div>
         <?php endif; ?>
