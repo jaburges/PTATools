@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.113-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.114-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,20 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.113** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.114** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.114
+
+- **AcyMailing "Upcoming Events" dynamic tag.** Newsletter editors can now
+  insert the `[up-next]` block from AcyMailing's Dynamic Content picker as
+  `{upcoming-events}` (with the same options form as the shortcode:
+  `columns`, `current-week`, `next-week`, `coming-up-days`,
+  `exclude-categories`, `show-time`, `link-titles`, `show-join-meeting`,
+  etc.). At preview and send time the tag is substituted with the live
+  output of the existing `[up-next]` shortcode so the newsletter and
+  the website always render the same upcoming-events set. Self-detects
+  AcyMailing and no-ops when it isn't installed. Cross-compatible with
+  AcyMailing 6.x / 7.x / 8.x.
 
 ### What's new in v3.113
 
