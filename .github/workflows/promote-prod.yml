@@ -1,8 +1,29 @@
 name: Promote staging to production
 
+# ⛔ DISABLED at the GitHub Actions level since 2026-06-01.
+#
+# Routine production deploys for the wilderptsa.net plugin are done with
+# a direct Kudu zip deploy (`az webapp deploy` against the production
+# slot, no `--slot` arg) — see CONTRIBUTING.md > "Manual Kudu push" and
+# .cursor/rules/deployment.mdc. The slot-swap path this workflow
+# implements is reserved for FULL-STACK changes (WordPress core upgrade,
+# theme swap, multi-plugin coordinated update) where you genuinely need
+# the entire wp-content/ tree promoted atomically.
+#
+# Re-enable from the GitHub Actions UI (or `gh workflow enable promote-prod.yml`)
+# only when one of those full-stack scenarios is what you actually need.
+# Then dispatch via the UI with a `reason` input.
+#
+# The workflow_dispatch trigger is also gated on Azure federated identity
+# (AADSTS700213 on 2026-06-01 confirmed the OIDC trust on the App
+# Registration doesn't include `repo:jaburges/PTATools:ref:refs/heads/main`).
+# If you re-enable this, add the federated credential first or it'll
+# fail at the `azure/login` step.
+#
 # Manual-only. Pushes to main deploy to staging via deploy-staging.yml but do
-# NOT auto-promote here. Production is updated when you explicitly run this
-# workflow (slot swap) or deploy via Kudu/az CLI after validating on staging.
+# NOT auto-promote here. Production is updated via Kudu zip deploy after
+# validating on staging (default), or by re-enabling this workflow for the
+# full-stack edge cases noted above.
 
 on:
   workflow_dispatch:
