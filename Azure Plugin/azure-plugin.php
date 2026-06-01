@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.115
+ * Version: 3.116
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.115');
+define('AZURE_PLUGIN_VERSION', '3.116');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -713,13 +713,12 @@ class AzurePlugin {
             // when a page actually contains the shortcode.
             $this->register_upcoming_shortcode_lazy();
 
-            // Surface [up-next] as an AcyMailing Dynamic Content tag
-            // (`{upcoming-events}`) so newsletter editors can drop it
-            // into a newsletter with a single click. No-op when
-            // AcyMailing isn't installed. Independent of our own
-            // Newsletter module — AcyMailing is used as the mail
-            // transport on this site regardless of that toggle.
-            $this->register_acymailing_upcoming_tag();
+            // Register the AcyMailing dynamic-text add-on so the
+            // "PTA Tools" tile (with `[up-next]` presets) appears in
+            // AcyMailing's editor under Dynamic text type. The class
+            // self-detects AcyMailing — it's a no-op when AcyMailing
+            // isn't installed.
+            $this->register_acymailing_addon();
 
             if (!empty($settings['enable_newsletter'])) {
                 PTA_Trace::module('newsletter');
@@ -1299,20 +1298,20 @@ class AzurePlugin {
     }
 
     /**
-     * Register the AcyMailing dynamic-content tag `{upcoming-events}`
-     * so newsletter authors can insert the [up-next] block from the
-     * editor's tag picker. The class self-detects AcyMailing at the
-     * `init` hook and no-ops when it isn't present, so requiring the
-     * file here is free on non-AcyMailing installs.
+     * Register the AcyMailing PTA Tools dynamic-text add-on so the
+     * "PTA Tools" tile appears in AcyMailing's Dynamic text picker
+     * with `[up-next]` shortcode presets. The loader hooks
+     * `acym_load_installed_integrations` and is inert when AcyMailing
+     * isn't installed.
      */
-    private function register_acymailing_upcoming_tag() {
-        $path = AZURE_PLUGIN_PATH . 'includes/class-acymailing-upcoming-tag.php';
+    private function register_acymailing_addon() {
+        $path = AZURE_PLUGIN_PATH . 'includes/class-acymailing-addon-loader.php';
         if (!file_exists($path)) {
             return;
         }
         require_once $path;
-        if (class_exists('Azure_AcyMailing_Upcoming_Tag')) {
-            Azure_AcyMailing_Upcoming_Tag::register();
+        if (class_exists('Azure_AcyMailing_Addon_Loader')) {
+            Azure_AcyMailing_Addon_Loader::bootstrap();
         }
     }
 
@@ -1722,7 +1721,18 @@ class AzurePlugin {
         wp_clear_scheduled_hook('azure_sso_scheduled_sync');
         wp_clear_scheduled_hook('azure_volunteer_send_reminders');
         wp_clear_scheduled_hook('azure_parent_activation_cleanup');
-        
+
+        // Disable the AcyMailing dynamic-text add-on in AcyMailing's
+        // plugin registry so it stops appearing in the Dynamic text
+        // picker. Safe no-op when AcyMailing isn't installed.
+        $loader = AZURE_PLUGIN_PATH . 'includes/class-acymailing-addon-loader.php';
+        if (file_exists($loader)) {
+            require_once $loader;
+            if (class_exists('Azure_AcyMailing_Addon_Loader')) {
+                Azure_AcyMailing_Addon_Loader::on_deactivate();
+            }
+        }
+
         // Flush rewrite rules
         flush_rewrite_rules();
     }

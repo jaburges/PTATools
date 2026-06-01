@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.115-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.116-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,27 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.115** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.116** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.116
+
+- **AcyMailing add-on rebuilt as a proper Dynamic Text plugin.** The
+  v3.114 filter-based approach (`onAcymDeclareTags`,
+  `acym_replace_user_information`) was inert — AcyMailing populates
+  its picker by scanning installed integration classes, not WP
+  filters. Rebuilt as a real `AcymPlugin` subclass
+  (`plgAcymPtatools`, extends `\AcyMailing\Core\AcymPlugin`) living
+  at `acymailing-addon/plugin.php`, registered with AcyMailing via a
+  loader hooked on `acym_load_installed_integrations`. The Calendar
+  picker now shows a "PTA Tools" tile alongside Subscriber /
+  Subscription / Time / Website / WordPress user, whose "Content to
+  insert" panel offers six 1-click `[up-next]` presets (default, 2
+  columns, 3 columns, this week only, coming up 30 days, coming up
+  60 days). At preview AND send time, `replaceContent()` extracts
+  `{ptatools:upcoming-events|…}` tokens and substitutes the live
+  `do_shortcode('[up-next …]')` output. The deactivation hook
+  disables the integration in AcyMailing's plugin registry. See
+  [AcyMailing's dynamic-text WordPress docs](https://docs.acymailing.com/developers/making-a-custom-add-on/insert-a-dynamic-text-in-an-email-for-wordpress).
 
 ### What's new in v3.115
 
