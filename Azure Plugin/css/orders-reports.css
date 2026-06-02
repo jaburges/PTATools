@@ -246,6 +246,40 @@
     margin: 4px 0;
 }
 
+/* Select2 dropdown fix — WC's wc-enhanced-select renders the product
+   search dropdown via Select2, but the dropdown panel inherits a
+   transparent background from some admin themes (Kadence + custom admin
+   CSS), making the suggestions overlap with the page content underneath
+   and be unreadable. Force an opaque white panel with a shadow + higher
+   z-index than the sticky actions bar below it. */
+.select2-container--default .select2-dropdown,
+.select2-dropdown {
+    background: #ffffff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    z-index: 100050;
+}
+.select2-container--default .select2-results__options {
+    background: #ffffff;
+}
+.select2-container--default .select2-results__option {
+    background: #ffffff;
+    color: #1d2327;
+    padding: 6px 10px;
+}
+.select2-container--default .select2-results__option--highlighted[aria-selected],
+.select2-container--default .select2-results__option--highlighted {
+    background: #2271b1;
+    color: #ffffff;
+}
+.select2-container--default .select2-search--dropdown .select2-search__field {
+    background: #ffffff;
+    border: 1px solid #ccd0d4;
+}
+.select2-container--open {
+    z-index: 100050;
+}
+
 /* Actions bar — sticky to the viewport bottom so Preview/Save/Export are
    always reachable without scrolling past the columns picker. */
 .azure-or-actions {
