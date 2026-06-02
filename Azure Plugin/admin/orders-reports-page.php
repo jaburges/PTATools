@@ -226,16 +226,28 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                             name="product_ids[]"
                             multiple="multiple"
                             style="min-width:400px;"
-                            data-placeholder="<?php echo esc_attr__('Search for a product…', 'azure-plugin'); ?>"
-                            data-action="woocommerce_json_search_products"
+                            data-placeholder="<?php echo esc_attr__('Search for a product (includes drafts)\u2026', 'azure-plugin'); ?>"
+                            data-action="azure_or_search_products"
                             data-allow_clear="true"
                             data-multiple="true">
                         <?php foreach ((array) $cfg['filters']['product_ids'] as $pid):
                             $pid_int = (int) $pid;
-                            $title = get_the_title($pid_int) ?: ('#' . $pid_int); ?>
+                            // Render the saved pill even when the
+                            // product is now Draft/Pending so the
+                            // filter survives status changes on
+                            // historical reports.
+                            $title  = get_the_title($pid_int) ?: ('#' . $pid_int);
+                            $status = get_post_status($pid_int);
+                            if ($status && $status !== 'publish') {
+                                $title .= ' — ' . ucfirst($status);
+                            }
+                        ?>
                             <option value="<?php echo $pid_int; ?>" selected="selected"><?php echo esc_html($title); ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <p class="description" style="margin-top:6px;">
+                        <?php _e('Search matches published, draft, pending, and private products by title, content, SKU, or post ID. Non-published products are tagged in the dropdown.', 'azure-plugin'); ?>
+                    </p>
                 </div>
 
                 <div class="azure-or-row azure-or-row-split">

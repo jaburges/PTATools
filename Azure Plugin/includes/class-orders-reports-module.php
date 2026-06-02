@@ -229,31 +229,117 @@ class Azure_Orders_Reports_Module {
     }
 
     /**
-     * Autocomplete endpoint for the Products filter.
+     * Autocomplete endpoint for the Reports → Products filter.
+     *
+     * Drop-in replacement for WC's stock
+     * `woocommerce_json_search_products` AJAX, with three key
+     * differences appropriate to an admin reporting screen:
+     *
+     *   1. **Includes non-publish products.** WC's stock endpoint
+     *      hard-locks to post_status=publish, so a yearbook in
+     *      Draft (typical when last year's product is unpublished
+     *      pending the new year's variant) can't be selected as a
+     *      filter even though orders referencing it still exist
+     *      in the database. We include publish + draft + pending
+     *      + private (everything except trash + auto-draft).
+     *   2. **Searches title, excerpt, content, SKU, and post ID.**
+     *      Same surfaces WC searches, plus exact post-ID match.
+     *   3. **Tags non-publish results in the dropdown label** so
+     *      admins can tell at a glance which products are live vs
+     *      draft when picking filters.
+     *
+     * Reuses WC's `search-products` nonce so it works with the
+     * stock `wc-enhanced-select` Select2 wrapper — meaning the
+     * form just needs `data-action="azure_or_search_products"`
+     * and everything else (Select2 init, multi-select, AJAX
+     * polling, nonce) is provided by the WC admin asset bundle
+     * that's already enqueued on this screen.
+     *
+     * Response shape matches WC's: a plain keyed JSON object of
+     * `{ "<post_id>": "Display label" }` consumed by WC's
+     * Select2 `processResults` adaptor.
      */
     public function ajax_search_products() {
         $this->require_cap_ajax();
-        check_ajax_referer('azure_or_search_products', 'nonce');
-        $q = isset($_GET['q']) ? sanitize_text_field((string) $_GET['q']) : '';
-        if (strlen($q) < 2) {
-            wp_send_json_success(array('items' => array()));
+
+        // WC's wc-enhanced-select bundle posts the nonce as
+        // `security` and creates it with action 'search-products'.
+        // Validate against that so the existing Select2 wiring on
+        // the Reports page works without bespoke JS.
+        check_ajax_referer('search-products', 'security');
+
+        // WC's Select2 uses POST with key `term`. Tolerate `q` for
+        // back-compat with any caller that might still hit the old
+        // shape.
+        $term = '';
+        if (isset($_POST['term']))      $term = (string) $_POST['term'];
+        elseif (isset($_GET['term']))   $term = (string) $_GET['term'];
+        elseif (isset($_GET['q']))      $term = (string) $_GET['q'];
+        $term = sanitize_text_field(wp_unslash($term));
+
+        if (strlen($term) < 1) {
+            wp_send_json(new stdClass()); // empty keyed object
         }
-        $ids = get_posts(array(
-            'post_type'      => 'product',
-            'post_status'    => 'publish',
-            's'              => $q,
-            'posts_per_page' => 20,
-            'fields'         => 'ids',
-            'no_found_rows'  => true,
-        ));
-        $items = array();
-        foreach ($ids as $pid) {
-            $items[] = array(
-                'id'   => (int) $pid,
-                'text' => get_the_title($pid) . ' (#' . $pid . ')',
-            );
+
+        global $wpdb;
+        $like        = '%' . $wpdb->esc_like($term) . '%';
+        $statuses    = array('publish', 'draft', 'pending', 'private');
+        $status_in   = "'" . implode("','", array_map('esc_sql', $statuses)) . "'";
+        $term_as_int = ctype_digit($term) ? (int) $term : 0;
+
+        // Single query covering title / excerpt / content / SKU /
+        // exact post_id. LEFT JOIN on _sku meta so products
+        // without an SKU still match the other clauses.
+        $sql = $wpdb->prepare(
+            "SELECT DISTINCT p.ID, p.post_status
+             FROM {$wpdb->posts} p
+             LEFT JOIN {$wpdb->postmeta} sku ON sku.post_id = p.ID AND sku.meta_key = '_sku'
+             WHERE p.post_type = 'product'
+               AND p.post_status IN ({$status_in})
+               AND (
+                   p.post_title    LIKE %s
+                   OR p.post_excerpt LIKE %s
+                   OR p.post_content LIKE %s
+                   OR sku.meta_value LIKE %s
+                   OR p.ID = %d
+               )
+             ORDER BY (p.post_status = 'publish') DESC, p.post_title ASC
+             LIMIT 30",
+            $like, $like, $like, $like, $term_as_int
+        );
+        $rows = $wpdb->get_results($sql);
+
+        $out = array();
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                $pid    = (int) $row->ID;
+                $status = (string) $row->post_status;
+                $title  = get_the_title($pid);
+                if ($title === '') $title = '(no title)';
+
+                $label = $title . ' (#' . $pid . ')';
+                if ($status !== 'publish') {
+                    // Surface status as a parenthetical so the
+                    // dropdown doesn't silently mix Draft/Pending
+                    // entries with live products.
+                    $status_label = ucfirst($status);
+                    $label = $title . ' — ' . $status_label . ' (#' . $pid . ')';
+                }
+
+                // Append SKU if present and not already shown.
+                $sku = get_post_meta($pid, '_sku', true);
+                if (is_string($sku) && $sku !== '' && stripos($label, $sku) === false) {
+                    $label .= ' [' . $sku . ']';
+                }
+
+                $out[$pid] = wp_strip_all_tags($label);
+            }
         }
-        wp_send_json_success(array('items' => $items));
+
+        // Match WC's response shape exactly (plain keyed object,
+        // not the success/data envelope) so wc-enhanced-select's
+        // Select2 processResults adapter consumes it directly.
+        wp_send_json($out);
     }
 
     // ── admin-post (form) handlers ─────────────────────────────────────

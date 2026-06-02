@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.125-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.126-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,25 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.125** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.126** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.126
+
+- **Selling → Reports product picker now finds Draft / Pending /
+  Private products too.** WooCommerce's stock product search AJAX
+  (`woocommerce_json_search_products`) is hard-locked to
+  `post_status = 'publish'`, which hid products like a Yearbook
+  that's been unpublished pending a new year's variant — even
+  though historical orders still reference it. The picker now
+  uses our own `azure_or_search_products` AJAX which searches
+  publish + draft + pending + private by title, excerpt, content,
+  SKU, and exact post-ID, ordered with published results first.
+  Non-published results are tagged in the dropdown (e.g.
+  `Yearbook — Draft (#25851)`) so admins can tell at a glance
+  which products are live versus archived. Already-saved filter
+  pills also show the status tag when the product is no longer
+  published. Reuses WC's `search-products` nonce so no extra
+  asset wiring was needed.
 
 ### What's new in v3.125
 
