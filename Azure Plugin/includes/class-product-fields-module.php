@@ -73,7 +73,20 @@ class Azure_Product_Fields_Module {
         // Save to user/child profile on order completion
         add_action('woocommerce_order_status_completed', array($this, 'save_to_user_profile'));
         add_action('woocommerce_payment_complete', array($this, 'save_to_user_profile'));
+
+        // Quick-add child from the product-page "+ Child" button.
+        add_action('wp_ajax_azure_pf_quick_add_child', array($this, 'ajax_quick_add_child'));
     }
+
+    /**
+     * True when the child-picker dropdown was rendered above the field
+     * list on the current product page. Set by render_product_fields()
+     * just before render_single_field() runs so the latter can suppress
+     * a duplicate text input for the canonical `child_name` field.
+     *
+     * @var bool
+     */
+    private $child_selector_rendered = false;
 
     // ─── Helpers ───────────────────────────────────────────────────────
 
@@ -212,23 +225,38 @@ class Azure_Product_Fields_Module {
 
         echo '<div class="azure-product-fields">';
 
-        if (!empty($children)) {
+        // Child picker — always rendered for logged-in parents so the
+        // "Child's Name" input is *always* a dropdown choice (not free
+        // text). Guests still fall through to the regular text-field
+        // renderer at the bottom because they have no family/children
+        // to bind a dropdown to.
+        if ($user_id) {
+            $this->child_selector_rendered = true;
             echo '<div class="azure-pf-child-selector">';
-            echo '<label for="azure-pf-select-child">' . esc_html__('Select Child', 'azure-plugin') . '</label>';
-            echo '<select id="azure-pf-select-child" name="azure_pf_child_id">';
-            echo '<option value="">' . esc_html__('-- Fill in manually --', 'azure-plugin') . '</option>';
+            echo '<label for="azure-pf-select-child">' . esc_html__("Child's Name", 'azure-plugin') . ' <span class="required">*</span></label>';
+            echo '<div class="azure-pf-select-row">';
+            echo '<select id="azure-pf-select-child" name="azure_pf_child_id" required>';
+            echo '<option value="">' . esc_html__('-- Select child --', 'azure-plugin') . '</option>';
             foreach ($children as $child) {
                 echo '<option value="' . esc_attr($child->id) . '">' . esc_html($child->child_name) . '</option>';
             }
             echo '</select>';
+            echo '<button type="button" class="button azure-pf-add-child-btn" id="azure-pf-add-child" aria-label="' . esc_attr__('Add a new child', 'azure-plugin') . '">+ ' . esc_html__('Child', 'azure-plugin') . '</button>';
+            echo '</div>';
             echo '</div>';
         }
 
-        // Single inline payload: keyed-by-field_key map for all scopes.
+        // Single inline payload: keyed-by-field_key map for all scopes,
+        // plus the AJAX endpoint + nonce for the quick-add child modal.
         echo '<script>window.azurePtaProductFields = ' . wp_json_encode(array(
             'children' => $child_data,
             'parent'   => $parent_defaults,
             'family'   => $family_defaults,
+            'ajax'     => array(
+                'url'             => admin_url('admin-ajax.php'),
+                'nonce_quick_add' => wp_create_nonce('azure_pf_quick_add_child'),
+            ),
+            'is_user_logged_in' => $user_id > 0,
         )) . ';</script>';
 
         foreach ($groups as $group) {
@@ -244,10 +272,44 @@ class Azure_Product_Fields_Module {
             }
             echo '</div>';
         }
+
+        // Quick-add child modal. Hidden by default, opened by the
+        // "+ Child" button in the selector row. Only emitted for
+        // logged-in users (guests have no profile to attach to).
+        if ($user_id) {
+            ?>
+            <div id="azure-pf-add-child-modal" class="azure-pf-modal" style="display:none;" aria-hidden="true">
+                <div class="azure-pf-modal-backdrop"></div>
+                <div class="azure-pf-modal-dialog" role="dialog" aria-labelledby="azure-pf-add-child-title">
+                    <h3 id="azure-pf-add-child-title"><?php esc_html_e('Add a child', 'azure-plugin'); ?></h3>
+                    <p>
+                        <label for="azure-pf-new-child-name"><?php esc_html_e("Child's name", 'azure-plugin'); ?></label>
+                        <input type="text" id="azure-pf-new-child-name" placeholder="<?php esc_attr_e('e.g. Greyson Burgess', 'azure-plugin'); ?>" autocomplete="off" />
+                    </p>
+                    <p class="azure-pf-modal-actions">
+                        <button type="button" class="button azure-pf-cancel-child"><?php esc_html_e('Cancel', 'azure-plugin'); ?></button>
+                        <button type="button" class="button button-primary" id="azure-pf-save-child"><?php esc_html_e('Add child', 'azure-plugin'); ?></button>
+                    </p>
+                    <p id="azure-pf-add-child-error" class="azure-pf-modal-error" style="display:none;"></p>
+                </div>
+            </div>
+            <?php
+        }
+
         echo '</div>';
     }
 
     private function render_single_field($field, $parent_defaults, $family_defaults = array()) {
+        // The canonical child_name field is rendered as a dropdown selector
+        // at the top of the form (see render_product_fields). Skip the
+        // text-input render here so we don't get a duplicate input — but
+        // only when the selector was actually emitted (logged-in users).
+        $is_child_name = (!empty($field->field_key) && strtolower((string) $field->field_key) === 'child_name')
+                      || (!empty($field->label)     && strtolower((string) $field->label)     === "child's name");
+        if ($is_child_name && $this->child_selector_rendered) {
+            return;
+        }
+
         $scope = !empty($field->scope) ? $field->scope : 'child';
         $value = '';
 
@@ -575,5 +637,50 @@ class Azure_Product_Fields_Module {
                 }
             }
         }
+    }
+
+    // ─── Quick-add child (AJAX, called from the "+ Child" modal) ───────
+
+    /**
+     * Create a new child for the current user via the product-page modal.
+     * The new child is auto-attached to the parent's connected_family,
+     * creating one if missing (Azure_User_Children::save_child handles
+     * the family resolution). Returns id + name for the dropdown to
+     * append + auto-select.
+     */
+    public function ajax_quick_add_child() {
+        check_ajax_referer('azure_pf_quick_add_child', 'nonce');
+
+        $user_id = get_current_user_id();
+        if (!$user_id) {
+            wp_send_json_error(array('message' => __('You must be logged in to add a child.', 'azure-plugin')), 401);
+        }
+
+        $name = isset($_POST['child_name']) ? sanitize_text_field(wp_unslash($_POST['child_name'])) : '';
+        $name = trim($name);
+        if ($name === '') {
+            wp_send_json_error(array('message' => __('Child name is required.', 'azure-plugin')), 400);
+        }
+        if (function_exists('mb_strlen') ? mb_strlen($name) > 80 : strlen($name) > 80) {
+            wp_send_json_error(array('message' => __('Child name is too long (max 80 characters).', 'azure-plugin')), 400);
+        }
+
+        if (!class_exists('Azure_User_Children')) {
+            $p = AZURE_PLUGIN_PATH . 'includes/class-user-children.php';
+            if (file_exists($p)) require_once $p;
+        }
+        if (!class_exists('Azure_User_Children')) {
+            wp_send_json_error(array('message' => __('Children module not available.', 'azure-plugin')), 500);
+        }
+
+        $id = Azure_User_Children::save_child($user_id, array('child_name' => $name));
+        if (!$id) {
+            wp_send_json_error(array('message' => __('Could not save child. Please try again.', 'azure-plugin')), 500);
+        }
+
+        wp_send_json_success(array(
+            'id'   => (int) $id,
+            'name' => $name,
+        ));
     }
 }

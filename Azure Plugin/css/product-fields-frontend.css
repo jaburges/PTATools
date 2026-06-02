@@ -70,11 +70,86 @@
     color: #333;
 }
 
+.azure-pf-select-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
 .azure-pf-child-selector select {
+    flex: 1 1 auto;
     width: 100%;
     padding: 8px 10px;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 14px;
     box-sizing: border-box;
+}
+
+.azure-pf-add-child-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 8px 14px;
+    cursor: pointer;
+}
+
+/* ── Quick-add child modal ────────────────────────────────── */
+
+.azure-pf-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+}
+
+.azure-pf-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.azure-pf-modal-dialog {
+    position: relative;
+    max-width: 420px;
+    margin: 10vh auto 0;
+    background: #fff;
+    padding: 24px 24px 18px;
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.azure-pf-modal-dialog h3 {
+    margin: 0 0 14px;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.azure-pf-modal-dialog label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    font-size: 14px;
+}
+
+.azure-pf-modal-dialog input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.azure-pf-modal-actions {
+    text-align: right;
+    margin: 16px 0 0;
+}
+
+.azure-pf-modal-actions .button + .button {
+    margin-left: 8px;
+}
+
+.azure-pf-modal-error {
+    color: #b32d2e;
+    margin: 8px 0 0;
+    font-size: 13px;
 }

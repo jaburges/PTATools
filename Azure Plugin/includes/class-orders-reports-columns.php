@@ -224,9 +224,19 @@ class Azure_Orders_Reports_Columns {
 
     /**
      * Synthesise one column per row in {prefix}azure_product_fields so
-     * users can pick "Child's name", "Grade", etc. as columns. These
-     * resolve against the per-line-item postmeta `_azure_product_fields_raw`
-     * written by Azure_Product_Fields_Module::save_order_item_meta().
+     * users can pick "Child's name", "Grade", etc. as columns.
+     *
+     * Resolver priority chain (stop at first non-empty value):
+     *   1. `_pta_<field_key>`              — canonical machine-stable meta
+     *   2. `_azure_product_fields_raw`     — modern field-renderer payload
+     *   3. (child_name only) `_azure_pf_child_id` → look up
+     *      `azure_user_children.child_name`
+     *   4. (child_name only) legacy text meta keys written by older
+     *      products before the field registry existed: `Childs Name`,
+     *      `Child Name`, `Child's Name`, `Child&#039;s Name`,
+     *      `Student Name`. Values are HTML-entity-decoded.
+     *   5. Direct meta lookup by display label (catches every other
+     *      label-based legacy save).
      *
      * @return array<int,array<string,mixed>>
      */
@@ -240,12 +250,13 @@ class Azure_Orders_Reports_Columns {
         if (!$table) {
             return $cols;
         }
-        $rows = $wpdb->get_results("SELECT id, label FROM {$table} WHERE 1=1 ORDER BY sort_order ASC, id ASC");
+        $rows = $wpdb->get_results("SELECT id, label, field_key FROM {$table} WHERE 1=1 ORDER BY sort_order ASC, id ASC");
         if (empty($rows)) {
             return $cols;
         }
         foreach ($rows as $row) {
-            $label = (string) $row->label;
+            $label     = (string) $row->label;
+            $field_key = (string) ($row->field_key ?? '');
             if ($label === '') continue;
             $key = 'product_field:' . $label;
             $cols[] = array(
@@ -253,18 +264,60 @@ class Azure_Orders_Reports_Columns {
                 'label'       => $label,
                 'category'    => 'product_fields',
                 'granularity' => array('line_item'),
-                'resolver'    => function ($o, $i, $c) use ($label) {
+                'resolver'    => function ($o, $i, $c) use ($label, $field_key) {
                     if (!$i) return '';
-                    $raw = $i->get_meta('_azure_product_fields_raw', true);
-                    if (empty($raw) || !is_array($raw)) {
-                        // Fallback: per-field meta written as label => value
-                        $v = $i->get_meta($label, true);
-                        return $v !== '' ? (string) $v : '';
-                    }
-                    foreach ($raw as $f) {
-                        if (isset($f['label']) && $f['label'] === $label) {
-                            return isset($f['value']) ? (string) $f['value'] : '';
+
+                    // 1. Canonical machine-stable meta key.
+                    if ($field_key !== '') {
+                        $v = $i->get_meta('_pta_' . $field_key, true);
+                        if ($v !== '' && $v !== null) {
+                            return (string) $v;
                         }
+                    }
+
+                    // 2. Modern field-renderer payload.
+                    $raw = $i->get_meta('_azure_product_fields_raw', true);
+                    if (is_array($raw) && !empty($raw)) {
+                        foreach ($raw as $f) {
+                            $f_label = isset($f['label']) ? (string) $f['label'] : '';
+                            $f_key   = isset($f['field_key']) ? (string) $f['field_key'] : '';
+                            $matches = ($f_label === $label) || ($field_key !== '' && $f_key === $field_key);
+                            if ($matches && isset($f['value']) && $f['value'] !== '') {
+                                return (string) $f['value'];
+                            }
+                        }
+                    }
+
+                    // 3 + 4. Child name special handling — link to canonical
+                    // children row or fall back to legacy label variants.
+                    if ($field_key === 'child_name' || strtolower($label) === "child's name") {
+                        $cid = (int) $i->get_meta('_azure_pf_child_id', true);
+                        if ($cid > 0 && class_exists('Azure_Database')) {
+                            global $wpdb;
+                            $children_table = Azure_Database::get_table_name('user_children');
+                            if ($children_table) {
+                                $name = $wpdb->get_var($wpdb->prepare(
+                                    "SELECT child_name FROM {$children_table} WHERE id = %d",
+                                    $cid
+                                ));
+                                if ($name !== null && $name !== '') {
+                                    return (string) $name;
+                                }
+                            }
+                        }
+                        foreach (array('Childs Name', 'Child Name', "Child's Name", 'Child&#039;s Name', 'Student Name') as $legacy_key) {
+                            $v = $i->get_meta($legacy_key, true);
+                            if ($v !== '' && $v !== null) {
+                                $decoded = trim(html_entity_decode((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                                if ($decoded !== '') return $decoded;
+                            }
+                        }
+                    }
+
+                    // 5. Direct meta lookup by display label.
+                    $v = $i->get_meta($label, true);
+                    if ($v !== '' && $v !== null) {
+                        return (string) $v;
                     }
                     return '';
                 },

@@ -123,4 +123,87 @@ jQuery(function ($) {
             }
         });
     }
+
+    // ─── Quick-add child modal ────────────────────────────────────────
+    //
+    // Opens when the "+ Child" button next to the dropdown is clicked.
+    // POSTs to wp_ajax_azure_pf_quick_add_child (handled in
+    // class-product-fields-module.php), then on success appends a new
+    // <option> to the dropdown, auto-selects it, and triggers the
+    // existing field-swap path so the form populates immediately.
+
+    var $addBtn  = $('#azure-pf-add-child');
+    var $modal   = $('#azure-pf-add-child-modal');
+    var $newName = $('#azure-pf-new-child-name');
+    var $error   = $('#azure-pf-add-child-error');
+    var ajaxCfg  = (data && data.ajax) ? data.ajax : null;
+
+    function showModal() {
+        $error.hide().text('');
+        $newName.val('');
+        $modal.fadeIn(120).attr('aria-hidden', 'false');
+        setTimeout(function () { $newName.trigger('focus'); }, 50);
+    }
+    function hideModal() {
+        $modal.fadeOut(100).attr('aria-hidden', 'true');
+    }
+    function showError(msg) {
+        $error.text(msg).show();
+    }
+
+    if ($addBtn.length && $modal.length && ajaxCfg) {
+        $addBtn.on('click', function (e) {
+            e.preventDefault();
+            showModal();
+        });
+        $modal.on('click', '.azure-pf-modal-backdrop, .azure-pf-cancel-child', function () {
+            hideModal();
+        });
+        $(document).on('keydown.azurePfModal', function (e) {
+            if ($modal.is(':visible') && e.key === 'Escape') hideModal();
+        });
+        $newName.on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                $('#azure-pf-save-child').trigger('click');
+            }
+        });
+
+        $('#azure-pf-save-child').on('click', function () {
+            var name = ($newName.val() || '').trim();
+            if (!name) {
+                showError('Please enter a child name.');
+                $newName.trigger('focus');
+                return;
+            }
+            var $btn = $(this).prop('disabled', true).text('Saving…');
+            $error.hide();
+            $.post(ajaxCfg.url, {
+                action: 'azure_pf_quick_add_child',
+                nonce: ajaxCfg.nonce_quick_add,
+                child_name: name
+            }, function (resp) {
+                $btn.prop('disabled', false).text('Add child');
+                if (resp && resp.success && resp.data && resp.data.id) {
+                    var id = parseInt(resp.data.id, 10);
+                    var label = resp.data.name || name;
+                    // Append + auto-select. Then trigger change so the
+                    // existing populateChildFields path runs even though
+                    // there's no profile data yet (it'll just no-op the
+                    // child-scope fields).
+                    if (!$selector.find('option[value="' + id + '"]').length) {
+                        $selector.append($('<option/>').val(id).text(label));
+                    }
+                    children[id] = { name: label, fields: {} };
+                    $selector.val(id).trigger('change');
+                    hideModal();
+                } else {
+                    showError((resp && resp.data && resp.data.message) ? resp.data.message : 'Could not add child.');
+                }
+            }).fail(function () {
+                $btn.prop('disabled', false).text('Add child');
+                showError('Network error. Please try again.');
+            });
+        });
+    }
 });
