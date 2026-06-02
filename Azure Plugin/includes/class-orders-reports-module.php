@@ -192,8 +192,8 @@ class Azure_Orders_Reports_Module {
         // Form field is `report_name` (matches the builder UI + the export
         // handler). Falls back to `name` for any caller that still sends the
         // older key.
-        $name = isset($_POST['report_name']) ? (string) $_POST['report_name']
-              : (isset($_POST['name']) ? (string) $_POST['name'] : '');
+        $name = isset($_POST['report_name']) ? (string) wp_unslash($_POST['report_name'])
+              : (isset($_POST['name']) ? (string) wp_unslash($_POST['name']) : '');
         $report_id = isset($_POST['report_id']) ? absint($_POST['report_id']) : 0;
         $config    = $this->config_from_post();
         $result    = Azure_Orders_Reports_Storage::save($name, $config, $report_id);
@@ -376,18 +376,26 @@ class Azure_Orders_Reports_Module {
     /**
      * Pull the report config out of $_POST. Tolerant to either flat
      * (date_from, date_to, statuses[], …) or nested encoding.
+     *
+     * IMPORTANT: WordPress applies magic-quotes to all $_POST data on
+     * every request, so apostrophes (and any other special character)
+     * arrive escaped with a leading backslash. We must `wp_unslash()`
+     * BEFORE comparing against the column registry — otherwise keys
+     * like `product_field:Child's Name` arrive here as
+     * `product_field:Child\'s Name` and fail every lookup, dropping
+     * the column from the export silently.
      */
     private function config_from_post() {
-        $statuses     = isset($_POST['statuses'])     ? (array) $_POST['statuses']     : array();
-        $product_ids  = isset($_POST['product_ids'])  ? (array) $_POST['product_ids']  : array();
-        $category_ids = isset($_POST['category_ids']) ? (array) $_POST['category_ids'] : array();
-        $tag_ids      = isset($_POST['tag_ids'])      ? (array) $_POST['tag_ids']      : array();
-        $columns      = isset($_POST['columns'])      ? (array) $_POST['columns']      : array();
-        $granularity  = isset($_POST['granularity'])  ? (string) $_POST['granularity'] : 'line_item';
+        $statuses     = isset($_POST['statuses'])     ? wp_unslash((array) $_POST['statuses'])     : array();
+        $product_ids  = isset($_POST['product_ids'])  ? wp_unslash((array) $_POST['product_ids'])  : array();
+        $category_ids = isset($_POST['category_ids']) ? wp_unslash((array) $_POST['category_ids']) : array();
+        $tag_ids      = isset($_POST['tag_ids'])      ? wp_unslash((array) $_POST['tag_ids'])      : array();
+        $columns      = isset($_POST['columns'])      ? wp_unslash((array) $_POST['columns'])      : array();
+        $granularity  = isset($_POST['granularity'])  ? (string) wp_unslash($_POST['granularity']) : 'line_item';
 
-        $preset = isset($_POST['date_preset']) ? (string) $_POST['date_preset'] : '';
-        $from   = isset($_POST['date_from'])   ? (string) $_POST['date_from']   : '';
-        $to     = isset($_POST['date_to'])     ? (string) $_POST['date_to']     : '';
+        $preset = isset($_POST['date_preset']) ? (string) wp_unslash($_POST['date_preset']) : '';
+        $from   = isset($_POST['date_from'])   ? (string) wp_unslash($_POST['date_from'])   : '';
+        $to     = isset($_POST['date_to'])     ? (string) wp_unslash($_POST['date_to'])     : '';
 
         return array(
             'date_range' => array(
