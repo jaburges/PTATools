@@ -236,13 +236,18 @@ class Azure_Calendar_GraphAPI {
         }
         
         try {
-            // Build the API URL with query parameters
+            // Build the API URL with query parameters. v3.125 added
+            // isOnlineMeeting/onlineMeeting so the sync engine can
+            // write joinUrl into the dedicated meta key — fixes the
+            // case where a Teams-scheduled event's body doesn't
+            // contain a scrape-able Join link and the per-event
+            // Join button silently disappears.
             $query_params = array(
                 'startDateTime' => $start_date,
-                'endDateTime' => $end_date,
-                '$top' => $max_events,
-                '$orderby' => 'start/dateTime',
-                '$select' => 'id,subject,start,end,location,attendees,body,isAllDay,showAs,sensitivity,categories'
+                'endDateTime'   => $end_date,
+                '$top'          => $max_events,
+                '$orderby'      => 'start/dateTime',
+                '$select'       => 'id,subject,start,end,location,attendees,body,isAllDay,showAs,sensitivity,categories,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,webLink',
             );
             
             // Use /users/{mailbox}/calendars/ for shared mailbox, otherwise /me/calendars/
@@ -495,23 +500,37 @@ class Azure_Calendar_GraphAPI {
      */
     private function process_events($events) {
         $processed = array();
-        
+
         foreach ($events as $event) {
+            // Extract online-meeting fields. Graph returns these only
+            // when isOnlineMeeting is true; we still expose the keys
+            // so downstream callers can `?? ''` cleanly. Provider can
+            // be: 'teamsForBusiness' | 'skypeForBusiness' |
+            // 'skypeForConsumer' | 'unknown'.
+            $is_online       = !empty($event['isOnlineMeeting']);
+            $online_obj      = isset($event['onlineMeeting']) && is_array($event['onlineMeeting']) ? $event['onlineMeeting'] : array();
+            $join_url        = $online_obj['joinUrl'] ?? ($event['onlineMeetingUrl'] ?? '');
+            $online_provider = $event['onlineMeetingProvider'] ?? '';
+
             $processed[] = array(
-                'id' => $event['id'] ?? '',
-                'title' => $event['subject'] ?? '',
-                'start' => $this->format_datetime($event['start'] ?? array()),
-                'end' => $this->format_datetime($event['end'] ?? array()),
-                'allDay' => $event['isAllDay'] ?? false,
-                'location' => $this->format_location($event['location'] ?? array()),
-                'description' => $this->format_body($event['body'] ?? array()),
-                'attendees' => $this->format_attendees($event['attendees'] ?? array()),
-                'categories' => $event['categories'] ?? array(),
-                'showAs' => $event['showAs'] ?? 'busy',
-                'sensitivity' => $event['sensitivity'] ?? 'normal'
+                'id'              => $event['id'] ?? '',
+                'title'           => $event['subject'] ?? '',
+                'start'           => $this->format_datetime($event['start'] ?? array()),
+                'end'             => $this->format_datetime($event['end'] ?? array()),
+                'allDay'          => $event['isAllDay'] ?? false,
+                'location'        => $this->format_location($event['location'] ?? array()),
+                'description'     => $this->format_body($event['body'] ?? array()),
+                'attendees'       => $this->format_attendees($event['attendees'] ?? array()),
+                'categories'      => $event['categories'] ?? array(),
+                'showAs'          => $event['showAs'] ?? 'busy',
+                'sensitivity'     => $event['sensitivity'] ?? 'normal',
+                'isOnlineMeeting' => $is_online,
+                'joinUrl'         => is_string($join_url) ? $join_url : '',
+                'onlineProvider'  => is_string($online_provider) ? $online_provider : '',
+                'webLink'         => $event['webLink'] ?? '',
             );
         }
-        
+
         return $processed;
     }
     

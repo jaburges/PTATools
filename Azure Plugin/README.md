@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.124-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.125-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,34 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.124** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.125** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.125
+
+- **Calendar sync now writes `onlineMeeting.joinUrl` into a
+  dedicated meta key.** Graph fetch was extended to select
+  `isOnlineMeeting`, `onlineMeeting`, `onlineMeetingUrl`,
+  `onlineMeetingProvider`, and `webLink`. During upsert the join
+  URL is stored in `_pta_online_meeting_url` (with a `_source =
+  'outlook'` marker so future syncs don't trample an editor's
+  manual override). The per-event Join button now works reliably
+  for Teams-scheduled events whose body doesn't include a
+  scrape-able link.
+- **`[up-next]` theme presets.** New Themes panel on **Calendar
+  → Upcoming Events** lets admins define named visual presets
+  (layout, columns, image position, colors, borders, spacing).
+  Shortcode accepts `[up-next theme="custom1"]` — the matching
+  theme's class is applied to the wrapper and a single generated
+  stylesheet (transient-cached, regenerated on save) scopes
+  every visual knob under `.up-next-theme-<slug>`. Ships with
+  three built-in themes (`default`, `card-light`, `card-dark`)
+  that aren't editable so the baseline can't be broken.
+- **Featured-image markup on `[up-next]` cards.** Rendered list
+  now emits a `.upcoming-thumb` element for events with a
+  featured image, hidden by default but shown by any theme with
+  `show_image=true`. No auto-attach from Outlook (parked as a
+  to-do); editors set the image manually via the standard WP
+  Featured Image panel.
 
 ### What's new in v3.124
 

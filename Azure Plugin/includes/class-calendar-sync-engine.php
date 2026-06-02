@@ -534,6 +534,40 @@ class Azure_Calendar_Sync_Engine {
         update_post_meta($post_id, '_outlook_sync_status', 'synced');
         update_post_meta($post_id, '_sync_direction',      'from_outlook');
 
+        // Online-meeting joinUrl. v3.125: Graph fetch now selects
+        // isOnlineMeeting + onlineMeeting + onlineMeetingUrl +
+        // onlineMeetingProvider + webLink. Write the canonical
+        // joinUrl into the dedicated meta key that
+        // Azure_Event_CPT::extract_online_meeting_url() checks
+        // first, so the Join button works for Teams-scheduled
+        // events whose body doesn't contain a scrape-able URL.
+        // Anything previously body-scraped still works because the
+        // helper falls back to scanning the post body.
+        $join_url = isset($event['joinUrl']) ? (string) $event['joinUrl'] : '';
+        if ($join_url !== '') {
+            update_post_meta($post_id, '_pta_online_meeting_url', esc_url_raw($join_url));
+        } else {
+            // Clear any stale value when the Outlook event no longer
+            // has an online meeting (admin removed it). Editors who
+            // set this meta manually can re-add it; we only clobber
+            // values that came from sync.
+            $previous = get_post_meta($post_id, '_pta_online_meeting_url', true);
+            $previous_from_sync = (string) get_post_meta($post_id, '_pta_online_meeting_url_source', true);
+            if ($previous && $previous_from_sync === 'outlook') {
+                delete_post_meta($post_id, '_pta_online_meeting_url');
+                delete_post_meta($post_id, '_pta_online_meeting_url_source');
+            }
+        }
+        if ($join_url !== '') {
+            // Bookkeeping: mark this meta value as Outlook-sourced so
+            // future syncs know it's safe to overwrite/clear it
+            // without trampling an editor's manual entry.
+            update_post_meta($post_id, '_pta_online_meeting_url_source', 'outlook');
+            if (!empty($event['onlineProvider'])) {
+                update_post_meta($post_id, '_pta_online_meeting_provider', sanitize_text_field($event['onlineProvider']));
+            }
+        }
+
         // Category: write into pta_event_category (replace, don't append)
         if ($category_name !== '') {
             update_post_meta($post_id, '_pta_event_category_name', $category_name);

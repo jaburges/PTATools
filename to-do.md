@@ -1,5 +1,23 @@
 # PTA Tools Plugin — To-Do
 
+## Calendar / pta_event enhancements
+
+### Auto-attach images to Outlook-synced pta_event posts
+**Priority:** Low  
+**Status:** Parked (no current use case)
+
+Today, Outlook events don't include images, so synced `pta_event` posts have no featured image unless an editor uploads one manually. The single-event template + archive list already render image UI when present (`has_post_thumbnail` gated), so adding manual images already "just works".
+
+If a future workflow needs Outlook-supplied images, build this:
+
+- During `Azure_Calendar_Sync_Engine::upsert_event()`:
+  - When the processed Graph event has `attachments` containing image MIME types (or the body HTML contains an `<img src="cid:...">`), sideload the first image to the WP media library via `media_sideload_image()`.
+  - Set as featured image via `set_post_thumbnail($post_id, $attachment_id)`.
+- During subsequent syncs, only replace the featured image if the Outlook attachment changed (compare hash or last-modified).
+- Defensive: never overwrite an admin-uploaded featured image — gate on absence of a `_pta_image_from_outlook` flag.
+
+Use case to wait for: Outlook events that systematically include event flyers as the first inline image (e.g. a calendar admin who's already in the habit of pasting the flyer into the event body).
+
 ## Platform / Deployment (Danger Zone + Releases + Marketplace)
 
 ### Danger Zone — Main Settings (Platform section)

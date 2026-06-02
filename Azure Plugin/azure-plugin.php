@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.124
+ * Version: 3.125
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.124');
+define('AZURE_PLUGIN_VERSION', '3.125');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -337,6 +337,13 @@ class AzurePlugin {
             // plugins_loaded priority 1 so the hook is registered
             // before any wp_mail call that could fire on init.
             add_action('plugins_loaded', array($this, 'register_email_router'), 1);
+
+            // [up-next] theme presets (v3.125). Bootstraps storage,
+            // generated-CSS enqueue, and AJAX handlers for the
+            // Calendar > Upcoming Events admin Themes panel. Loaded
+            // on plugins_loaded so the shortcode (registered later
+            // on init) finds the class on first render.
+            add_action('plugins_loaded', array($this, 'register_upnext_themes'), 2);
 
             // Activation/deactivation hooks must be registered immediately
             register_activation_hook(__FILE__, array($this, 'activate'));
@@ -1349,6 +1356,26 @@ class AzurePlugin {
         require_once $path;
         if (class_exists('Azure_Email_Router')) {
             Azure_Email_Router::bootstrap();
+        }
+    }
+
+    /**
+     * v3.125 — Boot the [up-next] theme presets system.
+     *
+     * Loads storage + CSS engine + AJAX handlers so the Calendar >
+     * Upcoming Events admin tab can edit themes and the shortcode
+     * can resolve the `theme=...` attribute at render time. Cheap
+     * enough to load on every request: storage is a single option
+     * read and CSS is transient-cached.
+     */
+    public function register_upnext_themes() {
+        $path = AZURE_PLUGIN_PATH . 'includes/class-upnext-themes.php';
+        if (!file_exists($path)) {
+            return;
+        }
+        require_once $path;
+        if (class_exists('Azure_UpNext_Themes')) {
+            Azure_UpNext_Themes::bootstrap();
         }
     }
 

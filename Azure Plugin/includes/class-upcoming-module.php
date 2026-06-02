@@ -88,7 +88,48 @@ class Azure_Upcoming_Module {
             'empty-message'       => __('No upcoming events.', 'azure-plugin'),
             'this-week-title'     => __('This Week', 'azure-plugin'),
             'next-week-title'     => __('Next Week', 'azure-plugin'),
+            // v3.125: named theme preset (defined in WP Admin >
+            // Calendar > Upcoming Events). When set, the renderer:
+            //   - adds the .up-next-theme-<slug> class to the
+            //     wrapper so the generated CSS scopes correctly
+            //   - reads layout / columns / show_image /
+            //     show_join_meeting / show_time from the theme as
+            //     a fallback when those attrs weren't passed
+            //     explicitly on the shortcode
+            //   - emits the .upcoming-thumb element for events that
+            //     have a featured image so card-style themes have
+            //     something to show.
+            'theme'               => '',
         ), $atts, 'up-next');
+
+        // Resolve named theme (if any) and let it act as a defaults
+        // source. Shortcode atts always win over theme defaults so
+        // editors can keep using one theme but override individual
+        // bits per insertion (e.g. theme="card-light" columns="3").
+        $theme_def = null;
+        if (!empty($atts['theme']) && class_exists('Azure_UpNext_Themes')) {
+            $theme_def = Azure_UpNext_Themes::get_theme((string) $atts['theme']);
+            if ($theme_def) {
+                // Layout/columns override only when admin didn't
+                // explicitly pass columns.
+                if (!isset($_GET['_up_next_force_cols']) && $atts['columns'] === '1' && !empty($theme_def['columns'])) {
+                    $atts['columns'] = (string) (int) $theme_def['columns'];
+                }
+                // Visibility overrides: only apply when caller didn't
+                // explicitly toggle them in the shortcode markup.
+                // shortcode_atts() doesn't distinguish caller-set vs
+                // default, so this is a best-effort heuristic — at
+                // least the theme's "show_image" wins because the
+                // shortcode never used it before.
+                if (empty($atts['show_image'])) {
+                    $atts['show_image'] = !empty($theme_def['show_image']) ? 'true' : 'false';
+                }
+            }
+        }
+        // Ensure the generated theme stylesheet ships on this page.
+        if (class_exists('Azure_UpNext_Themes')) {
+            wp_enqueue_style(Azure_UpNext_Themes::ENQUEUE_HANDLE);
+        }
         
         // Normalize boolean attributes
         $show_current_week = filter_var($atts['current-week'], FILTER_VALIDATE_BOOLEAN);
@@ -157,10 +198,20 @@ class Azure_Upcoming_Module {
             'link_titles'       => $link_titles,
             'show_join_meeting' => $show_join_meeting,
             'empty_message'     => $atts['empty-message'],
+            // Image rendering is emitted unconditionally when the
+            // event has a featured image. The theme CSS handles
+            // hiding when theme.show_image is false (display:none),
+            // so the same markup serves every theme without per-
+            // theme renderer branching.
+            'show_image'        => true,
         );
 
-        // Build output
-        $output = '<div class="upcoming-events upcoming-columns-' . esc_attr($columns) . '">';
+        // Build output. Theme class is added even when no theme
+        // attribute was passed so the "default" theme rules apply
+        // for back-compat (default = inline-list, identical to
+        // pre-v3.125 visuals).
+        $theme_slug = !empty($atts['theme']) ? sanitize_html_class((string) $atts['theme']) : 'default';
+        $output = '<div class="upcoming-events up-next-theme-' . esc_attr($theme_slug) . ' upcoming-columns-' . esc_attr($columns) . '">';
         
         $has_events = false;
         
@@ -452,30 +503,65 @@ class Azure_Upcoming_Module {
         $show_time         = !empty($options['show_time']);
         $link_titles       = !empty($options['link_titles']);
         $show_join_meeting = !empty($options['show_join_meeting']);
+        $show_image        = isset($options['show_image']) ? !empty($options['show_image']) : true;
         $empty_message     = isset($options['empty_message']) ? $options['empty_message'] : __('No upcoming events.', 'azure-plugin');
 
         if (empty($events)) {
             return '<p class="upcoming-empty">' . esc_html($empty_message) . '</p>';
         }
-        
+
         $output = '<ul class="upcoming-list">';
-        
+
         foreach ($events as $event) {
             $start = strtotime($event['start_date']);
-            
+
             // Format date: M/D (e.g., 12/4)
             $date_str = date_i18n('n/j', $start);
-            
-            // Format time if needed
+
+            // Format time if needed (rendered inside its own span
+            // so themes that hide times via .upcoming-time-only can
+            // do so cleanly without affecting the date pill).
             $time_str = '';
-            if ($show_time && !$event['all_day']) {
-                $time_str = ' ' . date_i18n('g:ia', $start);
+            if (!$event['all_day']) {
+                $time_str = date_i18n('g:ia', $start);
             }
-            
-            $output .= '<li class="upcoming-event">';
-            $output .= '<span class="upcoming-date">' . esc_html($date_str . $time_str) . '</span>';
+
+            // Featured image lookup. Markup is always emitted (gated
+            // by the .has-thumb class) so theme CSS that switches
+            // image_position between left/top doesn't need per-event
+            // PHP branching. Themes with show_image=false hide
+            // .upcoming-thumb via display:none.
+            $thumb_url = '';
+            if ($show_image && !empty($event['id'])) {
+                $thumb_id = get_post_thumbnail_id((int) $event['id']);
+                if ($thumb_id) {
+                    $img = wp_get_attachment_image_src($thumb_id, 'medium');
+                    if (is_array($img) && !empty($img[0])) {
+                        $thumb_url = $img[0];
+                    }
+                }
+            }
+
+            $li_class = 'upcoming-event' . ($thumb_url ? ' has-thumb' : '');
+            $output  .= '<li class="' . esc_attr($li_class) . '">';
+            if ($thumb_url) {
+                $output .= '<div class="upcoming-thumb" style="background-image:url(' . esc_url($thumb_url) . ');"></div>';
+            } else {
+                // Render an empty thumb placeholder so themes that
+                // use display:grid can keep alignment consistent.
+                // Themes that hide thumbs via :not(.has-thumb)
+                // suppress it; everything else collapses naturally.
+                $output .= '<div class="upcoming-thumb"></div>';
+            }
+
+            $output .= '<div class="upcoming-body">';
+            $output .= '<span class="upcoming-date">' . esc_html($date_str) . '</span>';
+            if ($time_str !== '') {
+                $output .= '<span class="upcoming-separator"> – </span>';
+                $output .= '<span class="upcoming-time-only">' . esc_html($time_str) . '</span>';
+            }
             $output .= '<span class="upcoming-separator"> – </span>';
-            
+
             if ($link_titles && !empty($event['url'])) {
                 $output .= '<a href="' . esc_url($event['url']) . '" class="upcoming-title">' . esc_html($event['title']) . '</a>';
             } else {
@@ -494,12 +580,13 @@ class Azure_Upcoming_Module {
                 $output .= '</a>';
                 $output .= '</div>';
             }
-            
+
+            $output .= '</div>'; // .upcoming-body
             $output .= '</li>';
         }
-        
+
         $output .= '</ul>';
-        
+
         return $output;
     }
     
