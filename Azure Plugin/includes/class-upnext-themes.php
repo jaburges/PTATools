@@ -59,7 +59,15 @@ class Azure_UpNext_Themes {
         if (self::$bootstrapped) return;
         self::$bootstrapped = true;
 
-        add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueue_generated_css'), 20);
+        add_action('wp_enqueue_scripts',    array(__CLASS__, 'enqueue_generated_css'), 20);
+        // v3.129 — Also enqueue on admin so the Calendar →
+        // Upcoming Events Themes panel's Live Preview shows
+        // styled output. Without this, the admin sees raw
+        // unstyled HTML (markup is correct but the
+        // .up-next-theme-<slug> selectors have no rules
+        // loaded). Cheap to register everywhere; only fires
+        // when something on the page enqueues the handle.
+        add_action('admin_enqueue_scripts', array(__CLASS__, 'enqueue_generated_css'), 20);
 
         add_action('wp_ajax_azure_upnext_themes_save',    array(__CLASS__, 'ajax_save'));
         add_action('wp_ajax_azure_upnext_themes_delete',  array(__CLASS__, 'ajax_delete'));
@@ -386,19 +394,38 @@ class Azure_UpNext_Themes {
         static $req_cache = null;
         if ($req_cache !== null) return $req_cache;
 
-        $cached = get_transient('azure_upnext_themes_css');
+        $key = self::css_transient_key();
+        $cached = get_transient($key);
         if (is_string($cached)) {
             $req_cache = $cached;
             return $cached;
         }
 
         $css = self::build_css();
-        set_transient('azure_upnext_themes_css', $css, 12 * HOUR_IN_SECONDS);
+        set_transient($key, $css, 12 * HOUR_IN_SECONDS);
         $req_cache = $css;
         return $css;
     }
 
+    /**
+     * Plugin-version-suffixed transient key so a version bump
+     * invalidates the cached CSS without us having to remember
+     * to flush. v3.128 was silently serving v3.127-built CSS
+     * (without outer/header/footer/pill rules) because the key
+     * was static — admins saw raw unstyled markup on themes
+     * with newsletter-style fields set.
+     */
+    private static function css_transient_key() {
+        $ver = defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : 'x';
+        return 'azure_upnext_themes_css_' . md5($ver);
+    }
+
     public static function flush_generated_css_cache() {
+        delete_transient(self::css_transient_key());
+        // Also clear the legacy un-versioned key from pre-v3.129
+        // sites that upgraded — otherwise the old transient
+        // could linger and be served via the old key if any
+        // caller still reads it.
         delete_transient('azure_upnext_themes_css');
     }
 
@@ -776,6 +803,13 @@ class Azure_UpNext_Themes {
             'label'     => isset($theme['label']) ? $theme['label'] : $slug,
             'shortcode' => $shortcode,
             'html'      => $html,
+            // v3.129 — Always return the freshly generated CSS
+            // alongside the HTML. JS upserts a <style id="...">
+            // tag in <head> with this content so the latest
+            // saved theme rules apply even if the page's
+            // initially-enqueued stylesheet was stale (e.g. the
+            // admin saved themes after page load).
+            'css'       => self::generate_css(),
         ));
     }
 }

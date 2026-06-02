@@ -29,6 +29,19 @@ if (!class_exists('Azure_UpNext_Themes')) {
 }
 $upnext_themes = class_exists('Azure_UpNext_Themes') ? Azure_UpNext_Themes::get_themes() : array();
 ?>
+<?php
+// v3.129 — Print generated theme CSS inline at the top of this
+// admin page. The wp_enqueue_style path is unreliable on admin
+// pages when the shortcode renders mid-body (admin_head has
+// already flushed styles by the time do_shortcode calls
+// wp_enqueue_style). Inlining guarantees the Live Preview and
+// the auto-preview-on-load both render with the latest saved
+// theme rules. AJAX preview responses also include the CSS and
+// upsert it via JS so saved tweaks reflect without a reload.
+if (class_exists('Azure_UpNext_Themes')) {
+    echo "<style id=\"upnext-live-theme-css\">\n" . Azure_UpNext_Themes::generate_css() . "\n</style>\n";
+}
+?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
 <div class="wrap azure-admin-wrap">
@@ -697,6 +710,24 @@ jQuery(function ($) {
             themes:  JSON.stringify(collectThemes())
         }).done(function (r) {
             if (r && r.success && r.data && typeof r.data.html === 'string') {
+                // v3.129 — Upsert the freshly generated theme
+                // CSS into <head> BEFORE we inject the rendered
+                // HTML. Without this, the admin Live Preview
+                // shows raw unstyled markup because the page's
+                // initially-enqueued stylesheet doesn't reflect
+                // the just-saved theme tweaks (or, pre-v3.129,
+                // didn't exist on admin pages at all).
+                if (typeof r.data.css === 'string') {
+                    var $style = $('#upnext-live-theme-css');
+                    if (!$style.length) {
+                        $style = $('<style id="upnext-live-theme-css"></style>').appendTo('head');
+                    }
+                    // Setting text content rather than .html() so
+                    // CSS curly braces aren't interpreted as
+                    // entities by the browser.
+                    $style[0].textContent = r.data.css;
+                }
+
                 $previewContainer.html(r.data.html);
                 $previewShortcode.text(r.data.shortcode || ('[up-next theme="' + slug + '"]'));
                 // Scroll the preview into view so admins immediately

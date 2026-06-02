@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.128-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.129-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,32 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.128** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.129** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.129
+
+- **Fixes `[up-next]` theme styles not appearing in the admin Live
+  Preview.** The v3.128 markup was correct but the generated CSS
+  never reached admin pages: the CSS was enqueued via
+  `wp_enqueue_scripts` (frontend only) so admin Preview showed raw
+  unstyled HTML — e.g. "Wed.3" as plain text instead of an orange
+  pill, "IN PERSON6/3" running together without spacing. Three
+  fixes:
+  - **Admin enqueue**: generated CSS now also enqueues via
+    `admin_enqueue_scripts`.
+  - **Inline on upcoming-events admin page**: the page prints the
+    full generated CSS inline at the top, guaranteeing it's
+    available before any shortcode renders mid-body.
+  - **AJAX preview returns CSS**: response now includes the
+    freshly generated CSS alongside the HTML; JS upserts a
+    `<style id="upnext-live-theme-css">` in `<head>` before
+    injecting the rendered HTML, so saved tweaks reflect
+    instantly without a page reload.
+- **CSS transient key is now plugin-version-suffixed.** v3.128 was
+  silently serving v3.127-built CSS (without outer/header/footer/
+  pill rules) because the transient key was static — admins saw
+  raw unstyled markup on themes with newsletter-style fields set.
+  Version-bump now auto-invalidates.
 
 ### What's new in v3.128
 
