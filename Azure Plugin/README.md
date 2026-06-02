@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.127-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.128-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,34 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.127** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.128** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.128
+
+- **`[up-next]` theme schema massively expanded for newsletter-style
+  layouts.** New fields cover an outer container (frame around all
+  events with its own bg / border / radius / padding / max-width), a
+  top header text with `{date}` placeholder support (e.g. "Week of
+  June 1"), a footer HTML block (calendar URL etc.), a left date pill
+  rendering stacked Day/Number on each card, and a location badge
+  auto-derived from each event (IN PERSON when the event has no
+  online URL, ONLINE when it does).
+- **New built-in `newsletter` theme** mirrors the LWPTSA weekly
+  newsletter image — dark navy outer container with an orange border,
+  centered "WEEK OF JUNE 1" header, orange day/number pills on each
+  card, IN PERSON badges, footer with calendar URL. Drop in
+  `[up-next theme="newsletter"]` to get it. Clone via the Themes
+  panel's Clone button to customize.
+- **Clone button** on every built-in theme creates a user-editable
+  copy with all 30+ fields pre-filled, so admins can start from a
+  preset instead of recreating it.
+- **Preview now reflects unsaved tweaks.** v3.127 preview rendered
+  the last-saved state; v3.128 POSTs the current form state with the
+  preview request so the server saves and renders in one round-trip.
+  Tweak a color, click Preview, see it.
+- **Edit advanced** disclosure per user-theme row exposes all the new
+  fields (outer container, header, footer, date pill, badge) in a
+  6-fieldset grid below the main row.
 
 ### What's new in v3.127
 

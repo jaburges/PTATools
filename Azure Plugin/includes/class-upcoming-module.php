@@ -193,17 +193,32 @@ class Azure_Upcoming_Module {
             }
         }
         
+        // v3.128 — Date pill flag, location badge flag, and
+        // outer-container flag are read from the theme def
+        // (resolved earlier as $theme_def). When date_pill='left'
+        // each card emits a stacked Day/Number pill on the
+        // left in place of the thumb. When show_location_badge
+        // is true each card gets an IN PERSON / ONLINE chip.
+        $theme_date_pill        = ($theme_def && isset($theme_def['date_pill']))         ? $theme_def['date_pill']            : 'none';
+        $theme_show_loc_badge   = ($theme_def && !empty($theme_def['show_location_badge']));
+        $theme_badge_in_person  = ($theme_def && isset($theme_def['badge_in_person_text'])) ? (string) $theme_def['badge_in_person_text'] : 'IN PERSON';
+        $theme_badge_online     = ($theme_def && isset($theme_def['badge_online_text']))    ? (string) $theme_def['badge_online_text']    : 'ONLINE';
+
         $list_options = array(
-            'show_time'         => $show_time,
-            'link_titles'       => $link_titles,
-            'show_join_meeting' => $show_join_meeting,
-            'empty_message'     => $atts['empty-message'],
+            'show_time'           => $show_time,
+            'link_titles'         => $link_titles,
+            'show_join_meeting'   => $show_join_meeting,
+            'empty_message'       => $atts['empty-message'],
             // Image rendering is emitted unconditionally when the
             // event has a featured image. The theme CSS handles
             // hiding when theme.show_image is false (display:none),
             // so the same markup serves every theme without per-
             // theme renderer branching.
-            'show_image'        => true,
+            'show_image'          => true,
+            'date_pill'           => $theme_date_pill,
+            'show_location_badge' => $theme_show_loc_badge,
+            'badge_in_person_text'=> $theme_badge_in_person,
+            'badge_online_text'   => $theme_badge_online,
         );
 
         // Build output. Theme class is added even when no theme
@@ -211,7 +226,41 @@ class Azure_Upcoming_Module {
         // for back-compat (default = inline-list, identical to
         // pre-v3.125 visuals).
         $theme_slug = !empty($atts['theme']) ? sanitize_html_class((string) $atts['theme']) : 'default';
-        $output = '<div class="upcoming-events up-next-theme-' . esc_attr($theme_slug) . ' upcoming-columns-' . esc_attr($columns) . '">';
+
+        // v3.128 — Outer container wraps the whole render so
+        // theme CSS can paint a frame/background distinct from
+        // per-card chrome. The wrapper carries the same theme
+        // class as the inner block so CSS selectors that target
+        // the theme can hit either.
+        $outer_active = $theme_def && (
+            (int) ($theme_def['outer_padding']      ?? 0) > 0
+            || (int) ($theme_def['outer_border_width'] ?? 0) > 0
+            || (isset($theme_def['outer_bg_color']) && strtolower((string) $theme_def['outer_bg_color']) !== '#ffffff')
+        );
+        $output = '';
+        if ($outer_active) {
+            $output .= '<div class="up-next-outer up-next-theme-' . esc_attr($theme_slug) . '">';
+        }
+
+        // v3.128 — Theme header text rendered above all event
+        // sections. {date} resolves to the current week's start
+        // formatted as "F j" (e.g. "June 1") so a header like
+        // "Week of {date}" reads as "Week of June 1".
+        if ($theme_def && !empty($theme_def['header_text'])) {
+            $header_text = (string) $theme_def['header_text'];
+            if (strpos($header_text, '{date}') !== false) {
+                $header_text = str_replace(
+                    '{date}',
+                    date_i18n('F j', $current_week_start->getTimestamp()),
+                    $header_text
+                );
+            }
+            // header_text is already wp_kses_post-sanitized at
+            // save time, so safe to echo via wp_kses_post here.
+            $output .= '<div class="up-next-header">' . wp_kses_post($header_text) . '</div>';
+        }
+
+        $output .= '<div class="upcoming-events up-next-theme-' . esc_attr($theme_slug) . ' upcoming-columns-' . esc_attr($columns) . '">';
         
         $has_events = false;
         
@@ -262,13 +311,25 @@ class Azure_Upcoming_Module {
             }
             return '';
         }
-        
-        $output .= '</div>';
+
+        $output .= '</div>'; // .upcoming-events
+
+        // v3.128 — Theme footer. footer_html is wp_kses_post-
+        // sanitized at save time so safe to echo. Use cases:
+        // calendar URL, "See more on our website" note,
+        // copyright line.
+        if ($theme_def && !empty($theme_def['footer_html'])) {
+            $output .= '<div class="up-next-footer">' . wp_kses_post((string) $theme_def['footer_html']) . '</div>';
+        }
+
+        if ($outer_active) {
+            $output .= '</div>'; // .up-next-outer
+        }
 
         if ($use_cache) {
             set_transient($cache_key, $output, $this->get_cache_ttl($current_week_end));
         }
-        
+
         return $output;
     }
 
@@ -500,11 +561,15 @@ class Azure_Upcoming_Module {
      * @return string HTML output
      */
     private function render_events_list($events, $options) {
-        $show_time         = !empty($options['show_time']);
-        $link_titles       = !empty($options['link_titles']);
-        $show_join_meeting = !empty($options['show_join_meeting']);
-        $show_image        = isset($options['show_image']) ? !empty($options['show_image']) : true;
-        $empty_message     = isset($options['empty_message']) ? $options['empty_message'] : __('No upcoming events.', 'azure-plugin');
+        $show_time            = !empty($options['show_time']);
+        $link_titles          = !empty($options['link_titles']);
+        $show_join_meeting    = !empty($options['show_join_meeting']);
+        $show_image           = isset($options['show_image']) ? !empty($options['show_image']) : true;
+        $date_pill            = isset($options['date_pill']) ? (string) $options['date_pill'] : 'none';
+        $show_location_badge  = !empty($options['show_location_badge']);
+        $badge_in_person_text = isset($options['badge_in_person_text']) ? (string) $options['badge_in_person_text'] : 'IN PERSON';
+        $badge_online_text    = isset($options['badge_online_text'])    ? (string) $options['badge_online_text']    : 'ONLINE';
+        $empty_message        = isset($options['empty_message']) ? $options['empty_message'] : __('No upcoming events.', 'azure-plugin');
 
         if (empty($events)) {
             return '<p class="upcoming-empty">' . esc_html($empty_message) . '</p>';
@@ -526,6 +591,13 @@ class Azure_Upcoming_Module {
                 $time_str = date_i18n('g:ia', $start);
             }
 
+            // v3.128 — Date pill components. Used only when
+            // theme.date_pill='left' (CSS hides .upcoming-date-pill
+            // for other themes so the markup is always present
+            // but invisible).
+            $pill_day = date_i18n('D', $start);  // "Mon", "Tue", etc.
+            $pill_num = date_i18n('j',   $start);  // "1", "2", etc.
+
             // Featured image lookup. Markup is always emitted (gated
             // by the .has-thumb class) so theme CSS that switches
             // image_position between left/top doesn't need per-event
@@ -544,6 +616,16 @@ class Azure_Upcoming_Module {
 
             $li_class = 'upcoming-event' . ($thumb_url ? ' has-thumb' : '');
             $output  .= '<li class="' . esc_attr($li_class) . '">';
+
+            // v3.128 — Date pill on the left, BEFORE the thumb
+            // so it occupies the leftmost slot in the flex row.
+            // Always emitted; theme CSS hides it when not
+            // requested.
+            $output .= '<div class="upcoming-date-pill">';
+            $output .= '<span class="upcoming-date-pill-day">' . esc_html($pill_day) . '.</span>';
+            $output .= '<span class="upcoming-date-pill-num">' . esc_html($pill_num) . '</span>';
+            $output .= '</div>';
+
             if ($thumb_url) {
                 $output .= '<div class="upcoming-thumb" style="background-image:url(' . esc_url($thumb_url) . ');"></div>';
             } else {
@@ -555,6 +637,16 @@ class Azure_Upcoming_Module {
             }
 
             $output .= '<div class="upcoming-body">';
+
+            // v3.128 — Location badge. Auto-derived: events with
+            // an online_url are tagged ONLINE; everything else
+            // IN PERSON. Always emitted; theme CSS hides when
+            // show_location_badge=false.
+            $is_online = !empty($event['online_url']);
+            $badge_lbl = $is_online ? $badge_online_text : $badge_in_person_text;
+            $badge_cls = 'upcoming-location-badge ' . ($is_online ? 'is-online' : 'is-in-person');
+            $output .= '<span class="' . esc_attr($badge_cls) . '">' . esc_html($badge_lbl) . '</span>';
+
             $output .= '<span class="upcoming-date">' . esc_html($date_str) . '</span>';
             if ($time_str !== '') {
                 $output .= '<span class="upcoming-separator"> – </span>';

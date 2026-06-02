@@ -186,12 +186,12 @@ $upnext_themes = class_exists('Azure_UpNext_Themes') ? Azure_UpNext_Themes::get_
                             <th style="width:70px;"><?php _e('Cols', 'azure-plugin'); ?></th>
                             <th style="width:80px;"><?php _e('Image', 'azure-plugin'); ?></th>
                             <th style="width:200px;"><?php _e('Accent', 'azure-plugin'); ?></th>
-                            <th style="width:260px;"><?php _e('Actions', 'azure-plugin'); ?></th>
+                            <th style="width:340px;"><?php _e('Actions', 'azure-plugin'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($upnext_themes as $t): $builtin = !empty($t['is_builtin']); ?>
-                        <tr data-slug="<?php echo esc_attr($t['slug']); ?>" data-builtin="<?php echo $builtin ? '1' : '0'; ?>">
+                        <tr data-slug="<?php echo esc_attr($t['slug']); ?>" data-builtin="<?php echo $builtin ? '1' : '0'; ?>" class="upnext-theme-main-row">
                             <td><code><?php echo esc_html($t['slug']); ?></code><?php if ($builtin): ?> <em style="color:#646970;font-size:11px;">built-in</em><?php endif; ?></td>
                             <td>
                                 <input type="text" class="t-label regular-text" value="<?php echo esc_attr($t['label']); ?>" <?php disabled($builtin); ?>>
@@ -223,12 +223,123 @@ $upnext_themes = class_exists('Azure_UpNext_Themes') ? Azure_UpNext_Themes::get_
                             </td>
                             <td>
                                 <button type="button" class="button button-small upnext-theme-preview" data-slug="<?php echo esc_attr($t['slug']); ?>">Preview</button>
-                                <button type="button" class="button button-small upnext-theme-copy"    data-slug="<?php echo esc_attr($t['slug']); ?>">Copy shortcode</button>
-                                <?php if (!$builtin): ?>
+                                <button type="button" class="button button-small upnext-theme-copy"    data-slug="<?php echo esc_attr($t['slug']); ?>">Copy</button>
+                                <?php if ($builtin): ?>
+                                    <button type="button" class="button button-small upnext-theme-clone"  data-slug="<?php echo esc_attr($t['slug']); ?>">Clone</button>
+                                <?php else: ?>
+                                    <button type="button" class="button button-small upnext-theme-edit-advanced" data-slug="<?php echo esc_attr($t['slug']); ?>">Edit advanced</button>
                                     <button type="button" class="button button-small button-link-delete upnext-theme-delete" data-slug="<?php echo esc_attr($t['slug']); ?>">Delete</button>
                                 <?php endif; ?>
                             </td>
                         </tr>
+                        <?php if (!$builtin):
+                            // Advanced editor row — hidden by default, shown
+                            // when the admin clicks Edit advanced. Holds all
+                            // the v3.128 newsletter-style fields (outer
+                            // container, header, footer, date pill, location
+                            // badge) plus the more granular sizing fields
+                            // that don't fit in the main row.
+                        ?>
+                        <tr data-slug="<?php echo esc_attr($t['slug']); ?>" class="upnext-theme-advanced-row" style="display:none;">
+                            <td colspan="7" style="background:#f6f7f7;padding:14px 16px;">
+                                <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 18px;">
+                                    <fieldset style="grid-column:1/-1;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
+                                        <legend style="padding:0 6px;font-weight:600;">Outer container (frame around all events)</legend>
+                                        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;">
+                                            <label>Background <input type="color" class="t-outer-bg-color"     value="<?php echo esc_attr($t['outer_bg_color']     ?? '#ffffff'); ?>"></label>
+                                            <label>Border color <input type="color" class="t-outer-border-color" value="<?php echo esc_attr($t['outer_border_color'] ?? '#dcdcde'); ?>"></label>
+                                            <label>Border width (px) <input type="number" min="0" max="24" class="t-outer-border-width small-text" value="<?php echo esc_attr((int) ($t['outer_border_width'] ?? 0)); ?>"></label>
+                                            <label>Border radius (px) <input type="number" min="0" max="48" class="t-outer-border-radius small-text" value="<?php echo esc_attr((int) ($t['outer_border_radius'] ?? 0)); ?>"></label>
+                                            <label>Padding (px) <input type="number" min="0" max="96" class="t-outer-padding small-text" value="<?php echo esc_attr((int) ($t['outer_padding'] ?? 0)); ?>"></label>
+                                            <label>Max width (px, 0 = none) <input type="number" min="0" max="1200" class="t-outer-max-width small-text" value="<?php echo esc_attr((int) ($t['outer_max_width'] ?? 0)); ?>"></label>
+                                        </div>
+                                    </fieldset>
+
+                                    <fieldset style="grid-column:1/-1;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
+                                        <legend style="padding:0 6px;font-weight:600;">Header text (above all events)</legend>
+                                        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;">
+                                            <label style="grid-column:1/3;">Text (supports <code>{date}</code>) <input type="text" class="t-header-text regular-text" value="<?php echo esc_attr($t['header_text'] ?? ''); ?>" style="width:100%;" placeholder="e.g. Week of {date}"></label>
+                                            <label>Color <input type="color" class="t-header-color" value="<?php echo esc_attr($t['header_color'] ?? '#1d2327'); ?>"></label>
+                                            <label>Size (px) <input type="number" min="12" max="72" class="t-header-size small-text" value="<?php echo esc_attr((int) ($t['header_size'] ?? 28)); ?>"></label>
+                                            <label>Align
+                                                <select class="t-header-align">
+                                                    <?php foreach (array('left','center','right') as $a): ?>
+                                                        <option value="<?php echo $a; ?>" <?php selected(($t['header_align'] ?? 'left'), $a); ?>><?php echo $a; ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </label>
+                                            <label>Font
+                                                <select class="t-header-font">
+                                                    <?php foreach (array('default'=>'Default','serif'=>'Serif','display'=>'Display (chunky)','mono'=>'Monospace') as $v=>$lab): ?>
+                                                        <option value="<?php echo esc_attr($v); ?>" <?php selected(($t['header_font'] ?? 'default'), $v); ?>><?php echo esc_html($lab); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </label>
+                                            <label><input type="checkbox" class="t-header-underline" <?php checked(!empty($t['header_underline'])); ?>> Underline</label>
+                                        </div>
+                                    </fieldset>
+
+                                    <fieldset style="grid-column:1/-1;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
+                                        <legend style="padding:0 6px;font-weight:600;">Footer HTML (below all events)</legend>
+                                        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;">
+                                            <label style="grid-column:1/3;">HTML (links allowed) <textarea class="t-footer-html" rows="2" style="width:100%;" placeholder='e.g. Find out more on our website:&lt;br&gt;&lt;strong&gt;LWPTSA.net/calendar&lt;/strong&gt;'><?php echo esc_textarea($t['footer_html'] ?? ''); ?></textarea></label>
+                                            <label>Color <input type="color" class="t-footer-color" value="<?php echo esc_attr($t['footer_color'] ?? '#646970'); ?>"></label>
+                                            <label>Size (px) <input type="number" min="10" max="28" class="t-footer-size small-text" value="<?php echo esc_attr((int) ($t['footer_size'] ?? 14)); ?>"></label>
+                                            <label>Align
+                                                <select class="t-footer-align">
+                                                    <?php foreach (array('left','center','right') as $a): ?>
+                                                        <option value="<?php echo $a; ?>" <?php selected(($t['footer_align'] ?? 'center'), $a); ?>><?php echo $a; ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </label>
+                                        </div>
+                                    </fieldset>
+
+                                    <fieldset style="grid-column:1/3;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
+                                        <legend style="padding:0 6px;font-weight:600;">Date pill (on left of each card)</legend>
+                                        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">
+                                            <label>Style
+                                                <select class="t-date-pill">
+                                                    <option value="none" <?php selected(($t['date_pill'] ?? 'none'), 'none'); ?>>None</option>
+                                                    <option value="left" <?php selected(($t['date_pill'] ?? 'none'), 'left'); ?>>Left pill (Day / #)</option>
+                                                </select>
+                                            </label>
+                                            <label>Background <input type="color" class="t-pill-bg-color"   value="<?php echo esc_attr($t['pill_bg_color']   ?? '#f4a623'); ?>"></label>
+                                            <label>Text color <input type="color" class="t-pill-text-color" value="<?php echo esc_attr($t['pill_text_color'] ?? '#0a2d57'); ?>"></label>
+                                            <label>Radius (px) <input type="number" min="0" max="32" class="t-pill-radius small-text" value="<?php echo esc_attr((int) ($t['pill_radius'] ?? 12)); ?>"></label>
+                                            <label>Width (px) <input type="number" min="40" max="160" class="t-pill-width small-text" value="<?php echo esc_attr((int) ($t['pill_width'] ?? 72)); ?>"></label>
+                                        </div>
+                                    </fieldset>
+
+                                    <fieldset style="grid-column:3/-1;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
+                                        <legend style="padding:0 6px;font-weight:600;">Location badge (IN PERSON / ONLINE)</legend>
+                                        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+                                            <label style="grid-column:1/-1;"><input type="checkbox" class="t-show-location-badge" <?php checked(!empty($t['show_location_badge'])); ?>> Show badge on each card (auto-derives IN PERSON vs ONLINE from event)</label>
+                                            <label>In-person text <input type="text" class="t-badge-in-person-text" value="<?php echo esc_attr($t['badge_in_person_text'] ?? 'IN PERSON'); ?>" style="width:100%;"></label>
+                                            <label>Online text <input type="text" class="t-badge-online-text" value="<?php echo esc_attr($t['badge_online_text'] ?? 'ONLINE'); ?>" style="width:100%;"></label>
+                                            <label>Text/border color <input type="color" class="t-badge-color"    value="<?php echo esc_attr($t['badge_color']    ?? '#0a2d57'); ?>"></label>
+                                            <label>Background <input type="color" class="t-badge-bg-color" value="<?php echo esc_attr($t['badge_bg_color'] ?? '#ffffff'); ?>"></label>
+                                        </div>
+                                    </fieldset>
+
+                                    <fieldset style="grid-column:1/-1;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
+                                        <legend style="padding:0 6px;font-weight:600;">Card sizing / typography</legend>
+                                        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;">
+                                            <label>Border width (px) <input type="number" min="0" max="12" class="t-border-width small-text" value="<?php echo esc_attr((int) ($t['border_width'] ?? 1)); ?>"></label>
+                                            <label>Border radius (px) <input type="number" min="0" max="32" class="t-border-radius small-text" value="<?php echo esc_attr((int) ($t['border_radius'] ?? 4)); ?>"></label>
+                                            <label>Card padding (px) <input type="number" min="0" max="64" class="t-card-padding small-text" value="<?php echo esc_attr((int) ($t['card_padding'] ?? 12)); ?>"></label>
+                                            <label>Card gap (px) <input type="number" min="0" max="64" class="t-card-gap small-text" value="<?php echo esc_attr((int) ($t['card_gap'] ?? 10)); ?>"></label>
+                                            <label>Title size (px) <input type="number" min="10" max="36" class="t-title-size small-text" value="<?php echo esc_attr((int) ($t['title_size'] ?? 16)); ?>"></label>
+                                            <label>Date size (px) <input type="number" min="9" max="28" class="t-date-size small-text" value="<?php echo esc_attr((int) ($t['date_size'] ?? 13)); ?>"></label>
+                                            <label><input type="checkbox" class="t-show-time" <?php checked(!empty($t['show_time'])); ?>> Show time</label>
+                                            <label><input type="checkbox" class="t-show-section-headers" <?php checked(!empty($t['show_section_headers'])); ?>> Show "This Week" / "Next Week" headers</label>
+                                            <label><input type="checkbox" class="t-show-join-button" <?php checked(!empty($t['show_join_button'])); ?>> Show Join meeting button</label>
+                                        </div>
+                                    </fieldset>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
@@ -291,40 +402,100 @@ jQuery(function ($) {
     // payload shape Azure_UpNext_Themes::save_themes() expects.
     // Built-in rows are skipped server-side anyway but we filter
     // here too so the AJAX payload is lean.
+    //
+    // Reads from BOTH the main row (basic fields) AND the
+    // sibling advanced row (extended v3.128 fields). Sibling is
+    // matched by data-slug attribute, not adjacency, so the
+    // collector is resilient to row reorder.
     function collectThemes() {
         var out = [];
-        $('#upnext-themes-table tbody tr').each(function () {
-            var $tr = $(this);
-            if ($tr.data('builtin') === 1 || $tr.data('builtin') === '1') return;
-            out.push({
-                slug:               $tr.data('slug'),
-                label:              $tr.find('.t-label').val(),
-                layout:             $tr.find('.t-layout').val(),
-                columns:            parseInt($tr.find('.t-columns').val(), 10) || 1,
-                show_image:         $tr.find('.t-show-image').is(':checked'),
-                image_position:     $tr.find('.t-image-position').val(),
-                accent_color:       $tr.find('.t-accent-color').val(),
-                bg_color:           $tr.find('.t-bg-color').val(),
-                text_color:         $tr.find('.t-text-color').val(),
-                border_color:       $tr.find('.t-border-color').val(),
-                show_join_button:   true,   // default-on for now (admin can later edit)
-                show_section_headers: true,
-                show_time:          true,
-                show_location:      true,
-                show_category:      false,
-                accent_text_color:  '#ffffff',
-                muted_color:        '#646970',
-                section_header_bg:  '#f6f7f7',
-                section_header_text:'#1d2327',
-                border_width:       1,
-                border_radius:      6,
-                card_padding:       12,
-                card_gap:           10,
-                section_gap:        24,
-                title_size:         16,
-                date_size:          13,
-                section_header_size:18,
+        $('#upnext-themes-table tbody tr.upnext-theme-main-row').each(function () {
+            var $main = $(this);
+            if ($main.data('builtin') === 1 || $main.data('builtin') === '1') return;
+            var slug = $main.data('slug');
+            var $adv = $('#upnext-themes-table tbody tr.upnext-theme-advanced-row[data-slug="' + slug + '"]');
+
+            // Basic fields (always present in main row)
+            var t = {
+                slug:               slug,
+                label:              $main.find('.t-label').val(),
+                layout:             $main.find('.t-layout').val(),
+                columns:            parseInt($main.find('.t-columns').val(), 10) || 1,
+                show_image:         $main.find('.t-show-image').is(':checked'),
+                image_position:     $main.find('.t-image-position').val(),
+                accent_color:       $main.find('.t-accent-color').val(),
+                bg_color:           $main.find('.t-bg-color').val(),
+                text_color:         $main.find('.t-text-color').val(),
+                border_color:       $main.find('.t-border-color').val()
+            };
+
+            // Advanced fields (v3.128). When the advanced row
+            // hasn't been built yet (newly-added theme that
+            // hasn't been saved + reloaded), fall back to
+            // safe defaults so the save still succeeds.
+            function adv(sel, fallback) {
+                if (!$adv.length) return fallback;
+                var $el = $adv.find(sel);
+                if (!$el.length) return fallback;
+                if ($el.is(':checkbox')) return $el.is(':checked');
+                if ($el.attr('type') === 'number') return parseInt($el.val(), 10) || 0;
+                return $el.val();
+            }
+
+            $.extend(t, {
+                // Outer container
+                outer_bg_color:        adv('.t-outer-bg-color',        '#ffffff'),
+                outer_border_color:    adv('.t-outer-border-color',    '#dcdcde'),
+                outer_border_width:    adv('.t-outer-border-width',    0),
+                outer_border_radius:   adv('.t-outer-border-radius',   0),
+                outer_padding:         adv('.t-outer-padding',         0),
+                outer_max_width:       adv('.t-outer-max-width',       0),
+                // Header
+                header_text:           adv('.t-header-text',           ''),
+                header_color:          adv('.t-header-color',          '#1d2327'),
+                header_size:           adv('.t-header-size',           28),
+                header_align:          adv('.t-header-align',          'left'),
+                header_font:           adv('.t-header-font',           'default'),
+                header_underline:      adv('.t-header-underline',      false),
+                // Footer
+                footer_html:           adv('.t-footer-html',           ''),
+                footer_color:          adv('.t-footer-color',          '#646970'),
+                footer_size:           adv('.t-footer-size',           14),
+                footer_align:          adv('.t-footer-align',          'center'),
+                // Date pill
+                date_pill:             adv('.t-date-pill',             'none'),
+                pill_bg_color:         adv('.t-pill-bg-color',         '#f4a623'),
+                pill_text_color:       adv('.t-pill-text-color',       '#0a2d57'),
+                pill_radius:           adv('.t-pill-radius',           12),
+                pill_width:            adv('.t-pill-width',            72),
+                // Location badge
+                show_location_badge:   adv('.t-show-location-badge',   false),
+                badge_in_person_text:  adv('.t-badge-in-person-text',  'IN PERSON'),
+                badge_online_text:     adv('.t-badge-online-text',     'ONLINE'),
+                badge_color:           adv('.t-badge-color',           '#0a2d57'),
+                badge_bg_color:        adv('.t-badge-bg-color',        '#ffffff'),
+                // Card sizing / typography
+                border_width:          adv('.t-border-width',          1),
+                border_radius:         adv('.t-border-radius',         6),
+                card_padding:          adv('.t-card-padding',          12),
+                card_gap:              adv('.t-card-gap',              10),
+                title_size:            adv('.t-title-size',            16),
+                date_size:             adv('.t-date-size',             13),
+                show_time:             adv('.t-show-time',             true),
+                show_section_headers:  adv('.t-show-section-headers',  true),
+                show_join_button:      adv('.t-show-join-button',      true),
+                // Defaults for fields not yet surfaced in the UI
+                show_location:         true,
+                show_category:         false,
+                accent_text_color:     '#ffffff',
+                muted_color:           '#646970',
+                section_header_bg:     '#f6f7f7',
+                section_header_text:   '#1d2327',
+                section_gap:           24,
+                section_header_size:   18
             });
+
+            out.push(t);
         });
         return out;
     }
@@ -373,7 +544,7 @@ jQuery(function ($) {
         if (exists) { alert('Slug already exists on this page.'); return; }
 
         var row = ''
-            + '<tr data-slug="' + escHtml(slug) + '" data-builtin="0">'
+            + '<tr data-slug="' + escHtml(slug) + '" data-builtin="0" class="upnext-theme-main-row">'
             + '<td><code>' + escHtml(slug) + '</code></td>'
             + '<td><input type="text" class="t-label regular-text" value="' + escHtml(label) + '"></td>'
             + '<td><select class="t-layout">'
@@ -394,18 +565,64 @@ jQuery(function ($) {
             + '</td>'
             + '<td>'
             +   '<button type="button" class="button button-small upnext-theme-preview" data-slug="' + escHtml(slug) + '">Preview</button>'
-            +   '<button type="button" class="button button-small upnext-theme-copy" data-slug="' + escHtml(slug) + '">Copy shortcode</button>'
+            +   '<button type="button" class="button button-small upnext-theme-copy"    data-slug="' + escHtml(slug) + '">Copy</button>'
+            +   '<button type="button" class="button button-small upnext-theme-edit-advanced" data-slug="' + escHtml(slug) + '" disabled title="Save first to reveal advanced editor">Edit advanced</button>'
             +   '<button type="button" class="button button-small button-link-delete upnext-theme-delete" data-slug="' + escHtml(slug) + '">Delete</button>'
             + '</td>'
             + '</tr>';
         $('#upnext-themes-table tbody').append(row);
         $('#upnext-theme-new-slug, #upnext-theme-new-label').val('');
-        alert('Theme row added. Click Save themes to persist before previewing.');
+        alert('Theme row added. Click Save themes — after the page reloads you can Edit advanced to access outer container / header / footer / date pill / location badge fields.');
     });
 
     // Toggle image-position select based on show_image checkbox.
     $(document).on('change', '.t-show-image', function () {
         $(this).closest('td').find('.t-image-position').prop('disabled', !this.checked);
+    });
+
+    // Edit advanced — toggle the sibling advanced row matched by
+    // data-slug attribute (siblings are matched by attribute, not
+    // adjacency, so this works even after row reorder).
+    $(document).on('click', '.upnext-theme-edit-advanced', function () {
+        var slug = String($(this).data('slug') || '').trim();
+        if (!slug) return;
+        var $adv = $('#upnext-themes-table tbody tr.upnext-theme-advanced-row[data-slug="' + JSON.stringify(slug).slice(1, -1) + '"]');
+        if (!$adv.length) {
+            alert('No advanced editor row found for this theme. Save themes and reload to refresh the editor.');
+            return;
+        }
+        $adv.toggle();
+        var $btn = $(this);
+        $btn.text($adv.is(':visible') ? 'Hide advanced' : 'Edit advanced');
+    });
+
+    // Clone a theme (built-in or user) into a new user theme,
+    // copying every field. Server-side endpoint enforces unique
+    // slug. Reloads on success so the new editor row appears.
+    $(document).on('click', '.upnext-theme-clone', function () {
+        var sourceSlug = String($(this).data('slug') || '').trim();
+        if (!sourceSlug) return;
+        var newSlug = window.prompt('New slug for the cloned theme (kebab-case, e.g. my-newsletter):', sourceSlug + '-copy');
+        if (newSlug === null) return;
+        newSlug = (newSlug || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+        if (!newSlug) { alert('Slug is required.'); return; }
+        var newLabel = window.prompt('Display label for the cloned theme:', sourceSlug + ' (copy)') || '';
+
+        $.post(ajaxUrl, {
+            action:      'azure_upnext_themes_clone',
+            nonce:       nonce,
+            source_slug: sourceSlug,
+            new_slug:    newSlug,
+            new_label:   newLabel
+        }).done(function (r) {
+            if (r && r.success) {
+                window.location.reload();
+            } else {
+                alert('Clone failed: ' + (r && r.data ? r.data : 'unknown'));
+            }
+        }).fail(function () {
+            alert('Clone failed (network)');
+        });
     });
 
     // Delete a user-defined theme. Built-in rows have no Delete
@@ -467,11 +684,17 @@ jQuery(function ($) {
         setPreviewRendering();
         showPreviewBanner(slug, '[up-next theme="' + slug + '"]');
 
+        // v3.128 — Always POST the current form state as the
+        // `themes` payload so the server saves the unsaved
+        // tweaks BEFORE rendering. Without this, the preview
+        // shows the last saved state and tweaks don't appear
+        // until the admin clicks Save themes first.
         $.post(ajaxUrl, {
             action:  'azure_upnext_themes_preview',
             nonce:   nonce,
             slug:    slug,
-            columns: 2
+            columns: 2,
+            themes:  JSON.stringify(collectThemes())
         }).done(function (r) {
             if (r && r.success && r.data && typeof r.data.html === 'string') {
                 $previewContainer.html(r.data.html);
