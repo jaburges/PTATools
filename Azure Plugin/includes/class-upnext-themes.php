@@ -61,9 +61,10 @@ class Azure_UpNext_Themes {
 
         add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueue_generated_css'), 20);
 
-        add_action('wp_ajax_azure_upnext_themes_save',   array(__CLASS__, 'ajax_save'));
-        add_action('wp_ajax_azure_upnext_themes_delete', array(__CLASS__, 'ajax_delete'));
-        add_action('wp_ajax_azure_upnext_themes_reset',  array(__CLASS__, 'ajax_reset'));
+        add_action('wp_ajax_azure_upnext_themes_save',    array(__CLASS__, 'ajax_save'));
+        add_action('wp_ajax_azure_upnext_themes_delete',  array(__CLASS__, 'ajax_delete'));
+        add_action('wp_ajax_azure_upnext_themes_reset',   array(__CLASS__, 'ajax_reset'));
+        add_action('wp_ajax_azure_upnext_themes_preview', array(__CLASS__, 'ajax_preview'));
     }
 
     // -----------------------------------------------------------------
@@ -453,5 +454,57 @@ class Azure_UpNext_Themes {
     public static function ajax_reset() {
         if (!self::guard()) return;
         wp_send_json_success(self::reset_themes());
+    }
+
+    /**
+     * Server-side render of `[up-next theme="<slug>"]` for the
+     * admin Live Preview panel. Returns the rendered HTML along
+     * with the canonical shortcode string so the UI can show
+     * both the result and the snippet admins can paste elsewhere.
+     *
+     * Bypasses the shortcode's transient cache (cache="false") so
+     * preview always reflects the latest saved theme — admins
+     * tweaking colors expect to see their last save immediately,
+     * not yesterday's cached HTML.
+     *
+     * The CSS for every defined theme is already enqueued on this
+     * admin page via `Azure_UpNext_Themes::enqueue_generated_css`,
+     * so the returned HTML inherits its scoped styles without
+     * needing an extra <style> block.
+     */
+    public static function ajax_preview() {
+        if (!self::guard()) return;
+
+        $slug    = sanitize_key((string) ($_POST['slug'] ?? ''));
+        $columns = isset($_POST['columns']) ? max(1, min(4, (int) $_POST['columns'])) : 2;
+        if ($slug === '') $slug = 'default';
+
+        // Validate the slug actually exists so we don't render an
+        // empty wrapper that silently fails to apply any theme.
+        $theme = self::get_theme($slug);
+        if (!$theme) {
+            wp_send_json_error('Unknown theme slug: ' . $slug);
+        }
+
+        $shortcode = '[up-next theme="' . $slug . '" columns="' . $columns . '" cache="false"]';
+        $html      = do_shortcode($shortcode);
+
+        // If the shortcode rendered an empty string (legitimate
+        // case: no upcoming events at all and show-empty=false),
+        // fall back to an informational placeholder so the admin
+        // doesn't see an empty preview box and assume the theme
+        // is broken.
+        if (trim((string) $html) === '') {
+            $html = '<p style="padding:14px;color:#646970;font-style:italic;">'
+                  . esc_html__('Shortcode rendered no output (no upcoming events match the current filters).', 'azure-plugin')
+                  . '</p>';
+        }
+
+        wp_send_json_success(array(
+            'slug'      => $slug,
+            'label'     => isset($theme['label']) ? $theme['label'] : $slug,
+            'shortcode' => $shortcode,
+            'html'      => $html,
+        ));
     }
 }

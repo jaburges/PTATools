@@ -245,17 +245,27 @@ $upnext_themes = class_exists('Azure_UpNext_Themes') ? Azure_UpNext_Themes::get_
                 </p>
             </div>
 
-            <div id="upnext-theme-preview-box" style="margin-top:18px; display:none;">
-                <h3 style="margin-bottom:8px;"><?php _e('Preview', 'azure-plugin'); ?></h3>
-                <div id="upnext-theme-preview-render"></div>
-                <p class="description"><?php _e('Preview re-renders after save. Save first to see the latest theme styles applied.', 'azure-plugin'); ?></p>
-            </div>
         </div>
 
-        <!-- Preview Card -->
+        <!-- Preview Card. The Themes panel's per-row Preview
+             buttons swap the contents of .azure-preview-container
+             via AJAX (azure_upnext_themes_preview), and the
+             #upnext-preview-banner shows which theme is currently
+             rendered along with the shortcode snippet to copy and
+             a Show default link to reset.  -->
         <div class="azure-card">
             <h2><?php _e('Live Preview', 'azure-plugin'); ?></h2>
-            <div class="azure-preview-container">
+
+            <div id="upnext-preview-banner"
+                 style="display:none; align-items:center; gap:10px; flex-wrap:wrap; background:#f0f6fc; border:1px solid #c3d9ee; border-radius:4px; padding:8px 12px; margin-bottom:12px;">
+                <span style="font-weight:600;">Previewing:</span>
+                <code id="upnext-preview-shortcode" style="background:#fff; padding:3px 8px; border:1px solid #dcdcde; border-radius:3px;"></code>
+                <button type="button" class="button button-small" id="upnext-preview-copy">Copy</button>
+                <span style="flex:1;"></span>
+                <button type="button" class="button button-small" id="upnext-preview-reset">Show default</button>
+            </div>
+
+            <div class="azure-preview-container" id="upnext-preview-container">
                 <?php echo do_shortcode('[up-next columns="2"]'); ?>
             </div>
         </div>
@@ -424,22 +434,94 @@ jQuery(function ($) {
         }
     });
 
-    // Preview swaps the bottom preview block to render with the
-    // chosen theme. The fetch goes back to the server so saved
-    // CSS + matched events are picked up.
+    // Preview re-renders the Live Preview section below with the
+    // chosen theme via AJAX. Always uses the saved theme state
+    // (the server renders [up-next theme="<slug>" cache="false"]),
+    // so admins should Save themes before clicking Preview to see
+    // their latest tweaks. The current default-theme HTML is held
+    // in #upnext-default-html so Show default can restore it
+    // without a round-trip.
+    var $previewContainer = $('#upnext-preview-container');
+    var $previewBanner    = $('#upnext-preview-banner');
+    var $previewShortcode = $('#upnext-preview-shortcode');
+    // Snapshot the server-rendered default HTML so Show default
+    // can restore instantly without another AJAX call.
+    var defaultPreviewHtml = $previewContainer.html();
+
+    function setPreviewRendering() {
+        $previewContainer.html('<p style="padding:14px;color:#646970;">Rendering preview\u2026</p>');
+    }
+
+    function showPreviewBanner(slug, shortcode) {
+        $previewShortcode.text(shortcode);
+        $previewBanner.css('display', 'flex').data('active-slug', slug);
+    }
+
+    function hidePreviewBanner() {
+        $previewBanner.hide().removeData('active-slug');
+    }
+
     $(document).on('click', '.upnext-theme-preview', function () {
-        var slug = $(this).data('slug');
-        var $box = $('#upnext-theme-preview-box').show();
-        var $render = $('#upnext-theme-preview-render').html('<p style="padding:8px;color:#646970;">Rendering\u2026</p>');
-        // Cheap path: reload the page with a hash so it scrolls; the
-        // server-rendered Live Preview already shows the default theme
-        // (and the generated CSS scopes all themes), so previewing a
-        // named theme inline requires another render. Easiest: drop a
-        // marker shortcode into a transient and reload. For now, show
-        // a small note telling the admin to use the shortcode.
-        $render.html(
-            '<p>To preview this theme on a page, insert <code>[up-next theme="' + escHtml(slug) + '"]</code> on any post or page. The styles will load from this admin panel\u2019s saved theme list.</p>'
-        );
+        var slug = String($(this).data('slug') || '').trim();
+        if (!slug) return;
+        setPreviewRendering();
+        showPreviewBanner(slug, '[up-next theme="' + slug + '"]');
+
+        $.post(ajaxUrl, {
+            action:  'azure_upnext_themes_preview',
+            nonce:   nonce,
+            slug:    slug,
+            columns: 2
+        }).done(function (r) {
+            if (r && r.success && r.data && typeof r.data.html === 'string') {
+                $previewContainer.html(r.data.html);
+                $previewShortcode.text(r.data.shortcode || ('[up-next theme="' + slug + '"]'));
+                // Scroll the preview into view so admins immediately
+                // see the result rather than wondering whether
+                // anything happened.
+                var top = $previewBanner.offset() ? $previewBanner.offset().top - 60 : null;
+                if (top !== null) $('html, body').animate({ scrollTop: top }, 250);
+            } else {
+                $previewContainer.html(
+                    '<p style="padding:14px;color:#b32d2e;">'
+                    + 'Preview failed: '
+                    + escHtml(r && r.data ? (typeof r.data === 'string' ? r.data : JSON.stringify(r.data)) : 'unknown error')
+                    + '</p>'
+                );
+            }
+        }).fail(function (xhr) {
+            $previewContainer.html(
+                '<p style="padding:14px;color:#b32d2e;">'
+                + 'Preview request failed ('
+                + (xhr && xhr.status ? xhr.status : 'network')
+                + '). Check the browser console.'
+                + '</p>'
+            );
+        });
+    });
+
+    // Show default reverts the preview container to the default-
+    // theme HTML that the page was server-rendered with.
+    $('#upnext-preview-reset').on('click', function () {
+        $previewContainer.html(defaultPreviewHtml);
+        hidePreviewBanner();
+    });
+
+    // Copy the previewed theme's shortcode to clipboard from the
+    // banner — saves a trip back to the row's Copy shortcode
+    // button when the admin is already focused on the preview.
+    $('#upnext-preview-copy').on('click', function () {
+        var snippet = $previewShortcode.text();
+        if (!snippet) return;
+        var $btn = $(this);
+        var orig = $btn.text();
+        try {
+            navigator.clipboard.writeText(snippet);
+            $btn.text('Copied!');
+            setTimeout(function () { $btn.text(orig); }, 1500);
+        } catch (e) {
+            window.prompt('Copy this shortcode:', snippet);
+        }
     });
 });
 </script>
