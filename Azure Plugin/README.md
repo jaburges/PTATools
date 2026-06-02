@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.123-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.124-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,30 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.123** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.124** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.124
+
+- **Router actually authenticates now.** v3.123 routed correctly but
+  Graph dispatches failed silently with "Authentication service not
+  available" because `Azure_Email_Mailer::__construct` only wires up
+  `Azure_Email_Auth` when the class is already loaded — and it isn't
+  unless the entire Email module is enabled (which it isn't on this
+  site). Router now force-requires `class-email-auth.php` AND
+  `class-email-mailer.php` before instantiating the mailer, so Graph
+  works independently of the module's enable toggle.
+- **Router captures the real failure reason.** When `send_email_graph`
+  / `send_email_acs` returns false, the router now tails `logs.txt`
+  for the most recent `[Email] ERROR` line and writes that into
+  `wp_azure_email_logs.error_message`. No more empty error fields in
+  the Email Preview modal when a route fails.
+- **New Strict mode toggle on Sending tab.** Default off (v3.123
+  behavior — failed dispatches fall through to other interceptors).
+  When on, failed dispatches short-circuit so the ACS App Service
+  email plugin can't silently re-deliver from a Microsoft-managed
+  subdomain. The Sending tab also lists every other
+  `pre_wp_mail` interceptor with priority + class::method so admins
+  can see exactly what's competing.
 
 ### What's new in v3.123
 

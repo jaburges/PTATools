@@ -73,10 +73,11 @@ class Azure_Email_Router {
         add_filter('pre_wp_mail', array(__CLASS__, 'route'), 1, 2);
 
         // AJAX handlers for the Sending admin tab.
-        add_action('wp_ajax_azure_email_routing_save',       array(__CLASS__, 'ajax_save_routing'));
-        add_action('wp_ajax_azure_email_routing_test_row',   array(__CLASS__, 'ajax_test_row'));
-        add_action('wp_ajax_azure_email_routing_check_auth', array(__CLASS__, 'ajax_check_auth'));
-        add_action('wp_ajax_azure_email_routing_reset',      array(__CLASS__, 'ajax_reset_routing'));
+        add_action('wp_ajax_azure_email_routing_save',         array(__CLASS__, 'ajax_save_routing'));
+        add_action('wp_ajax_azure_email_routing_test_row',     array(__CLASS__, 'ajax_test_row'));
+        add_action('wp_ajax_azure_email_routing_check_auth',   array(__CLASS__, 'ajax_check_auth'));
+        add_action('wp_ajax_azure_email_routing_reset',        array(__CLASS__, 'ajax_reset_routing'));
+        add_action('wp_ajax_azure_email_routing_strict_mode',  array(__CLASS__, 'ajax_strict_mode'));
     }
 
     // ---------------------------------------------------------------
@@ -274,6 +275,19 @@ class Azure_Email_Router {
             $headers = self::normalize_headers($atts['headers'] ?? array(), $match);
             $atts['headers'] = $headers; // make the recursion guard see the rewritten headers
 
+            // Email module may be disabled (enable_email=false) which
+            // skips the normal Email module bootstrap. Force-load the
+            // mailer AND its auth dependency so the router works
+            // independently of the module toggle. The mailer's
+            // constructor logs "Authentication service not available"
+            // when Azure_Email_Auth is missing — that was the v3.123
+            // silent-failure mode.
+            if (!class_exists('Azure_Email_Auth')) {
+                $auth_path = AZURE_PLUGIN_PATH . 'includes/class-email-auth.php';
+                if (file_exists($auth_path)) {
+                    require_once $auth_path;
+                }
+            }
             if (!class_exists('Azure_Email_Mailer')) {
                 $mailer_path = AZURE_PLUGIN_PATH . 'includes/class-email-mailer.php';
                 if (file_exists($mailer_path)) {
@@ -282,11 +296,22 @@ class Azure_Email_Router {
             }
 
             if (!class_exists('Azure_Email_Mailer')) {
-                self::log_routed($atts, $match, 'failed', 'Azure_Email_Mailer not loaded');
-                return $null; // fall through to default wp_mail
+                self::log_routed($atts, $match, 'failed', 'Azure_Email_Mailer file missing');
+                return $null;
+            }
+            if (!class_exists('Azure_Email_Auth')) {
+                self::log_routed($atts, $match, 'failed', 'Azure_Email_Auth file missing (cannot authenticate to Graph/ACS)');
+                return self::strict_mode() ? true : $null;
             }
 
             $mailer = new Azure_Email_Mailer();
+
+            // Mark "begin send" so we can read the last [Email] log
+            // line back out as the failure reason if the send fails
+            // silently. Azure_Email_Mailer returns bool, not a result
+            // struct, so this is the most reliable way to capture the
+            // real cause without a wider refactor.
+            $log_mark_before = self::current_log_tail_marker();
 
             if ($provider === 'graph') {
                 $ok = (bool) $mailer->send_email_graph(
@@ -308,14 +333,109 @@ class Azure_Email_Router {
                 );
             }
 
+            if (!$ok) {
+                $err = self::extract_recent_email_error($log_mark_before);
+                if ($err === '') {
+                    $err = 'send_email_' . $provider . ' returned false (no error captured)';
+                }
+            }
+
             self::log_routed($atts, $match, $ok ? 'sent' : 'failed', $err);
-            return $ok ? true : $null; // fall through on failure so something might still deliver
+
+            // Decision on failure:
+            //  - strict mode: return true (short-circuit; no fallback,
+            //    so the email-logs row is the clean source of truth).
+            //  - permissive (default): return null so other interceptors
+            //    or default wp_mail can attempt delivery. CAVEAT: if
+            //    another pre_wp_mail interceptor (e.g. the ACS App
+            //    Service email plugin) is installed and forces its
+            //    own sender, recipients will see a different From
+            //    than the route configured. That's the v3.123
+            //    surprise — fix by enabling strict mode OR removing
+            //    competing interceptors.
+            if ($ok) {
+                return true;
+            }
+            return self::strict_mode() ? true : $null;
         } catch (\Throwable $e) {
             self::log_routed($atts, $match, 'failed', $e->getMessage());
-            return $null;
+            return self::strict_mode() ? true : $null;
         } finally {
             self::$is_routing = false;
         }
+    }
+
+    /**
+     * Strict-mode toggle. Stored in `wp_options.azure_email_router_strict`.
+     * Defaults to false (permissive). When true, failed dispatches
+     * short-circuit instead of falling through to other interceptors.
+     */
+    public static function strict_mode() {
+        return (bool) get_option('azure_email_router_strict', false);
+    }
+
+    /**
+     * Read the current end-of-log marker so we can grab anything
+     * Azure_Logger writes between now and after a send attempt.
+     * Returns the byte count of the log file, or null when the log
+     * isn't accessible from PHP.
+     */
+    private static function current_log_tail_marker() {
+        $path = defined('AZURE_PLUGIN_PATH') ? AZURE_PLUGIN_PATH . 'logs.txt' : '';
+        if ($path === '' || !is_readable($path)) {
+            return null;
+        }
+        $size = @filesize($path);
+        return $size === false ? null : (int) $size;
+    }
+
+    /**
+     * Tail logs.txt from $marker onwards and return the most recent
+     * [Email] ERROR line. Used to enrich the email_logs row when a
+     * send returns false without surfacing the underlying error.
+     *
+     * @param int|null $marker  Byte offset captured BEFORE the send.
+     * @return string           Error message, or empty string when none.
+     */
+    private static function extract_recent_email_error($marker) {
+        $path = defined('AZURE_PLUGIN_PATH') ? AZURE_PLUGIN_PATH . 'logs.txt' : '';
+        if ($path === '' || !is_readable($path)) {
+            return '';
+        }
+        $size = @filesize($path);
+        if ($size === false) {
+            return '';
+        }
+        // Read at most the trailing 16KB regardless of marker — keeps
+        // us under PHP's memory ceiling for huge log files.
+        $start = max(0, ($marker !== null ? (int) $marker : ($size - 16384)));
+        $start = min($start, max(0, $size - 16384));
+        $len   = $size - $start;
+        if ($len <= 0) {
+            return '';
+        }
+        $fp = @fopen($path, 'r');
+        if (!$fp) {
+            return '';
+        }
+        fseek($fp, $start);
+        $chunk = fread($fp, $len);
+        fclose($fp);
+        if (!is_string($chunk) || $chunk === '') {
+            return '';
+        }
+        $lines = preg_split('/\r?\n/', $chunk);
+        // Walk backwards looking for the most recent Email error.
+        for ($i = count($lines) - 1; $i >= 0; $i--) {
+            $line = trim($lines[$i]);
+            if ($line === '') continue;
+            if (stripos($line, '[Email]') !== false && stripos($line, 'ERROR') !== false) {
+                // Strip the timestamp prefix "MM-DD-YYYY HH:MM:SS " for brevity.
+                $line = preg_replace('/^\d{2}-\d{2}-\d{4}\s+\d{2}:\d{2}:\d{2}\s+/', '', $line);
+                return mb_substr($line, 0, 800);
+            }
+        }
+        return '';
     }
 
     /**
@@ -449,6 +569,13 @@ class Azure_Email_Router {
     public static function ajax_reset_routing() {
         if (!self::guard_ajax()) return;
         wp_send_json_success(self::reset_routing());
+    }
+
+    public static function ajax_strict_mode() {
+        if (!self::guard_ajax()) return;
+        $enabled = isset($_POST['enabled']) && ($_POST['enabled'] === '1' || $_POST['enabled'] === 'true');
+        update_option('azure_email_router_strict', $enabled ? 1 : 0, false);
+        wp_send_json_success(array('strict_mode' => $enabled));
     }
 
     /**

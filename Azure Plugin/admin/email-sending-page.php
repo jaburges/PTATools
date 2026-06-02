@@ -41,6 +41,31 @@ $provider_choices = array(
 
 $current_user = wp_get_current_user();
 $default_test_to = $current_user && $current_user->user_email ? $current_user->user_email : get_option('admin_email');
+
+// Snapshot the live pre_wp_mail interceptor list so the admin can
+// see at a glance what's competing for outbound mail. The router is
+// at priority 1; anything else listed is a fallthrough target when
+// strict mode is off.
+global $wp_filter;
+$competing_interceptors = array();
+if (!empty($wp_filter['pre_wp_mail']) && isset($wp_filter['pre_wp_mail']->callbacks)) {
+    foreach ($wp_filter['pre_wp_mail']->callbacks as $priority => $cbs) {
+        foreach ($cbs as $cb) {
+            $fn = $cb['function'] ?? null;
+            $name = '(unknown)';
+            if (is_string($fn)) {
+                $name = $fn;
+            } elseif (is_array($fn) && isset($fn[0], $fn[1])) {
+                $name = (is_object($fn[0]) ? get_class($fn[0]) : (string) $fn[0]) . '::' . $fn[1];
+            } elseif ($fn instanceof \Closure) {
+                $name = 'Closure';
+            }
+            if (strpos($name, 'Azure_Email_Router') !== false) continue;
+            $competing_interceptors[] = array('priority' => (int) $priority, 'callback' => $name);
+        }
+    }
+}
+$strict_mode = class_exists('Azure_Email_Router') ? Azure_Email_Router::strict_mode() : false;
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -49,6 +74,38 @@ $default_test_to = $current_user && $current_user->user_email ? $current_user->u
 <?php endif; ?>
 
 <div class="azure-admin-content">
+
+    <!-- Failure-mode toggle + competing-interceptor diagnostics -->
+    <div class="azure-card">
+        <h2 style="display:flex; align-items:center; gap:10px;">
+            <span class="dashicons dashicons-shield"></span>
+            <?php esc_html_e('Failure mode', 'azure-plugin'); ?>
+            <label style="font-weight:400; font-size:13px; display:inline-flex; align-items:center; gap:6px; margin-left:auto;">
+                <input type="checkbox" id="router-strict-mode" <?php checked($strict_mode); ?>>
+                <strong>Strict mode</strong> — short-circuit on failure (don't fall through to other interceptors)
+            </label>
+        </h2>
+        <p class="description">
+            When strict mode is <strong>off</strong> (default), a failed Graph/ACS dispatch returns control to WordPress so other <code>pre_wp_mail</code> interceptors get a chance to deliver — that's the v3.123 behavior that caused emails from <code>shop@</code> to be silently re-sent by the ACS App Service email plugin from a Microsoft-managed subdomain.
+            When <strong>on</strong>, failed dispatches stay failed and the email-log row is the source of truth (no surprise deliveries).
+        </p>
+
+        <?php if (!empty($competing_interceptors)): ?>
+        <div class="notice notice-warning inline" style="margin:10px 0 0;">
+            <p><strong>Competing <code>pre_wp_mail</code> interceptors detected.</strong> If a router dispatch fails and strict mode is off, one of these will probably deliver the email — possibly from a different From address than the routing rule says:</p>
+            <ul style="margin:6px 0 6px 22px;">
+                <?php foreach ($competing_interceptors as $i): ?>
+                    <li><code>priority <?php echo (int) $i['priority']; ?></code> &middot; <code><?php echo esc_html($i['callback']); ?></code></li>
+                <?php endforeach; ?>
+            </ul>
+            <p style="margin:6px 0 0;">Either turn on Strict mode above, or deactivate the conflicting plugin in Plugins. Note: AcyMailing's <em>own-campaign</em> send path doesn't use <code>wp_mail</code> and won't appear here — only AcyMailing's wp_mail <em>replacement</em> would.</p>
+        </div>
+        <?php else: ?>
+        <div class="notice notice-success inline" style="margin:10px 0 0;">
+            <p>No competing <code>pre_wp_mail</code> interceptors found. The router has exclusive ownership of outgoing wp_mail.</p>
+        </div>
+        <?php endif; ?>
+    </div>
 
     <div class="azure-card">
         <h2><span class="dashicons dashicons-randomize"></span> <?php esc_html_e('Routing rules', 'azure-plugin'); ?></h2>
@@ -220,6 +277,18 @@ jQuery(function ($) {
         }).fail(function () {
             alert('Save failed (network)');
             $btn.prop('disabled', false).text('Save routing table');
+        });
+    });
+
+    // --- Strict mode toggle (live save) ---
+    $('#router-strict-mode').on('change', function () {
+        var enabled = $(this).is(':checked');
+        $.post(ajaxUrl, {
+            action: 'azure_email_routing_strict_mode',
+            nonce: nonce,
+            enabled: enabled ? '1' : '0'
+        }).fail(function () {
+            alert('Failed to save strict-mode toggle.');
         });
     });
 
