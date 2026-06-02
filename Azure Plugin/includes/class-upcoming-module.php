@@ -141,9 +141,12 @@ class Azure_Upcoming_Module {
         $show_coming_up = filter_var($atts['show-coming-up'], FILTER_VALIDATE_BOOLEAN);
         $use_cache = filter_var($atts['cache'], FILTER_VALIDATE_BOOLEAN);
         $coming_up_days = max(7, min(90, (int) $atts['coming-up-days']));
+        // v3.130 — clamp to 4 to match the admin UI's max
+        // and the CSS generator's per-theme grid rules
+        // (upcoming-columns-2/3/4). Pre-v3.130 capped at 3.
         $columns = intval($atts['columns']);
         if ($columns < 1) $columns = 1;
-        if ($columns > 3) $columns = 3;
+        if ($columns > 4) $columns = 4;
         
         // Parse excluded categories
         $exclude_categories = array_filter(array_map('trim', explode(',', $atts['exclude-categories'])));

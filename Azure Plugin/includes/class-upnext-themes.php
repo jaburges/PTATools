@@ -530,18 +530,39 @@ class Azure_UpNext_Themes {
             // Sections gap
             $out .= "{$sel} .upcoming-week{margin-bottom:" . (int) $t['section_gap'] . "px;}\n";
 
-            // Column layout when the theme requests "grid"
-            if ($t['layout'] === 'grid') {
-                $cols = (int) $t['columns'];
-                if ($cols < 1) $cols = 1;
-                $out .= "{$listSel}{display:grid;grid-template-columns:repeat({$cols},minmax(0,1fr));gap:" . (int) $t['card_gap'] . "px;list-style:none;margin:0;padding:0;}\n";
-                $out .= "{$itemSel}{flex-direction:" . ($t['image_position'] === 'top' ? 'column' : 'row') . ";align-items:" . ($t['image_position'] === 'top' ? 'stretch' : 'flex-start') . ";}\n";
-            } elseif ($t['layout'] === 'compact') {
+            // Layout & column count (v3.130 fix).
+            //
+            // The shortcode wrapper gets BOTH `.up-next-theme-X`
+            // and `.upcoming-columns-N` classes, where N is the
+            // effective column count after the shortcode's
+            // `columns="..."` attribute (or theme.columns
+            // fallback when shortcode is at default). Earlier
+            // versions hard-coded the theme's columns into the
+            // CSS, so shortcode `columns="2"` was silently
+            // ignored when the theme didn't already say so.
+            //
+            // Now: emit a base 1-column flex layout, then
+            // override with grid rules keyed on
+            // `.upcoming-columns-N`. The shortcode's column
+            // attribute is the source of truth for grid count.
+            // Compact themes get an inline row regardless.
+            if ($t['layout'] === 'compact') {
                 $out .= "{$listSel}{list-style:none;margin:0;padding:0;}\n";
                 $out .= "{$itemSel}{flex-direction:row;align-items:baseline;}\n";
-            } else { // rows (default)
+            } else {
+                // Base list (1 column) for rows AND grid themes.
+                // Grid kicks in via the .upcoming-columns-N
+                // overrides below when shortcode asks for >1.
                 $out .= "{$listSel}{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:" . (int) $t['card_gap'] . "px;}\n";
                 $out .= "{$itemSel}{flex-direction:" . ($t['image_position'] === 'top' ? 'column' : 'row') . ";align-items:" . ($t['image_position'] === 'top' ? 'stretch' : 'flex-start') . ";}\n";
+
+                // Multi-column grid overrides — honor the
+                // shortcode's column attribute via the wrapper
+                // class. Card stays in its layout below; only
+                // the parent list switches to a grid.
+                for ($i = 2; $i <= 4; $i++) {
+                    $out .= "{$sel}.upcoming-columns-{$i} .upcoming-list{display:grid;grid-template-columns:repeat({$i},minmax(0,1fr));gap:" . (int) $t['card_gap'] . "px;}\n";
+                }
             }
 
             // Card chrome
