@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.120-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.123-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -397,7 +397,63 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.120** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.123** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.123
+
+- **Per-service email routing — new Sending tab.** Emails → Sending now
+  hosts a routing table where each row maps an outgoing `From:` matcher
+  to a transport + Send-as address. Default seeded rules:
+  Newsletter (AcyMailing pass-through, `news@`), WooCommerce shop
+  (Graph, `shop@`), WordPress core / default catch-all (Graph,
+  `info@`). New `Azure_Email_Router` (`includes/class-email-router.php`)
+  hooks `pre_wp_mail` at priority 1 — beats AcyMailing's pre_wp_mail
+  and the ACS App Service email plugin's Closure (both ~10). Dispatches
+  through `Azure_Email_Mailer::send_email_graph()` /
+  `send_email_acs()` with the row's per-call From; passes through for
+  AcyMailing/wpmail providers; drops for `none`. Recursion-guarded so
+  fallback wp_mail calls don't loop. Always logs to
+  `wp_azure_email_logs` with `method=router-<provider>` — fills the
+  visibility gap the short-circuit interceptors created.
+- **Sending tab UI.** Drag-to-reorder rows (first match wins),
+  per-row Test (sends a real wp_mail via that route, surfaces the
+  captured log row inline), per-row Check Auth (probes
+  `GET /v1.0/users/{from}/` for Graph rows and reports
+  `Send-As OK / no Send-As / 404`), Reset to defaults, default
+  catch-all row is protected from delete.
+- **Graph mailer per-call From.** `send_email_graph()` and
+  `send_via_graph_api()` now POST to
+  `/v1.0/users/{from}/sendMail` whenever a From is resolvable
+  (per-call > legacy `email_send_as_alias` > `/me/sendMail`). Lets
+  each row in the routing table send as its own mailbox without a
+  global override.
+- **HVE removed from the Email Settings tab.** Microsoft retired
+  the High Volume Email SMTP relay in early 2025. The radio option,
+  the entire SMTP settings block (server / port / user / password /
+  encryption / override toggle), and the JS that toggled it are
+  gone. Existing stored values are preserved (no destructive
+  migration), and sites still on `email_auth_method = 'hve'` get
+  silently treated as `graph_api` in the picker UI.
+
+### What's new in v3.122
+
+- **Diagnostics API key now shows on System → Logs.** The
+  `Azure_Diagnostics_API` class is lazy-loaded on `rest_api_init`
+  only (for page-load perf). That made the admin panel's
+  `class_exists` check fail, hiding the API Key row. Fixed by
+  requiring the class file at the top of `admin/logs-page.php`.
+
+### What's new in v3.121
+
+- **Generic wp_mail pipeline diagnostic.** New
+  `POST /wp-json/pta-tools/v1/diagnostics/wp-mail-test` endpoint
+  sends a real `wp_mail()` through whatever `pre_wp_mail`
+  interceptor is currently in play (the existing
+  `azure_send_test_email` AJAX bypasses it). Returns the wp_mail
+  return value, a snapshot of all registered `pre_wp_mail`
+  callbacks with priority + `class::method`, and the matching
+  `wp_azure_email_logs` row when our logger captured it (absence
+  is itself a useful signal that another plugin short-circuited).
 
 ### What's new in v3.120
 

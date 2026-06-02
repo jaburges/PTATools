@@ -50,15 +50,32 @@ class Azure_Email_Mailer {
     /**
      * Send email via Microsoft Graph API
      */
+    /**
+     * Send an HTML/text email via Microsoft Graph sendMail.
+     *
+     * @param string|array $to
+     * @param string       $subject
+     * @param string       $message
+     * @param array        $headers
+     * @param array        $attachments
+     * @param string|null  $user_email   Optional explicit From (also drives Graph URL path).
+     *                                   Added in v3.123 so Azure_Email_Router can route per-call
+     *                                   (the old global `email_send_as_alias` is still honored
+     *                                   as a fallback when neither $user_email nor a From header
+     *                                   is present).
+     * @return bool
+     */
     public function send_email_graph($to, $subject, $message, $headers = array(), $attachments = array(), $user_email = null) {
         Azure_Logger::info('Email: Starting Graph API email send');
-        
+
         if (!$this->auth) {
             Azure_Logger::error('Email: Authentication service not available');
             return false;
         }
-        
-        // Determine sender email
+
+        // Determine sender email. Explicit $user_email wins (router
+        // calls supply it); otherwise fall back to From: header
+        // parsing, otherwise to admin_email.
         $from_email = $this->get_from_email($headers, $user_email);
         
         if (!$from_email) {
@@ -158,16 +175,34 @@ class Azure_Email_Mailer {
     /**
      * Send email via ACS (Azure Communication Services)
      */
-    public function send_email_acs($to, $subject, $message, $headers = array(), $attachments = array()) {
+    /**
+     * Send an HTML/text email via Azure Communication Services.
+     *
+     * @param string|array $to
+     * @param string       $subject
+     * @param string       $message
+     * @param array        $headers
+     * @param array        $attachments
+     * @param string|null  $from_email_override Optional per-call sender (added v3.123 for
+     *                                          the routing table). Must be a registered
+     *                                          ACS sender username on the verified domain.
+     * @return bool
+     */
+    public function send_email_acs($to, $subject, $message, $headers = array(), $attachments = array(), $from_email_override = null) {
         Azure_Logger::info('Email: Starting ACS email send');
-        
+
         $acs_config = array(
             'connection_string' => Azure_Settings::get_setting('email_acs_connection_string', ''),
-            'endpoint' => Azure_Settings::get_setting('email_acs_endpoint', ''),
-            'access_key' => Azure_Settings::get_setting('email_acs_access_key', ''),
-            'from_email' => Azure_Settings::get_setting('email_acs_from_email', ''),
-            'from_name' => Azure_Settings::get_setting('email_acs_display_name', ''),
+            'endpoint'          => Azure_Settings::get_setting('email_acs_endpoint', ''),
+            'access_key'        => Azure_Settings::get_setting('email_acs_access_key', ''),
+            'from_email'        => Azure_Settings::get_setting('email_acs_from_email', ''),
+            'from_name'         => Azure_Settings::get_setting('email_acs_display_name', ''),
         );
+
+        // Per-call override wins so routing rows can target shop@/info@/etc.
+        if (!empty($from_email_override) && is_email($from_email_override)) {
+            $acs_config['from_email'] = $from_email_override;
+        }
         
         if (empty($acs_config['endpoint']) || empty($acs_config['access_key'])) {
             Azure_Logger::error('Email: ACS credentials not configured');
@@ -252,11 +287,19 @@ class Azure_Email_Mailer {
      * Send via Microsoft Graph API
      */
     private function send_via_graph_api($email_data, $access_token, $from_email) {
-        // Determine API endpoint
+        // v3.123 routing model: ALWAYS POST to /users/{from_email}/sendMail
+        // when a From address is known, so each row in the routing table
+        // sends as its own mailbox without needing per-tenant overrides.
+        // Falls back to /me/sendMail (signed-in user) only when no From
+        // could be resolved. The legacy `email_send_as_alias` global is
+        // honored as a last-resort fallback for back-compat with sites
+        // that haven't migrated to the routing table yet.
         $send_as_alias = Azure_Settings::get_setting('email_send_as_alias', '');
-        
-        if (!empty($send_as_alias) && $send_as_alias !== $from_email) {
-            $api_url = "https://graph.microsoft.com/v1.0/users/{$send_as_alias}/sendMail";
+
+        if (!empty($from_email) && is_email($from_email)) {
+            $api_url = 'https://graph.microsoft.com/v1.0/users/' . rawurlencode($from_email) . '/sendMail';
+        } elseif (!empty($send_as_alias) && is_email($send_as_alias)) {
+            $api_url = 'https://graph.microsoft.com/v1.0/users/' . rawurlencode($send_as_alias) . '/sendMail';
         } else {
             $api_url = 'https://graph.microsoft.com/v1.0/me/sendMail';
         }

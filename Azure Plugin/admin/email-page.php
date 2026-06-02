@@ -174,19 +174,30 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                         <tr>
                             <th scope="row">Email Service</th>
                             <td>
-                                <?php $current_method = Azure_Settings::get_setting('email_auth_method', 'graph_api'); ?>
+                                <?php $current_method = Azure_Settings::get_setting('email_auth_method', 'graph_api');
+                                // v3.123: HVE removed from the picker (retired by Microsoft late 2024 /
+                                // early 2025). Stored value left intact for back-compat; if a site is
+                                // still on 'hve' we silently treat it as graph_api in this UI without
+                                // mutating the stored value.
+                                $picker_method = $current_method === 'hve' ? 'graph_api' : $current_method;
+                                ?>
                                 <label>
-                                    <input type="radio" name="email_auth_method" value="graph_api" <?php checked($current_method, 'graph_api'); ?> />
+                                    <input type="radio" name="email_auth_method" value="graph_api" <?php checked($picker_method, 'graph_api'); ?> />
                                     Microsoft Graph API (Recommended)
                                 </label><br>
                                 <label>
-                                    <input type="radio" name="email_auth_method" value="hve" <?php checked($current_method, 'hve'); ?> />
-                                    High Volume Email (HVE) SMTP
-                                </label><br>
-                                <label>
-                                    <input type="radio" name="email_auth_method" value="acs" <?php checked($current_method, 'acs'); ?> />
+                                    <input type="radio" name="email_auth_method" value="acs" <?php checked($picker_method, 'acs'); ?> />
                                     Azure Communication Services (ACS)
                                 </label>
+                                <p class="description" style="margin-top:6px;">
+                                    Microsoft retired the High Volume Email (HVE) SMTP relay in early 2025;
+                                    the option has been removed from this picker. Per-service routing
+                                    (which service uses which transport + From address) is now configured
+                                    on the
+                                    <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-emails&tab=sending')); ?>">Sending</a>
+                                    tab. The auth method below is the global fallback used only when
+                                    no Sending rule matches.
+                                </p>
                             </td>
                         </tr>
                     </table>
@@ -248,61 +259,7 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                     </table>
                 </div>
                 
-                <!-- HVE Settings -->
-                <div class="hve-settings" <?php echo $current_method !== 'hve' ? 'style="display:none;"' : ''; ?>>
-                    <h2>High Volume Email Settings</h2>
-                    
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row">SMTP Server</th>
-                            <td>
-                                <input type="text" name="email_hve_smtp_server" value="<?php echo esc_attr($settings['email_hve_smtp_server'] ?? 'smtp-hve.office365.com'); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">SMTP Port</th>
-                            <td>
-                                <input type="number" name="email_hve_smtp_port" value="<?php echo intval($settings['email_hve_smtp_port'] ?? 587); ?>" class="small-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Username</th>
-                            <td>
-                                <input type="text" name="email_hve_username" value="<?php echo esc_attr($settings['email_hve_username'] ?? ''); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Password</th>
-                            <td>
-                                <input type="password" name="email_hve_password" value="<?php echo esc_attr($settings['email_hve_password'] ?? ''); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">From Email</th>
-                            <td>
-                                <input type="email" name="email_hve_from_email" value="<?php echo esc_attr($settings['email_hve_from_email'] ?? ''); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Encryption</th>
-                            <td>
-                                <select name="email_hve_encryption">
-                                    <option value="tls" <?php selected($settings['email_hve_encryption'] ?? 'tls', 'tls'); ?>>TLS</option>
-                                    <option value="ssl" <?php selected($settings['email_hve_encryption'] ?? 'tls', 'ssl'); ?>>SSL</option>
-                                </select>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">Override wp_mail()</th>
-                            <td>
-                                <label>
-                                    <input type="checkbox" name="email_hve_override_wp_mail" <?php checked($settings['email_hve_override_wp_mail'] ?? false); ?> />
-                                    Replace WordPress default email function with HVE SMTP
-                                </label>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
+                <?php // v3.123: HVE settings block removed (Microsoft HVE retired 2025). ?>
                 
                 <!-- ACS Settings -->
                 <div class="acs-settings" <?php echo $current_method !== 'acs' ? 'style="display:none;"' : ''; ?>>
@@ -466,9 +423,11 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
 jQuery(document).ready(function($) {
     // Handle authentication method change
     $('input[name="email_auth_method"]').change(function() {
+        // v3.123: HVE block removed from this page; only graph-api and
+        // acs panels remain. The method is treated as a *fallback* used
+        // when no Sending tab rule matches an outgoing wp_mail call.
         var method = $(this).val();
-        
-        $('.graph-api-settings, .hve-settings, .acs-settings').hide();
+        $('.graph-api-settings, .acs-settings').hide();
         $('.' + method + '-settings').show();
     });
     

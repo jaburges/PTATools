@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.122
+ * Version: 3.123
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.122');
+define('AZURE_PLUGIN_VERSION', '3.123');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -329,6 +329,14 @@ class AzurePlugin {
             // `plugins_loaded` priority 1 so it's guaranteed in place
             // by the time AcyMailing scans for add-ons.
             add_action('plugins_loaded', array($this, 'register_acymailing_addon'), 1);
+
+            // PTA Tools Email Router intercepts wp_mail() on
+            // `pre_wp_mail` priority 1 so it beats AcyMailing's
+            // pre_wp_mail (priority 10) and the ACS App Service
+            // email plugin's Closure (also ~10). Load on
+            // plugins_loaded priority 1 so the hook is registered
+            // before any wp_mail call that could fire on init.
+            add_action('plugins_loaded', array($this, 'register_email_router'), 1);
 
             // Activation/deactivation hooks must be registered immediately
             register_activation_hook(__FILE__, array($this, 'activate'));
@@ -1323,6 +1331,24 @@ class AzurePlugin {
         require_once $path;
         if (class_exists('Azure_AcyMailing_Addon_Loader')) {
             Azure_AcyMailing_Addon_Loader::bootstrap();
+        }
+    }
+
+    /**
+     * Load the per-service email routing engine. Registered on
+     * plugins_loaded priority 1 (see __construct) so its
+     * `pre_wp_mail` priority-1 hook beats every other interceptor.
+     * Storage + AJAX handlers + admin UI live elsewhere; this just
+     * ensures the class is loaded and bootstrapped.
+     */
+    public function register_email_router() {
+        $path = AZURE_PLUGIN_PATH . 'includes/class-email-router.php';
+        if (!file_exists($path)) {
+            return;
+        }
+        require_once $path;
+        if (class_exists('Azure_Email_Router')) {
+            Azure_Email_Router::bootstrap();
         }
     }
 
