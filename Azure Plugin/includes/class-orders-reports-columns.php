@@ -223,6 +223,59 @@ class Azure_Orders_Reports_Columns {
     }
 
     /**
+     * Legacy meta-key aliases per canonical product field.
+     *
+     * Historical products (Yearbook, Celebration Book, etc.) wrote
+     * their per-line-item meta under inconsistent labels that don't
+     * match the canonical labels registered in `wp_azure_product_fields`.
+     * Each entry maps a `field_key` → list of legacy meta keys to check
+     * as fallbacks. The resolver walks them in order and returns the
+     * first non-empty value.
+     *
+     * Add new aliases as more legacy products are discovered. Values
+     * are HTML-entity-decoded on read.
+     */
+    private static function field_legacy_aliases() {
+        return array(
+            'child_name'      => array('Childs Name', 'Child Name', "Child's Name", 'Child&#039;s Name', 'Student Name'),
+            'childsgrade'     => array('Child(s) Grade', "Child's Grade", "Childs Grade", "Student's Grade", 'Students Grade', 'Grade'),
+            'child_teacher'   => array("Child's Teacher", 'Childs Teacher', 'Teacher', "Student's Teacher", "Student's Teacher and Grade", 'Teacher and Grade', 'Teacher/Grade'),
+            'parent_1_email'  => array('Parent Email', "Parent's Email"),
+            'parent_1_name'   => array('Parent Name', "Parent's Name"),
+            'parent_1_cell'   => array('Parent Cell', "Parent's Cell", 'Parent Phone', "Parent's Phone"),
+            'allergies'       => array('Allergies', 'Allergy', 'Food Allergies'),
+        );
+    }
+
+    /**
+     * Parent-scope fields where order billing data is a reasonable
+     * fallback when neither modern payload nor legacy meta is present.
+     * Maps `field_key` → callable($order):string|null.
+     *
+     * Skipped for refund objects (WC_Order_Refund subclass), which
+     * don't expose billing methods. The Reports query feeds refunds
+     * through as their own row but they should never have parent
+     * contact info attached.
+     */
+    private static function parent_billing_fallback($field_key, $order) {
+        if (!($order instanceof WC_Order)) return null;
+        switch ($field_key) {
+            case 'parent_1_email':
+                $v = $order->get_billing_email();
+                return $v ?: null;
+            case 'parent_1_name':
+                $first = $order->get_billing_first_name();
+                $last  = $order->get_billing_last_name();
+                $combined = trim($first . ' ' . $last);
+                return $combined !== '' ? $combined : null;
+            case 'parent_1_cell':
+                $v = $order->get_billing_phone();
+                return $v ?: null;
+        }
+        return null;
+    }
+
+    /**
      * Synthesise one column per row in {prefix}azure_product_fields so
      * users can pick "Child's name", "Grade", etc. as columns.
      *
@@ -231,12 +284,12 @@ class Azure_Orders_Reports_Columns {
      *   2. `_azure_product_fields_raw`     — modern field-renderer payload
      *   3. (child_name only) `_azure_pf_child_id` → look up
      *      `azure_user_children.child_name`
-     *   4. (child_name only) legacy text meta keys written by older
-     *      products before the field registry existed: `Childs Name`,
-     *      `Child Name`, `Child's Name`, `Child&#039;s Name`,
-     *      `Student Name`. Values are HTML-entity-decoded.
-     *   5. Direct meta lookup by display label (catches every other
-     *      label-based legacy save).
+     *   4. **Legacy meta-key aliases** for this `field_key` (see
+     *      `field_legacy_aliases()`). HTML-entity-decoded.
+     *   5. Direct meta lookup by the canonical display label.
+     *   6. (parent_1_* only) Order billing-data fallback so reports
+     *      surface SOMETHING for guest-checkout Yearbook orders that
+     *      never went through the new flow.
      *
      * @return array<int,array<string,mixed>>
      */
@@ -288,8 +341,8 @@ class Azure_Orders_Reports_Columns {
                         }
                     }
 
-                    // 3 + 4. Child name special handling — link to canonical
-                    // children row or fall back to legacy label variants.
+                    // 3. child_name special: resolve via the canonical
+                    //    azure_user_children FK if linked.
                     if ($field_key === 'child_name' || strtolower($label) === "child's name") {
                         $cid = (int) $i->get_meta('_azure_pf_child_id', true);
                         if ($cid > 0 && class_exists('Azure_Database')) {
@@ -305,7 +358,12 @@ class Azure_Orders_Reports_Columns {
                                 }
                             }
                         }
-                        foreach (array('Childs Name', 'Child Name', "Child's Name", 'Child&#039;s Name', 'Student Name') as $legacy_key) {
+                    }
+
+                    // 4. Legacy meta-key aliases for this field.
+                    $aliases = self::field_legacy_aliases();
+                    if (isset($aliases[$field_key])) {
+                        foreach ($aliases[$field_key] as $legacy_key) {
                             $v = $i->get_meta($legacy_key, true);
                             if ($v !== '' && $v !== null) {
                                 $decoded = trim(html_entity_decode((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
@@ -319,6 +377,15 @@ class Azure_Orders_Reports_Columns {
                     if ($v !== '' && $v !== null) {
                         return (string) $v;
                     }
+
+                    // 6. Parent-scope billing fallback. Lets reports show
+                    //    Parent 1 Name/Email/Cell for legacy guest orders
+                    //    by reading the order's own billing fields.
+                    $billing = self::parent_billing_fallback($field_key, $o);
+                    if ($billing !== null && $billing !== '') {
+                        return $billing;
+                    }
+
                     return '';
                 },
             );
