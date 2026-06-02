@@ -8,6 +8,19 @@ if (!current_user_can('administrator')) {
     wp_die(__('You do not have sufficient permissions to access this page.', 'azure-plugin'));
 }
 
+// Diagnostics API class is lazy-loaded on `rest_api_init` only (see
+// pta_load_diagnostics_api() in azure-plugin.php) so REST traffic
+// doesn't pay the file-include cost. The admin "Diagnostics API"
+// panel below uses class_exists() to decide whether to render the
+// API Key block. Load the class file here so the panel actually
+// shows on admin renders.
+if (!class_exists('Azure_Diagnostics_API')) {
+    $diag_path = AZURE_PLUGIN_PATH . 'includes/class-diagnostics-api.php';
+    if (file_exists($diag_path)) {
+        require_once $diag_path;
+    }
+}
+
 // Get recent logs using the new formatted logger
 $level_filter = $_GET['level'] ?? '';
 $module_filter = $_GET['module'] ?? '';
