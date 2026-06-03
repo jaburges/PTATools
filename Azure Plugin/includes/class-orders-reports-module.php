@@ -478,21 +478,31 @@ class Azure_Orders_Reports_Module {
 
         $config = $loaded['config'];
 
-        // `run_as_of=today` (sent by the dashboard widget's Export button)
-        // forces the report's end date to right-now, regardless of any
-        // explicit `to` saved in the report config. Lets a parent click
-        // Export on the dashboard and get a "through today" CSV without
-        // having to open the builder and bump the date. Presets like
-        // `this_school_year` / `last_7_days` already roll forward to
-        // today by design, so this flag is only useful for reports with
-        // explicit-date ranges.
+        // `run_as_of=today` (sent by the dashboard widget's Export
+        // button) forces the report's end date to right-now without
+        // disturbing any other filter — including the saved `from`
+        // boundary, the preset, the product/category/tag filters, or
+        // the columns. We do this by setting the `to_today` flag and
+        // letting `Azure_Orders_Reports_Query::resolve_date_range`
+        // honour it: presets continue to evaluate against now (their
+        // default behaviour anyway), and explicit-date ranges get
+        // their `to` overridden to now while `from` is preserved.
+        //
+        // Earlier implementations nulled out the saved `preset` and
+        // wrote `current_time('mysql')` into `to` directly, which
+        // collided with `from` values still stored in HTML
+        // `datetime-local` format ("YYYY-MM-DDTHH:MM") — the format
+        // mismatch made `wc_get_orders` silently match zero orders.
         if (isset($_POST['run_as_of']) && (string) $_POST['run_as_of'] === 'today') {
-            $now = current_time('mysql');
             if (!isset($config['date_range']) || !is_array($config['date_range'])) {
-                $config['date_range'] = array('from' => null, 'to' => $now, 'preset' => null);
+                $config['date_range'] = array(
+                    'from'     => null,
+                    'to'       => null,
+                    'preset'   => null,
+                    'to_today' => true,
+                );
             } else {
-                $config['date_range']['to']     = $now;
-                $config['date_range']['preset'] = null; // explicit `to` always wins
+                $config['date_range']['to_today'] = true;
             }
         }
 

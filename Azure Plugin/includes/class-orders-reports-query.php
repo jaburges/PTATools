@@ -44,13 +44,34 @@ class Azure_Orders_Reports_Query {
             }
             return $range;
         }
-        $from = isset($dr['from']) && $dr['from'] !== '' ? (string) $dr['from'] : null;
-        $to   = isset($dr['to'])   && $dr['to']   !== '' ? (string) $dr['to']   : current_time('mysql');
+        $from = isset($dr['from']) && $dr['from'] !== '' ? self::normalize_date_string((string) $dr['from']) : null;
+        $to   = isset($dr['to'])   && $dr['to']   !== '' ? self::normalize_date_string((string) $dr['to'])   : current_time('mysql');
         // Explicit "always end on today" overrides any stored `to`.
         if ($to_today) {
             $to = current_time('mysql');
         }
         return array('from' => $from, 'to' => $to);
+    }
+
+    /**
+     * Convert any reasonable date input (HTML datetime-local
+     * "YYYY-MM-DDTHH:MM", MySQL "YYYY-MM-DD HH:MM:SS", or a plain
+     * date "YYYY-MM-DD") into MySQL DATETIME format so wc_get_orders
+     * can parse it reliably. Returns the original string if it can't
+     * be parsed — keeps the failure visible rather than silently
+     * substituting now().
+     */
+    private static function normalize_date_string($raw) {
+        $raw = trim($raw);
+        if ($raw === '') return $raw;
+        // HTML datetime-local inputs produce "YYYY-MM-DDTHH:MM" (no
+        // seconds, no timezone). PHP's strtotime handles the T just
+        // fine, but wc_get_orders historically matches zero rows when
+        // the from-side has T and the to-side has a space, so we
+        // canonicalise to MySQL format here.
+        $ts = strtotime($raw);
+        if ($ts === false) return $raw;
+        return date('Y-m-d H:i:s', $ts);
     }
 
     /**
