@@ -2789,33 +2789,50 @@ class Azure_Admin {
      */
     public function render_sso_widget() {
         global $wpdb;
-        $activity_table = Azure_Database::get_table_name('activity_log');
-        
+        $activity_table  = Azure_Database::get_table_name('activity_log');
+        $sso_users_table = Azure_Database::get_table_name('sso_users');
+
         $stats = array(
-            'total_users' => 0,
-            'logins_today' => 0,
-            'last_sync' => null,
-            'last_sync_status' => 'unknown'
+            'total_users'      => 0,
+            'logins_today'     => 0,
+            'last_sync'        => null,
+            'last_sync_status' => 'unknown',
         );
-        
+
+        // Canonical SSO user count comes from the mapping table
+        // (`wp_azure_sso_users`), which is the authoritative record of
+        // who has signed in via Microsoft Entra. The old query against
+        // `wp_usermeta WHERE meta_key = 'azure_object_id'` always
+        // returned 0 because nothing in this codebase ever writes that
+        // meta key — the mapping has always lived in the dedicated
+        // table. Guard the query so a missing table can't break the
+        // widget render.
+        if ($sso_users_table) {
+            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $sso_users_table));
+            if ($exists === $sso_users_table) {
+                $stats['total_users'] = (int) $wpdb->get_var(
+                    "SELECT COUNT(DISTINCT wordpress_user_id) FROM {$sso_users_table}"
+                );
+            }
+        }
+
+        // Logins today + last sync rely on the activity log; if it
+        // isn't provisioned they stay at their defaults (0 / null),
+        // but the user count above still renders correctly.
         if ($activity_table) {
-            // Get total SSO users (users with Azure mapping)
-            $stats['total_users'] = $wpdb->get_var(
-                "SELECT COUNT(DISTINCT user_id) FROM {$wpdb->usermeta} WHERE meta_key = 'azure_object_id'"
-            ) ?: 0;
-            
-            // Get logins today
-            $stats['logins_today'] = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$activity_table} WHERE module = 'sso' AND action = 'user_login' AND DATE(created_at) = CURDATE()"
-            )) ?: 0;
-            
-            // Get last sync
-            $last_sync = $wpdb->get_row(
-                "SELECT created_at, status FROM {$activity_table} WHERE module = 'sso' AND action = 'users_synced' ORDER BY created_at DESC LIMIT 1"
-            );
-            if ($last_sync) {
-                $stats['last_sync'] = $last_sync->created_at;
-                $stats['last_sync_status'] = $last_sync->status;
+            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $activity_table));
+            if ($exists === $activity_table) {
+                $stats['logins_today'] = (int) $wpdb->get_var(
+                    "SELECT COUNT(*) FROM {$activity_table} WHERE module = 'sso' AND action = 'user_login' AND DATE(created_at) = CURDATE()"
+                );
+
+                $last_sync = $wpdb->get_row(
+                    "SELECT created_at, status FROM {$activity_table} WHERE module = 'sso' AND action = 'users_synced' ORDER BY created_at DESC LIMIT 1"
+                );
+                if ($last_sync) {
+                    $stats['last_sync']        = $last_sync->created_at;
+                    $stats['last_sync_status'] = $last_sync->status;
+                }
             }
         }
         ?>
