@@ -251,36 +251,60 @@ class Azure_Orders_Reports_Query {
 
     /**
      * Resolve category + tag IDs into a set of matching product IDs.
-     * If $explicit_product_ids is non-empty, intersect with that set.
+     *
+     * Semantics: UNION across all three dimensions. A report that
+     * explicitly lists product_ids AND a taxonomy filter means
+     * "match line items for any of these specific products OR any
+     * product in these categories OR any product with these tags".
+     *
+     * Two prior-bug fixes embedded here:
+     *
+     * 1. Explicit `product_ids` are always preserved verbatim,
+     *    independent of post_status. Previously, intersecting the
+     *    explicit list against published-only tax results meant a
+     *    saved report would silently zero out the moment an admin
+     *    moved one of its listed products to draft (or trash).
+     *
+     * 2. Taxonomy queries include draft / private / pending posts
+     *    in addition to publish. The auto-updater on parent-facing
+     *    products is published, but post-season the same product
+     *    is often demoted to draft to hide it from the storefront;
+     *    historical orders should still report against the tag.
      */
     private static function resolve_product_ids_from_taxonomies(array $explicit_product_ids, array $category_ids, array $tag_ids) {
-        $tax_args = array(
-            'post_type'      => 'product',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-            'no_found_rows'  => true,
-            'tax_query'      => array('relation' => 'OR'),
-        );
-        if (!empty($category_ids)) {
-            $tax_args['tax_query'][] = array(
-                'taxonomy' => 'product_cat',
-                'field'    => 'term_id',
-                'terms'    => $category_ids,
-            );
-        }
-        if (!empty($tag_ids)) {
-            $tax_args['tax_query'][] = array(
-                'taxonomy' => 'product_tag',
-                'field'    => 'term_id',
-                'terms'    => $tag_ids,
-            );
-        }
-        $tax_pids = (count($tax_args['tax_query']) > 1) ? get_posts($tax_args) : array();
-        $tax_pids = array_map('intval', $tax_pids);
+        $tax_pids = array();
 
+        if (!empty($category_ids) || !empty($tag_ids)) {
+            $tax_args = array(
+                'post_type'      => 'product',
+                'post_status'    => array('publish', 'private', 'draft', 'pending'),
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'no_found_rows'  => true,
+                'tax_query'      => array('relation' => 'OR'),
+            );
+            if (!empty($category_ids)) {
+                $tax_args['tax_query'][] = array(
+                    'taxonomy' => 'product_cat',
+                    'field'    => 'term_id',
+                    'terms'    => $category_ids,
+                );
+            }
+            if (!empty($tag_ids)) {
+                $tax_args['tax_query'][] = array(
+                    'taxonomy' => 'product_tag',
+                    'field'    => 'term_id',
+                    'terms'    => $tag_ids,
+                );
+            }
+            $tax_pids = array_map('intval', (array) get_posts($tax_args));
+        }
+
+        if (!empty($explicit_product_ids) && !empty($tax_pids)) {
+            return array_values(array_unique(array_merge($explicit_product_ids, $tax_pids)));
+        }
         if (!empty($explicit_product_ids)) {
-            return array_values(array_intersect($explicit_product_ids, $tax_pids));
+            return array_values(array_map('intval', $explicit_product_ids));
         }
         return $tax_pids;
     }
