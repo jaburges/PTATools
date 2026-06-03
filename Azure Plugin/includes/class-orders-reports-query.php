@@ -33,12 +33,23 @@ class Azure_Orders_Reports_Query {
      */
     public static function resolve_date_range(array $config) {
         $dr = isset($config['date_range']) && is_array($config['date_range']) ? $config['date_range'] : array();
-        $preset = isset($dr['preset']) ? (string) $dr['preset'] : '';
+        $preset   = isset($dr['preset']) ? (string) $dr['preset'] : '';
+        $to_today = !empty($dr['to_today']);
         if ($preset !== '') {
-            return self::evaluate_preset($preset);
+            $range = self::evaluate_preset($preset);
+            // Preset already rolls `to` forward to "end of today", so
+            // to_today is a no-op here — but be defensive.
+            if ($to_today) {
+                $range['to'] = current_time('mysql');
+            }
+            return $range;
         }
         $from = isset($dr['from']) && $dr['from'] !== '' ? (string) $dr['from'] : null;
         $to   = isset($dr['to'])   && $dr['to']   !== '' ? (string) $dr['to']   : current_time('mysql');
+        // Explicit "always end on today" overrides any stored `to`.
+        if ($to_today) {
+            $to = current_time('mysql');
+        }
         return array('from' => $from, 'to' => $to);
     }
 

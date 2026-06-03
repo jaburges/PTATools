@@ -177,9 +177,14 @@ class Azure_Orders_Reports_Storage {
         return array(
             'version' => 1,
             'date_range' => array(
-                'from'   => isset($dr['from']) ? sanitize_text_field((string) $dr['from']) : null,
-                'to'     => isset($dr['to'])   ? sanitize_text_field((string) $dr['to'])   : null,
-                'preset' => $preset !== '' ? $preset : null,
+                'from'     => isset($dr['from']) ? sanitize_text_field((string) $dr['from']) : null,
+                'to'       => isset($dr['to'])   ? sanitize_text_field((string) $dr['to'])   : null,
+                'preset'   => $preset !== '' ? $preset : null,
+                // When true, the resolver replaces `to` with right-now
+                // at run-time. Lets a saved report with explicit dates
+                // (e.g. "from 2026-08-01 to ___") stay accurate every
+                // time it's exported without re-editing.
+                'to_today' => !empty($dr['to_today']),
             ),
             'filters' => array(
                 'statuses'     => $statuses,

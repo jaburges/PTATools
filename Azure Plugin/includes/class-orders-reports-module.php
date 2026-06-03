@@ -64,6 +64,117 @@ class Azure_Orders_Reports_Module {
         // Form-driven endpoints.
         add_action('admin_post_azure_or_export',       array($this, 'handle_export'));
         add_action('admin_post_azure_or_export_saved', array($this, 'handle_export_saved'));
+
+        // Admin dashboard widget — saved reports + one-click Export each.
+        add_action('wp_dashboard_setup', array($this, 'register_dashboard_widget'));
+    }
+
+    /**
+     * Register the Orders Reports dashboard widget. Hook fires only on
+     * /wp-admin/index.php, so the cost on every other admin page is
+     * zero. Inside, we further gate by capability so the SQL only
+     * runs for users who can actually use the widget.
+     */
+    public function register_dashboard_widget() {
+        if (!current_user_can('manage_woocommerce')) {
+            return;
+        }
+        wp_add_dashboard_widget(
+            'azure_orders_reports_widget',
+            __('Orders Reports', 'azure-plugin'),
+            array($this, 'render_dashboard_widget')
+        );
+    }
+
+    /**
+     * Render the dashboard widget. ONE database query for the saved
+     * reports list (via Storage::list_all) plus a fixed amount of
+     * markup per row — no resolver calls, no order iteration. Each
+     * Export button is a self-contained POST form to the existing
+     * `azure_or_export_saved` admin-post handler, so the widget needs
+     * no JavaScript of its own and the heavy lifting only happens on
+     * click, not on render.
+     */
+    public function render_dashboard_widget() {
+        $reports   = Azure_Orders_Reports_Storage::list_all();
+        $admin_url = admin_url('admin.php?page=azure-plugin-selling&tab=reports');
+        ?>
+        <style>
+            #azure_orders_reports_widget .azure-or-w-list { max-height: 240px; overflow-y: auto; margin: 0 -12px; }
+            #azure_orders_reports_widget .azure-or-w-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #f0f0f1; }
+            #azure_orders_reports_widget .azure-or-w-row:last-child { border-bottom: none; }
+            #azure_orders_reports_widget .azure-or-w-row:hover { background: #f6f7f7; }
+            #azure_orders_reports_widget .azure-or-w-meta { flex: 1; min-width: 0; }
+            #azure_orders_reports_widget .azure-or-w-name { font-weight: 600; color: #1d2327; }
+            #azure_orders_reports_widget .azure-or-w-name a { text-decoration: none; }
+            #azure_orders_reports_widget .azure-or-w-name a:hover { text-decoration: underline; }
+            #azure_orders_reports_widget .azure-or-w-sub { font-size: 11px; color: #646970; }
+            #azure_orders_reports_widget .azure-or-w-form { margin: 0; flex-shrink: 0; }
+            #azure_orders_reports_widget .azure-or-w-footer { margin-top: 10px; text-align: right; }
+        </style>
+        <?php if (empty($reports)) : ?>
+            <p style="margin: 4px 0 12px;">
+                <?php esc_html_e('No saved reports yet.', 'azure-plugin'); ?>
+                <a href="<?php echo esc_url($admin_url . '&subtab=new'); ?>"><?php esc_html_e('Build your first report.', 'azure-plugin'); ?></a>
+            </p>
+        <?php else : ?>
+            <div class="azure-or-w-list">
+                <?php foreach ($reports as $r) :
+                    $edit_url = $admin_url . '&edit=' . (int) $r['id'];
+                    $last_exp = !empty($r['last_exported_at']) ? $this->format_relative_time($r['last_exported_at']) : __('never', 'azure-plugin');
+                    $rows_str = ($r['last_exported_rows'] > 0)
+                        ? sprintf(esc_html__('%d rows', 'azure-plugin'), (int) $r['last_exported_rows'])
+                        : '';
+                ?>
+                    <div class="azure-or-w-row">
+                        <div class="azure-or-w-meta">
+                            <div class="azure-or-w-name">
+                                <a href="<?php echo esc_url($edit_url); ?>"><?php echo esc_html($r['name']); ?></a>
+                            </div>
+                            <div class="azure-or-w-sub">
+                                <?php
+                                /* translators: 1: relative time like "2 days ago"; 2: optional "(N rows)" */
+                                printf(
+                                    esc_html__('Last exported: %1$s%2$s', 'azure-plugin'),
+                                    esc_html($last_exp),
+                                    $rows_str !== '' ? ' · ' . esc_html($rows_str) : ''
+                                );
+                                ?>
+                            </div>
+                        </div>
+                        <form class="azure-or-w-form" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                            <input type="hidden" name="action"    value="azure_or_export_saved" />
+                            <input type="hidden" name="report_id" value="<?php echo (int) $r['id']; ?>" />
+                            <input type="hidden" name="run_as_of" value="today" />
+                            <?php wp_nonce_field('azure_or_export_saved_' . (int) $r['id']); ?>
+                            <button type="submit" class="button button-small button-primary">
+                                <span class="dashicons dashicons-download" style="vertical-align:middle; font-size:14px; height:14px; width:14px; line-height:1; margin-right:2px;"></span>
+                                <?php esc_html_e('Export', 'azure-plugin'); ?>
+                            </button>
+                        </form>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <div class="azure-or-w-footer">
+                <a href="<?php echo esc_url($admin_url . '&subtab=saved'); ?>"><?php esc_html_e('Manage reports', 'azure-plugin'); ?> →</a>
+            </div>
+        <?php endif; ?>
+        <?php
+    }
+
+    /**
+     * Cheap relative-time formatter for the widget. Uses human_time_diff
+     * which is already in WP core and properly i18n'd ("2 days ago",
+     * "5 minutes ago"). Falls back to the raw date string on failure.
+     */
+    private function format_relative_time($mysql_datetime) {
+        $ts = strtotime((string) $mysql_datetime);
+        if (!$ts) return (string) $mysql_datetime;
+        return sprintf(
+            /* translators: %s: time elapsed, e.g. "2 days" */
+            esc_html__('%s ago', 'azure-plugin'),
+            human_time_diff($ts, current_time('timestamp'))
+        );
     }
 
     public function enqueue_assets($hook) {
@@ -364,11 +475,32 @@ class Azure_Orders_Reports_Module {
         if (!$loaded) {
             wp_die(esc_html__('Report not found.', 'azure-plugin'), 404);
         }
+
+        $config = $loaded['config'];
+
+        // `run_as_of=today` (sent by the dashboard widget's Export button)
+        // forces the report's end date to right-now, regardless of any
+        // explicit `to` saved in the report config. Lets a parent click
+        // Export on the dashboard and get a "through today" CSV without
+        // having to open the builder and bump the date. Presets like
+        // `this_school_year` / `last_7_days` already roll forward to
+        // today by design, so this flag is only useful for reports with
+        // explicit-date ranges.
+        if (isset($_POST['run_as_of']) && (string) $_POST['run_as_of'] === 'today') {
+            $now = current_time('mysql');
+            if (!isset($config['date_range']) || !is_array($config['date_range'])) {
+                $config['date_range'] = array('from' => null, 'to' => $now, 'preset' => null);
+            } else {
+                $config['date_range']['to']     = $now;
+                $config['date_range']['preset'] = null; // explicit `to` always wins
+            }
+        }
+
         // Counting before streaming so we can persist last_exported_rows.
         $query  = new Azure_Orders_Reports_Query();
-        $rows   = $query->count($loaded['config']);
+        $rows   = $query->count($config);
         Azure_Orders_Reports_Storage::mark_exported($report_id, $rows);
-        (new Azure_Orders_Reports_Export())->stream_download($loaded['config'], $loaded['name']);
+        (new Azure_Orders_Reports_Export())->stream_download($config, $loaded['name']);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
@@ -393,15 +525,17 @@ class Azure_Orders_Reports_Module {
         $columns      = isset($_POST['columns'])      ? wp_unslash((array) $_POST['columns'])      : array();
         $granularity  = isset($_POST['granularity'])  ? (string) wp_unslash($_POST['granularity']) : 'line_item';
 
-        $preset = isset($_POST['date_preset']) ? (string) wp_unslash($_POST['date_preset']) : '';
-        $from   = isset($_POST['date_from'])   ? (string) wp_unslash($_POST['date_from'])   : '';
-        $to     = isset($_POST['date_to'])     ? (string) wp_unslash($_POST['date_to'])     : '';
+        $preset   = isset($_POST['date_preset'])   ? (string) wp_unslash($_POST['date_preset']) : '';
+        $from     = isset($_POST['date_from'])     ? (string) wp_unslash($_POST['date_from'])   : '';
+        $to       = isset($_POST['date_to'])       ? (string) wp_unslash($_POST['date_to'])     : '';
+        $to_today = !empty($_POST['date_to_today']);
 
         return array(
             'date_range' => array(
-                'from'   => $from,
-                'to'     => $to,
-                'preset' => $preset,
+                'from'     => $from,
+                'to'       => $to,
+                'preset'   => $preset,
+                'to_today' => $to_today,
             ),
             'filters' => array(
                 'statuses'     => $statuses,

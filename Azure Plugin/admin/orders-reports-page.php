@@ -181,6 +181,12 @@ $all_statuses = function_exists('wc_get_order_statuses') ? wc_get_order_statuses
                         <button type="button" class="button azure-or-preset" data-preset="<?php echo esc_attr($slug); ?>"><?php echo esc_html($label); ?></button>
                     <?php endforeach; ?>
                 </div>
+                <div class="azure-or-row" style="margin-top:8px;">
+                    <label title="<?php esc_attr_e('When checked, the report always runs through “right now”, ignoring the To date above. Useful for ongoing year-to-date or school-year reports.', 'azure-plugin'); ?>">
+                        <input type="checkbox" name="date_to_today" id="azure-or-to-today" value="1" <?php checked(!empty($cfg['date_range']['to_today'])); ?> />
+                        <?php _e('Always end on today (ignore To date)', 'azure-plugin'); ?>
+                    </label>
+                </div>
             </fieldset>
 
             <?php
