@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.140
+ * Version: 3.141.0
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.140');
+define('AZURE_PLUGIN_VERSION', '3.141.0');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -612,6 +612,22 @@ class AzurePlugin {
                 require_once AZURE_PLUGIN_PATH . 'includes/class-disable-comments.php';
                 if (class_exists('Azure_Disable_Comments')) {
                     Azure_Disable_Comments::get_instance();
+                }
+            }
+
+            // Anti-spam / registration hardening. Loaded on every
+            // request so the registration-block fires before WP gets
+            // anywhere near user creation. The constructor reads one
+            // already-cached option and short-circuits if the user
+            // explicitly disabled it; default is ON. When enabled it
+            // forces users_can_register=0 at the option-read layer,
+            // 403s the wp-login.php?action=register form, blocks
+            // /wp-signup.php and /register/, and rejects bot-pattern
+            // usernames as a defense-in-depth net.
+            if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-anti-spam.php')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-anti-spam.php';
+                if (class_exists('Azure_Anti_Spam')) {
+                    Azure_Anti_Spam::get_instance();
                 }
             }
 

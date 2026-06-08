@@ -239,6 +239,24 @@ if (!defined('ABSPATH')) {
                             </span>
                         </td>
                     </tr>
+                    <tr>
+                        <td style="width: 40px; padding: 12px 10px;">
+                            <label class="switch-mini">
+                                <input type="checkbox" class="module-toggle" data-module="block_registration" <?php checked($settings['enable_block_registration'] ?? true); ?> />
+                                <span class="slider"></span>
+                            </label>
+                        </td>
+                        <td>
+                            <strong>Block WordPress registration form</strong><br />
+                            <span class="description">
+                                Returns a 403 for <code>/wp-login.php?action=register</code>, <code>/wp-signup.php</code>, and <code>/register/</code>.
+                                Forces <code>users_can_register=0</code> at runtime and overrides the default role away from <code>customer</code>/admin-tier roles.
+                                Rejects bot-pattern usernames (random gibberish) and known disposable email domains.
+                                Account creation through SSO, the <code>[pta_newsletter_signup]</code> shortcode, and WooCommerce checkout still work as normal.
+                                <strong>Recommended ON.</strong>
+                            </span>
+                        </td>
+                    </tr>
                 </tbody>
             </table>
         </div>

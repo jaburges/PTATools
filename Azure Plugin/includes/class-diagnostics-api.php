@@ -186,6 +186,37 @@ class Azure_Diagnostics_API {
             ),
         ));
 
+        // Spam-user audit: classifies users by suspected-spam pattern
+        // (random-string usernames, disposable emails, recently
+        // registered with no orders/posts/logins) and reports their
+        // roles + caps so we can tell why WP admin refused to delete.
+        register_rest_route($ns, '/diagnostics/spam-user-audit', array(
+            'methods'             => 'GET',
+            'callback'            => array($this, 'route_spam_user_audit'),
+            'permission_callback' => $auth,
+        ));
+
+        // Spam-user cleanup: bulk wp_delete_user with reassignment +
+        // JSON backup. Requires confirm=yes-i-am-sure and has dry_run
+        // gating. Targets ids returned by spam-user-audit (or an
+        // explicit ids list).
+        register_rest_route($ns, '/diagnostics/spam-user-cleanup', array(
+            'methods'             => 'POST',
+            'callback'            => array($this, 'route_spam_user_cleanup'),
+            'permission_callback' => $auth,
+        ));
+
+        // Roles cleanup: drops dead WP roles left behind by uninstalled
+        // plugins (sign_up_*, fundraiser_*, bbp_*, project_plugin_*,
+        // dev_admin, etc.) so they can't be re-assigned to new users
+        // and don't contribute to the "you are not allowed to delete
+        // that user" UI error.
+        register_rest_route($ns, '/diagnostics/roles-cleanup', array(
+            'methods'             => 'POST',
+            'callback'            => array($this, 'route_roles_cleanup'),
+            'permission_callback' => $auth,
+        ));
+
         // Rebuild display_name from first_name + last_name usermeta for a
         // single user. Used to clean up parents whose display_name still
         // looks auto-generated from their email after a merge.
@@ -8210,5 +8241,486 @@ class Azure_Diagnostics_API {
                 'verify_url'    => $new_permalink,
             ),
         ));
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Spam users — audit, cleanup, role cleanup
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * GET /diagnostics/spam-user-audit
+     *
+     * Lists every user the heuristic classifier in Azure_Anti_Spam
+     * thinks is spam, plus several supporting signals so the operator
+     * can sanity-check the verdict before any deletion:
+     *
+     *   - role list + capability count (high-cap roles trigger the
+     *     "you are not allowed to delete that user" UI error)
+     *   - registration date + last login (or "never")
+     *   - whether the user has any WC orders, posts authored, or
+     *     azure_email_logs entries — anything that would mean
+     *     deleting them loses real data
+     *
+     * Optional query params:
+     *   days=N    — only consider users registered in the last N days
+     *               (default 365 for a wide audit; pass days=14 for
+     *               just the recent wave)
+     *   limit=N   — cap returned rows (default 500)
+     *   include_safe=1 — also include users that don't match the
+     *                    spam pattern (useful when looking at a
+     *                    specific id range)
+     */
+    public function route_spam_user_audit($request) {
+        if (!class_exists('Azure_Anti_Spam')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-anti-spam.php';
+            if (file_exists($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('Azure_Anti_Spam')) {
+            return new WP_Error('antispam_missing', 'Azure_Anti_Spam class is not loaded', array('status' => 500));
+        }
+
+        global $wpdb;
+        $days  = max(1, (int) $request->get_param('days') ?: 365);
+        $limit = max(1, min(2000, (int) $request->get_param('limit') ?: 500));
+        $include_safe = (int) $request->get_param('include_safe') === 1;
+
+        $cutoff_gmt = gmdate('Y-m-d H:i:s', time() - ($days * DAY_IN_SECONDS));
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT ID, user_login, user_email, user_registered, display_name
+             FROM {$wpdb->users}
+             WHERE user_registered >= %s
+             ORDER BY user_registered DESC
+             LIMIT %d",
+            $cutoff_gmt,
+            $limit
+        ), ARRAY_A);
+
+        $verdicts = array();
+        $by_reason = array();
+        $by_role   = array();
+
+        foreach ((array) $rows as $r) {
+            $uid = (int) $r['ID'];
+            $u   = get_user_by('id', $uid);
+            if (!$u) {
+                continue;
+            }
+
+            $verdict = Azure_Anti_Spam::classify_existing_user($u);
+            $is_spam = !empty($verdict['reason']);
+
+            // Supporting signals — only computed when included in the
+            // output to keep the audit fast on large user pools.
+            if (!$is_spam && !$include_safe) {
+                continue;
+            }
+
+            $orders = 0;
+            if (class_exists('WooCommerce')) {
+                // wc_orders table on HPOS sites; fall back to postmeta on legacy.
+                $tbl = $wpdb->prefix . 'wc_orders';
+                if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tbl)) === $tbl) {
+                    $orders = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$tbl} WHERE customer_id = %d",
+                        $uid
+                    ));
+                } else {
+                    $orders = (int) $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$wpdb->postmeta}
+                         WHERE meta_key = '_customer_user' AND meta_value = %d",
+                        $uid
+                    ));
+                }
+            }
+            $posts_authored = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->posts}
+                 WHERE post_author = %d AND post_status NOT IN ('auto-draft','trash')",
+                $uid
+            ));
+            $last_login_meta = get_user_meta($uid, 'last_login', true);
+            $session_tokens  = get_user_meta($uid, 'session_tokens', true);
+            $has_session     = !empty($session_tokens);
+
+            $cap_count = is_array($u->allcaps) ? count(array_filter($u->allcaps)) : 0;
+
+            $verdicts[] = array(
+                'id'              => $uid,
+                'login'           => $u->user_login,
+                'email'           => $u->user_email,
+                'display_name'    => $u->display_name,
+                'roles'           => $u->roles,
+                'cap_count'       => $cap_count,
+                'registered'      => $r['user_registered'],
+                'last_login'      => is_string($last_login_meta) ? $last_login_meta : null,
+                'has_session'     => $has_session,
+                'orders'          => $orders,
+                'posts_authored'  => $posts_authored,
+                'spam_reason'     => $verdict['reason'],
+                'is_spam'         => $is_spam,
+                'safe_to_delete'  => $is_spam && $orders === 0 && $posts_authored === 0,
+            );
+
+            $key = $is_spam ? (string) $verdict['reason'] : 'NOT_SPAM';
+            $by_reason[$key] = isset($by_reason[$key]) ? $by_reason[$key] + 1 : 1;
+            foreach ((array) $u->roles as $role) {
+                $by_role[$role] = isset($by_role[$role]) ? $by_role[$role] + 1 : 1;
+            }
+        }
+
+        // Quick role inventory — every role currently defined on the
+        // site, with the count of users in it. The "available roles"
+        // list from /registration showed several leftover roles from
+        // defunct plugins; this surfaces which of those still have
+        // members.
+        $all_roles = wp_roles();
+        $role_inventory = array();
+        $usermeta_table = $wpdb->usermeta;
+        $cap_meta_key   = $wpdb->prefix . 'capabilities';
+        foreach ($all_roles->roles as $slug => $def) {
+            $count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$usermeta_table}
+                 WHERE meta_key = %s AND meta_value LIKE %s",
+                $cap_meta_key,
+                '%"' . $wpdb->esc_like($slug) . '"%'
+            ));
+            $caps_count = isset($def['capabilities']) ? count(array_filter((array) $def['capabilities'])) : 0;
+            $role_inventory[] = array(
+                'slug'        => $slug,
+                'name'        => isset($def['name']) ? $def['name'] : '',
+                'cap_count'   => $caps_count,
+                'user_count'  => $count,
+                'has_delete_users' => !empty($def['capabilities']['delete_users']),
+            );
+        }
+        usort($role_inventory, function($a, $b) { return $b['user_count'] - $a['user_count']; });
+
+        return rest_ensure_response(array(
+            'plugin_version'   => defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : 'unknown',
+            'generated_at'     => gmdate('Y-m-d\\TH:i:s\\Z'),
+            'days_window'      => $days,
+            'users_examined'   => count($rows),
+            'verdicts_count'   => count($verdicts),
+            'spam_count'       => (int) array_sum(array_map(function($v) { return $v['is_spam'] ? 1 : 0; }, $verdicts)),
+            'safe_to_delete'   => (int) array_sum(array_map(function($v) { return $v['safe_to_delete'] ? 1 : 0; }, $verdicts)),
+            'by_reason'        => $by_reason,
+            'by_role'          => $by_role,
+            'role_inventory'   => $role_inventory,
+            'verdicts'         => $verdicts,
+        ));
+    }
+
+    /**
+     * POST /diagnostics/spam-user-cleanup
+     *
+     * Bulk-delete spam users with backup. Two targeting modes:
+     *   - automatic: re-runs the audit and deletes every row where
+     *     `safe_to_delete = true`
+     *   - explicit:  deletes the comma-separated `ids=` list (no
+     *     classifier check; the operator vouches for the list)
+     *
+     * Required body params:
+     *   confirm = yes-i-am-sure
+     *   dry_run = 1|0 (default 1)
+     *
+     * Optional body params:
+     *   ids      = "1278,1279,1280"  (explicit mode)
+     *   days     = N  (automatic mode window; default 365)
+     *   reassign = user_id to receive any orphaned content (default 1)
+     *   max      = cap on number deleted in one call (default 200)
+     */
+    public function route_spam_user_cleanup($request) {
+        $confirm = (string) $request->get_param('confirm');
+        if ($confirm !== 'yes-i-am-sure') {
+            return new WP_Error(
+                'missing_confirm',
+                'POST confirm=yes-i-am-sure to execute. Use dry_run=1 to preview.',
+                array('status' => 400)
+            );
+        }
+        $dry = $request->get_param('dry_run');
+        $dry = ($dry === null) ? true : ((int) $dry !== 0);
+        $reassign = (int) $request->get_param('reassign');
+        if ($reassign <= 0) {
+            $reassign = 1;
+        }
+        $max = max(1, min(2000, (int) $request->get_param('max') ?: 200));
+
+        if (!class_exists('Azure_Anti_Spam')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-anti-spam.php';
+            if (file_exists($path)) {
+                require_once $path;
+            }
+        }
+
+        // Resolve target list
+        $ids = array();
+        $explicit = (string) $request->get_param('ids');
+        if ($explicit !== '') {
+            foreach (preg_split('/[,\s]+/', $explicit) as $piece) {
+                $piece = trim($piece);
+                if ($piece !== '' && ctype_digit($piece)) {
+                    $ids[] = (int) $piece;
+                }
+            }
+            $mode = 'explicit';
+        } else {
+            $mode = 'automatic';
+            global $wpdb;
+            $days = max(1, (int) $request->get_param('days') ?: 365);
+            $cutoff_gmt = gmdate('Y-m-d H:i:s', time() - ($days * DAY_IN_SECONDS));
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->users}
+                 WHERE user_registered >= %s
+                 ORDER BY user_registered DESC
+                 LIMIT %d",
+                $cutoff_gmt,
+                2000
+            ), ARRAY_A);
+            foreach ((array) $rows as $r) {
+                $uid = (int) $r['ID'];
+                $u   = get_user_by('id', $uid);
+                if (!$u) {
+                    continue;
+                }
+                $verdict = Azure_Anti_Spam::classify_existing_user($u);
+                if (empty($verdict['reason'])) {
+                    continue;
+                }
+                // Safety: don't delete users with content/orders.
+                global $wpdb;
+                $orders = 0;
+                if (class_exists('WooCommerce')) {
+                    $tbl = $wpdb->prefix . 'wc_orders';
+                    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $tbl)) === $tbl) {
+                        $orders = (int) $wpdb->get_var($wpdb->prepare(
+                            "SELECT COUNT(*) FROM {$tbl} WHERE customer_id = %d", $uid
+                        ));
+                    } else {
+                        $orders = (int) $wpdb->get_var($wpdb->prepare(
+                            "SELECT COUNT(*) FROM {$wpdb->postmeta}
+                             WHERE meta_key='_customer_user' AND meta_value=%d", $uid
+                        ));
+                    }
+                }
+                $posts = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wpdb->posts}
+                     WHERE post_author=%d AND post_status NOT IN ('auto-draft','trash')",
+                    $uid
+                ));
+                if ($orders === 0 && $posts === 0) {
+                    $ids[] = $uid;
+                }
+            }
+        }
+
+        $ids = array_slice(array_values(array_unique($ids)), 0, $max);
+
+        // Don't allow deleting your own account or any administrator.
+        $self_id = get_current_user_id();
+        $protected = array();
+        $admin_ids = $this->_admin_user_ids();
+        $filtered  = array();
+        foreach ($ids as $uid) {
+            if ($uid === $self_id) {
+                $protected[] = array('id' => $uid, 'reason' => 'self');
+                continue;
+            }
+            if (in_array($uid, $admin_ids, true)) {
+                $protected[] = array('id' => $uid, 'reason' => 'administrator');
+                continue;
+            }
+            $filtered[] = $uid;
+        }
+        $ids = $filtered;
+
+        // Backup before any deletion.
+        $up = wp_upload_dir();
+        $backup_dir = trailingslashit($up['basedir']) . 'pta-cleanup-backups';
+        if (!file_exists($backup_dir)) {
+            wp_mkdir_p($backup_dir);
+        }
+        $stamp = gmdate('Ymd-His');
+        $backup_path = $backup_dir . "/spam-users-{$stamp}.json";
+
+        $backup_records = array();
+        foreach ($ids as $uid) {
+            $u = get_user_by('id', $uid);
+            if (!$u) {
+                continue;
+            }
+            $backup_records[] = array(
+                'id'           => (int) $uid,
+                'login'        => $u->user_login,
+                'email'        => $u->user_email,
+                'display_name' => $u->display_name,
+                'registered'   => $u->user_registered,
+                'roles'        => $u->roles,
+                'meta'         => array_map(function($v) {
+                    if (is_array($v) && count($v) === 1) {
+                        return maybe_unserialize($v[0]);
+                    }
+                    return $v;
+                }, get_user_meta($uid)),
+            );
+        }
+
+        $deleted_ok = array();
+        $deleted_fail = array();
+
+        if (!$dry) {
+            file_put_contents($backup_path, wp_json_encode($backup_records, JSON_PRETTY_PRINT));
+
+            if (!function_exists('wp_delete_user')) {
+                require_once ABSPATH . 'wp-admin/includes/user.php';
+            }
+
+            foreach ($ids as $uid) {
+                $ok = wp_delete_user($uid, $reassign);
+                if ($ok) {
+                    $deleted_ok[] = $uid;
+                } else {
+                    $deleted_fail[] = $uid;
+                }
+            }
+        }
+
+        return rest_ensure_response(array(
+            'plugin_version' => defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : 'unknown',
+            'mode'           => $mode,
+            'dry_run'        => $dry,
+            'targeted_ids'   => $ids,
+            'protected'      => $protected,
+            'backup_file'    => $dry ? null : $backup_path,
+            'reassign_to'    => $reassign,
+            'deleted_count'  => count($deleted_ok),
+            'failed_count'   => count($deleted_fail),
+            'deleted_ids'    => $deleted_ok,
+            'failed_ids'     => $deleted_fail,
+        ));
+    }
+
+    /**
+     * POST /diagnostics/roles-cleanup
+     *
+     * Removes WordPress roles that were registered by long-uninstalled
+     * plugins and have zero users assigned. Leaving them around bloats
+     * the role list and contributes to "you are not allowed to delete
+     * that user" UI errors when admins compare caps.
+     *
+     * Required body params:
+     *   confirm = yes-i-am-sure
+     *   dry_run = 1|0 (default 1)
+     *
+     * Roles considered candidates: anything matching well-known dead
+     * plugin slugs (sign_up_*, fundraiser_*, project_plugin_*,
+     * dev_admin, bbp_*, paid_member_no_admin_access, messenger_admin,
+     * etn-*, mb-*, mp-*) AND with zero users assigned. Built-in roles
+     * (administrator, editor, author, contributor, subscriber) are
+     * always preserved. Custom roles defined by PTA Tools (parent,
+     * school_staff, azuread, pta_manager, customer, shop_manager) are
+     * always preserved.
+     */
+    public function route_roles_cleanup($request) {
+        $confirm = (string) $request->get_param('confirm');
+        if ($confirm !== 'yes-i-am-sure') {
+            return new WP_Error(
+                'missing_confirm',
+                'POST confirm=yes-i-am-sure to execute. Use dry_run=1 to preview.',
+                array('status' => 400)
+            );
+        }
+        $dry = $request->get_param('dry_run');
+        $dry = ($dry === null) ? true : ((int) $dry !== 0);
+
+        global $wpdb;
+
+        $protected_roles = array(
+            'administrator', 'editor', 'author', 'contributor', 'subscriber',
+            'customer', 'shop_manager',
+            'parent', 'school_staff', 'azuread', 'pta_manager',
+        );
+
+        $dead_plugin_prefixes = array(
+            'sign_up_', 'signup_', 'project_', 'fundraiser_', 'fundriser_',
+            'bbp_', 'bbpress_',
+            'etn-', 'etn_',
+            'mb-', 'mb_', 'mp-', 'mp_', 'memb_', 'membership_',
+            'paid_member', 'messenger_',
+            'own_',
+            'dev_admin',
+            'bp-', 'bp_', 'tasks-',
+            'wcfm_', 'pto_', 'pto-',
+            'cc_', 'udb_', 'uo-', 'uo_',
+        );
+
+        $all_roles = wp_roles();
+        $cap_meta_key = $wpdb->prefix . 'capabilities';
+
+        $candidates = array();
+        $kept       = array();
+
+        foreach ($all_roles->roles as $slug => $def) {
+            if (in_array($slug, $protected_roles, true)) {
+                $kept[] = array('slug' => $slug, 'reason' => 'protected');
+                continue;
+            }
+            $is_dead = false;
+            foreach ($dead_plugin_prefixes as $prefix) {
+                if (stripos($slug, $prefix) === 0) {
+                    $is_dead = true;
+                    break;
+                }
+            }
+            if (!$is_dead) {
+                $kept[] = array('slug' => $slug, 'reason' => 'unrecognized_keep');
+                continue;
+            }
+            $user_count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->usermeta}
+                 WHERE meta_key = %s AND meta_value LIKE %s",
+                $cap_meta_key,
+                '%"' . $wpdb->esc_like($slug) . '"%'
+            ));
+            if ($user_count > 0) {
+                $kept[] = array('slug' => $slug, 'reason' => 'has_users:' . $user_count);
+                continue;
+            }
+            $candidates[] = array(
+                'slug'      => $slug,
+                'name'      => isset($def['name']) ? $def['name'] : '',
+                'caps'      => isset($def['capabilities']) ? array_keys(array_filter((array) $def['capabilities'])) : array(),
+            );
+        }
+
+        $removed = array();
+        if (!$dry && !empty($candidates)) {
+            foreach ($candidates as $c) {
+                if (remove_role($c['slug'])) {
+                    $removed[] = $c['slug'];
+                }
+            }
+        }
+
+        return rest_ensure_response(array(
+            'plugin_version' => defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : 'unknown',
+            'dry_run'        => $dry,
+            'kept'           => $kept,
+            'candidates'     => $candidates,
+            'removed_count'  => count($removed),
+            'removed_slugs'  => $removed,
+        ));
+    }
+
+    /** Helper: ids of every administrator on the site. */
+    private function _admin_user_ids() {
+        $admins = get_users(array(
+            'role'   => 'administrator',
+            'fields' => 'ID',
+            'number' => 100,
+        ));
+        return array_map('intval', (array) $admins);
     }
 }
