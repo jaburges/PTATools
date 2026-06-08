@@ -207,6 +207,70 @@
     font-size: 12px;
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Month-grid column sizing + title truncation
+   ──────────────────────────────────────────────────────────────
+   A long event title must never widen a day column. FullCalendar
+   lays the month grid out as a <table>; we force fixed layout so
+   every column stays equal-width and aligned to the weekday header
+   row, then clamp event titles to a single line with an ellipsis.
+   The full title is still available on hover (native `title` attr,
+   set in get_calendar_script's eventDidMount) and on click/tap
+   (eventClick navigates to the event page for pta_event sources).
+
+   This previously only worked for all-day pills (.pta-cal-allday);
+   timed "dot" events (e.g. "6:00 pm Long Title…") were left with
+   FullCalendar's default flex title whose `min-width: auto` floor
+   refused to shrink, stretching the column. */
+.azure-calendar-container .fc .fc-scrollgrid,
+.azure-calendar-container .fc .fc-scrollgrid > table,
+.azure-calendar-container .fc-daygrid-body,
+.azure-calendar-container .fc-daygrid-body > table,
+.azure-calendar-container .fc-col-header {
+    table-layout: fixed !important;
+    width: 100% !important;
+}
+
+/* Let day cells / event containers shrink so their content can be
+   clipped instead of forcing the column wider. min-width:0 defeats
+   the flexbox & table min-content floor. */
+.azure-calendar-container .fc-daygrid-day-frame,
+.azure-calendar-container .fc-daygrid-day-events,
+.azure-calendar-container .fc-daygrid-event-harness {
+    min-width: 0 !important;
+    max-width: 100%;
+}
+
+/* Clip every day-grid event chip to its column. */
+.azure-calendar-container .fc-daygrid-event {
+    overflow: hidden;
+}
+
+/* Single-line ellipsis for the title on BOTH timed (dot) events and
+   all-day/block pills. flex:1 + min-width:0 lets the title shrink
+   while the colored dot and start-time stay visible. */
+.azure-calendar-container .fc-daygrid-event .fc-event-title {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* The events container in a day cell stacks chips vertically; keep
+   it from establishing a wider min-content width than its column. */
+.azure-calendar-container .fc-daygrid-day-events .fc-daygrid-event-harness {
+    display: block;
+}
+
+/* Hint that event chips are interactive (tap/click opens the event). */
+.azure-calendar-container .fc-daygrid-event[href],
+.azure-calendar-container .fc-daygrid-event.fc-event {
+    cursor: pointer;
+}
+
 /* Online-meeting indicator on calendar chips. Tiny camera icon
    before the event title so visitors can spot meetings at a glance
    without opening the event. */

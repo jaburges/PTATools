@@ -877,6 +877,23 @@ class Azure_Calendar_Shortcode {
                         }
                         alert(info.event.title + '\\n' + when);
                     },
+                    eventDidMount: function(info) {
+                        // Titles are clamped to one line with an ellipsis in
+                        // the month grid (see calendar-frontend.css), so the
+                        // full text might be hidden. Expose it as a native
+                        // tooltip on hover and to assistive tech. For timed
+                        // events, append the start time for quick context.
+                        var full = info.event.title || '';
+                        if (info.event.start && !info.event.allDay) {
+                            try {
+                                full += ' \\u2014 ' + info.event.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                            } catch (e) {}
+                        }
+                        if (full) {
+                            info.el.setAttribute('title', full);
+                            info.el.setAttribute('aria-label', full);
+                        }
+                    },
                     height: '{$atts['height']}',
                     themeSystem: 'standard'
                 });
