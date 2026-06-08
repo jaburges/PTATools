@@ -251,9 +251,26 @@ if (!defined('ABSPATH')) {
                             <span class="description">
                                 Returns a 403 for <code>/wp-login.php?action=register</code>, <code>/wp-signup.php</code>, and <code>/register/</code>.
                                 Forces <code>users_can_register=0</code> at runtime and overrides the default role away from <code>customer</code>/admin-tier roles.
-                                Rejects bot-pattern usernames (random gibberish) and known disposable email domains.
-                                Account creation through SSO, the <code>[pta_newsletter_signup]</code> shortcode, and WooCommerce checkout still work as normal.
-                                <strong>Recommended ON.</strong>
+                                Account creation through SSO, the <code>[pta_newsletter_signup]</code> shortcode, and WooCommerce checkout still work as normal —
+                                this only closes the bare WordPress registration page that nobody legitimate uses.
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="width: 40px; padding: 12px 10px;">
+                            <label class="switch-mini">
+                                <input type="checkbox" class="module-toggle" data-module="anti_spam_filter" <?php checked($settings['enable_anti_spam_filter'] ?? true); ?> />
+                                <span class="slider"></span>
+                            </label>
+                        </td>
+                        <td>
+                            <strong>Spam bot protection</strong><br />
+                            <span class="description">
+                                Pattern-based bot filter that protects every signup path including the parent newsletter form
+                                (<code>[pta_newsletter_signup]</code>). Rejects random-string usernames and email local parts
+                                (e.g. <code>KcIIFSLaHgonfglOrGeuar@gmail.com</code>) and ~20 known disposable email providers.
+                                Real names and email-derived usernames pass through untouched. Recommended ON even if registration
+                                is allowed — this is the layer that lets parents sign up while bots get filtered.
                             </span>
                         </td>
                     </tr>

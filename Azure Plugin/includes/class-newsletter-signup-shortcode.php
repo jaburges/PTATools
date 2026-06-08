@@ -224,10 +224,14 @@ class Azure_Newsletter_Signup_Shortcode {
         }
         set_transient($rate_key, $count + 1, self::RATE_LIMIT_WINDOW);
 
-        // 3. Validate input.
-        $email = strtolower(trim((string) $request->get_param('email')));
-        $name  = sanitize_text_field((string) $request->get_param('name'));
-        $agree = (bool) (int) $request->get_param('agree');
+        // 3. Validate input. We hold onto the original-case email
+        // separately because the anti-spam classifier uses case
+        // transitions as a signal — lowercasing first would erase
+        // the `KcIIFSLaHgonfglOrGeuar` style of pattern.
+        $email_raw = trim((string) $request->get_param('email'));
+        $email     = strtolower($email_raw);
+        $name      = sanitize_text_field((string) $request->get_param('name'));
+        $agree     = (bool) (int) $request->get_param('agree');
         if (!$email || !is_email($email)) {
             return new WP_Error('invalid_email', __('Please enter a valid email address.', 'azure-plugin'), array('status' => 400));
         }
@@ -236,6 +240,33 @@ class Azure_Newsletter_Signup_Shortcode {
         // checkbox should still work), but if it was sent and false, reject.
         if ($request->get_param('agree') !== null && !$agree) {
             return new WP_Error('agree_required', __('Please accept the terms to continue.', 'azure-plugin'), array('status' => 400));
+        }
+
+        // 4. Anti-spam pattern check. Honors the
+        // `enable_anti_spam_filter` PTA Tools setting — when the
+        // toggle is off, check_signup() is a no-op so behavior is
+        // identical to the pre-3.141.1 endpoint. When on, this
+        // catches bot-pattern email local parts (mixed-case like
+        // KcIIFSLaHgonfglOrGeuar@gmail.com AND lowercased gibberish
+        // like kciifslahgonfglorgeuar@gmail.com) before we create a
+        // parent user. We deliberately return a generic rejection
+        // message so the heuristic doesn't leak to attackers.
+        if (class_exists('Azure_Anti_Spam')) {
+            $reason = Azure_Anti_Spam::check_signup('', $email_raw, $name);
+            if ($reason !== null) {
+                if (class_exists('Azure_Logger')) {
+                    Azure_Logger::info(
+                        sprintf('Anti-spam rejected newsletter signup: %s [%s] (name=%s)',
+                            $reason, $email_raw, $name),
+                        array('module' => 'NewsletterSignup')
+                    );
+                }
+                return new WP_Error(
+                    'signup_rejected',
+                    __('Sign-up could not be completed. Please contact us if you believe this is in error.', 'azure-plugin'),
+                    array('status' => 422)
+                );
+            }
         }
 
         return rest_ensure_response($this->process_signup($email, $name));
