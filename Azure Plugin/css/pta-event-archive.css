@@ -117,7 +117,13 @@
 }
 .pta-events-calendar-row {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    /* minmax(0, 1fr) — NOT plain 1fr. A 1fr track defaults to a
+       min-width of `auto` (= min-content), so a long no-wrap event
+       chip forces its day column wider than 1/7th, knocking the grid
+       out of alignment with the weekday header row. minmax(0, 1fr)
+       lets the column shrink to 0 so the chip's existing overflow/
+       ellipsis clips instead, keeping all 7 columns equal-width. */
+    grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 .pta-events-calendar-row + .pta-events-calendar-row { border-top: 1px solid #e5e7eb; }
 
@@ -143,6 +149,10 @@
     padding: 6px 8px 8px;
     background: #fff;
     position: relative;
+    /* Allow the cell to shrink below its content's intrinsic width so
+       chips clip to the column rather than widening it. */
+    min-width: 0;
+    overflow: hidden;
 }
 .pta-events-calendar-cell + .pta-events-calendar-cell {
     border-left: 1px solid #e5e7eb;
@@ -188,6 +198,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    max-width: 100%;
 }
 .pta-events-calendar-chip:hover {
     background: #ddd6fe;
