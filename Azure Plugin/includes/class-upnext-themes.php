@@ -110,13 +110,28 @@ class Azure_UpNext_Themes {
         }
 
         $all = array_merge($builtins, $filtered);
-        // Tag builtin flag for the UI; deserialized arrays may lack it.
-        foreach ($all as $i => $t) {
-            $all[$i]['is_builtin'] = isset($builtin_slugs[$t['slug']]);
+
+        // Normalize EVERY theme on read (not just on save). Themes
+        // persisted under an older schema — e.g. before v3.128 added
+        // outer_padding / header_text / header_font — would otherwise
+        // be returned missing those keys, which (a) throws "Undefined
+        // array key" warnings in build_css()/the editor and (b)
+        // silently disables the outer container padding and the
+        // theme header. Running normalize_theme() here backfills the
+        // full current schema with safe defaults so the renderer and
+        // the admin editor always see a complete theme.
+        $normalized = array();
+        foreach ($all as $t) {
+            if (!is_array($t) || empty($t['slug'])) continue;
+            $slug = sanitize_key((string) $t['slug']);
+            $n = self::normalize_theme($t, $slug);
+            // Tag builtin flag for the UI (normalize_theme drops it).
+            $n['is_builtin'] = isset($builtin_slugs[$slug]);
+            $normalized[] = $n;
         }
 
-        self::$cached_themes = $all;
-        return $all;
+        self::$cached_themes = $normalized;
+        return $normalized;
     }
 
     /**
