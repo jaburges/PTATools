@@ -534,17 +534,6 @@ class Azure_Product_Fields_Module {
         return $passed;
     }
 
-    /**
-     * Is this product field the canonical "Child's Name" field? Matches by
-     * field_key ('child_name') or by display label ("child's name"), the
-     * same test used in render_single_field() so validation, rendering, and
-     * cart capture stay in lock-step.
-     */
-    private static function is_child_name_field($field) {
-        return (!empty($field->field_key) && strtolower((string) $field->field_key) === 'child_name')
-            || (!empty($field->label)     && strtolower((string) $field->label)     === "child's name");
-    }
-
     // ─── Cart ──────────────────────────────────────────────────────────
 
     public function add_cart_item_data($cart_item_data, $product_id, $variation_id) {
