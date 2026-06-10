@@ -304,9 +304,7 @@ class Azure_Product_Fields_Module {
         // at the top of the form (see render_product_fields). Skip the
         // text-input render here so we don't get a duplicate input — but
         // only when the selector was actually emitted (logged-in users).
-        $is_child_name = (!empty($field->field_key) && strtolower((string) $field->field_key) === 'child_name')
-                      || (!empty($field->label)     && strtolower((string) $field->label)     === "child's name");
-        if ($is_child_name && $this->child_selector_rendered) {
+        if (self::is_child_name_field($field) && $this->child_selector_rendered) {
             return;
         }
 
@@ -498,11 +496,32 @@ class Azure_Product_Fields_Module {
     public function validate_fields($passed, $product_id, $quantity) {
         $groups = self::get_groups_for_product($product_id);
 
+        // For logged-in parents the "Child's Name" field is collected via
+        // the child-picker dropdown (name="azure_pf_child_id"), and its
+        // azure_pf_{id} text input is intentionally NOT rendered (see
+        // render_single_field). The dropdown is always submitted when it's
+        // on the page, so isset() tells us it was the input method.
+        $has_child_selector = isset($_POST['azure_pf_child_id']);
+        $selected_child_id  = $has_child_selector ? intval($_POST['azure_pf_child_id']) : 0;
+
         foreach ($groups as $group) {
             foreach ($group->fields as $field) {
                 if (!$field->required) {
                     continue;
                 }
+
+                // Validate the canonical child-name field against the
+                // dropdown selection rather than the (absent) text input —
+                // otherwise selecting a child still fails with
+                // "Child's name is a required field".
+                if ($has_child_selector && self::is_child_name_field($field)) {
+                    if ($selected_child_id <= 0) {
+                        wc_add_notice(sprintf(__('"%s" is a required field.', 'azure-plugin'), $field->label), 'error');
+                        $passed = false;
+                    }
+                    continue;
+                }
+
                 $key = 'azure_pf_' . $field->id;
                 $val = isset($_POST[$key]) ? sanitize_text_field($_POST[$key]) : '';
                 if ($val === '') {
@@ -513,6 +532,17 @@ class Azure_Product_Fields_Module {
         }
 
         return $passed;
+    }
+
+    /**
+     * Is this product field the canonical "Child's Name" field? Matches by
+     * field_key ('child_name') or by display label ("child's name"), the
+     * same test used in render_single_field() so validation, rendering, and
+     * cart capture stay in lock-step.
+     */
+    private static function is_child_name_field($field) {
+        return (!empty($field->field_key) && strtolower((string) $field->field_key) === 'child_name')
+            || (!empty($field->label)     && strtolower((string) $field->label)     === "child's name");
     }
 
     // ─── Cart ──────────────────────────────────────────────────────────
@@ -537,13 +567,45 @@ class Azure_Product_Fields_Module {
             }
         }
 
-        if (!empty($field_values)) {
-            $cart_item_data['azure_product_fields'] = $field_values;
-        }
-
+        // Resolve the child-picker dropdown selection. Its azure_pf_{id}
+        // text input is never rendered for logged-in parents, so the only
+        // submitted value is the child id. Look up the child's NAME and
+        // inject it into the field map under the canonical child-name field
+        // so it persists to the cart, order line item, emails, and exports
+        // as "Child's Name" — not just an opaque child id.
         $child_id = isset($_POST['azure_pf_child_id']) ? intval($_POST['azure_pf_child_id']) : 0;
         if ($child_id > 0) {
             $cart_item_data['azure_pf_child_id'] = $child_id;
+
+            $child = class_exists('Azure_User_Children')
+                ? Azure_User_Children::get_child($child_id, get_current_user_id())
+                : null;
+            if ($child && !empty($child->child_name)) {
+                foreach ($groups as $group) {
+                    foreach ($group->fields as $field) {
+                        if (!self::is_child_name_field($field)) {
+                            continue;
+                        }
+                        // Don't clobber a value already captured from a
+                        // submitted text input (guest path).
+                        if (isset($field_values[$field->id]) && $field_values[$field->id]['value'] !== '') {
+                            continue;
+                        }
+                        $field_values[$field->id] = array(
+                            'field_key'       => (!empty($field->field_key)) ? $field->field_key : 'child_name',
+                            'scope'           => !empty($field->scope) ? $field->scope : 'child',
+                            'label'           => $field->label,
+                            'value'           => sanitize_text_field($child->child_name),
+                            'save_to_profile' => (bool) $field->save_to_profile,
+                            'user_meta_key'   => isset($field->user_meta_key) ? $field->user_meta_key : '',
+                        );
+                    }
+                }
+            }
+        }
+
+        if (!empty($field_values)) {
+            $cart_item_data['azure_product_fields'] = $field_values;
         }
 
         return $cart_item_data;
