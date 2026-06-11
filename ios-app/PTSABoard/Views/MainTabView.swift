@@ -65,9 +65,9 @@ struct MainTabView: View {
             Button {
                 showBacklog = true
             } label: {
-                Image(systemName: "plus.circle.fill")
+                Image(systemName: "list.clipboard.fill")
             }
-            .accessibilityLabel("Add backlog item")
+            .accessibilityLabel("Tech backlog")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {

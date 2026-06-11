@@ -63,8 +63,25 @@ struct APIClient {
         query: [URLQueryItem] = [],
         body: Data? = nil,
         contentType: String = "application/json",
+        accept: String = "application/json",
         auth: AuthMode = .none
     ) async throws -> Data {
+        let (_, data) = try await download(
+            url, method: method, query: query, body: body,
+            contentType: contentType, accept: accept, auth: auth
+        )
+        return data
+    }
+
+    func download(
+        _ url: URL,
+        method: String = "GET",
+        query: [URLQueryItem] = [],
+        body: Data? = nil,
+        contentType: String = "application/json",
+        accept: String = "application/json",
+        auth: AuthMode = .none
+    ) async throws -> (HTTPURLResponse, Data) {
         var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             var items = comps.queryItems ?? []
@@ -75,7 +92,7 @@ struct APIClient {
         req.httpMethod = method
         req.httpBody = body
         if body != nil { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue(accept, forHTTPHeaderField: "Accept")
         req.setValue("PTSABoard-iOS/1.0", forHTTPHeaderField: "User-Agent")
 
         #if DEBUG
@@ -105,7 +122,7 @@ struct APIClient {
                 #endif
                 throw APIError.http(http.statusCode, snippet)
             }
-            return data
+            return (http, data)
         } catch let err as APIError {
             throw err
         } catch {

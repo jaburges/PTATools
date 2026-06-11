@@ -1,11 +1,13 @@
 import SwiftUI
 
 struct OrdersView: View {
+    @EnvironmentObject var auth: AuthService
     @State private var orders: [WCOrder] = []
     @State private var loading = false
     @State private var error: String?
     @State private var statusFilter = "any"
     @State private var search = ""
+    @State private var showReportsExport = false
 
     private let statuses = [
         ("any", "All"),
@@ -62,6 +64,25 @@ struct OrdersView: View {
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                 }
+            }
+            if auth.canExportOrdersReports {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showReportsExport = true
+                    } label: {
+                        Image(systemName: "tablecells.fill")
+                            .foregroundStyle(.green)
+                    }
+                    .accessibilityLabel("Export saved report")
+                }
+            }
+        }
+        .sheet(isPresented: $showReportsExport) {
+            OrdersReportsExportSheet()
+        }
+        .task {
+            if auth.wpRoles.isEmpty {
+                await auth.refreshWordPressRoles()
             }
         }
         .navigationDestination(for: WCOrder.self) { OrderDetailView(order: $0) }
