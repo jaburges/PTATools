@@ -152,6 +152,13 @@ class Azure_PTSA_REST_API {
         register_rest_route($ns, '/auction/email-items', array(
             'methods' => 'POST', 'callback' => array($this, 'auction_email_items'), 'permission_callback' => $auth,
         ));
+
+        register_rest_route($ns, '/orders-reports', array(
+            'methods' => 'GET', 'callback' => array($this, 'list_orders_reports'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/orders-reports/(?P<id>\d+)/export', array(
+            'methods' => 'GET', 'callback' => array($this, 'export_orders_report'), 'permission_callback' => $auth,
+        ));
     }
 
     /* =================================================================
@@ -1069,6 +1076,114 @@ class Azure_PTSA_REST_API {
             'github_issue_url'    => isset($data['html_url']) ? esc_url_raw((string) $data['html_url']) : null,
             'github_issue_state'  => isset($data['state']) ? sanitize_text_field((string) $data['state']) : null,
         );
+    }
+
+    /* =================================================================
+     * Orders Reports — saved report list + mobile export
+     * ================================================================= */
+
+    public function list_orders_reports(WP_REST_Request $req) {
+        if (!$this->require_orders_reports_cap()) {
+            return $this->forbidden();
+        }
+        if (!$this->load_orders_reports_dependencies()) {
+            return new WP_Error('ptsa_orders_reports_unavailable', 'Orders Reports module is unavailable.', array('status' => 503));
+        }
+
+        $out = array();
+        foreach (Azure_Orders_Reports_Storage::list_all() as $r) {
+            $out[] = array(
+                'id'                 => (int) $r['id'],
+                'name'               => (string) $r['name'],
+                'modified'           => (string) $r['modified'],
+                'last_exported_at'   => !empty($r['last_exported_at']) ? (string) $r['last_exported_at'] : null,
+                'last_exported_rows' => (int) $r['last_exported_rows'],
+            );
+        }
+        return rest_ensure_response($out);
+    }
+
+    public function export_orders_report(WP_REST_Request $req) {
+        if (!$this->require_orders_reports_cap()) {
+            return $this->forbidden();
+        }
+        if (!$this->load_orders_reports_dependencies()) {
+            return new WP_Error('ptsa_orders_reports_unavailable', 'Orders Reports module is unavailable.', array('status' => 503));
+        }
+
+        $report_id = (int) $req['id'];
+        $loaded = Azure_Orders_Reports_Storage::load($report_id);
+        if (!$loaded) {
+            return new WP_Error('ptsa_orders_report_not_found', "Report $report_id not found.", array('status' => 404));
+        }
+
+        $config = $this->orders_report_config_as_of_today($loaded['config']);
+        $query  = new Azure_Orders_Reports_Query();
+        $rows   = $query->count($config);
+
+        $temp = fopen('php://temp', 'w+');
+        if ($temp === false) {
+            return new WP_Error('ptsa_orders_report_export_failed', 'Could not open export buffer.', array('status' => 500));
+        }
+        $exporter = new Azure_Orders_Reports_Export();
+        $exporter->write_to_handle($config, $temp);
+        rewind($temp);
+        $content = stream_get_contents($temp);
+        fclose($temp);
+        if (!is_string($content)) {
+            return new WP_Error('ptsa_orders_report_export_failed', 'Could not read export buffer.', array('status' => 500));
+        }
+
+        Azure_Orders_Reports_Storage::mark_exported($report_id, $rows);
+
+        $safe_name = sanitize_file_name($loaded['name'] . '-' . gmdate('Ymd-His') . '.xls');
+        $response  = new WP_REST_Response($content, 200);
+        $response->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+        $response->header('Content-Disposition', 'attachment; filename="' . $safe_name . '"');
+        $response->header('X-Export-Rows', (string) (int) $rows);
+        $response->header('X-Content-Type-Options', 'nosniff');
+        return $response;
+    }
+
+    private function require_orders_reports_cap() {
+        return current_user_can('manage_woocommerce');
+    }
+
+    private function load_orders_reports_dependencies() {
+        $files = array(
+            'class-orders-reports-cpt.php',
+            'class-orders-reports-columns.php',
+            'class-orders-reports-query.php',
+            'class-orders-reports-export.php',
+            'class-orders-reports-storage.php',
+        );
+        foreach ($files as $f) {
+            $path = AZURE_PLUGIN_PATH . 'includes/' . $f;
+            if (file_exists($path)) {
+                require_once $path;
+            }
+        }
+        return class_exists('Azure_Orders_Reports_Storage')
+            && class_exists('Azure_Orders_Reports_Export')
+            && class_exists('Azure_Orders_Reports_Query');
+    }
+
+    /**
+     * Match the dashboard widget's `run_as_of=today` behaviour: honour
+     * saved presets/filters but force the end boundary to right-now.
+     */
+    private function orders_report_config_as_of_today(array $config) {
+        if (!isset($config['date_range']) || !is_array($config['date_range'])) {
+            $config['date_range'] = array(
+                'from'     => null,
+                'to'       => null,
+                'preset'   => null,
+                'to_today' => true,
+            );
+        } else {
+            $config['date_range']['to_today'] = true;
+        }
+        return $config;
     }
 
     /* =================================================================

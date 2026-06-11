@@ -19,6 +19,48 @@ final class WordPressService {
         return .bearer(token: token)
     }
 
+    // MARK: - Identity
+
+    func fetchMe() async throws -> PTSAMe {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("me")
+        return try await api.request(url, auth: try await wpAuth(), as: PTSAMe.self)
+    }
+
+    // MARK: - Orders reports
+
+    func listOrdersReports() async throws -> [OrdersReportSummary] {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("orders-reports")
+        return try await api.request(url, auth: try await wpAuth(), as: [OrdersReportSummary].self)
+    }
+
+    func exportOrdersReport(id: Int) async throws -> (data: Data, filename: String) {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("orders-reports/\(id)/export")
+        let (response, data) = try await api.download(
+            url,
+            accept: "application/vnd.ms-excel, application/octet-stream, */*",
+            auth: try await wpAuth()
+        )
+        let filename = Self.filename(from: response) ?? "orders-report.xls"
+        return (data, filename)
+    }
+
+    private static func filename(from response: HTTPURLResponse) -> String? {
+        guard let disposition = response.value(forHTTPHeaderField: "Content-Disposition") else {
+            return nil
+        }
+        for part in disposition.split(separator: ";") {
+            let trimmed = part.trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased().hasPrefix("filename*=") { continue }
+            guard trimmed.lowercased().hasPrefix("filename=") else { continue }
+            var name = String(trimmed.dropFirst("filename=".count))
+            if name.hasPrefix("\""), name.hasSuffix("\""), name.count >= 2 {
+                name = String(name.dropFirst().dropLast())
+            }
+            return name.isEmpty ? nil : name
+        }
+        return nil
+    }
+
     // MARK: - Users (search / list)
 
     func searchUsers(_ search: String, page: Int = 1, perPage: Int = 25) async throws -> [WPUser] {

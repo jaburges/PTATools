@@ -17,6 +17,7 @@ final class AuthService: ObservableObject {
 
     @Published private(set) var state: AuthState = .loading
     @Published private(set) var profile: UserProfile?
+    @Published private(set) var wpRoles: [String] = []
     @Published private(set) var lastError: String?
     @Published private(set) var signInExpiredAlert = false
 
@@ -30,6 +31,25 @@ final class AuthService: ObservableObject {
     private var shouldLockOnForeground = false
 
     private let biometricEnrolledKey = "biometricEnrolled"
+
+    /// Shop managers and administrators can export saved order reports.
+    var canExportOrdersReports: Bool {
+        let allowed: Set<String> = ["administrator", "shop_manager"]
+        return !Set(wpRoles.map { $0.lowercased() }).isDisjoint(with: allowed)
+    }
+
+    /// Refresh WordPress roles for the signed-in user via `/ptsa/v1/me`.
+    func refreshWordPressRoles() async {
+        guard state == .signedIn else { return }
+        do {
+            let me = try await WordPressService.shared.fetchMe()
+            wpRoles = me.roles
+        } catch {
+            #if DEBUG
+            print("[Auth] refreshWordPressRoles failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
 
     // MARK: - Bootstrap
 
@@ -170,6 +190,7 @@ final class AuthService: ObservableObject {
         }
         self.account = nil
         self.profile = nil
+        self.wpRoles = []
         self.cachedAccessToken = nil
         self.cachedIdToken = nil
         self.cachedTokenExpiry = nil
@@ -223,6 +244,7 @@ final class AuthService: ObservableObject {
                     return
                 }
             }
+            await refreshWordPressRoles()
             state = .signedIn
         } catch {
             logSilentFailure(error, context: "refreshSilent")
@@ -233,17 +255,20 @@ final class AuthService: ObservableObject {
 
     private func refreshSilentAfterLocalUnlock() async -> Bool {
         if hasFreshCachedTokens {
+            await refreshWordPressRoles()
             state = .signedIn
             return true
         }
 
         do {
             _ = try await acquireTokenSilent()
+            await refreshWordPressRoles()
             state = .signedIn
             return true
         } catch {
             logSilentFailure(error, context: "localUnlock")
             if hasFreshCachedTokens {
+                await refreshWordPressRoles()
                 state = .signedIn
                 return true
             }
@@ -318,6 +343,8 @@ final class AuthService: ObservableObject {
         if let data = try? JSONEncoder().encode(me) {
             KeychainService.setData(data, for: "profile.json")
         }
+
+        await refreshWordPressRoles()
 
         if persistBiometric {
             guard await autoEnrollBiometricsIfAppropriate() else {
