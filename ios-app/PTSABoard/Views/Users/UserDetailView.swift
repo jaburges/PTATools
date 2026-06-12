@@ -1,60 +1,35 @@
 import SwiftUI
 
 struct UserDetailView: View {
-    @State var user: WPUser
+    let userId: Int
+
+    @State private var user: WPUser?
     @State private var error: String?
     @State private var info: String?
     @State private var working = false
+    @State private var loading = true
     @State private var showRoleEditor = false
     @State private var roleDraft: Set<String> = []
     @State private var availableRoles: [WPRole] = []
 
     var body: some View {
-        Form {
-            Section {
-                HStack(alignment: .center, spacing: 16) {
-                    avatar
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(user.displayName).font(.title3.weight(.bold))
-                        if let e = user.email, !e.isEmpty {
-                            Text(e).font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        if let u = user.username, !u.isEmpty {
-                            Text("@\(u)").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-
-            Section("Roles") {
-                if let roles = user.roles, !roles.isEmpty {
-                    ForEach(roles, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ").capitalized) }
-                } else {
-                    Text("No roles").foregroundStyle(.secondary)
-                }
-                Button {
-                    roleDraft = Set(user.roles ?? [])
-                    showRoleEditor = true
-                    Task { await loadRoles() }
-                } label: {
-                    Label("Edit roles", systemImage: "person.crop.circle.badge.checkmark")
-                }
-            }
-
-            Section("Actions") {
-                if let e = user.email, !e.isEmpty {
-                    Button {
-                        UIApplication.shared.open(URL(string: "mailto:\(e)")!)
-                    } label: { Label("Email", systemImage: "envelope") }
-                }
-                Button {
-                    Task { await sendReset() }
-                } label: { Label("Send password reset", systemImage: "key.fill") }
-                .disabled(working || user.email == nil)
+        Group {
+            if loading && user == nil {
+                ProgressView("Loading profile…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let user {
+                profileForm(user)
+            } else {
+                EmptyStateView(
+                    systemImage: "person.crop.circle.badge.exclamationmark",
+                    title: "Profile unavailable",
+                    message: error ?? "Could not load this user."
+                )
             }
         }
-        .navigationTitle(user.displayName)
+        .navigationTitle(user?.displayName ?? "User")
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: userId) { await loadUser() }
         .overlay { if working { ProgressView().controlSize(.large) } }
         .overlay(alignment: .top) {
             VStack {
@@ -111,6 +86,65 @@ struct UserDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private func profileForm(_ user: WPUser) -> some View {
+        Form {
+            Section {
+                HStack(alignment: .center, spacing: 16) {
+                    avatar(for: user)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(user.displayName).font(.title3.weight(.bold))
+                        if let e = user.email, !e.isEmpty {
+                            Text(e).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        if let u = user.username, !u.isEmpty {
+                            Text("@\(u)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("Roles") {
+                if let roles = user.roles, !roles.isEmpty {
+                    ForEach(roles, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ").capitalized) }
+                } else {
+                    Text("No roles").foregroundStyle(.secondary)
+                }
+                Button {
+                    roleDraft = Set(user.roles ?? [])
+                    showRoleEditor = true
+                    Task { await loadRoles() }
+                } label: {
+                    Label("Edit roles", systemImage: "person.crop.circle.badge.checkmark")
+                }
+            }
+
+            Section("Actions") {
+                if let e = user.email, !e.isEmpty {
+                    Button {
+                        UIApplication.shared.open(URL(string: "mailto:\(e)")!)
+                    } label: { Label("Email", systemImage: "envelope") }
+                }
+                Button {
+                    Task { await sendReset(for: user) }
+                } label: { Label("Send password reset", systemImage: "key.fill") }
+                .disabled(working || user.email == nil)
+            }
+        }
+    }
+
+    @MainActor
+    private func loadUser() async {
+        loading = true
+        defer { loading = false }
+        do {
+            user = try await WordPressService.shared.fetchUser(userId)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
     @MainActor
     private func loadRoles() async {
         do {
@@ -129,28 +163,28 @@ struct UserDetailView: View {
         }
     }
 
-    @ViewBuilder private var avatar: some View {
+    @ViewBuilder private func avatar(for user: WPUser) -> some View {
         ZStack {
             Circle().fill(Color.accentColor.opacity(0.18))
             if let url = user.avatarURL {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFill()
-                } placeholder: { Text(initials).font(.title2.bold()).foregroundStyle(Color.accentColor) }
+                } placeholder: { Text(initials(for: user)).font(.title2.bold()).foregroundStyle(Color.accentColor) }
                 .clipShape(Circle())
             } else {
-                Text(initials).font(.title2.bold()).foregroundStyle(Color.accentColor)
+                Text(initials(for: user)).font(.title2.bold()).foregroundStyle(Color.accentColor)
             }
         }
         .frame(width: 64, height: 64)
     }
 
-    private var initials: String {
+    private func initials(for user: WPUser) -> String {
         let parts = user.displayName.split(separator: " ").prefix(2)
         return parts.compactMap { $0.first }.map { String($0) }.joined().uppercased()
     }
 
     @MainActor
-    private func sendReset() async {
+    private func sendReset(for user: WPUser) async {
         guard let email = user.email else { return }
         working = true; defer { working = false }
         do {
@@ -166,7 +200,7 @@ struct UserDetailView: View {
     private func saveRoles() async {
         working = true; defer { working = false }
         do {
-            user = try await WordPressService.shared.updateUserRoles(user.id, roles: Array(roleDraft))
+            user = try await WordPressService.shared.updateUserRoles(userId, roles: Array(roleDraft))
             info = "Roles updated."
             Task { try? await Task.sleep(nanoseconds: 2_500_000_000); info = nil }
         } catch {

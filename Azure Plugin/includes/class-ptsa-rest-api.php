@@ -117,7 +117,8 @@ class Azure_PTSA_REST_API {
             'methods' => 'GET', 'callback' => array($this, 'list_users'), 'permission_callback' => $auth,
         ));
         register_rest_route($ns, '/users/(?P<id>\d+)', array(
-            'methods' => 'PUT', 'callback' => array($this, 'update_user'), 'permission_callback' => $auth,
+            array('methods' => 'GET', 'callback' => array($this, 'get_user'),    'permission_callback' => $auth),
+            array('methods' => 'PUT', 'callback' => array($this, 'update_user'), 'permission_callback' => $auth),
         ));
         register_rest_route($ns, '/users/reset-password', array(
             'methods' => 'POST', 'callback' => array($this, 'reset_password_for'), 'permission_callback' => $auth,
@@ -748,6 +749,14 @@ class Azure_PTSA_REST_API {
         return rest_ensure_response($out);
     }
 
+    public function get_user(WP_REST_Request $req) {
+        if (!current_user_can('list_users')) return $this->forbidden();
+        $id = (int) $req['id'];
+        $u = get_user_by('id', $id);
+        if (!$u) return new WP_Error('ptsa_user_not_found', "User $id not found", array('status' => 404));
+        return rest_ensure_response($this->user_to_array($u));
+    }
+
     public function update_user(WP_REST_Request $req) {
         if (!current_user_can('edit_users')) return $this->forbidden();
         $id = (int) $req['id'];
@@ -799,12 +808,22 @@ class Azure_PTSA_REST_API {
 
     private function user_to_array($u) {
         if (!$u) return null;
+        $first = (string) get_user_meta($u->ID, 'first_name', true);
+        $last  = (string) get_user_meta($u->ID, 'last_name', true);
+        $display = (string) $u->display_name;
+        if ($display === '' && ($first !== '' || $last !== '')) {
+            $display = trim($first . ' ' . $last);
+        }
         return array(
-            'id'           => (int) $u->ID,
-            'email'        => $u->user_email,
-            'display_name' => $u->display_name,
-            'username'     => $u->user_login,
-            'roles'        => array_values($u->roles),
+            'id'             => (int) $u->ID,
+            'email'          => $u->user_email,
+            'display_name'   => $display,
+            'name'           => $display,
+            'username'       => $u->user_login,
+            'first_name'     => $first,
+            'last_name'      => $last,
+            'roles'          => array_values($u->roles),
+            'registered_date'=> $u->user_registered,
         );
     }
 

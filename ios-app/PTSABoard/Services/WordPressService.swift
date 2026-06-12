@@ -63,6 +63,11 @@ final class WordPressService {
 
     // MARK: - Users (search / list)
 
+    func fetchUser(_ id: Int) async throws -> WPUser {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("users/\(id)")
+        return try await api.request(url, auth: try await wpAuth(), as: WPUser.self)
+    }
+
     func searchUsers(_ search: String, page: Int = 1, perPage: Int = 25) async throws -> [WPUser] {
         var query: [URLQueryItem] = [
             URLQueryItem(name: "page", value: "\(page)"),
@@ -75,11 +80,6 @@ final class WordPressService {
         // is intentionally NOT used (it doesn't accept our id-token).
         let url = AppConfig.ptsaRestBase.appendingPathComponent("users")
         return try await api.request(url, query: query, auth: try await wpAuth(), as: [WPUser].self)
-    }
-
-    func fetchUser(_ id: Int) async throws -> WPUser {
-        let url = AppConfig.ptsaRestBase.appendingPathComponent("users/\(id)")
-        return try await api.request(url, auth: try await wpAuth(), as: WPUser.self)
     }
 
     func triggerPasswordReset(forEmail email: String) async throws {

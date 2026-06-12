@@ -5,6 +5,7 @@ struct UsersView: View {
     @State private var search = ""
     @State private var loading = false
     @State private var error: String?
+    @State private var selectedUserId: Int?
 
     var body: some View {
         Group {
@@ -17,9 +18,12 @@ struct UsersView: View {
             } else {
                 List {
                     ForEach(users) { user in
-                        NavigationLink(value: user) {
+                        Button {
+                            selectedUserId = user.id
+                        } label: {
                             UserRow(user: user)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -27,7 +31,9 @@ struct UsersView: View {
         }
         .navigationTitle("Users")
         .searchable(text: $search, prompt: "Search users")
-        .navigationDestination(for: WPUser.self) { UserDetailView(user: $0) }
+        .navigationDestination(item: $selectedUserId) { userId in
+            UserDetailView(userId: userId)
+        }
         .refreshable { await load() }
         .task { await load() }
         .onChange(of: search) {
@@ -89,8 +95,14 @@ private struct UserRow: View {
                     StatusPill(text: user.roleLabel, color: .accentColor)
                 }
             }
+
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 
     private var initials: String {
