@@ -1140,6 +1140,8 @@ class Azure_PTSA_REST_API {
         $query  = new Azure_Orders_Reports_Query();
         $rows   = $query->count($config);
 
+        // Build the CSV in a buffer first so we know the byte length and so
+        // a mid-stream failure can't emit a half-written file.
         $temp = fopen('php://temp', 'w+');
         if ($temp === false) {
             return new WP_Error('ptsa_orders_report_export_failed', 'Could not open export buffer.', array('status' => 500));
@@ -1155,13 +1157,29 @@ class Azure_PTSA_REST_API {
 
         Azure_Orders_Reports_Storage::mark_exported($report_id, $rows);
 
+        // IMPORTANT: do NOT return a WP_REST_Response with the CSV as its body.
+        // The REST stack JSON-encodes every response body, so the client would
+        // receive the CSV as a single escaped JSON string (one broken row in
+        // Excel). Instead emit the raw bytes and exit, exactly like the web
+        // admin-post export does, bypassing JSON serialization entirely.
         $safe_name = sanitize_file_name($loaded['name'] . '-' . gmdate('Ymd-His') . '.xls');
-        $response  = new WP_REST_Response($content, 200);
-        $response->header('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
-        $response->header('Content-Disposition', 'attachment; filename="' . $safe_name . '"');
-        $response->header('X-Export-Rows', (string) (int) $rows);
-        $response->header('X-Content-Type-Options', 'nosniff');
-        return $response;
+
+        if (function_exists('nocache_headers')) {
+            nocache_headers();
+        }
+        // Drop any output buffers WP/REST may have opened so nothing is
+        // prepended to the binary stream.
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        status_header(200);
+        header('Content-Type: application/vnd.ms-excel; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $safe_name . '"');
+        header('Content-Length: ' . strlen($content));
+        header('X-Export-Rows: ' . (int) $rows);
+        header('X-Content-Type-Options: nosniff');
+        echo $content;
+        exit;
     }
 
     private function require_orders_reports_cap() {
