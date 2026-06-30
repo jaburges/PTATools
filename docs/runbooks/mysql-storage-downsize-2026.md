@@ -12,9 +12,11 @@ The only way to land on a smaller-storage server is a **logical dump → create 
 new small server → import → cut WordPress over**. This runbook covers the
 already-completed EXPORT + verification, and the not-yet-done REIMPORT.
 
-> Scope note: the export and verification below are **done**. The reimport
-> section is a forward-looking runbook — **no new server has been created and
-> nothing has been imported or deleted.**
+> Scope note: the export and verification below are **done**. The forward-looking
+> REIMPORT RUNBOOK section was subsequently **EXECUTED on 2026-06-30** — see
+> "REIMPORT + CUTOVER — EXECUTED" near the end of this doc. Production now runs on
+> the new 64 GB server; the old 134 GB server is retained as the rollback target
+> pending sign-off.
 
 ---
 
@@ -263,6 +265,125 @@ On the new server either:
 If anything is wrong after cutover, set `DATABASE_HOST` back to
 `wilderptsa-c20b298090-wpdbserver.mysql.database.azure.com` and restart — the
 old server is untouched until you explicitly delete it in Step 6.4.
+
+---
+
+## REIMPORT + CUTOVER — EXECUTED (2026-06-30, completed)
+
+> **Headline: CUTOVER COMPLETE.** Production (`wilderptsa.net`) now runs on the
+> new **64 GB** server `wilderptsa-wpdb-small`. Smoke 6/6 green + dynamic
+> DB-backed checks confirm it is reading the new database. The OLD 134 GB server
+> `wilderptsa-c20b298090-wpdbserver` is **retained, Ready, and untouched** as the
+> rollback target pending user sign-off for decommission.
+
+### Context: prior run died mid-cutover
+A prior agent run timed out. On re-verification:
+- Production was still pointed at the OLD server (no repoint had happened).
+- The new server `wilderptsa-wpdb-small` existed (Ready, 64 GB, private, same
+  VNet `wilderptsa-c20b298090-vnet`, subnet `wilderptsa-dbsubnet-small`, private
+  DNS zone `wilderptsa-c20b298090-privatelink.mysql.database.azure.com` →
+  A record `wilderptsa-wpdb-small` = 10.0.0.132) but had **no Entra admin** and
+  **no verified data**.
+- The leftover ACI `mysql-backup-oneshot` had **Failed** (exitCode 2; its
+  base64-passed script env var `B` was null → empty script). It was attempting a
+  `mysqldump` *from* the old server, not an import. So **no import had occurred.**
+- Most recent verified dump used:
+  `wordpress-backups/wilder-ptsa/2026/06/30/backup_1782788684_X1yEO1Pe/backup_1782788684_X1yEO1Pe-db.sql.gz`
+  (25,971,939 bytes gz → 380,976,455 bytes, 168 `CREATE TABLE`).
+
+### What was done
+1. **New-server params matched to source:** `character_set_server=UTF8MB4`,
+   `collation_server=UTF8MB4_0900_AI_CI`, `time_zone=+00:00`,
+   `sql_mode` left at the strict default (identical to source).
+2. **Reset the new server's password admin** (`ptsadbadmin`) — prior password was
+   unknown; safe to reset since the new server was not yet live. Password was used
+   only for the import, stored in a `chmod 600` temp file, and deleted afterward
+   (the app does NOT use it — see auth below). It is a break-glass account and can
+   be re-reset via `az mysql flexible-server update --admin-password` anytime.
+3. **Clean import via in-VNet ACI** (`mysql-import-oneshot`, image `mysql:8.0`,
+   subnet `wilderptsa-aci-subnet` 10.0.0.144/28, ContainerInstance-delegated):
+   `curl <SAS> | gunzip | mysql`. First attempt failed with
+   `ERROR 1067 Invalid default value for 'scheduled_date_gmt'` — a zero-date
+   column DDL that the strict `sql_mode` rejects at CREATE time (the source has it
+   because it was created historically under a relaxed mode). Fixed by prepending
+   `SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION';` to the import stream **only**
+   (global `sql_mode` kept strict for runtime parity). Import then succeeded.
+
+### Import verification (table + row counts)
+Verified two ways. First inline after import (password auth). Then **definitively**
+via a second ACI (`mysql-verify-oneshot`) that ran **as the app's user-assigned
+managed identity** (`wilderptsa-c20b298090-wpidentity`, clientId
+`55f7312e-…`), fetched an Entra token (audience
+`https://ossrdbms-aad.database.windows.net`) from IMDS, and connected to BOTH
+servers with `--enable-cleartext-plugin`. Counts matched **exactly**:
+
+| Check | NEW (64 GB) | OLD (live source) |
+|---|---|---|
+| tables | **168** | 168 |
+| wp_users | 757 | 757 |
+| wp_posts | 4063 | 4063 |
+| wp_options | 3397 | 3397 |
+| wp_wc_orders | 1228 | 1228 |
+| wp_postmeta | 124485 | 124485 |
+
+Identical counts (incl. 124,485 postmeta) prove the import is complete **and** that
+there was zero write drift between the dump and cutover → negligible lost-write
+risk, no maintenance page required (late-night summer traffic, no writes observed).
+
+### Auth mode used — Entra managed identity (exact parity, recommended path A)
+The old server's Entra admin **is** the app identity itself. Mirrored exactly on
+the new server:
+- Attached UMI `wilderptsa-c20b298090-wpidentity` as the server identity.
+- Created AD admin: login `wilderptsa-c20b298090-wpidentity`, objectId/sid
+  `213259a9-49f7-4be5-9304-564916fc1015`, tenant `a220d676-…`,
+  identityResourceId = the same UMI.
+
+Result: `DATABASE_USERNAME` and `ENABLE_MYSQL_MANAGED_IDENTITY=true` are unchanged;
+WordPress authenticates to the new server with its short-lived Entra token exactly
+as before. **No app credential/password change was needed.** (Verified live above.)
+
+### The cutover change (production slot only)
+```bash
+# PRE: DATABASE_HOST = wilderptsa-c20b298090-wpdbserver.mysql.database.azure.com
+az webapp config appsettings set -g PTSAWebsite -n wilderptsa \
+  --settings DATABASE_HOST="wilderptsa-wpdb-small.mysql.database.azure.com"
+# DATABASE_NAME, DATABASE_USERNAME, ENABLE_MYSQL_MANAGED_IDENTITY: UNCHANGED
+```
+The **staging** slot was deliberately left on the OLD server
+(`...-wpdbserver...`, DB `wilderptsa_c20b298090_database_staging`).
+
+### Cold start + smoke + dynamic DB check (post-cutover)
+- App-setting change recycled the sitecontainers; waited a full 5 min (per
+  deployment-safety) — no extra restarts, no mid-cold-start revert.
+- `infra/post-change-smoke.sh` (prod): **6/6 PASS** (home 200, home <5s, wp-json
+  200, wp-json valid JSON, admin-ajax 200, TLS valid).
+- Dynamic DB-backed checks (prove it reads the NEW DB):
+  - `wp-admin/` → **302** (login redirect).
+  - `wp-json/wp/v2/posts` → real posts returned ("Wilder Library – Did you
+    know?", "Room Parents & Volunteers Needed!"), `X-WP-Total: 4` published.
+  - `wp-json/wp/v2/product` → `X-WP-Total: 46` WooCommerce products.
+  - `wp-json/ptsa/v1/orders-reports` → **401** (matches verified baseline).
+
+### Rollback (if ever needed — OLD server is untouched)
+```bash
+az webapp config appsettings set -g PTSAWebsite -n wilderptsa \
+  --settings DATABASE_HOST="wilderptsa-c20b298090-wpdbserver.mysql.database.azure.com"
+# then wait ~5 min for cold start and re-run: bash infra/post-change-smoke.sh
+```
+
+### Cleanup done
+- Deleted ACIs: `mysql-import-oneshot`, `mysql-verify-oneshot`, and the prior
+  failed `mysql-backup-oneshot` (RG container list now empty).
+- Removed local temp secret files (`/tmp/.newdbpass`, `/tmp/.dumpurl`, base64
+  blobs). No MU-plugin was uploaded (ACI-only flow → no Kudu 404 check needed).
+
+### Still pending user sign-off
+- **Do NOT** delete/stop the OLD 134 GB server `wilderptsa-c20b298090-wpdbserver`
+  until the user signs off after a soak period (it is the rollback target and
+  still holds the staging DB). Decommission is the documented Step 6.4 (take a
+  final dump first).
+- Optionally move the **staging** slot to the new server later (would need its
+  `..._staging` DB imported too).
 
 ---
 
