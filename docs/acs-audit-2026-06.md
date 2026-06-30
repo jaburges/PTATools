@@ -128,3 +128,38 @@ az webapp identity show -g PTSAWebsite -n wilderptsa
 az role assignment list --assignee 213259a9-49f7-4be5-9304-564916fc1015 --all
 az monitor metrics list --resource <acs> --metrics ApiRequests DeliveryStatusUpdate --interval P1D
 ```
+
+---
+
+## Outcome — custom-domain migration (2026-06-29)
+
+**Goal:** move the verified custom domain `wilderptsa.net` from the orphan (Setup B) onto the kept service (Setup A), verify + link it, then delete the orphan.
+
+**Status: BLOCKED — awaiting external DNS (Cloudflare).** The orphan was **NOT** deleted.
+
+### DNS hosting
+`wilderptsa.net` is hosted on **Cloudflare** (`cora.ns.cloudflare.com` / `everton.ns.cloudflare.com`). `az network dns zone list` returned **no Azure zones**, so records cannot be published via Azure CLI — they must be added in Cloudflare by the user.
+
+### Actions taken (non-destructive, infra-only)
+- Created custom domain `wilderptsa.net` on the **kept** email service `wilderptsa-c20b298090-emailacsendpoint` (RG `PTSAWebsite`), `CustomerManaged`. `provisioningState: Succeeded`.
+- Initiated verification; current states on the kept domain:
+  - **SPF → Verified**, **DKIM → Verified**, **DKIM2 → Verified** (their records already exist in Cloudflare and are identical across ACS resources).
+  - **Domain (TXT) → NotStarted** — needs a new value published (see below).
+  - DMARC → NotStarted (same as orphan; not required for sending).
+- App Service settings, managed identity, role assignments, the kept managed domain, and all plugin files were **left untouched**.
+
+### Required DNS record the user must add in Cloudflare
+| Host | Type | Value | TTL |
+|---|---|---|---|
+| `wilderptsa.net` (`@`) | TXT | `ms-domain-verification=1183d665-c65b-4304-a0d4-1769269dbfd8` | 3600 |
+
+- This is a **new** per-resource value; the live DNS only has the orphan's old `ms-domain-verification=4501263c-aa0c-4429-a525-b5b9dfe50a8b`.
+- **Do not modify SPF** — the live `v=spf1 include:spf.protection.outlook.com include:spf.acymailing.com include:mailgun.org -all` already satisfies ACS and must keep the AcyMailing/Mailgun includes.
+
+### Remaining steps (after the TXT propagates)
+1. `az communication email domain initiate-verification … --verification-type Domain`, poll `domain show` until `Domain → Verified`.
+2. Link `wilderptsa.net` into the kept Communication Service `wilderptsa-c20b298090-acsendpoint` `linkedDomains` **alongside** the existing managed domain (do not remove the managed domain).
+3. Only then delete the orphan (Setup B): the custom domain, `WilderPTSAemailservice`, `WilderPTSAcommsservice` in RG `PTSA-Communications`; delete the RG only if it ends up empty.
+
+### Stale DNS cleanup note (optional, do later)
+After the orphan is deleted, the live TXT `ms-domain-verification=4501263c-aa0c-4429-a525-b5b9dfe50a8b` becomes stale and can be removed. Leave the DKIM/DKIM2 CNAMEs — the kept service depends on them.
