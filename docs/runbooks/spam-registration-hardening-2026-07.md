@@ -183,3 +183,79 @@ full case list. Key ones to keep passing:
 
 See the agent transcript for this task for the actual request/response
 pairs (with the diagnostics key redacted).
+
+## Executed 2026-07-01 (post DB-cutover-incident resolution)
+
+Confirmed `https://wilderptsa.net/wp-json/` (200, valid JSON) and
+`/wp-admin/` (302) before touching anything; full smoke test 6/6.
+
+Dry run against the exact 8 logins resolved to exactly 8 user IDs
+(`1296`–`1303`), zero `unresolved_logins`, zero `protected`, all
+independently cross-checked against `spam-user-audit` — same
+login/email, 0 WooCommerce orders, 0 posts authored, `safe_to_delete:
+true`, and the classifier reason matched the exact new rule expected
+for each account (`username_digit_run_suffix` ×4, `username_test_keyword`
+×2, `blocked_tld_domain` ×1, `username_hex_identifier` ×1).
+
+Executed with `dry_run: 0`. **Result: `deleted_count: 8`, `failed_count:
+0`.** Backup written to
+`wp-content/uploads/pta-cleanup-backups/spam-users-20260701-185428.json`
+(on the server; not extracted into this repo — restore from that file
+via Kudu VFS if ever needed).
+
+Post-delete verification: re-running the audit shows `users_examined`
+dropped from 11 → 3 in the same 45-day window and `spam_count: 0` — none
+of the 8 logins/emails appear anywhere. No MU-plugin fallback was
+needed (the diagnostics REST API was directly reachable once the
+concurrent DB-cutover incident was resolved).
+
+Real-user spot checks (untouched, confirmed present post-cleanup):
+- `jamieb` / `jamieb@wilderptsa.net` — administrator (site owner)
+- `maybee`, `akimball`, `tinamu` — real customers/parents with live
+  WooCommerce order history
+
+### Additional accounts flagged by the classifier — reviewed, NOT deleted
+
+A full historical audit (`days=3650`, `include_safe=1`) found 33 other
+accounts the classifier currently flags. **None were deleted** — none
+match the confirmed-wave profile (no throwaway-TLD domains, no hex
+identifiers, no additional "test" accounts besides one already-known
+false positive). Manual review of registration timestamps strongly
+suggests most of these are a **false-positive cluster from a legitimate
+bulk parent-data import**, not bots:
+
+- **~23 of the 33** registered in an 11-minute burst on 2026-05-06
+  (06:44–06:55) or a 3-minute burst on 2026-05-05 (19:06–19:08), all
+  with role `parent` or `customer`, mainstream email domains
+  (gmail/hotmail/outlook/icloud/yahoo), and several with real
+  WooCommerce orders — consistent with `Azure_Parent_Migration`'s bulk
+  CSV-import path, not self-service bot signups.
+- **The trailing-digit-run rule (added this round) is the biggest
+  contributor to false positives here** — several real parents,
+  disproportionately those with East-Asian-convention email handles
+  (e.g. a birth-year+ID-style local part, common for `@qq.com`-style
+  or Chinese/Vietnamese-heritage users who carried a numeric handle
+  over to Gmail/Hotmail), have email local-parts that natively contain
+  long digit runs. This is exactly the false-positive risk flagged (but
+  not fully avoidable) when the rule was designed — recommend the user
+  decide whether to raise the digit-run threshold (e.g. require 6+
+  digits, or 5+ instead of 4+ for the "not a year" case) or add a
+  per-domain/role exemption before relying on this rule for anything
+  beyond registration-time blocking of *new* signups.
+- `JamieTest` / `jamieeburgess@outlook.com` — flagged by the new "test"
+  keyword rule. This is the site owner's own known test account
+  (pre-existing, not a new signup) — expected/accepted false positive,
+  explicitly called out as a risk when the rule was added.
+- `marybillings` / `marybillings@ptoffice.com` — flagged by the
+  pre-existing (not new) gibberish-username heuristic; has 17 authored
+  posts, i.e. an active PTA-office content author. Clear false
+  positive, unrelated to this round's changes.
+- No accounts registered in the last 14 days at all (0 in the
+  `days=14` window) — no evidence of new spam since the confirmed wave
+  ended June 25.
+
+**Recommendation:** none of these 33 should be deleted without
+individual manual confirmation by the PTSA office (they can look up
+each by email to confirm real-parent identity). If a genuine additional
+bot is later confirmed among them, reuse the `explicit_logins` cleanup
+mode exactly as above.
