@@ -387,6 +387,89 @@ az webapp config appsettings set -g PTSAWebsite -n wilderptsa \
 
 ---
 
+## INCIDENT 2026-07-01 — wwwroot wipe, core-file restore, and post-restore critical error
+
+> **Not caused by the MySQL cutover.** This incident happened two days after the
+> cutover above and was initially misdiagnosed as DB-related ("menu but no page
+> content"). The real chain of events was: (1) a concurrent, unrelated deploy of
+> `wp-content/plugins/Azure Plugin` used a **bad OneDeploy target-path** that wiped
+> nearly all of `/home/site/wwwroot`; (2) a same-site **staging slot** was used as
+> the restore source for WordPress core + `wp-content`; (3) the bulk restore of
+> large plugin zips via Kudu's zip API caused a **transient, self-resolving
+> "critical error"** window while extraction was still in flight; (4) **media
+> (`wp-content/uploads`) remains unresolved** — it was never part of any backup by
+> design, and needs an OneDrive Media module resync (see "Still open" below).
+
+### Symptom timeline
+
+| Time (UTC) | Symptom |
+|---|---|
+| ~17:20 | Site went from "menu but no page content" (initially, wrongly, chased as sql_mode/cache — see note below) to fully down: bare-nginx `403`, `/wp-json/` `404`. |
+| 17:21–17:29 | Root cause discovered: two `OneDeploy` zip deployments (`e8bc77cc…`, `3f8c7400…`) both logged `PreDeployment: context.OutputPath /home/site/wwwroot` — i.e. targeted the **site root**, not `wp-content/plugins/Azure Plugin` like every prior deploy (confirmed by diffing against deploy `b3369ba2…` from 06-16, whose `OutputPath` was correctly scoped to the plugin subfolder). This wiped WordPress core, all other plugins, themes, mu-plugins, and uploads, leaving only `wp-content/plugins/Azure Plugin`, `wp-content/plugins/redis-cache`, and an unrelated `PTATools.wiki` folder. |
+| 17:50–18:03 | Restored WordPress core (`wp-admin/`, `wp-includes/`, root PHP files, `wp-config.php`, `class_entra_database_token_utility.php`), `wp-content/mu-plugins/`, and `wp-content/themes/` (theme in use is **Kadence**, not BuddyBoss as originally assumed — verified from both the staging slot and the 2026-06-17 full backup) by copying from the **same App Service's `staging` deployment slot**, which had a fully intact, current filesystem. Confirmed `wp-config.php` is fully `getenv()`-driven (DB host/name/user/password, Redis host, memory limits, `AFD_DOMAIN`-based URL/cache-salt) so the same file is valid on both slots — matches the existing deployment-safety note. Site returned to **200 with real content** at this point; `infra/post-change-smoke.sh` 6/6. |
+| 18:04–18:42 | Restored the remaining `wp-content/plugins/*` (everything except `Azure Plugin`, which belongs to a concurrent, unrelated worker, and `redis-cache`, which already existed) from the staging slot, 29 plugin directories, ~350 MB uncompressed. Pushed as one bulk zip first (hit Kudu's ~4 min gateway timeout partway through), then plugin-by-plugin in a sequential background loop. |
+| ~18:24–18:42 | **"Critical error" screen appeared** on every page except the homepage (which was intermittently served fresh with no error). Investigated: `_paused_plugins` in `wp_options` was empty (checked read-only via an in-VNet ACI + managed-identity token, same pattern as the cutover verification) — WordPress's own fatal-recovery mechanism never recorded a paused plugin. Downloaded and byte-for-byte diffed (file list **and** individual file sizes) the two largest, timeout-prone plugins (`woocommerce` 71 MB / 6193 files, `forminator` 47 MB / 2868 files) between the local source and production — **zero mismatches, zero missing files**. The failures were **transient**: several of the large per-plugin `zip` PUTs to Kudu returned client-side `499` (our own `curl --max-time 280` giving up) while extraction continued server-side; the *next* plugin's PUT to the same parent `wp-content/plugins/` directory started immediately after, so for a window of a few minutes some requests could land while a large plugin's directory tree was still being written. No corruption resulted (confirmed by the diffs above) — this reads as classic-WordPress-glob/autoload sensitivity to a plugin directory changing mid-request, not a lasting file defect. |
+| 18:42:15 | The plugin-restore loop finished (`ALL DONE`). All page types (home, a builder-built page, WooCommerce shop, calendar, wp-admin, wp-json) retested 5× each — **no critical error, no 500s**. `infra/post-change-smoke.sh` 6/6 again. |
+
+### Root cause of the file wipe (confirmed via Kudu deployment logs)
+
+Compare `OutputPath` across deploys (`/api/deployments/{id}/log` on the SCM site):
+
+- **Good** (2026-06-16, `b3369ba2…`): `PreDeployment: context.OutputPath /home/site/wwwroot/wp-content/plugins/Azure Plugin`
+- **Bad** (2026-07-01, `e8bc77cc…` and `3f8c7400…`): `PreDeployment: context.OutputPath /home/site/wwwroot`
+
+Both incident-day deploys logged `context.CleanOutputPath False` (so this wasn't an explicit `--clean true`), but because the target path itself was the site root rather than the plugin subfolder, OneDeploy's zip-sync logic ("Clean deploying to …") reconciled the *entire* `wwwroot` against the zip's contents — anything not in that zip (core WP, other plugins, themes, mu-plugins, uploads) was removed. This is a **different failure mode** from the documented `--clean true` incident (2026-06-15) but has the same blast radius. **Action item for whoever owns that deploy pipeline: always pass an explicit `--target-path "site/wwwroot/wp-content/plugins/Azure Plugin"` and verify it in the resulting deployment log before trusting a "deployment successful" result.**
+
+### What was restored, and from where
+
+| Component | Source | Notes |
+|---|---|---|
+| WP core (`wp-admin/`, `wp-includes/`, root `*.php`, `wp-config.php`, `class_entra_database_token_utility.php`) | `staging` slot (`wilderptsa-staging`), via Kudu VFS/zip API | `wp-config.php` copied verbatim — confirmed env-driven, no staging-specific hardcoding. |
+| `wp-content/mu-plugins/` | staging slot | 6 files incl. `wilderptsa-cleanup.php` (referenced in page `<head>` comment), `buddyboss-performance-api.php` (legacy name, unrelated to current theme). |
+| `wp-content/themes/` | staging slot | `kadence` (active), `twentytwentytwo`–`twentytwentyfive`, `index.php`. Cross-checked against the 2026-06-17 full backup's `themes.zip` — identical set, confirms Kadence (not BuddyBoss) is correct. |
+| `wp-content/plugins/*` (29 dirs, excl. `Azure Plugin`, `redis-cache`) | staging slot | `acymailing*`, `admin-menu-editor-pro`, `app_service_email`, `bb-plugin` (Beaver Builder — confirms it *is* in use, on the Kadence theme), `bbpowerpack`, `change-username`, `forminator`, `iframe`, `jotform-ai-chatbot`, `koko-analytics`, `multiple-roles`, `printify-for-woocommerce`, `side-cart-woocommerce`, `the-events-calendar`, `updraftplus`, `user-role-editor`, `woo-update-manager`, `woocommerce` + 6 WooCommerce extensions, `wpmudev-updates`. |
+| `wp-content/plugins/Azure Plugin`, `wp-content/plugins/redis-cache` | **untouched** | Left alone per instructions; confirmed unchanged mtimes throughout. |
+| `wp-content/uploads/` (media) | **not restored — still open, see below** | |
+
+`active_plugins` in `wp_options` (10 entries, verified via read-only DB query): `Azure Plugin`, `acymailing`, `admin-menu-editor-pro`, `bb-plugin`, `forminator`, `multiple-roles`, `redis-cache`, `updraftplus`, `woocommerce-gateway-stripe`, `woocommerce`. All 10 have confirmed-intact code on disk.
+
+### Azure Blob Storage backup inventory (`wilderptsac20b298091` / `wordpress-backups`)
+
+9 backup jobs exist, none of which were needed for the critical-error fix (that was self-resolving, not a data-loss issue) — listed here for completeness per request:
+
+| Date | Backup ID | Components |
+|---|---|---|
+| 2026-03-31 | `backup_1774996285_H3BvGD2A` | db, others, plugins, plugins2, themes, uploads×4 |
+| 2026-04-02 | `backup_1775107175_wJaG81NG` | db, mu-plugins, others, plugins, plugins2, themes |
+| 2026-05-10 | `backup_1778302960_BtQCx1ra` | db, mu-plugins, others, plugins, plugins2, themes |
+| 2026-05-21 | `backup_1779375800_HH4yEUAp` | db, mu-plugins, others, plugins, themes |
+| 2026-05-22 | `backup_1779475460_cHywAX4U` | db, mu-plugins, others, plugins, themes, uploads×4 |
+| 2026-05-23 | `backup_1779526334_L6MpiI73` | db, mu-plugins, others, plugins, themes, uploads×4 |
+| 2026-06-17 | `backup_1781716576_D1XOPwH5` | db, mu-plugins, **content** ("others"), plugins, themes — **most recent full file-backup**, used to cross-check the theme/plugin restore above |
+| 2026-06-30 ×2 | `backup_1782788682_gwqIWaJU`, `backup_1782788684_X1yEO1Pe` | db only (the pre-cutover migration dumps from the MySQL downsize work) |
+
+Note the **uploads component stops appearing after 2026-05-23** — consistent with `docs/backup-and-restore.md`'s statement that media was deliberately moved to the OneDrive/SharePoint sync module and excluded from the plugin's own backups going forward.
+
+### Still open: media (`wp-content/uploads`) is empty — images 404
+
+This is a **separate, still-unresolved issue** from the critical-error investigation above:
+
+- `wp-content/uploads/` on production currently contains only empty scaffold directories (`2026/07/`, `azure-plugin/`, `bb-plugin/` cache dirs) — no real media files. Confirmed via Kudu VFS.
+- Two other potential file-level sources were checked and are **too stale** to fully fix this:
+  - Blob container `blobwilderptsac20b298090` (a one-time migration snapshot from 2026-03-31) — 3,244 files, newest dated 2026/03. Would restore older media but not anything from April 2026 onward.
+  - The 2026-05-23 backup's `uploads.zip` parts (~1.16 GB total) — newer, but still ~5+ weeks stale; would not include the specific June 2026 images (`cropped-PTSA-Logo.png`, `Teachers-Favorite-List-300x300.png`) currently reported missing.
+- Per `Azure Plugin/docs/backup-and-restore.md`, this is **by design** — media is supposed to be pulled fresh from SharePoint/OneDrive via the OneDrive Media module (`class-onedrive-media-*.php`), not restored from backup. That module has a WP-Cron auto-sync hook (`onedrive_media_auto_sync`) and an admin-triggered AJAX action (`wp_ajax_onedrive_media_sync_from_onedrive`, exposed on the **OneDrive Media** admin page). Credentials (`Azure_Settings::get_credentials('onedrive_media')`, plus per-user OAuth refresh tokens in a custom `wp_azure_onedrive_tokens` table) live in the DB and migrated with full row-parity in the MySQL cutover, so they are very likely still valid — this was not fully confirmed before the critical-error investigation took priority.
+- **Recommended next step (needs an interactive admin action):** log into `wp-admin` (now working) → **PTA Tools / Azure Plugin → OneDrive Media** → click **"Sync from OneDrive"** (or **Test Connection** first if unsure the token is live). This is the module's literal intended recovery path and cannot be safely triggered headlessly (the AJAX action requires an authenticated admin session + nonce). If the token has expired, the page will prompt for re-authorization via a Microsoft sign-in popup — also requires a human.
+
+### Cleanup performed
+
+- All one-shot ACIs deleted (`dbcheck-oneshot` and its two failed prior attempts).
+- Local temp files under `/tmp/restore/` are scratch/local-only (never uploaded anywhere as tooling) — left on the operator's machine, not on any Azure resource.
+- No MU-plugin was uploaded to the site as part of this incident's tooling.
+- `DATABASE_HOST` was **not changed** during this file-layer incident (remains on the OLD server `wilderptsa-c20b298090-wpdbserver` from the earlier, separate rollback decision — see the cutover section above; that rollback is unrelated to the wwwroot wipe).
+
+---
+
 ## Appendix — guaranteed-consistent dump via ACI (optional alternative)
 
 If you'd rather have a transactionally consistent `--single-transaction` dump
