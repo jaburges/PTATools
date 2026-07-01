@@ -14,13 +14,19 @@
  *   2. `enable_anti_spam_filter` (default ON) — PATTERN block.
  *      Rejects bot-pattern usernames (random gibberish like
  *      `KcIIFSLaHgonfglOrGeuar`), random-string email local parts
- *      (e.g. `KcIIFSLaHgonfglOrGeuar@gmail.com`), and known
- *      disposable email providers. Hooks `registration_errors` so it
- *      catches anything that does sneak past toggle (1), and exposes
- *      a static `check_signup()` so other signup endpoints (the
- *      `[pta_newsletter_signup]` REST route, etc.) can reuse the
- *      same heuristic. Use this when parents need to be able to
- *      register but bots should be filtered.
+ *      (e.g. `KcIIFSLaHgonfglOrGeuar@gmail.com`), known disposable
+ *      email providers, and (as of 3.141.12) three additional
+ *      patterns added after the June 2026 spam wave: usernames/email
+ *      locals containing "test", name-like usernames with a
+ *      suspicious trailing digit run (`elizabeth.roberts6386`), and
+ *      hard-blocked throwaway TLDs (`.site`, `.online`, `.xyz`, etc.)
+ *      plus random hex-identifier usernames (`v-c39fb607cfa4eb39...`).
+ *      Hooks `registration_errors` so it catches anything that does
+ *      sneak past toggle (1), and exposes a static `check_signup()`
+ *      so other signup endpoints (the `[pta_newsletter_signup]` REST
+ *      route, etc.) can reuse the same heuristic. Use this when
+ *      parents need to be able to register but bots should be
+ *      filtered.
  *
  * Typical configuration on wilderptsa: both toggles ON. The
  * registration form stays blocked (parents sign up via the
@@ -261,13 +267,24 @@ class Azure_Anti_Spam {
      *
      *   - Username is gibberish (mixed-case alphabet-only, ≥12 chars,
      *     ≥4 case transitions or 2+ consonant streaks ≥4)
-     *   - Email local-part is gibberish (same heuristic)
+     *   - Username or email local-part contains "test" (case-insensitive)
+     *   - Username has a suspicious trailing digit run (bot-suffix pattern)
+     *   - Username has a long hex-looking segment (e.g. `v-c39fb607...`)
+     *   - Email local-part is gibberish (same heuristic as username)
      *   - Email domain is on the disposable-providers list
+     *   - Email domain ends in a hard-blocked throwaway TLD
+     *   - Email domain is random-looking on a soft throwaway TLD
      *
      * Name fields are intentionally NOT classified — single-word names
      * exist (e.g. "Cher", "Beyoncé", non-Latin scripts) and the
      * false-positive cost on real parents outweighs the marginal
      * spam-catch benefit.
+     *
+     * Added 2026-07 (v3.141.12) in response to a spam wave that evaded
+     * the original gibberish-only heuristic by using real name-like
+     * words with a numeric suffix (e.g. `elizabeth.roberts6386`,
+     * `benjamin.scott108447`) or literal "test" accounts — see
+     * `docs/runbooks/spam-registration-hardening-2026-07.md`.
      */
     private static function run_classifier($username, $email, $name) {
         $username = (string) $username;
@@ -277,8 +294,25 @@ class Azure_Anti_Spam {
             return 'username_pattern_random';
         }
 
+        if ($username !== '' && self::contains_test_keyword($username)) {
+            return 'username_test_keyword';
+        }
+
+        if ($username !== '' && self::has_suspicious_trailing_digit_run($username)) {
+            return 'username_digit_run_suffix';
+        }
+
+        if ($username !== '' && self::has_hex_identifier_segment($username)) {
+            return 'username_hex_identifier';
+        }
+
         if ($email !== '' && strpos($email, '@') !== false) {
             $local = substr($email, 0, strpos($email, '@'));
+
+            if (self::contains_test_keyword($local)) {
+                return 'email_test_keyword';
+            }
+
             // Tokenize the local part on common separators so bots
             // can't bypass the heuristic by appending digits or a
             // period to their gibberish (e.g. `KcIIFSLa.123` or
@@ -294,8 +328,17 @@ class Azure_Anti_Spam {
             if (self::is_disposable_email_domain($email)) {
                 return 'disposable_email_domain';
             }
+            // Hard TLD block — domains on these TLDs are rejected
+            // regardless of how plausible the second-level label looks
+            // (unlike has_suspicious_domain() below, which requires the
+            // SLD to also look random). Needed because bot registrars
+            // now pick pronounceable SLDs on throwaway TLDs specifically
+            // to dodge gibberish detection, e.g. `cutemails.online`.
+            if (self::is_blocked_tld_domain($email)) {
+                return 'blocked_tld_domain';
+            }
             // Random-looking domain second-level (e.g.
-            // `falderewonek.site`, `xnzqrkbjvm.online`). Common bot
+            // `falderewonek.site`, `xnzqrkbjvm.club`). Common bot
             // pattern is generated TLD with random gibberish SLD.
             if (self::has_suspicious_domain($email)) {
                 return 'suspicious_email_domain';
@@ -303,6 +346,171 @@ class Azure_Anti_Spam {
         }
 
         return null;
+    }
+
+    /**
+     * Hard-blocked TLD suffixes. Email domains ending in one of these are
+     * rejected outright — no gibberish check on the second-level label
+     * required. These specific TLDs (`.site`, `.online`, `.xyz`, `.top`,
+     * `.click`, `.info`) are heavily favored by disposable-email/bot
+     * registrars and see essentially zero legitimate use among wilderptsa
+     * families (confirmed against the June 2026 spam wave, which included
+     * `falderewonek.site` and `cutemails.online`). Filterable so an
+     * operator can extend or trim the list without a plugin deploy if a
+     * false positive turns up.
+     */
+    const DEFAULT_BLOCKED_TLD_SUFFIXES = array(
+        '.site', '.online', '.xyz', '.top', '.click', '.info',
+    );
+
+    /**
+     * Returns true if the email's domain ends in one of the hard-blocked
+     * throwaway TLD suffixes (see DEFAULT_BLOCKED_TLD_SUFFIXES). Use
+     * `pta_antispam_blocked_tld_suffixes` to add/remove entries at runtime
+     * (e.g. from an mu-plugin or theme functions.php) without redeploying.
+     */
+    private static function is_blocked_tld_domain($email) {
+        if ($email === '' || strpos($email, '@') === false) {
+            return false;
+        }
+        $domain = strtolower(trim(substr($email, strpos($email, '@') + 1)));
+        if ($domain === '') {
+            return false;
+        }
+        $suffixes = self::DEFAULT_BLOCKED_TLD_SUFFIXES;
+        if (function_exists('apply_filters')) {
+            $suffixes = apply_filters('pta_antispam_blocked_tld_suffixes', $suffixes);
+        }
+        foreach ((array) $suffixes as $suffix) {
+            $suffix = strtolower((string) $suffix);
+            if ($suffix === '') {
+                continue;
+            }
+            if ($suffix[0] !== '.') {
+                $suffix = '.' . $suffix;
+            }
+            if (substr($domain, -strlen($suffix)) === $suffix) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if $s (a username or email local-part) contains the
+     * literal substring "test" (case-insensitive). Deliberately blunt —
+     * the June 2026 wave included plain `test206847` / `test266967`
+     * accounts, and no legitimate wilderptsa parent registers with
+     * "test" in their username or email handle. Kept as its own small
+     * function (rather than folded into looks_like_random_string) so it
+     * can be independently disabled via the
+     * `pta_antispam_block_test_keyword` filter if it ever proves too
+     * aggressive (e.g. a parent whose surname is "Testa").
+     */
+    private static function contains_test_keyword($s) {
+        if ($s === '') {
+            return false;
+        }
+        $enabled = true;
+        if (function_exists('apply_filters')) {
+            $enabled = apply_filters('pta_antispam_block_test_keyword', true);
+        }
+        if (!$enabled) {
+            return false;
+        }
+        return stripos($s, 'test') !== false;
+    }
+
+    /**
+     * Detects the "name(s) + long trailing digit run" pattern seen across
+     * the June 2026 wave (`elizabeth.roberts6386`, `benjamin.scott108447`,
+     * `charles.taylor104982`, `eric.brown17559`). These are real
+     * dictionary words — they sail past looks_like_random_string() — but
+     * the digit suffix is the tell.
+     *
+     * To avoid false-positiving on legitimate human patterns (a birth
+     * year like `sarah2024`, a single lucky/jersey number like
+     * `mike123`), the threshold scales with signal strength rather than
+     * using one flat cutoff:
+     *
+     *   - 5+ trailing digits  → always suspicious. No common legitimate
+     *     naming convention appends a 5-to-6-digit number to a name;
+     *     this is the WordPress-style/bot unique-suffix pattern.
+     *   - exactly 4 digits    → suspicious UNLESS it reads as a plausible
+     *     year (1940-2029) appended directly to a single word with no
+     *     separator (covers `sarah2024`, `mjones1985`).
+     *   - exactly 3 digits    → only suspicious when the prefix is a
+     *     multi-word name joined by `.`/`_`/`-` (the
+     *     `firstname.lastnameNNN` shape). A single word + 3 digits
+     *     (`mike123`) is far too common among real users to flag alone.
+     *
+     * Regex used to extract the trailing digit run:
+     *   `/^[a-z]+(?:[._-]?[a-z]+)*?(\d{3,})$/i`
+     */
+    private static function has_suspicious_trailing_digit_run($username) {
+        if ($username === '') {
+            return false;
+        }
+        if (!preg_match('/^[a-z]+(?:[._-]?[a-z]+)*?(\d{3,})$/i', $username, $m)) {
+            return false;
+        }
+        $digits = $m[1];
+        $len    = strlen($digits);
+        $has_separator = (strpos($username, '.') !== false
+            || strpos($username, '_') !== false
+            || strpos($username, '-') !== false);
+
+        if ($len >= 5) {
+            return true;
+        }
+        if ($len === 4) {
+            $year = (int) $digits;
+            $looks_like_year = ($year >= 1940 && $year <= 2029);
+            if ($looks_like_year && !$has_separator) {
+                return false;
+            }
+            return true;
+        }
+        // $len === 3
+        return $has_separator;
+    }
+
+    /**
+     * Detects "random hex identifier" usernames like
+     * `v-c39fb607cfa4eb39d9cb0c8f` — a short prefix followed by a long
+     * run of hex characters, typical of machine-generated IDs (partial
+     * UUID/hash) rather than anything a human would type. Splits on `-`
+     * and `_` and checks each segment independently so the prefix
+     * (`v`) doesn't need to be hex itself.
+     */
+    private static function has_hex_identifier_segment($username) {
+        if ($username === '') {
+            return false;
+        }
+        $segments = preg_split('/[-_]/', $username);
+        foreach ((array) $segments as $seg) {
+            if (self::looks_like_hex_identifier($seg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A segment "looks like a hex identifier" if it's ≥16 characters,
+     * every character is a valid hex digit, and it contains at least one
+     * letter (a-f) AND one number — this rules out plain long numbers
+     * and plain long words while still catching hash/UUID-fragment
+     * style strings.
+     */
+    private static function looks_like_hex_identifier($s) {
+        if (strlen($s) < 16) {
+            return false;
+        }
+        if (!preg_match('/^[0-9a-f]+$/i', $s)) {
+            return false;
+        }
+        return (bool) preg_match('/[0-9]/', $s) && (bool) preg_match('/[a-f]/i', $s);
     }
 
     /**

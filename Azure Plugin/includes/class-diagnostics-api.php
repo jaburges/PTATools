@@ -8415,17 +8415,31 @@ class Azure_Diagnostics_API {
     /**
      * POST /diagnostics/spam-user-cleanup
      *
-     * Bulk-delete spam users with backup. Two targeting modes:
-     *   - automatic: re-runs the audit and deletes every row where
-     *     `safe_to_delete = true`
+     * Bulk-delete spam users with backup. Three targeting modes,
+     * checked in this priority order:
+     *   - explicit_logins: deletes users matching the newline/comma
+     *     separated `logins=` list, where each entry is matched
+     *     EXACTLY (case-insensitive) against either user_login OR
+     *     user_email. No classifier check — the operator vouches for
+     *     the list. This is the safest mode for a small, human-curated
+     *     set of confirmed accounts (e.g. a specific spam wave) because
+     *     it can't accidentally widen to catch a real user who merely
+     *     resembles the pattern. Any entry that doesn't resolve to
+     *     exactly one user is reported in `unresolved_logins` and NOT
+     *     deleted.
      *   - explicit:  deletes the comma-separated `ids=` list (no
      *     classifier check; the operator vouches for the list)
+     *   - automatic: re-runs the audit and deletes every row where
+     *     `safe_to_delete = true`
      *
      * Required body params:
      *   confirm = yes-i-am-sure
      *   dry_run = 1|0 (default 1)
      *
      * Optional body params:
+     *   logins   = "elizabeth.roberts6386,elizabeth.roberts6386@gmail.com,..."
+     *              (explicit_logins mode — exact user_login OR
+     *              user_email match; recommended for hand-picked lists)
      *   ids      = "1278,1279,1280"  (explicit mode)
      *   days     = N  (automatic mode window; default 365)
      *   reassign = user_id to receive any orphaned content (default 1)
@@ -8457,8 +8471,37 @@ class Azure_Diagnostics_API {
 
         // Resolve target list
         $ids = array();
+        $unresolved_logins = array();
+        $logins_param = (string) $request->get_param('logins');
         $explicit = (string) $request->get_param('ids');
-        if ($explicit !== '') {
+        if ($logins_param !== '') {
+            $mode = 'explicit_logins';
+            foreach (preg_split('/[,\n\r]+/', $logins_param) as $piece) {
+                $piece = trim($piece);
+                if ($piece === '') {
+                    continue;
+                }
+                // Exact match only — by design. This mode exists so an
+                // operator can paste a hand-verified list (e.g. from a
+                // spam-wave report) and be certain nothing broader gets
+                // swept up, even if the classifier's automatic mode
+                // would also have matched them.
+                $u = is_email($piece) ? get_user_by('email', $piece) : get_user_by('login', $piece);
+                if (!$u) {
+                    // Fall back to trying the other lookup in case the
+                    // caller mixed up which field a value belongs to.
+                    $u = get_user_by('login', $piece);
+                    if (!$u) {
+                        $u = get_user_by('email', $piece);
+                    }
+                }
+                if ($u) {
+                    $ids[] = (int) $u->ID;
+                } else {
+                    $unresolved_logins[] = $piece;
+                }
+            }
+        } elseif ($explicit !== '') {
             foreach (preg_split('/[,\s]+/', $explicit) as $piece) {
                 $piece = trim($piece);
                 if ($piece !== '' && ctype_digit($piece)) {
@@ -8588,17 +8631,18 @@ class Azure_Diagnostics_API {
         }
 
         return rest_ensure_response(array(
-            'plugin_version' => defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : 'unknown',
-            'mode'           => $mode,
-            'dry_run'        => $dry,
-            'targeted_ids'   => $ids,
-            'protected'      => $protected,
-            'backup_file'    => $dry ? null : $backup_path,
-            'reassign_to'    => $reassign,
-            'deleted_count'  => count($deleted_ok),
-            'failed_count'   => count($deleted_fail),
-            'deleted_ids'    => $deleted_ok,
-            'failed_ids'     => $deleted_fail,
+            'plugin_version'      => defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : 'unknown',
+            'mode'                => $mode,
+            'dry_run'             => $dry,
+            'targeted_ids'        => $ids,
+            'unresolved_logins'   => $unresolved_logins,
+            'protected'           => $protected,
+            'backup_file'         => $dry ? null : $backup_path,
+            'reassign_to'         => $reassign,
+            'deleted_count'       => count($deleted_ok),
+            'failed_count'        => count($deleted_fail),
+            'deleted_ids'         => $deleted_ok,
+            'failed_ids'          => $deleted_fail,
         ));
     }
 
