@@ -21,3 +21,7 @@ ios-app/**/*.xcuserstate
 ios-app/**/xcshareddata/swiftpm/configuration/
 ios-app/build/
 ios-app/DerivedData/
+
+# Local summer park backups (DB dumps, secrets)
+.local-backups/
+

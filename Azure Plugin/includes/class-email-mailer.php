@@ -83,17 +83,40 @@ class Azure_Email_Mailer {
             return false;
         }
         
-        // Get access token
-        $access_token = $this->auth->get_user_access_token($from_email);
-        
-        if (!$access_token) {
-            Azure_Logger::error('Email: No access token available for: ' . $from_email);
-            // Try application token as fallback
+        // Routed sends hit /users/{from}/sendMail and should use the
+        // application (client-credentials) token first — shared mailboxes
+        // like info@/shop@ rarely have a delegated OAuth row in
+        // wp_azure_email_tokens. Falling back to user token only when
+        // app credentials are unavailable avoids noisy "no token" logs
+        // and matches how Graph Send-As works with Mail.Send app perms.
+        $access_token = null;
+        $used_app     = false;
+        if (!empty($from_email) && is_email($from_email)) {
             $access_token = $this->auth->get_app_access_token();
-            
-            if (!$access_token) {
-                return $this->queue_email($to, $subject, $message, $headers, $attachments, 'No access token available');
+            if ($access_token) {
+                $used_app = true;
+            } else {
+                $access_token = $this->auth->get_user_access_token($from_email);
             }
+        } else {
+            $access_token = $this->auth->get_user_access_token($from_email);
+            if (!$access_token) {
+                $access_token = $this->auth->get_app_access_token();
+                $used_app     = (bool) $access_token;
+            }
+        }
+
+        if (!$access_token) {
+            Azure_Logger::error(
+                'Email: No access token available for: ' . $from_email
+                . ' (configure Email module credentials with Mail.Send application permission,'
+                . ' or authorize this mailbox under Emails → Settings)'
+            );
+            return $this->queue_email($to, $subject, $message, $headers, $attachments, 'No access token available');
+        }
+
+        if ($used_app) {
+            Azure_Logger::debug('Email: Using application token for ' . $from_email);
         }
         
         try {

@@ -401,6 +401,7 @@ if ($activity_table) {
         }
         $platform_sync_status = Azure_Platform_Sync::get_status();
         $redis_isolation      = Azure_Platform_Sync::get_redis_isolation_status();
+        $cache_burst_status   = Azure_Platform_Sync::get_cache_burst_status();
 
         $redis_badge = array(
             'isolated' => array('bg' => '#dff5e4', 'border' => '#008a20', 'text' => '#005a16', 'label' => __('Isolated', 'azure-plugin')),
@@ -425,6 +426,68 @@ if ($activity_table) {
                         &middot; AFD <code><?php echo esc_html($redis_isolation['afd_domain'] ?: '(unset)'); ?></code>
                     </div>
                 <?php endif; ?>
+            </div>
+
+            <!-- Cache Burst -->
+            <div style="margin: 24px 0 18px; padding: 16px; background: #f6f7f7; border: 1px solid #c3c4c7; border-radius: 4px;">
+                <h3 style="margin: 0 0 8px; display: flex; align-items: center; gap: 8px;">
+                    <span class="dashicons dashicons-update"></span>
+                    <?php esc_html_e('Cache Burst', 'azure-plugin'); ?>
+                </h3>
+                <p class="description" style="margin: 0 0 12px;">
+                    <?php esc_html_e('Flush each cache layer independently for this slot. For a full visitor-visible refresh after site changes, run all three (Redis → W3TC → Front Door).', 'azure-plugin'); ?>
+                    <strong><?php esc_html_e('Slot:', 'azure-plugin'); ?></strong>
+                    <code><?php echo esc_html($cache_burst_status['slot_label']); ?></code>
+                </p>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <button type="button" class="button button-secondary azure-cache-burst-btn" data-burst="redis" <?php disabled(!$cache_burst_status['redis_active']); ?>>
+                            <span class="dashicons dashicons-database" style="vertical-align: middle; line-height: 1; margin-right: 4px;"></span>
+                            <?php esc_html_e('Redis Cache Burst', 'azure-plugin'); ?>
+                        </button>
+                        <p class="description" style="margin: 6px 0 0;">
+                            <?php echo $cache_burst_status['redis_active']
+                                ? esc_html__('Clears WordPress object cache (options, postmeta, transients).', 'azure-plugin')
+                                : esc_html__('No external object cache detected.', 'azure-plugin'); ?>
+                        </p>
+                        <span class="azure-cache-burst-result" data-burst="redis" style="display:none; margin-top:6px; font-size:12px;"></span>
+                    </div>
+                    <div style="flex: 1; min-width: 200px;">
+                        <button type="button" class="button button-secondary azure-cache-burst-btn" data-burst="w3tc" <?php disabled(!$cache_burst_status['w3tc_active']); ?>>
+                            <span class="dashicons dashicons-performance" style="vertical-align: middle; line-height: 1; margin-right: 4px;"></span>
+                            <?php esc_html_e('W3TC Cache Burst', 'azure-plugin'); ?>
+                        </button>
+                        <p class="description" style="margin: 6px 0 0;">
+                            <?php echo $cache_burst_status['w3tc_active']
+                                ? esc_html__('Empties W3 Total Cache page, DB, object, and minify caches.', 'azure-plugin')
+                                : esc_html__('W3 Total Cache is not active (WP_CACHE off).', 'azure-plugin'); ?>
+                        </p>
+                        <span class="azure-cache-burst-result" data-burst="w3tc" style="display:none; margin-top:6px; font-size:12px;"></span>
+                    </div>
+                    <div style="flex: 1; min-width: 200px;">
+                        <button type="button" class="button button-secondary azure-cache-burst-btn" data-burst="afd" <?php disabled(!$cache_burst_status['afd_enabled'] || !$cache_burst_status['afd_configured']); ?>>
+                            <span class="dashicons dashicons-cloud" style="vertical-align: middle; line-height: 1; margin-right: 4px;"></span>
+                            <?php esc_html_e('AFD Cache Burst', 'azure-plugin'); ?>
+                        </button>
+                        <p class="description" style="margin: 6px 0 0;">
+                            <?php if (!$cache_burst_status['afd_enabled']) : ?>
+                                <?php esc_html_e('Front Door not enabled on this slot.', 'azure-plugin'); ?>
+                            <?php elseif (!$cache_burst_status['afd_configured']) : ?>
+                                <?php esc_html_e('Set slot-sticky AFD_PROFILE_NAME and AFD_ENDPOINT_NAME app settings.', 'azure-plugin'); ?>
+                            <?php else : ?>
+                                <?php
+                                printf(
+                                    /* translators: 1: AFD profile resource name, 2: AFD endpoint resource name */
+                                    esc_html__('Purges Azure Front Door edge cache (%1$s / %2$s).', 'azure-plugin'),
+                                    esc_html($cache_burst_status['afd_profile_name']),
+                                    esc_html($cache_burst_status['afd_endpoint_name'])
+                                );
+                                ?>
+                            <?php endif; ?>
+                        </p>
+                        <span class="azure-cache-burst-result" data-burst="afd" style="display:none; margin-top:6px; font-size:12px;"></span>
+                    </div>
+                </div>
             </div>
 
             <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
@@ -1071,6 +1134,45 @@ jQuery(document).ready(function($) {
         }
 
         clearBatch();
+    });
+
+    // Cache Burst buttons (System → Critical)
+    $('.azure-cache-burst-btn').click(function() {
+        var burst = $(this).data('burst');
+        var labels = { redis: 'Redis', w3tc: 'W3TC', afd: 'Front Door' };
+        var label = labels[burst] || burst;
+        if (!confirm('Flush ' + label + ' cache for the ' + <?php echo wp_json_encode($cache_burst_status['slot_label']); ?> + ' slot?')) {
+            return;
+        }
+
+        var $btn = $(this);
+        var originalHtml = $btn.html();
+        var $result = $('.azure-cache-burst-result[data-burst="' + burst + '"]');
+        $btn.prop('disabled', true).html('<span class="dashicons dashicons-update" style="animation: rotation 2s infinite linear; vertical-align: middle; line-height: 1; margin-right: 4px;"></span> Working...');
+        $result.hide();
+
+        $.ajax({
+            url: azure_plugin_ajax.ajax_url,
+            type: 'POST',
+            timeout: 120000,
+            data: {
+                action: 'azure_burst_' + burst + '_cache',
+                nonce: azure_plugin_ajax.nonce
+            },
+            success: function(response) {
+                $btn.prop('disabled', false).html(originalHtml);
+                if (response.success) {
+                    $result.css('color', '#00a32a').text(response.data.message || 'Done.').show();
+                } else {
+                    $result.css('color', '#d63638').text(response.data || 'Failed.').show();
+                }
+            },
+            error: function(xhr) {
+                $btn.prop('disabled', false).html(originalHtml);
+                var msg = (xhr.responseJSON && xhr.responseJSON.data) ? xhr.responseJSON.data : 'Request failed or timed out.';
+                $result.css('color', '#d63638').text(msg).show();
+            }
+        });
     });
 
     // Save Organization Settings

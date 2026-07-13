@@ -523,4 +523,315 @@ class Azure_Platform_Sync {
         }
         @rmdir($dir);
     }
+
+    // ------------------------------------------------------------------
+    // Cache burst (System → Critical)
+    // ------------------------------------------------------------------
+
+    /**
+     * Status payload for the Cache Burst widget.
+     *
+     * @return array{
+     *   redis_active: bool,
+     *   w3tc_active: bool,
+     *   afd_enabled: bool,
+     *   afd_configured: bool,
+     *   afd_endpoint_name: string,
+     *   afd_profile_name: string,
+     *   slot_label: string
+     * }
+     */
+    public static function get_cache_burst_status() {
+        $redis_active = function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache();
+        $w3tc_active  = defined('WP_CACHE') && WP_CACHE;
+        $afd_enabled  = strtolower((string) (getenv('AFD_ENABLED') ?: '')) === 'true';
+        $afd_cfg      = self::get_afd_purge_config();
+
+        return array(
+            'redis_active'      => $redis_active,
+            'w3tc_active'       => $w3tc_active,
+            'afd_enabled'       => $afd_enabled,
+            'afd_configured'    => $afd_cfg['configured'],
+            'afd_endpoint_name' => $afd_cfg['endpoint_name'],
+            'afd_profile_name'  => $afd_cfg['profile_name'],
+            'slot_label'        => self::is_production_slot() ? __('production', 'azure-plugin') : __('staging', 'azure-plugin'),
+        );
+    }
+
+    /**
+     * Flush WordPress object cache (Redis drop-in).
+     *
+     * @return array{success:bool,message:string}
+     */
+    public static function burst_redis_cache() {
+        $had_cache = function_exists('wp_using_ext_object_cache') && wp_using_ext_object_cache();
+
+        if (function_exists('wp_cache_flush')) {
+            wp_cache_flush();
+        }
+
+        if (class_exists('\\Rhubarb\\RedisCache\\Plugin')) {
+            try {
+                $plugin = \Rhubarb\RedisCache\Plugin::instance();
+                if ($plugin && method_exists($plugin, 'flush_cache')) {
+                    $plugin->flush_cache();
+                }
+            } catch (\Throwable $e) {
+                Azure_Logger::warning('Cache burst: Redis plugin flush failed — ' . $e->getMessage(), 'Platform');
+            }
+        }
+
+        Azure_Logger::info('Cache burst: Redis/object cache flushed on ' . self::get_cache_burst_status()['slot_label'] . ' slot', 'Platform');
+
+        return array(
+            'success' => true,
+            'message' => $had_cache
+                ? __('Redis object cache flushed for this slot.', 'azure-plugin')
+                : __('Object cache flush ran (no external object cache detected).', 'azure-plugin'),
+        );
+    }
+
+    /**
+     * Flush W3 Total Cache (page, DB, object, minify).
+     *
+     * @return array{success:bool,message:string,details?:array}
+     */
+    public static function burst_w3tc_cache() {
+        $details = array(
+            'flush_all'   => false,
+            'pgcache'     => false,
+            'dbcache'     => false,
+            'objectcache' => false,
+            'minify'      => false,
+        );
+
+        if (function_exists('w3tc_flush_all')) {
+            @w3tc_flush_all();
+            $details['flush_all'] = true;
+        } else {
+            if (function_exists('w3tc_pgcache_flush')) {
+                @w3tc_pgcache_flush();
+                $details['pgcache'] = true;
+            }
+            if (function_exists('w3tc_dbcache_flush')) {
+                @w3tc_dbcache_flush();
+                $details['dbcache'] = true;
+            }
+            if (function_exists('w3tc_objectcache_flush')) {
+                @w3tc_objectcache_flush();
+                $details['objectcache'] = true;
+            }
+            if (function_exists('w3tc_minify_flush')) {
+                @w3tc_minify_flush();
+                $details['minify'] = true;
+            }
+        }
+
+        if (function_exists('wp_cache_flush')) {
+            @wp_cache_flush();
+        }
+
+        $any = $details['flush_all'] || in_array(true, $details, true);
+        if (!$any && !(defined('WP_CACHE') && WP_CACHE)) {
+            return array(
+                'success' => false,
+                'message' => __('W3 Total Cache is not active (WP_CACHE is off).', 'azure-plugin'),
+            );
+        }
+
+        Azure_Logger::info('Cache burst: W3TC caches flushed — ' . wp_json_encode($details), 'Platform');
+
+        return array(
+            'success' => true,
+            'message' => $details['flush_all']
+                ? __('W3 Total Cache: all caches emptied.', 'azure-plugin')
+                : __('W3 Total Cache: available cache layers flushed.', 'azure-plugin'),
+            'details' => $details,
+        );
+    }
+
+    /**
+     * Purge Azure Front Door edge cache for this slot via ARM API +
+     * the App Service managed identity.
+     *
+     * @return array{success:bool,message:string,details?:array}
+     */
+    public static function burst_afd_cache() {
+        if (strtolower((string) (getenv('AFD_ENABLED') ?: '')) !== 'true') {
+            return array(
+                'success' => false,
+                'message' => __('Front Door is not enabled on this slot (AFD_ENABLED ≠ true).', 'azure-plugin'),
+            );
+        }
+
+        $cfg = self::get_afd_purge_config();
+        if (!$cfg['configured']) {
+            return array(
+                'success' => false,
+                'message' => __(
+                    'Front Door purge is not configured. Set slot-sticky app settings AFD_PROFILE_NAME and AFD_ENDPOINT_NAME (Azure resource name, not the public hostname).',
+                    'azure-plugin'
+                ),
+            );
+        }
+
+        $token = self::fetch_arm_access_token();
+        if (!$token) {
+            return array(
+                'success' => false,
+                'message' => __(
+                    'Could not obtain an Azure management token from the App Service managed identity. Grant this site\'s identity CDN purge rights on the Front Door profile.',
+                    'azure-plugin'
+                ),
+            );
+        }
+
+        $api_version = '2023-05-01';
+        $url = sprintf(
+            'https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cdn/profiles/%s/afdEndpoints/%s/purge?api-version=%s',
+            rawurlencode($cfg['subscription_id']),
+            rawurlencode($cfg['resource_group']),
+            rawurlencode($cfg['profile_name']),
+            rawurlencode($cfg['endpoint_name']),
+            rawurlencode($api_version)
+        );
+
+        $body = array(
+            'contentPaths' => array('/*'),
+            'domains'      => array_filter(array($cfg['afd_domain'])),
+        );
+
+        $response = wp_remote_post($url, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type'  => 'application/json',
+            ),
+            'body'    => wp_json_encode($body),
+            'timeout' => 45,
+        ));
+
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'message' => sprintf(__('Front Door purge request failed: %s', 'azure-plugin'), $response->get_error_message()),
+            );
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $resp_body = wp_remote_retrieve_body($response);
+
+        if ($code >= 200 && $code < 300) {
+            Azure_Logger::info(
+                'Cache burst: AFD purge accepted for endpoint ' . $cfg['endpoint_name'] . ' on ' . $cfg['slot_label'] . ' slot',
+                'Platform'
+            );
+            return array(
+                'success' => true,
+                'message' => sprintf(
+                    /* translators: 1: AFD endpoint resource name, 2: slot label */
+                    __('Front Door purge queued for endpoint %1$s (%2$s slot). Edge cache may take 1–3 minutes to clear globally.', 'azure-plugin'),
+                    $cfg['endpoint_name'],
+                    $cfg['slot_label']
+                ),
+                'details' => array(
+                    'endpoint' => $cfg['endpoint_name'],
+                    'profile'  => $cfg['profile_name'],
+                    'domain'   => $cfg['afd_domain'],
+                ),
+            );
+        }
+
+        Azure_Logger::error('Cache burst: AFD purge HTTP ' . $code . ' — ' . $resp_body, 'Platform');
+
+        return array(
+            'success' => false,
+            'message' => sprintf(
+                __('Front Door purge failed (HTTP %1$d). Response: %2$s', 'azure-plugin'),
+                (int) $code,
+                substr($resp_body, 0, 300)
+            ),
+        );
+    }
+
+    /**
+     * Resolve Front Door ARM identifiers for purge on the current slot.
+     *
+     * @return array{
+     *   configured: bool,
+     *   subscription_id: string,
+     *   resource_group: string,
+     *   profile_name: string,
+     *   endpoint_name: string,
+     *   afd_domain: string,
+     *   slot_label: string
+     * }
+     */
+    private static function get_afd_purge_config() {
+        $subscription_id = trim((string) (getenv('WEBSITE_OWNER_NAME') ?: ''));
+        if ($subscription_id === '') {
+            $subscription_id = trim((string) Azure_Settings::get_setting('platform_azure_subscription_id', ''));
+        }
+
+        $resource_group = trim((string) (getenv('WEBSITE_RESOURCE_GROUP') ?: ''));
+        if ($resource_group === '') {
+            $resource_group = trim((string) Azure_Settings::get_setting('platform_afd_resource_group', 'PTSAWebsite'));
+        }
+
+        $profile_name = trim((string) (getenv('AFD_PROFILE_NAME') ?: ''));
+        if ($profile_name === '') {
+            $profile_name = trim((string) Azure_Settings::get_setting('platform_afd_profile_name', 'WilderPTSAAFD'));
+        }
+
+        $endpoint_name = trim((string) (getenv('AFD_ENDPOINT_NAME') ?: ''));
+        if ($endpoint_name === '') {
+            $endpoint_name = trim((string) Azure_Settings::get_setting('platform_afd_endpoint_name', ''));
+        }
+
+        $afd_domain = trim((string) (getenv('AFD_DOMAIN') ?: ''));
+        $slot_label = self::is_production_slot() ? 'production' : 'staging';
+
+        $configured = ($subscription_id !== '' && $resource_group !== '' && $profile_name !== '' && $endpoint_name !== '');
+
+        return array(
+            'configured'      => $configured,
+            'subscription_id' => $subscription_id,
+            'resource_group'  => $resource_group,
+            'profile_name'    => $profile_name,
+            'endpoint_name'   => $endpoint_name,
+            'afd_domain'      => $afd_domain,
+            'slot_label'      => $slot_label,
+        );
+    }
+
+    /**
+     * Fetch an Azure Resource Manager token via the App Service IMDS endpoint.
+     *
+     * @return string|false
+     */
+    private static function fetch_arm_access_token() {
+        $client_id = trim((string) (getenv('ENTRA_CLIENT_ID') ?: getenv('AZURE_CLIENT_ID') ?: ''));
+        $url       = 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2019-08-01&resource='
+            . rawurlencode('https://management.azure.com/');
+        if ($client_id !== '') {
+            $url .= '&client_id=' . rawurlencode($client_id);
+        }
+
+        $response = wp_remote_get($url, array(
+            'headers' => array('Metadata' => 'true'),
+            'timeout' => 15,
+        ));
+
+        if (is_wp_error($response)) {
+            Azure_Logger::warning('Cache burst: IMDS token request failed — ' . $response->get_error_message(), 'Platform');
+            return false;
+        }
+
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($data) || empty($data['access_token'])) {
+            Azure_Logger::warning('Cache burst: IMDS returned no access_token', 'Platform');
+            return false;
+        }
+
+        return (string) $data['access_token'];
+    }
 }

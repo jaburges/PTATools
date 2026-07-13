@@ -41,6 +41,9 @@ class Azure_Admin {
         add_action('wp_ajax_azure_delete_role', array($this, 'ajax_delete_role'));
         add_action('wp_ajax_azure_reseed_pta_caps', array($this, 'ajax_reseed_pta_caps'));
         add_action('wp_ajax_azure_sync_prod_to_staging_db', array($this, 'ajax_sync_prod_to_staging_db'));
+        add_action('wp_ajax_azure_burst_redis_cache', array($this, 'ajax_burst_redis_cache'));
+        add_action('wp_ajax_azure_burst_w3tc_cache', array($this, 'ajax_burst_w3tc_cache'));
+        add_action('wp_ajax_azure_burst_afd_cache', array($this, 'ajax_burst_afd_cache'));
             
             // Calendar Embed AJAX handlers
             add_action('wp_ajax_azure_save_calendar_embed_email', array($this, 'ajax_save_calendar_embed_email'));
@@ -3372,6 +3375,75 @@ class Azure_Admin {
 
         if (empty($result['success'])) {
             wp_send_json_error($result['message'] ?? __('Sync failed.', 'azure-plugin'));
+        }
+
+        wp_send_json_success(array(
+            'message' => $result['message'],
+            'details' => $result['details'] ?? array(),
+        ));
+    }
+
+    /**
+     * Flush Redis / WordPress object cache (System → Critical).
+     */
+    public function ajax_burst_redis_cache() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Unauthorized', 'azure-plugin'));
+        }
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'azure_plugin_nonce')) {
+            wp_send_json_error(__('Invalid nonce', 'azure-plugin'));
+        }
+
+        require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
+        $result = Azure_Platform_Sync::burst_redis_cache();
+
+        if (empty($result['success'])) {
+            wp_send_json_error($result['message'] ?? __('Redis flush failed.', 'azure-plugin'));
+        }
+
+        wp_send_json_success(array('message' => $result['message']));
+    }
+
+    /**
+     * Flush W3 Total Cache layers (System → Critical).
+     */
+    public function ajax_burst_w3tc_cache() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Unauthorized', 'azure-plugin'));
+        }
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'azure_plugin_nonce')) {
+            wp_send_json_error(__('Invalid nonce', 'azure-plugin'));
+        }
+
+        require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
+        $result = Azure_Platform_Sync::burst_w3tc_cache();
+
+        if (empty($result['success'])) {
+            wp_send_json_error($result['message'] ?? __('W3TC flush failed.', 'azure-plugin'));
+        }
+
+        wp_send_json_success(array(
+            'message' => $result['message'],
+            'details' => $result['details'] ?? array(),
+        ));
+    }
+
+    /**
+     * Purge Azure Front Door edge cache (System → Critical).
+     */
+    public function ajax_burst_afd_cache() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('Unauthorized', 'azure-plugin'));
+        }
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'azure_plugin_nonce')) {
+            wp_send_json_error(__('Invalid nonce', 'azure-plugin'));
+        }
+
+        require_once AZURE_PLUGIN_PATH . 'includes/class-platform-sync.php';
+        $result = Azure_Platform_Sync::burst_afd_cache();
+
+        if (empty($result['success'])) {
+            wp_send_json_error($result['message'] ?? __('Front Door purge failed.', 'azure-plugin'));
         }
 
         wp_send_json_success(array(
