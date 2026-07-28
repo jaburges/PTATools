@@ -122,6 +122,12 @@ class Azure_Diagnostics_API {
             'permission_callback' => $auth,
         ));
 
+        register_rest_route($ns, '/diagnostics/media-heal', array(
+            'methods'             => 'POST',
+            'callback'            => array($this, 'route_media_heal'),
+            'permission_callback' => $auth,
+        ));
+
         register_rest_route($ns, '/diagnostics/product-image-audit', array(
             'methods'             => 'GET',
             'callback'            => array($this, 'route_product_image_audit'),
@@ -1553,6 +1559,291 @@ class Azure_Diagnostics_API {
         }
 
         return null;
+    }
+
+    /**
+     * POST /diagnostics/media-heal
+     *
+     * Repair missing attachment files on disk without re-uploading:
+     *  1) Case-only mismatches in the same folder (rename on disk).
+     *  2) Same basename elsewhere under uploads/ (copy into expected path).
+     *  3) Explicit copies: body { "copies": [ { "from": "2026/07/x.png", "to": "2026/06/x.png" } ] }
+     *  4) Broken product thumbnails: rematch by title to another on-disk attachment.
+     *
+     * Params: dry_run=true|false (default true), year=2026
+     */
+    public function route_media_heal($request) {
+        global $wpdb;
+        @set_time_limit(300);
+
+        $dry_run = $request->get_param('dry_run') !== 'false';
+        $year = sanitize_text_field($request->get_param('year') ?: '2026');
+        $upload_dir = wp_upload_dir();
+        $basedir = $upload_dir['basedir'];
+        $baseurl = $upload_dir['baseurl'];
+
+        $actions = array();
+        $unresolved = array();
+
+        $body = $request->get_json_params();
+        if (!is_array($body)) {
+            $body = array();
+        }
+        $explicit_copies = isset($body['copies']) && is_array($body['copies']) ? $body['copies'] : array();
+
+        foreach ($explicit_copies as $copy) {
+            $from = isset($copy['from']) ? ltrim(str_replace('\\', '/', (string) $copy['from']), '/') : '';
+            $to = isset($copy['to']) ? ltrim(str_replace('\\', '/', (string) $copy['to']), '/') : '';
+            if ($from === '' || $to === '' || strpos($from, '..') !== false || strpos($to, '..') !== false) {
+                $unresolved[] = array('type' => 'explicit_copy', 'from' => $from, 'to' => $to, 'reason' => 'invalid_path');
+                continue;
+            }
+            $from_full = $basedir . '/' . $from;
+            $to_full = $basedir . '/' . $to;
+            if (!file_exists($from_full)) {
+                $unresolved[] = array('type' => 'explicit_copy', 'from' => $from, 'to' => $to, 'reason' => 'source_missing');
+                continue;
+            }
+            if (file_exists($to_full)) {
+                $actions[] = array('type' => 'explicit_copy', 'from' => $from, 'to' => $to, 'status' => 'already_exists');
+                continue;
+            }
+            if (!$dry_run) {
+                wp_mkdir_p(dirname($to_full));
+                if (!@copy($from_full, $to_full)) {
+                    $unresolved[] = array('type' => 'explicit_copy', 'from' => $from, 'to' => $to, 'reason' => 'copy_failed');
+                    continue;
+                }
+            }
+            $actions[] = array('type' => 'explicit_copy', 'from' => $from, 'to' => $to, 'status' => $dry_run ? 'would_copy' : 'copied');
+        }
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT p.ID, p.post_title, p.guid, pm.meta_value AS attached_file
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_wp_attached_file'
+             WHERE p.post_type = 'attachment'
+               AND pm.meta_value LIKE %s
+             ORDER BY p.ID",
+            $year . '/%'
+        ), ARRAY_A);
+
+        $by_basename = array();
+        foreach ($rows as $row) {
+            $rel = $row['attached_file'];
+            if (preg_match('|^https?://|', $rel)) {
+                continue;
+            }
+            $full = $basedir . '/' . $rel;
+            if (!file_exists($full)) {
+                continue;
+            }
+            $base = strtolower(basename($rel));
+            if (!isset($by_basename[$base])) {
+                $by_basename[$base] = array();
+            }
+            $by_basename[$base][] = $rel;
+        }
+
+        foreach ($rows as $row) {
+            $rel = $row['attached_file'];
+            if (preg_match('|^https?://|', $rel) || !preg_match('|^\d{4}/\d{2}/|', $rel)) {
+                continue;
+            }
+            $full = $basedir . '/' . $rel;
+            if (file_exists($full)) {
+                continue;
+            }
+
+            $dir = dirname($full);
+            $expected_name = basename($rel);
+            $case_hit = null;
+            if (is_dir($dir)) {
+                foreach (scandir($dir) as $entry) {
+                    if ($entry === '.' || $entry === '..') {
+                        continue;
+                    }
+                    if (strcasecmp($entry, $expected_name) === 0 && $entry !== $expected_name) {
+                        $case_hit = $entry;
+                        break;
+                    }
+                }
+            }
+
+            if ($case_hit) {
+                $from_full = $dir . '/' . $case_hit;
+                if (!$dry_run) {
+                    if (!@rename($from_full, $full)) {
+                        // Fallback for case-only renames on case-insensitive volumes.
+                        $tmp = $dir . '/.__pta_case_' . wp_generate_password(8, false) . '_' . $expected_name;
+                        if (!@rename($from_full, $tmp) || !@rename($tmp, $full)) {
+                            $unresolved[] = array(
+                                'id' => $row['ID'],
+                                'attached_file' => $rel,
+                                'reason' => 'case_rename_failed',
+                                'found' => $case_hit,
+                            );
+                            continue;
+                        }
+                    }
+                    $this->media_heal_refresh_attachment((int) $row['ID'], $rel, $baseurl);
+                }
+                $actions[] = array(
+                    'type' => 'case_rename',
+                    'id' => $row['ID'],
+                    'from' => dirname($rel) . '/' . $case_hit,
+                    'to' => $rel,
+                    'status' => $dry_run ? 'would_rename' : 'renamed',
+                );
+                continue;
+            }
+
+            $base = strtolower(basename($rel));
+            $candidates = isset($by_basename[$base]) ? $by_basename[$base] : array();
+            $source = null;
+            foreach ($candidates as $cand) {
+                if (strcasecmp($cand, $rel) === 0) {
+                    continue;
+                }
+                if (file_exists($basedir . '/' . $cand)) {
+                    $source = $cand;
+                    break;
+                }
+            }
+
+            // Also scan year folders for same basename even if not in attachment meta yet.
+            if (!$source && is_dir($basedir . '/' . $year)) {
+                $iterator = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($basedir . '/' . $year, FilesystemIterator::SKIP_DOTS)
+                );
+                foreach ($iterator as $fileinfo) {
+                    if (!$fileinfo->isFile()) {
+                        continue;
+                    }
+                    if (strcasecmp($fileinfo->getFilename(), $expected_name) === 0) {
+                        $abs = $fileinfo->getPathname();
+                        $source = ltrim(str_replace('\\', '/', substr($abs, strlen($basedir))), '/');
+                        if (strcasecmp($source, $rel) !== 0) {
+                            break;
+                        }
+                        $source = null;
+                    }
+                }
+            }
+
+            if ($source) {
+                $from_full = $basedir . '/' . $source;
+                if (!$dry_run) {
+                    wp_mkdir_p(dirname($full));
+                    if (!@copy($from_full, $full)) {
+                        $unresolved[] = array(
+                            'id' => $row['ID'],
+                            'attached_file' => $rel,
+                            'reason' => 'copy_failed',
+                            'source' => $source,
+                        );
+                        continue;
+                    }
+                    $this->media_heal_refresh_attachment((int) $row['ID'], $rel, $baseurl);
+                }
+                $actions[] = array(
+                    'type' => 'copy_basename',
+                    'id' => $row['ID'],
+                    'from' => $source,
+                    'to' => $rel,
+                    'status' => $dry_run ? 'would_copy' : 'copied',
+                );
+                continue;
+            }
+
+            $unresolved[] = array(
+                'id' => $row['ID'],
+                'title' => $row['post_title'],
+                'attached_file' => $rel,
+                'reason' => 'no_source_found',
+            );
+        }
+
+        // Rematch broken product thumbnails to another attachment with a similar title / basename.
+        $broken_products = $wpdb->get_results(
+            "SELECT p.ID AS product_id, p.post_title, tm.meta_value AS thumbnail_id, af.meta_value AS attached_file
+             FROM {$wpdb->posts} p
+             INNER JOIN {$wpdb->postmeta} tm ON p.ID = tm.post_id AND tm.meta_key = '_thumbnail_id'
+             LEFT JOIN {$wpdb->postmeta} af ON tm.meta_value = af.post_id AND af.meta_key = '_wp_attached_file'
+             WHERE p.post_type = 'product'
+               AND p.post_status IN ('publish', 'draft', 'private')",
+            ARRAY_A
+        );
+
+        foreach ($broken_products as $prod) {
+            $tid = intval($prod['thumbnail_id']);
+            $rel = $prod['attached_file'];
+            if (!$tid || !$rel) {
+                continue;
+            }
+            if (file_exists($basedir . '/' . $rel)) {
+                continue;
+            }
+
+            // Prefer an attachment whose file basename matches product keywords.
+            $title = strtolower($prod['post_title']);
+            $alt = null;
+            if (strpos($title, 'school dance') !== false) {
+                $alt = $wpdb->get_row(
+                    "SELECT p.ID, pm.meta_value AS attached_file
+                     FROM {$wpdb->posts} p
+                     INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_wp_attached_file'
+                     WHERE p.post_type = 'attachment'
+                       AND (p.post_title LIKE '%School Dance%' OR pm.meta_value LIKE '%School-Dance%')
+                     ORDER BY p.ID DESC
+                     LIMIT 1",
+                    ARRAY_A
+                );
+            }
+
+            if ($alt && !empty($alt['attached_file']) && file_exists($basedir . '/' . $alt['attached_file'])) {
+                if (!$dry_run) {
+                    update_post_meta((int) $prod['product_id'], '_thumbnail_id', (int) $alt['ID']);
+                }
+                $actions[] = array(
+                    'type' => 'product_thumb_remap',
+                    'product_id' => $prod['product_id'],
+                    'from_thumbnail_id' => $tid,
+                    'to_thumbnail_id' => $alt['ID'],
+                    'to_file' => $alt['attached_file'],
+                    'status' => $dry_run ? 'would_remap' : 'remapped',
+                );
+            }
+        }
+
+        return rest_ensure_response(array(
+            'dry_run' => $dry_run,
+            'year' => $year,
+            'actions' => $actions,
+            'unresolved' => $unresolved,
+            'action_count' => count($actions),
+            'unresolved_count' => count($unresolved),
+        ));
+    }
+
+    private function media_heal_refresh_attachment($attachment_id, $rel, $baseurl) {
+        $expected_url = $baseurl . '/' . $rel;
+        wp_update_post(array(
+            'ID' => $attachment_id,
+            'guid' => $expected_url,
+        ));
+        clean_post_cache($attachment_id);
+        if (function_exists('wp_generate_attachment_metadata') && function_exists('wp_update_attachment_metadata')) {
+            $upload_dir = wp_upload_dir();
+            $full = $upload_dir['basedir'] . '/' . $rel;
+            if (file_exists($full)) {
+                require_once ABSPATH . 'wp-admin/includes/image.php';
+                $meta = wp_generate_attachment_metadata($attachment_id, $full);
+                if (!empty($meta)) {
+                    wp_update_attachment_metadata($attachment_id, $meta);
+                }
+            }
+        }
     }
 
     public function route_product_image_audit($request) {
