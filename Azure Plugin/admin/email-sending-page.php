@@ -111,7 +111,7 @@ $strict_mode = class_exists('Azure_Email_Router') ? Azure_Email_Router::strict_m
         <h2><span class="dashicons dashicons-randomize"></span> <?php esc_html_e('Routing rules', 'azure-plugin'); ?></h2>
         <p class="description">
             Every <code>wp_mail()</code> call is matched against this table top-to-bottom; the first row whose <strong>From matcher</strong> matches wins.
-            Matcher supports an exact address (<code>shop@wilderptsa.net</code>), a prefix-with-trailing-@ (<code>news@</code> matches any <code>news@*</code>),
+            Matcher supports an exact address (<code>shop@<?php echo esc_html(preg_replace('/^www\./', '', (string) wp_parse_url(home_url(), PHP_URL_HOST))); ?></code>), a prefix-with-trailing-@ (<code>news@</code> matches any <code>news@*</code>),
             or <code>*</code> for the default catch-all (which always sits at the bottom and can't be deleted).
             The chosen <strong>provider</strong> then sends the email as the configured <strong>Send as</strong> address.
         </p>

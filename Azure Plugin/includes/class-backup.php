@@ -572,6 +572,9 @@ class Azure_Backup {
         if (!current_user_can('manage_options') || !isset($_POST['backup_id'])) {
             wp_send_json_error('Unauthorized');
         }
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
 
         $backup_id = sanitize_text_field($_POST['backup_id']);
         $job = $this->get_job($backup_id);
@@ -850,6 +853,9 @@ class Azure_Backup {
     // ------------------------------------------------------------------
 
     public function heartbeat_received($response, $data) {
+        if (!current_user_can('manage_options')) {
+            return $response;
+        }
         if (!empty($data['azure_backup_id'])) {
             $job = $this->get_job(sanitize_text_field($data['azure_backup_id']));
             if ($job) {

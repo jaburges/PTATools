@@ -396,8 +396,11 @@ class Azure_Backup_Engine {
                         }
 
                         $abs = $item->getPathname();
-                        $rel = ltrim(str_replace($source, '', $abs), '/\\');
-                        $rel = str_replace('\\', '/', $rel);
+                        // Strip only the leading source prefix. str_replace()
+                        // would also strip a repeat of that path deeper in the
+                        // tree and mangle the archive-relative name.
+                        $rel = strpos($abs, $source) === 0 ? substr($abs, strlen($source)) : $abs;
+                        $rel = str_replace('\\', '/', ltrim($rel, '/\\'));
 
                         if ($this->should_exclude($rel, $exclude)) {
                             continue;
@@ -427,13 +430,25 @@ class Azure_Backup_Engine {
 
     private function should_exclude($relative_path, $exclude_patterns) {
         $sep = '/';
+        $basename = basename($relative_path);
+
         foreach ($exclude_patterns as $pattern) {
+            // Directory match: the pattern is a whole path segment.
             if (strpos($relative_path, $sep . $pattern . $sep) !== false
                 || strpos($relative_path, $pattern . $sep) === 0
                 || $relative_path === $pattern) {
                 return true;
             }
+
+            // Trailing-underscore patterns (temp_backup_) are prefix matches.
             if (substr($pattern, -1) === '_' && strpos($relative_path, $pattern) !== false) {
+                return true;
+            }
+
+            // A pattern naming a file rather than a directory should match that
+            // file anywhere in the tree. Without this, only a root-level
+            // debug.log was skipped and per-plugin logs went into the archive.
+            if (strpos($pattern, $sep) === false && strpos($pattern, '.') !== false && $basename === $pattern) {
                 return true;
             }
         }

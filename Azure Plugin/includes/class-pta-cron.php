@@ -97,6 +97,15 @@ class Azure_PTA_Cron {
             );
         }
 
+        // Backup scheduler offers a Monthly option; WP core has no such
+        // recurrence, so wp_schedule_event() would refuse it.
+        if (!isset($schedules['monthly'])) {
+            $schedules['monthly'] = array(
+                'interval' => 30 * DAY_IN_SECONDS,
+                'display'  => __('Once Monthly', 'azure-plugin'),
+            );
+        }
+
         return $schedules;
     }
 

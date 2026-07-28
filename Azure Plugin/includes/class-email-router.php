@@ -7,9 +7,12 @@
  * header. Replaces the historical "one transport wins all of
  * wp_mail" model with a per-service routing table:
  *
- *   Newsletter (AcyMailing)            news@wilderptsa.net   provider=acy
- *   WooCommerce shop                   shop@wilderptsa.net   provider=graph
- *   WordPress core / default (*)       info@wilderptsa.net   provider=graph
+ *   Newsletter (AcyMailing)            news@<site-domain>   provider=acy
+ *   WooCommerce shop                   shop@<site-domain>   provider=graph
+ *   WordPress core / default (*)       info@<site-domain>   provider=graph
+ *
+ * The seeded rows derive their domain from home_url() and their sender
+ * name from the site title, so nothing organization-specific is baked in.
  *
  * Storage:  wp_options.azure_email_routing  (versioned JSON).
  *
@@ -168,7 +171,7 @@ class Azure_Email_Router {
                     'label'        => 'Newsletter (AcyMailing)',
                     'from_match'   => 'news@',
                     'from_address' => 'news@' . self::default_domain(),
-                    'from_name'    => 'Wilder PTSA Newsletter',
+                    'from_name'    => self::default_org_name() . ' Newsletter',
                     'reply_to'     => '',
                     'provider'     => 'acy',
                     'enabled'      => true,
@@ -179,7 +182,7 @@ class Azure_Email_Router {
                     'label'        => 'WooCommerce shop',
                     'from_match'   => 'shop@' . self::default_domain(),
                     'from_address' => 'shop@' . self::default_domain(),
-                    'from_name'    => 'Wilder PTSA Shop',
+                    'from_name'    => self::default_org_name() . ' Shop',
                     'reply_to'     => '',
                     'provider'     => 'graph',
                     'enabled'      => true,
@@ -197,7 +200,7 @@ class Azure_Email_Router {
             'label'        => 'WordPress core / default',
             'from_match'   => '*',
             'from_address' => 'info@' . self::default_domain(),
-            'from_name'    => 'Wilder PTSA',
+            'from_name'    => self::default_org_name(),
             'reply_to'     => '',
             'provider'     => 'graph',
             'enabled'      => true,
@@ -210,6 +213,17 @@ class Azure_Email_Router {
         $host = parse_url(home_url(), PHP_URL_HOST) ?: 'example.com';
         $host = preg_replace('/^www\./', '', $host);
         return $host;
+    }
+
+    /**
+     * Sender display name for the seeded rows.
+     *
+     * Taken from the site title so a fresh install doesn't send mail
+     * branded as whichever organization these defaults were written for.
+     */
+    private static function default_org_name() {
+        $name = trim(wp_specialchars_decode((string) get_bloginfo('name'), ENT_QUOTES));
+        return $name !== '' ? $name : self::default_domain();
     }
 
     // ---------------------------------------------------------------

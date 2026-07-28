@@ -391,7 +391,7 @@ sso_debug_log('last_sync_results: ' . json_encode($last_sync_results));
                                         <strong>Login page — organization heading (above SSO button):</strong><br />
                                         <input type="text" name="sso_login_org_heading" id="sso_login_org_heading" value="<?php echo esc_attr($settings['sso_login_org_heading'] ?? ''); ?>" class="regular-text" placeholder="<?php echo esc_attr(get_bloginfo('name')); ?>" />
                                     </label>
-                                    <p class="description">Shown in the Microsoft sign-in section after the Parents username/password form (e.g. <code>WilderPTSA</code>). Leave blank to use the site title.</p>
+                                    <p class="description">Shown in the Microsoft sign-in section after the Parents username/password form. Leave blank to use the site title.</p>
                                 </div>
                             </td>
                         </tr>

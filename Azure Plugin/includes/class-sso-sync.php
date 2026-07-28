@@ -28,7 +28,15 @@ class Azure_SSO_Sync {
      */
     private function setup_scheduled_sync() {
         $sync_enabled = Azure_Settings::get_setting('sso_sync_enabled', false);
-        $sync_frequency = Azure_Settings::get_setting('sso_sync_frequency', 'hourly');
+        $sync_frequency = (string) Azure_Settings::get_setting('sso_sync_frequency', 'hourly');
+
+        // An unregistered recurrence makes wp_schedule_event() return false, so
+        // the sync would silently never run and this method would clear and
+        // retry on every request forever.
+        if (!array_key_exists($sync_frequency, wp_get_schedules())) {
+            Azure_Logger::warning('SSO Sync: Unknown sync frequency "' . $sync_frequency . '", falling back to hourly');
+            $sync_frequency = 'hourly';
+        }
 
         $existing = wp_get_schedule('azure_sso_scheduled_sync');
 

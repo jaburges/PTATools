@@ -115,5 +115,5 @@ These look unreferenced but I haven't been able to fully prove they're dead. **D
 2. Re-run the verification checks listed under it.
 3. Search the entire workspace for the file/symbol name (`Grep` across both the plugin and any active theme).
 4. Delete the file(s) plus the related setting/UI references.
-5. Bump plugin version, deploy to **lwptsa** first, smoke-test, then deploy to wilderptsa.
+5. Bump plugin version, deploy to the **staging slot** first, smoke-test, then deploy to production.
 6. Remove the item from this list (or move to a "Removed" section at the bottom for history).

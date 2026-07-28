@@ -53,6 +53,7 @@ class Azure_Backup_Restore {
 
     public function ajax_get_restore_progress() {
         if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) wp_send_json_error('Invalid nonce');
         $data = get_transient(self::$restore_key);
         wp_send_json_success($data ?: array('progress' => 0, 'status' => 'idle', 'message' => ''));
     }
@@ -851,6 +852,29 @@ class Azure_Backup_Restore {
         if ($num === 0) {
             $zip->close();
             return 0;
+        }
+
+        // ZipArchive::extractTo() honours "../" and absolute paths in entry
+        // names, unlike WP's unzip_file(). Without this check a crafted or
+        // tampered backup archive could write outside $dir — over wp-config.php
+        // or any other plugin — the moment an admin restored it.
+        for ($i = 0; $i < $num; $i++) {
+            $entry = $zip->getNameIndex($i);
+            if ($entry === false) {
+                $zip->close();
+                throw new Exception('Unreadable entry in archive ' . basename($archive));
+            }
+
+            $normalised = str_replace('\\', '/', $entry);
+            $is_absolute = $normalised !== '' && ($normalised[0] === '/' || preg_match('#^[A-Za-z]:/#', $normalised));
+            $has_traversal = in_array('..', explode('/', $normalised), true);
+
+            if ($is_absolute || $has_traversal) {
+                $zip->close();
+                throw new Exception(
+                    'Refusing to extract ' . basename($archive) . ': unsafe entry path "' . $entry . '"'
+                );
+            }
         }
 
         $ok = $zip->extractTo($dir);

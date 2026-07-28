@@ -124,7 +124,7 @@ class Azure_Platform_Sync {
         $afd_domain = (string) (getenv('AFD_DOMAIN') ?: '');
 
         // Slot-specific salt = the salt contains the slot's AFD_DOMAIN.
-        // Generic salts (e.g. "wilderptsa.net:" used on both slots) would
+        // Generic salts (e.g. the bare site domain used on both slots) would
         // fail this test on the staging slot but pass on prod, which is
         // exactly what we want — the warning surfaces on the slot that
         // would silently overwrite the other slot's keys.
@@ -772,14 +772,17 @@ class Azure_Platform_Sync {
             $subscription_id = trim((string) Azure_Settings::get_setting('platform_azure_subscription_id', ''));
         }
 
+        // No defaults for these: guessing a resource group or Front Door
+        // profile would aim an ARM purge at someone else's resources. Empty
+        // leaves `configured` false, which disables the purge entirely.
         $resource_group = trim((string) (getenv('WEBSITE_RESOURCE_GROUP') ?: ''));
         if ($resource_group === '') {
-            $resource_group = trim((string) Azure_Settings::get_setting('platform_afd_resource_group', 'PTSAWebsite'));
+            $resource_group = trim((string) Azure_Settings::get_setting('platform_afd_resource_group', ''));
         }
 
         $profile_name = trim((string) (getenv('AFD_PROFILE_NAME') ?: ''));
         if ($profile_name === '') {
-            $profile_name = trim((string) Azure_Settings::get_setting('platform_afd_profile_name', 'WilderPTSAAFD'));
+            $profile_name = trim((string) Azure_Settings::get_setting('platform_afd_profile_name', ''));
         }
 
         $endpoint_name = trim((string) (getenv('AFD_ENDPOINT_NAME') ?: ''));

@@ -205,7 +205,7 @@ class Azure_PTA_Manager {
             $params[] = 'active';
         }
         
-        $sql = "SELECT ra.*, r.name as role_name, r.slug as role_slug, 
+        $sql = "SELECT ra.*, r.name as role_name, r.slug as role_slug, r.department_id,
                        d.name as department_name, d.slug as department_slug
                 FROM $assignments_table ra
                 JOIN $roles_table r ON ra.role_id = r.id
@@ -600,10 +600,14 @@ class Azure_PTA_Manager {
             }
         }
         
-        if ($primary_assignment) {
+        if ($primary_assignment && !empty($primary_assignment->department_id)) {
             $department = $this->get_department($primary_assignment->department_id);
+            if (!$department) {
+                Azure_Logger::warning("PTA: department {$primary_assignment->department_id} not found; skipping manager sync for user {$user_id}");
+                return;
+            }
             $manager_user_id = $department->vp_user_id;
-            
+
             Azure_PTA_Database::queue_sync(
                 'user_sync',
                 'user',

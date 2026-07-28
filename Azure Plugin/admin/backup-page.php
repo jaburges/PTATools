@@ -694,7 +694,7 @@ jQuery(document).ready(function($) {
                 url: azure_plugin_ajax.ajax_url,
                 type: 'POST',
                 timeout: 30000,
-                data: { action: 'azure_get_backup_progress', backup_id: backupId },
+                data: { action: 'azure_get_backup_progress', backup_id: backupId, nonce: azure_plugin_ajax.nonce },
                 success: function(response) {
                     polling = false;
                     if (typeof response === 'string') {
@@ -1265,7 +1265,8 @@ jQuery(document).ready(function($) {
 
     function pollRestoreProgress() {
         $.post(azure_plugin_ajax.ajax_url, {
-            action: 'azure_get_restore_progress'
+            action: 'azure_get_restore_progress',
+            nonce: azure_plugin_ajax.nonce
         }, function(response) {
             if (response && response.success && response.data) {
                 var d = response.data;

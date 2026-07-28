@@ -54,13 +54,22 @@ class Azure_Email_Shortcode {
         }
         
         $required_fields = array_map('trim', explode(',', $atts['required_fields']));
-        
+
+        // The recipient travels in a hidden field, so the nonce is bound to it:
+        // a caller who rewrites `form_to` no longer has a valid nonce and the
+        // submission is rejected. Without this the endpoint would relay mail to
+        // any address on the site's authenticated sender.
+        $to = sanitize_email((string) $atts['to']);
+        if (!is_email($to)) {
+            $to = (string) get_option('admin_email');
+        }
+
         ob_start();
         ?>
         <div class="<?php echo esc_attr($atts['class']); ?>" id="<?php echo esc_attr($atts['form_id']); ?>">
             <form class="azure-contact-form-form" data-form-id="<?php echo esc_attr($atts['form_id']); ?>">
-                <?php wp_nonce_field('azure_contact_form', 'azure_contact_nonce'); ?>
-                <input type="hidden" name="form_to" value="<?php echo esc_attr($atts['to']); ?>">
+                <?php wp_nonce_field(self::contact_nonce_action($to), 'azure_contact_nonce'); ?>
+                <input type="hidden" name="form_to" value="<?php echo esc_attr($to); ?>">
                 <input type="hidden" name="form_subject" value="<?php echo esc_attr($atts['subject']); ?>">
                 <input type="hidden" name="success_message" value="<?php echo esc_attr($atts['success_message']); ?>">
                 <input type="hidden" name="error_message" value="<?php echo esc_attr($atts['error_message']); ?>">
@@ -269,15 +278,28 @@ class Azure_Email_Shortcode {
     }
     
     /**
+     * Nonce action for a contact form pointed at $to.
+     *
+     * Keying the action on the recipient is what stops the form from being an
+     * open relay: only an address an admin actually put in a shortcode gets a
+     * matching nonce issued.
+     */
+    private static function contact_nonce_action($to) {
+        return 'azure_contact_form_' . strtolower((string) $to);
+    }
+
+    /**
      * Handle contact form submission
      */
     public function handle_contact_form() {
-        if (!wp_verify_nonce($_POST['azure_contact_nonce'], 'azure_contact_form')) {
+        $form_to = sanitize_email($_POST['form_to'] ?? '');
+        $nonce   = isset($_POST['azure_contact_nonce']) ? (string) $_POST['azure_contact_nonce'] : '';
+
+        if (!$form_to || !wp_verify_nonce($nonce, self::contact_nonce_action($form_to))) {
             wp_send_json_error('Security check failed');
         }
-        
+
         // Sanitize inputs
-        $form_to = sanitize_email($_POST['form_to'] ?? '');
         $form_subject = sanitize_text_field($_POST['form_subject'] ?? 'Contact Form Submission');
         $success_message = sanitize_text_field($_POST['success_message'] ?? 'Thank you for your message!');
         $error_message = sanitize_text_field($_POST['error_message'] ?? 'There was an error sending your message.');
@@ -310,7 +332,7 @@ class Azure_Email_Shortcode {
         $email_body .= "\n---\n";
         $email_body .= "Sent from: " . get_site_url() . "\n";
         $email_body .= "Time: " . current_time('mysql') . "\n";
-        $email_body .= "IP: " . $_SERVER['REMOTE_ADDR'] . "\n";
+        $email_body .= "IP: " . (isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : 'unknown') . "\n";
         
         // Set reply-to header if email provided
         $headers = array();

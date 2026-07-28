@@ -291,10 +291,31 @@ class Azure_Calendar_Sync_Engine {
             );
         }
 
-        // Normalize to array even if Graph returned null / empty so the
-        // prune step still runs — if Outlook now has zero events for
-        // this calendar in this window, every local pta_event that
-        // pointed at it is an orphan and should be trashed.
+        // A failed request also comes back as an empty list, and pruning treats
+        // absence as deletion — so a transient 401/429/timeout would trash every
+        // local pta_event in the window. Bail out before the prune step unless
+        // we know the fetch actually succeeded.
+        $fetch_error = method_exists($this->graph_api, 'get_last_fetch_error')
+            ? $this->graph_api->get_last_fetch_error()
+            : null;
+        if ($fetch_error !== null) {
+            Azure_Logger::error(
+                "Calendar Sync Engine: skipping {$calendar_id} — Graph fetch failed ({$fetch_error}); not pruning local events",
+                'Calendar'
+            );
+            return array(
+                'success'        => false,
+                'calendar_id'    => $calendar_id,
+                'events_synced'  => 0,
+                'events_deleted' => 0,
+                'errors'         => 1,
+                'error_message'  => $fetch_error,
+            );
+        }
+
+        // Normalize to array even if Graph returned null so the prune step
+        // still runs — a genuine empty response means every local pta_event
+        // that pointed at this calendar is an orphan and should be trashed.
         if (!is_array($events)) {
             $events = array();
         }

@@ -295,7 +295,7 @@ if (class_exists('Azure_UpNext_Themes')) {
                                     <fieldset style="grid-column:1/-1;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
                                         <legend style="padding:0 6px;font-weight:600;">Footer HTML (below all events)</legend>
                                         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;">
-                                            <label style="grid-column:1/3;">HTML (links allowed) <textarea class="t-footer-html" rows="2" style="width:100%;" placeholder='e.g. Find out more on our website:&lt;br&gt;&lt;strong&gt;LWPTSA.net/calendar&lt;/strong&gt;'><?php echo esc_textarea($t['footer_html'] ?? ''); ?></textarea></label>
+                                            <label style="grid-column:1/3;">HTML (links allowed) <textarea class="t-footer-html" rows="2" style="width:100%;" placeholder='e.g. Find out more on our website:&lt;br&gt;&lt;strong&gt;example.net/calendar&lt;/strong&gt;'><?php echo esc_textarea($t['footer_html'] ?? ''); ?></textarea></label>
                                             <label>Color <input type="color" class="t-footer-color" value="<?php echo esc_attr($t['footer_color'] ?? '#646970'); ?>"></label>
                                             <label>Size (px) <input type="number" min="10" max="28" class="t-footer-size small-text" value="<?php echo esc_attr((int) ($t['footer_size'] ?? 14)); ?>"></label>
                                             <label>Align

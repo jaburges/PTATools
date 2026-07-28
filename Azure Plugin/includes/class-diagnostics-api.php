@@ -652,8 +652,8 @@ class Azure_Diagnostics_API {
         // wp_acym_user row + is subscribed to it, and deactivate
         // every other list except those in the keep list. Dry-run by
         // default; pass execute=1 to commit. Pass keep_ids=1,20 (etc.)
-        // to override the keep list (default keeps Wilder Staff = id 20
-        // plus the All Parents list itself).
+        // to spare additional lists; by default only the All Parents
+        // list itself is kept.
         register_rest_route($ns, '/diagnostics/acymailing-consolidate', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'route_acymailing_consolidate'),
@@ -2342,21 +2342,39 @@ class Azure_Diagnostics_API {
         if (!is_email($to)) {
             return new WP_Error('bad_request', 'Invalid "to" address.', array('status' => 400));
         }
-        $from_raw = isset($body['from']) ? trim((string) $body['from']) : '';
+        // Strip CR/LF: this value goes straight into a mail header, and a
+        // newline would let a caller append headers of their own.
+        $from_raw = isset($body['from']) ? trim(str_replace(array("\r", "\n"), '', (string) $body['from'])) : '';
         $subject  = !empty($body['subject'])
             ? sanitize_text_field($body['subject'])
             : 'PTA Tools wp_mail pipeline test ' . current_time('mysql');
 
         $marker = wp_generate_password(8, false);
+
+        // List this install's actual routing rules rather than a fixed set of
+        // example addresses, so the "does the From: header match?" check is
+        // answerable on any site.
+        $rules_html = '';
+        if (class_exists('Azure_Email_Router')) {
+            $routing = Azure_Email_Router::get_routing();
+            foreach ((array) ($routing['routes'] ?? array()) as $route) {
+                if (empty($route['enabled'])) {
+                    continue;
+                }
+                $rules_html .= '<li>' . esc_html((string) ($route['label'] ?? $route['id'] ?? 'rule'))
+                    . ' → <code>' . esc_html((string) ($route['from_address'] ?? '')) . '</code>'
+                    . ' <span style="color:#646970;">(' . esc_html((string) ($route['provider'] ?? '')) . ')</span></li>';
+            }
+        }
+        if ($rules_html === '') {
+            $rules_html = '<li><em>No enabled routing rules found.</em></li>';
+        }
+
         $html_body = '<!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;line-height:1.5;color:#1d2327;">' .
             '<h2>wp_mail pipeline test</h2>' .
             '<p>If this arrived in your inbox, the wp_mail pipeline is alive.</p>' .
             '<p>Confirm the <strong>From:</strong> header above matches what you expected for this routing rule:</p>' .
-            '<ul>' .
-            '<li>WC order → <code>shop@wilderptsa.net</code></li>' .
-            '<li>System / password reset → <code>info@wilderptsa.net</code></li>' .
-            '<li>Newsletter → <code>news@wilderptsa.net</code></li>' .
-            '</ul>' .
+            '<ul>' . $rules_html . '</ul>' .
             '<p style="color:#646970;font-size:12px;">Test marker: <code>' . esc_html($marker) . '</code> · sent at ' . esc_html(current_time('mysql')) . '</p>' .
             '</body></html>';
 
@@ -6407,8 +6425,8 @@ class Azure_Diagnostics_API {
      *      status=1. Existing AcyMailing rows are matched by email and
      *      reused — we never duplicate.
      *   3. Deactivate every other list (active=0) except those in the
-     *      keep list. By default we keep "Wilder Staff" (id 20) and
-     *      "All Parents". Pass keep_ids=1,5,20 to override.
+     *      keep list. By default only "All Parents" is kept. Pass
+     *      keep_ids=1,5,20 to spare additional lists by id.
      *
      * Dry-run by default. Pass execute=1 to commit.
      * Existing wp_acym_user_has_list rows on deactivated lists are
@@ -6429,9 +6447,11 @@ class Azure_Diagnostics_API {
         $keep_ids_raw = (string) $request->get_param('keep_ids');
         $list_name = sanitize_text_field((string) ($request->get_param('list_name') ?: 'All Parents'));
 
-        // Default keep list: Wilder Staff (20). The All Parents list id
-        // is added below once we know it.
-        $keep_ids = array(20);
+        // No hardcoded keep IDs: list numbering is per-install, so keeping a
+        // fixed id would spare an arbitrary list here and deactivate a wanted
+        // one elsewhere. The All Parents list is added below once we know it;
+        // anything else to spare must be named explicitly via keep_ids.
+        $keep_ids = array();
         if ($keep_ids_raw !== '') {
             foreach (preg_split('/\s*,\s*/', $keep_ids_raw) as $id) {
                 if (ctype_digit($id)) $keep_ids[] = (int) $id;
@@ -8437,7 +8457,7 @@ class Azure_Diagnostics_API {
      *   dry_run = 1|0 (default 1)
      *
      * Optional body params:
-     *   logins   = "elizabeth.roberts6386,elizabeth.roberts6386@gmail.com,..."
+     *   logins   = "<user_login>,<user_email>,..."
      *              (explicit_logins mode — exact user_login OR
      *              user_email match; recommended for hand-picked lists)
      *   ids      = "1278,1279,1280"  (explicit mode)

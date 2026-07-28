@@ -269,7 +269,7 @@ if (!defined('ABSPATH')) {
                                 Pattern-based bot filter that protects every signup path including the parent newsletter form
                                 (<code>[pta_newsletter_signup]</code>). Rejects random-string usernames and email local parts
                                 (e.g. <code>KcIIFSLaHgonfglOrGeuar@gmail.com</code>), ~20 known disposable email providers,
-                                "test"-keyword accounts, name+long-digit-run usernames (e.g. <code>elizabeth.roberts6386</code>),
+                                "test"-keyword accounts, name+long-digit-run usernames (e.g. <code>firstname.lastname6386</code>),
                                 hex-identifier usernames (e.g. <code>v-c39fb607cfa4eb39d9cb0c8f</code>), and hard-blocked
                                 throwaway TLDs (<code>.site</code>, <code>.online</code>, <code>.xyz</code>, <code>.top</code>,
                                 <code>.click</code>, <code>.info</code>). Real names and email-derived usernames pass through

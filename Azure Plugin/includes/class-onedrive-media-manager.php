@@ -42,6 +42,9 @@ class Azure_OneDrive_Media_Manager {
         // Hook into WordPress media upload
         add_filter('wp_handle_upload_prefilter', array($this, 'intercept_upload'), 10, 1);
         add_filter('wp_handle_upload', array($this, 'handle_upload_to_onedrive'), 10, 2);
+        // wp_handle_upload runs before the attachment post exists, so the row it
+        // writes has no attachment_id yet; this backfills it.
+        add_action('add_attachment', array($this, 'link_pending_file_mapping'), 10, 1);
         add_action('delete_attachment', array($this, 'handle_delete_attachment'), 10, 1);
         
         // Add custom fields to attachment
@@ -61,9 +64,16 @@ class Azure_OneDrive_Media_Manager {
         add_action('wp_ajax_onedrive_media_import_from_onedrive', array($this, 'ajax_import_from_onedrive'));
         add_action('wp_ajax_onedrive_media_repair_diagnose', array($this, 'ajax_repair_diagnose'));
         
-        // Schedule WordPress Cron for auto-sync
+        // Schedule WordPress Cron for auto-sync. wp_schedule_event() rejects a
+        // recurrence with no cron_schedules entry and returns false, which
+        // would leave auto-sync permanently off with nothing in the log to say
+        // why — so fall back to hourly rather than skip the schedule.
         if (!wp_next_scheduled('onedrive_media_auto_sync')) {
-            $frequency = Azure_Settings::get_setting('onedrive_media_sync_frequency', 'hourly');
+            $frequency = (string) Azure_Settings::get_setting('onedrive_media_sync_frequency', 'hourly');
+            if (!array_key_exists($frequency, wp_get_schedules())) {
+                Azure_Logger::warning('OneDrive Media: Unknown sync frequency "' . $frequency . '", falling back to hourly');
+                $frequency = 'hourly';
+            }
             wp_schedule_event(time(), $frequency, 'onedrive_media_auto_sync');
         }
         add_action('onedrive_media_auto_sync', array($this, 'run_auto_sync'));
@@ -207,6 +217,43 @@ class Azure_OneDrive_Media_Manager {
     }
     
     /**
+     * Attach the mapping row created during upload to its new attachment.
+     *
+     * `wp_handle_upload` fires before `wp_insert_attachment`, so the upload
+     * handler has no post ID and stores the row unlinked. Left that way, the
+     * row never matches anything: deleting the attachment did not remove the
+     * OneDrive copy, and the attachment edit screen showed no OneDrive status.
+     */
+    public function link_pending_file_mapping($attachment_id) {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('onedrive_files');
+        if (!$table) {
+            return;
+        }
+
+        $attached_file = get_post_meta($attachment_id, '_wp_attached_file', true);
+        if (empty($attached_file)) {
+            return;
+        }
+
+        $row_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$table}
+              WHERE (attachment_id IS NULL OR attachment_id = 0)
+                AND file_name = %s
+              ORDER BY id DESC
+              LIMIT 1",
+            basename($attached_file)
+        ));
+
+        if (!$row_id) {
+            return;
+        }
+
+        $wpdb->update($table, array('attachment_id' => $attachment_id), array('id' => $row_id), array('%d'), array('%d'));
+        Azure_Logger::debug('OneDrive Media: Linked mapping row ' . $row_id . ' to attachment #' . $attachment_id);
+    }
+
+    /**
      * Handle attachment deletion
      */
     public function handle_delete_attachment($attachment_id) {
@@ -254,21 +301,66 @@ class Azure_OneDrive_Media_Manager {
             }
         }
         
-        $data = array(
-            'attachment_id' => $attachment_id,
-            'onedrive_id' => $file_data['id'],
-            'onedrive_path' => $file_data['parent_path'],
-            'file_name' => $file_data['name'],
-            'file_size' => $file_data['size'],
-            'mime_type' => $file_data['mime_type'],
-            'folder_year' => $folder_year,
-            'last_modified' => $file_data['modified'],
-            'download_url' => $file_data['download_url'],
-            'sync_status' => 'synced'
+        if (empty($file_data['id'])) {
+            Azure_Logger::warning('OneDrive Media: Refusing to store a mapping with no OneDrive file id');
+            return false;
+        }
+
+        // Column => placeholder, so $data and its format list stay aligned even
+        // when an optional column is dropped below.
+        $columns = array(
+            'attachment_id' => '%d',
+            'onedrive_id'   => '%s',
+            'onedrive_path' => '%s',
+            'file_name'     => '%s',
+            'file_size'     => '%d',
+            'mime_type'     => '%s',
+            'public_url'    => '%s',
+            'folder_year'   => '%s',
+            'last_modified' => '%s',
+            'download_url'  => '%s',
+            'sync_status'   => '%s',
         );
-        
-        $wpdb->insert($table, $data, array('%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s'));
-        
+
+        $data = array(
+            'attachment_id' => $attachment_id !== null ? (int) $attachment_id : null,
+            'onedrive_id'   => $file_data['id'],
+            'onedrive_path' => $file_data['parent_path'] ?? '',
+            'file_name'     => $file_data['name'] ?? '',
+            'file_size'     => (int) ($file_data['size'] ?? 0),
+            'mime_type'     => $file_data['mime_type'] ?? '',
+            'public_url'    => $file_data['web_url'] ?? '',
+            'folder_year'   => $folder_year,
+            'last_modified' => $file_data['modified'] ?? '',
+            'download_url'  => $file_data['download_url'] ?? '',
+            'sync_status'   => 'synced',
+        );
+
+        // An empty string is not a valid datetime; leave the column alone rather
+        // than letting MySQL coerce it (or reject the row in strict mode).
+        if (empty($data['last_modified'])) {
+            unset($data['last_modified']);
+        }
+
+        // onedrive_id carries a UNIQUE key, so a plain insert for a file that is
+        // already mapped fails silently and the row keeps its stale download URL
+        // (and stays unlinked from its attachment).
+        $existing_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$table} WHERE onedrive_id = %s",
+            $file_data['id']
+        ));
+
+        if ($existing_id) {
+            // Don't clear an existing link just because this pass has no ID.
+            if ($data['attachment_id'] === null) {
+                unset($data['attachment_id']);
+            }
+            $wpdb->update($table, $data, array('id' => $existing_id), array_values(array_intersect_key($columns, $data)), array('%d'));
+            return (int) $existing_id;
+        }
+
+        $wpdb->insert($table, $data, array_values(array_intersect_key($columns, $data)));
+
         return $wpdb->insert_id;
     }
     
@@ -534,11 +626,25 @@ class Azure_OneDrive_Media_Manager {
         $base_folder = Azure_Settings::get_setting('onedrive_media_base_folder', 'WordPress Media');
 
         // parent_path looks like: /drives/{id}/root:/WordPress Media/2019/02
-        $pos = strpos($parent_path, ':/' . $base_folder);
+        // Graph percent-encodes it, so "WordPress Media" arrives as
+        // "WordPress%20Media" and a raw comparison never matches — which sent
+        // every imported file to today's YYYY/MM instead of its real date.
+        $parent_path = rawurldecode((string) $parent_path);
+
+        $marker = ':/' . trim($base_folder, '/');
+        $pos = strpos($parent_path, $marker);
         if ($pos === false) {
             return '';
         }
-        $after_base = substr($parent_path, $pos + strlen(':/' . $base_folder));
+
+        $after_base = substr($parent_path, $pos + strlen($marker));
+
+        // The match must land on a path boundary. Otherwise a base folder of
+        // "Media" matches "Media Archive/2019/02" and yields " Archive/2019/02".
+        if ($after_base !== '' && $after_base[0] !== '/') {
+            return '';
+        }
+
         return trim($after_base, '/');
     }
 
@@ -556,7 +662,7 @@ class Azure_OneDrive_Media_Manager {
             return false;
         }
 
-        $temp_file = download_url($file_data['download_url']);
+        $temp_file = $this->download_onedrive_item($file_data);
 
         if (is_wp_error($temp_file)) {
             Azure_Logger::error('OneDrive Media: Failed to download - ' . $file_data['name'] . ': ' . $temp_file->get_error_message());
@@ -644,6 +750,43 @@ class Azure_OneDrive_Media_Manager {
     }
     
     /**
+     * Download a OneDrive item, re-minting its URL if the cached one has died.
+     *
+     * `@microsoft.graph.downloadUrl` is pre-signed and short-lived (about an
+     * hour). Batched imports cache the folder listing and work through it 20
+     * files per request, so a large folder routinely outlives the URLs it
+     * started with — asking Graph for a fresh one turns a hard failure into a
+     * retry.
+     *
+     * @return string|WP_Error Temp file path, or the download error.
+     */
+    private function download_onedrive_item($item) {
+        $url = $item['download_url'] ?? '';
+
+        if ($url !== '') {
+            $temp_file = download_url($url);
+            if (!is_wp_error($temp_file)) {
+                return $temp_file;
+            }
+            $first_error = $temp_file;
+        } else {
+            $first_error = new WP_Error('onedrive_no_download_url', 'No download URL for ' . ($item['name'] ?? 'file'));
+        }
+
+        if (!$this->graph_api || empty($item['id'])) {
+            return $first_error;
+        }
+
+        $fresh_url = $this->graph_api->get_download_url($item['id']);
+        if (!$fresh_url) {
+            return $first_error;
+        }
+
+        Azure_Logger::debug('OneDrive Media: Refreshed expired download URL for ' . ($item['name'] ?? $item['id']));
+        return download_url($fresh_url);
+    }
+
+    /**
      * Run auto-sync (scheduled via WordPress Cron)
      */
     public function run_auto_sync() {
@@ -725,7 +868,10 @@ class Azure_OneDrive_Media_Manager {
             ));
         }
 
-        $total_files = $root_files;
+        // $batches already includes the __root__ entry, so seeding the total with
+        // $root_files as well counted the loose root files twice and made the
+        // import progress bar stall short of 100%.
+        $total_files = 0;
         foreach ($batches as $b) {
             $total_files += $b['file_count'];
         }
@@ -838,7 +984,7 @@ class Azure_OneDrive_Media_Manager {
                 continue;
             }
 
-            $temp_file = download_url($item['download_url']);
+            $temp_file = $this->download_onedrive_item($item);
             if (is_wp_error($temp_file)) {
                 Azure_Logger::error('OneDrive Media Import: Download failed — ' . $item['name'] . ': ' . $temp_file->get_error_message());
                 $errors++;
@@ -1394,53 +1540,56 @@ class Azure_OneDrive_Media_Manager {
      * @return array|null  The file_data from the index, or null if no match.
      */
     private function find_in_index($filename, $onedrive_index) {
-        $lower = strtolower($filename);
-        if (isset($onedrive_index[$lower])) {
-            return $onedrive_index[$lower];
-        }
-
-        $ext  = pathinfo($lower, PATHINFO_EXTENSION);
-        $stem = pathinfo($lower, PATHINFO_FILENAME);
-
-        // Strip "-scaled" suffix  (e.g. image-scaled.png → image.png)
-        $variants = array();
-        $clean = preg_replace('/-scaled$/i', '', $stem);
-        if ($clean !== $stem) {
-            $variants[] = $clean . '.' . $ext;
-        }
-
-        // Strip WP image-edit suffix  "-e{10-13 digit timestamp}" (e.g. img-e1764958349687.png → img.png)
-        $clean2 = preg_replace('/-e\d{10,14}$/i', '', $stem);
-        if ($clean2 !== $stem) {
-            $variants[] = $clean2 . '.' . $ext;
-        }
-
-        // Strip both combined
-        $clean3 = preg_replace('/-scaled$/i', '', $clean2);
-        if ($clean3 !== $stem && $clean3 !== $clean && $clean3 !== $clean2) {
-            $variants[] = $clean3 . '.' . $ext;
-        }
-
-        // Strip "-rotated" suffix (e.g. IMG_2697-rotated.jpeg → IMG_2697.jpeg)
-        $clean4 = preg_replace('/-rotated$/i', '', $stem);
-        if ($clean4 !== $stem) {
-            $variants[] = $clean4 . '.' . $ext;
-        }
-
-        // Strip WP dimension suffix "-{W}x{H}" (e.g. image-300x200.png → image.png)
-        $clean5 = preg_replace('/-\d+x\d+$/i', '', $stem);
-        if ($clean5 !== $stem) {
-            $variants[] = $clean5 . '.' . $ext;
-        }
-
-        foreach ($variants as $v) {
-            $vl = strtolower($v);
-            if (isset($onedrive_index[$vl])) {
-                return $onedrive_index[$vl];
+        foreach ($this->wp_filename_variants($filename) as $variant) {
+            if (isset($onedrive_index[$variant])) {
+                return $onedrive_index[$variant];
             }
         }
 
         return null;
+    }
+
+    /**
+     * Every lower-cased name a WordPress copy of an original might have.
+     *
+     * WP appends suffixes the OneDrive original won't carry: "-scaled" from
+     * big-image downsizing, "-e{timestamp}" from an in-editor edit, "-rotated",
+     * and "-{W}x{H}" for intermediate sizes. They stack — editing an already
+     * downsized image gives "name-e1764958349687-scaled.jpg" — so strip
+     * repeatedly instead of testing each suffix once against the full stem.
+     *
+     * @return array Lower-cased filename candidates, most specific first.
+     */
+    private function wp_filename_variants($filename) {
+        $lower = strtolower($filename);
+        $ext   = pathinfo($lower, PATHINFO_EXTENSION);
+        $stem  = pathinfo($lower, PATHINFO_FILENAME);
+
+        $suffixes = array(
+            '/-scaled$/',
+            '/-rotated$/',
+            '/-e\d{10,14}$/',
+            '/-\d+x\d+$/',
+        );
+
+        $variants = array($lower);
+        $seen     = array($stem => true);
+        $queue    = array($stem);
+
+        while ($queue) {
+            $current = array_shift($queue);
+            foreach ($suffixes as $pattern) {
+                $stripped = preg_replace($pattern, '', $current);
+                if ($stripped === $current || $stripped === '' || isset($seen[$stripped])) {
+                    continue;
+                }
+                $seen[$stripped] = true;
+                $queue[] = $stripped;
+                $variants[] = $ext !== '' ? $stripped . '.' . $ext : $stripped;
+            }
+        }
+
+        return $variants;
     }
 
     /**

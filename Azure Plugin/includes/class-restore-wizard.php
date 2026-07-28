@@ -340,8 +340,10 @@ class Azure_Restore_Wizard {
             if ($source_url && $source_url !== $current_url) {
                 $warnings[] = array(
                     'type'    => 'migration',
-                    'message' => "This backup is from a different site (<strong>{$source_url}</strong>). " .
-                                 "URLs will be automatically updated to <strong>{$current_url}</strong> during restore.",
+                    // site_url comes from the archive's manifest, so it is
+                    // attacker-controlled input being rendered as HTML.
+                    'message' => "This backup is from a different site (<strong>" . esc_html($source_url) . "</strong>). " .
+                                 "URLs will be automatically updated to <strong>" . esc_html($current_url) . "</strong> during restore.",
                 );
             }
 

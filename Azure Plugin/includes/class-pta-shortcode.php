@@ -314,9 +314,9 @@ class Azure_PTA_Shortcode {
         // Add inline JavaScript for the chart
         $output .= '<script>
         jQuery(document).ready(function($) {
-            var orgData = ' . json_encode($org_data) . ';
+            var orgData = ' . wp_json_encode($org_data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';
             if (typeof renderPTAOrgChart === "function") {
-                renderPTAOrgChart("' . $chart_id . '", orgData, ' . json_encode($atts) . ');
+                renderPTAOrgChart("' . esc_js($chart_id) . '", orgData, ' . wp_json_encode($atts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ');
             }
         });
         </script>';

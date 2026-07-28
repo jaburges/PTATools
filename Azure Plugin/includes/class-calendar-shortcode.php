@@ -229,7 +229,7 @@ class Azure_Calendar_Shortcode {
      * [azure_calendar_events id="calendar_id" user_email="user@domain.com" mailbox_email="shared@domain.com"]
      *
      * As of v3.91.11, when `pta_calendar_data_source = pta` (the
-     * post-cutover state on lwptsa/wilder), this shortcode reads from
+     * usual post-cutover state), this shortcode reads from
      * the local `pta_event` CPT instead of hitting Microsoft Graph live.
      * `id` is then optional — when omitted, all pta_event posts are
      * surfaced. `id` can still be passed to scope to events that synced
@@ -805,7 +805,10 @@ class Azure_Calendar_Shortcode {
      * Generate calendar JavaScript
      */
     private function get_calendar_script($container_id, $events, $atts) {
-        $events_json = json_encode($events);
+        // JSON_HEX_TAG stops an event subject containing "</script>" from
+        // closing this inline block and executing as markup. Event titles come
+        // from Outlook, so they are not trusted output.
+        $events_json = wp_json_encode($events, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         
         // Determine timezone: shortcode attr > per-calendar setting > plugin default > WordPress default
         $timezone = '';

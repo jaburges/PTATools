@@ -11,6 +11,9 @@ class Azure_Calendar_GraphAPI {
     
     private $auth;
     private $cache_duration;
+
+    /** @var string|null Reason the last get_calendar_events() call failed. */
+    private $last_fetch_error = null;
     
     public function __construct() {
         if (class_exists('Azure_Calendar_Auth')) {
@@ -198,7 +201,10 @@ class Azure_Calendar_GraphAPI {
      * @param string $mailbox_email Optional shared mailbox email (if different from user)
      */
     public function get_calendar_events($calendar_id, $start_date = null, $end_date = null, $max_events = null, $force_refresh = false, $user_email = null, $mailbox_email = null) {
+        $this->last_fetch_error = null;
+
         if (!$this->auth) {
+            $this->last_fetch_error = 'No calendar auth available';
             return array();
         }
         
@@ -232,6 +238,7 @@ class Azure_Calendar_GraphAPI {
         if (!$access_token) {
             $user_context = $user_email ? " for user {$user_email}" : '';
             Azure_Logger::error("Calendar API: No access token available for events{$user_context}");
+            $this->last_fetch_error = 'No access token available' . $user_context;
             return array();
         }
         
@@ -307,6 +314,7 @@ class Azure_Calendar_GraphAPI {
                 if ($response_code === 404) {
                     Azure_Logger::error("Calendar API: 404 error typically means the calendar ID doesn't exist in the target mailbox. You may need to delete and re-create calendar mappings after changing mailbox settings.");
                 }
+                $this->last_fetch_error = 'Graph returned HTTP ' . (int) $response_code;
                 return array();
             }
             
@@ -330,10 +338,26 @@ class Azure_Calendar_GraphAPI {
             
         } catch (Exception $e) {
             Azure_Logger::error('Calendar API: Exception getting events - ' . $e->getMessage());
+            $this->last_fetch_error = $e->getMessage();
             return array();
         }
     }
-    
+
+    /**
+     * Why the last get_calendar_events() call came back empty, if it failed.
+     *
+     * An empty result is ambiguous — it means either "this calendar genuinely
+     * has no events in the window" or "the request failed". Callers that act
+     * destructively on absence (the sync engine prunes local events Outlook no
+     * longer lists) must be able to tell the two apart, or a transient 401/429
+     * looks exactly like the calendar being emptied.
+     *
+     * @return string|null Null when the last fetch succeeded.
+     */
+    public function get_last_fetch_error() {
+        return $this->last_fetch_error;
+    }
+
     /**
      * Create a new event
      */
@@ -850,7 +874,10 @@ class Azure_Calendar_GraphAPI {
         }
         
         $force_refresh = isset($_POST['force_refresh']) && $_POST['force_refresh'];
-        $calendars = $this->get_calendars($force_refresh);
+        // Signature is get_calendars($user_email, $force_refresh) — passing the
+        // flag first made it the user email ("1"), so a forced refresh looked up
+        // a token for a nonexistent user instead of refreshing the cache.
+        $calendars = $this->get_calendars(null, $force_refresh);
         
         wp_send_json_success($calendars);
     }

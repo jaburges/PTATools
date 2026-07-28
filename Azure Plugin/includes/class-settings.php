@@ -52,11 +52,11 @@ class Azure_Settings {
         $old_value = isset($settings[$key]) ? $settings[$key] : 'not_set';
         $settings[$key] = $value;
         
-        // Debug logging
-        error_log("Azure Plugin Settings Debug: Updating key '{$key}' from '{$old_value}' to '{$value}'");
-        error_log("Azure Plugin Settings Debug: Option name: '" . self::$option_name . "'");
-        error_log("Azure Plugin Settings Debug: Settings array size: " . count($settings));
-        error_log("Azure Plugin Settings Debug: Settings content: " . json_encode($settings));
+        // Deliberately does not log values: this array holds every credential
+        // the plugin stores (client secrets, storage account keys), and the
+        // previous debug lines wrote all of them to the PHP error log in
+        // plaintext on every settings save.
+        error_log("Azure Plugin Settings: updated key '{$key}'");
         
         $result = update_option(self::$option_name, $settings);
         
@@ -65,12 +65,14 @@ class Azure_Settings {
         if (!$result) {
             // Try to get more info about why it failed
             $current_option = get_option(self::$option_name, 'OPTION_NOT_EXISTS');
-            error_log("Azure Plugin Settings Debug: Current option value: " . json_encode($current_option));
+            error_log("Azure Plugin Settings Debug: Current option " . (is_array($current_option)
+                ? 'holds ' . count($current_option) . ' keys'
+                : 'is ' . gettype($current_option)));
             
             // Check if the issue is the option already has the same value
             // WordPress returns false if value hasn't changed, which is actually success
             if (is_array($current_option) && isset($current_option[$key]) && $current_option[$key] == $value) {
-                error_log("Azure Plugin Settings Debug: Setting '{$key}' already has value '{$value}' - this is normal");
+                error_log("Azure Plugin Settings Debug: Setting '{$key}' is already at the requested value - this is normal");
                 return true;
             }
             

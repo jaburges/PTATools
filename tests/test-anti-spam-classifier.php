@@ -47,8 +47,8 @@ $cases = array(
     array('sarah2024', 'sarah2024@gmail.com', false, 'plausible birth/grad year, no separator'),
     array('mjones1985', 'mjones1985@outlook.com', false, 'plausible year suffix'),
     array('christopherson', 'christopherson@gmail.com', false, 'pre-existing control case (long real surname)'),
-    array('', 'jamie.burgess@wilderptsa.net', false, 'real PTSA org domain'),
-    array('', 'parent@lwsd.org', false, 'real school domain'),
+    array('', 'jamie.burgess@examplepta.org', false, 'organization domain on a normal TLD'),
+    array('', 'parent@exampleschools.org', false, 'school district domain on a normal TLD'),
 );
 
 $failures = 0;

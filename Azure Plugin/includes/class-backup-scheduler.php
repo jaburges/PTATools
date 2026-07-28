@@ -45,38 +45,56 @@ class Azure_Backup_Scheduler {
     /**
      * Setup backup schedule
      */
+    const CONFIG_OPTION = 'azure_backup_schedule_config';
+
     private function setup_backup_schedule() {
         $schedule_enabled = Azure_Settings::get_setting('backup_schedule_enabled', false);
         $frequency = Azure_Settings::get_setting('backup_schedule_frequency', 'daily');
         $time = Azure_Settings::get_setting('backup_schedule_time', '02:00');
-        
-        // Clear existing schedule
+
+        // setup_schedules() is wired to `init`, so this runs on every request.
+        // Only touch WP-Cron when the configuration actually changed or the
+        // event is missing — unconditionally clearing and re-adding used to
+        // wipe an event that was seconds away from being due, which could
+        // defer a backup indefinitely on a busy site.
+        $signature = wp_json_encode(array($schedule_enabled ? 1 : 0, $frequency, $time));
+        $stored    = get_option(self::CONFIG_OPTION, null);
+        $existing  = wp_next_scheduled('azure_backup_scheduled');
+
+        if ($stored === $signature && ($existing !== false) === (bool) $schedule_enabled) {
+            return;
+        }
+
         wp_clear_scheduled_hook('azure_backup_scheduled');
-        
+        update_option(self::CONFIG_OPTION, $signature, false);
+
         if (!$schedule_enabled) {
             Azure_Logger::info('Backup Scheduler: Scheduled backups disabled');
             return;
         }
-        
-        // Calculate next run time
+
         $next_run = $this->calculate_next_run_time($frequency, $time);
-        
-        if ($next_run) {
-            wp_schedule_event($next_run, $frequency, 'azure_backup_scheduled');
-            Azure_Logger::info('Backup Scheduler: Next backup scheduled for ' . date('Y-m-d H:i:s', $next_run));
-        } else {
-            Azure_Logger::error('Backup Scheduler: Failed to calculate next run time');
+
+        if (!$next_run) {
+            Azure_Logger::error('Backup Scheduler: Failed to calculate next run time for frequency "' . $frequency . '" at "' . $time . '"');
+            return;
         }
+
+        if (!wp_schedule_event($next_run, $frequency, 'azure_backup_scheduled')) {
+            Azure_Logger::error('Backup Scheduler: WP-Cron refused recurrence "' . $frequency . '" — no matching cron_schedules entry, scheduled backups will not run');
+            return;
+        }
+
+        Azure_Logger::info('Backup Scheduler: Next backup scheduled for ' . get_date_from_gmt(gmdate('Y-m-d H:i:s', $next_run)));
     }
-    
+
     /**
      * Setup cleanup schedule
      */
     private function setup_cleanup_schedule() {
-        // Clear existing cleanup schedule
-        wp_clear_scheduled_hook('azure_backup_cleanup');
-        
-        // Schedule cleanup to run weekly
+        // Do NOT clear first — this runs on every init, and clearing before
+        // the wp_next_scheduled() check meant the weekly cleanup was pushed
+        // an hour into the future on every page load and never fired.
         if (!wp_next_scheduled('azure_backup_cleanup')) {
             wp_schedule_event(time() + 3600, 'weekly', 'azure_backup_cleanup');
             Azure_Logger::info('Backup Scheduler: Cleanup schedule created');
@@ -84,67 +102,80 @@ class Azure_Backup_Scheduler {
     }
     
     /**
-     * Calculate next run time
+     * Calculate the next run time as a UTC timestamp.
+     *
+     * The configured time is a *site-local* wall-clock time (that's what the
+     * admin screen presents), while wp_schedule_event() expects UTC. Doing the
+     * arithmetic with DateTimeImmutable in the site timezone keeps the two
+     * straight and stays correct across DST transitions — the previous version
+     * mixed a site-offset timestamp from current_time('timestamp') with
+     * UTC-interpreted date strings, so a "02:00" backup on a Pacific site
+     * actually ran at 19:00 the day before.
+     *
+     * @param string   $frequency hourly|daily|weekly|monthly
+     * @param string   $time      HH:MM in site-local time.
+     * @param int|null $now_ts    UTC timestamp to treat as "now" (for tests).
+     * @return int|false UTC timestamp, or false if the config is invalid.
      */
-    private function calculate_next_run_time($frequency, $time) {
+    private function calculate_next_run_time($frequency, $time, $now_ts = null) {
         $time_parts = explode(':', $time);
         if (count($time_parts) !== 2) {
             return false;
         }
-        
+
         $hour = intval($time_parts[0]);
         $minute = intval($time_parts[1]);
-        
+
         if ($hour < 0 || $hour > 23 || $minute < 0 || $minute > 59) {
             return false;
         }
-        
-        $now = current_time('timestamp');
-        $today = strtotime(date('Y-m-d', $now) . ' ' . $time);
-        
+
+        if (!in_array($frequency, array('hourly', 'daily', 'weekly', 'monthly'), true)) {
+            return false;
+        }
+
+        $tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('UTC');
+        $now = (new DateTimeImmutable('@' . ($now_ts === null ? time() : (int) $now_ts)))->setTimezone($tz);
+        $target = $now->setTime($hour, $minute, 0);
+
         switch ($frequency) {
             case 'hourly':
-                // Next hour at the specified minute
-                $next_run = strtotime(date('Y-m-d H:' . sprintf('%02d', $minute) . ':00', strtotime('+1 hour', $now)));
+                // The configured minute of the next upcoming hour.
+                $next_run = $now->setTime((int) $now->format('G'), $minute, 0);
+                if ($next_run <= $now) {
+                    $next_run = $next_run->modify('+1 hour');
+                }
                 break;
-                
+
             case 'daily':
-                // Today at the specified time, or tomorrow if it's already passed
-                $next_run = $today;
-                if ($now >= $today) {
-                    $next_run = strtotime('+1 day', $today);
+                $next_run = $target;
+                if ($next_run <= $now) {
+                    $next_run = $next_run->modify('+1 day');
                 }
                 break;
-                
+
             case 'weekly':
-                // Next week at the same day and time
-                $next_run = $today;
-                if ($now >= $today) {
-                    $next_run = strtotime('+1 week', $today);
-                } else {
-                    // Check if we need to go to next week based on current day
-                    $target_day = date('w'); // 0 = Sunday
-                    $current_day = date('w', $now);
-                    
-                    if ($current_day > $target_day || ($current_day === $target_day && $now >= $today)) {
-                        $next_run = strtotime('+1 week', $today);
-                    }
+                $next_run = $target;
+                if ($next_run <= $now) {
+                    $next_run = $next_run->modify('+7 days');
                 }
                 break;
-                
+
             case 'monthly':
-                // Same day next month
-                $next_run = strtotime('+1 month', $today);
-                if ($now < $today) {
-                    $next_run = $today;
+                $next_run = $target;
+                if ($next_run <= $now) {
+                    // "+1 month" on the 31st overflows into the month after
+                    // next, silently skipping a cycle — clamp to the last day.
+                    $first_next = $target->modify('first day of next month');
+                    $day = min((int) $target->format('j'), (int) $first_next->format('t'));
+                    $next_run = $first_next
+                        ->setDate((int) $first_next->format('Y'), (int) $first_next->format('n'), $day)
+                        ->setTime($hour, $minute, 0);
                 }
                 break;
-                
-            default:
-                return false;
         }
-        
-        return $next_run;
+
+        return $next_run->getTimestamp();
     }
     
     /**

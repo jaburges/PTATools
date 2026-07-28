@@ -138,12 +138,22 @@ class Azure_OneDrive_Media_Auth {
         
         $response_body = wp_remote_retrieve_body($response);
         $token_data = json_decode($response_body, true);
-        
-        if (isset($token_data['error'])) {
-            Azure_Logger::error('OneDrive Media Auth: Token error - ' . $token_data['error_description']);
+
+        if (!is_array($token_data)) {
+            Azure_Logger::error('OneDrive Media Auth: Token response was unparseable');
             return false;
         }
-        
+
+        if (isset($token_data['error'])) {
+            Azure_Logger::error('OneDrive Media Auth: Token error - ' . self::describe_oauth_error($token_data));
+            return false;
+        }
+
+        if (empty($token_data['access_token'])) {
+            Azure_Logger::error('OneDrive Media Auth: Token response contained no access_token');
+            return false;
+        }
+
         return $token_data;
     }
     
@@ -166,14 +176,27 @@ class Azure_OneDrive_Media_Auth {
         
         $response_body = wp_remote_retrieve_body($response);
         $user_data = json_decode($response_body, true);
-        
-        if (isset($user_data['error'])) {
-            Azure_Logger::error('OneDrive Media Auth: User info error - ' . $user_data['error']['message']);
+
+        if (!is_array($user_data)) {
+            Azure_Logger::error('OneDrive Media Auth: User info response was unparseable');
             return false;
         }
-        
+
+        if (isset($user_data['error'])) {
+            $message = is_array($user_data['error'])
+                ? ($user_data['error']['message'] ?? 'unknown error')
+                : (string) $user_data['error'];
+            Azure_Logger::error('OneDrive Media Auth: User info error - ' . $message);
+            return false;
+        }
+
+        $email = $user_data['mail'] ?? ($user_data['userPrincipalName'] ?? '');
+        if ($email === '') {
+            Azure_Logger::warning('OneDrive Media Auth: Graph /me returned no mail or userPrincipalName');
+        }
+
         return array(
-            'email' => $user_data['mail'] ?? $user_data['userPrincipalName'],
+            'email' => $email,
             'display_name' => $user_data['displayName'] ?? ''
         );
     }
@@ -183,22 +206,43 @@ class Azure_OneDrive_Media_Auth {
      */
     private function store_tokens($user_email, $token_data) {
         global $wpdb;
-        
-        $expires_at = date('Y-m-d H:i:s', time() + intval($token_data['expires_in'] ?? 3600));
-        
+
+        if (empty($token_data['access_token'])) {
+            Azure_Logger::error("OneDrive Media Auth: Refusing to store an empty access token for {$user_email}");
+            return false;
+        }
+
+        // Entra ID is not obliged to return a refresh_token on every refresh.
+        // $wpdb->replace() is a DELETE + INSERT, so writing '' here wipes
+        // offline access permanently and every later refresh fails until an
+        // admin re-authorizes by hand. Carry the existing value forward.
+        $refresh_token = $token_data['refresh_token'] ?? '';
+        if ($refresh_token === '') {
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT refresh_token FROM {$this->table_name} WHERE user_email = %s",
+                $user_email
+            ));
+            if (!empty($existing)) {
+                $refresh_token = $existing;
+            }
+        }
+
+        $expires_at = gmdate('Y-m-d H:i:s', time() + intval($token_data['expires_in'] ?? 3600));
+
         $wpdb->replace(
             $this->table_name,
             array(
                 'user_email' => $user_email,
                 'access_token' => $token_data['access_token'],
-                'refresh_token' => $token_data['refresh_token'] ?? '',
+                'refresh_token' => $refresh_token,
                 'expires_at' => $expires_at,
                 'updated_at' => current_time('mysql')
             ),
             array('%s', '%s', '%s', '%s', '%s')
         );
-        
+
         Azure_Logger::info("OneDrive Media Auth: Tokens stored for {$user_email}");
+        return true;
     }
     
     /**
@@ -266,16 +310,40 @@ class Azure_OneDrive_Media_Auth {
         
         $response_body = wp_remote_retrieve_body($response);
         $token_data = json_decode($response_body, true);
-        
-        if (isset($token_data['error'])) {
-            Azure_Logger::error('OneDrive Media Auth: Token refresh error - ' . $token_data['error_description']);
+
+        if (!is_array($token_data)) {
+            Azure_Logger::error('OneDrive Media Auth: Token refresh returned an unparseable body');
             return false;
         }
-        
-        // Store new tokens
-        $this->store_tokens($user_email, $token_data);
-        
+
+        if (isset($token_data['error'])) {
+            Azure_Logger::error('OneDrive Media Auth: Token refresh error - ' . self::describe_oauth_error($token_data));
+            return false;
+        }
+
+        if (empty($token_data['access_token'])) {
+            Azure_Logger::error('OneDrive Media Auth: Token refresh response contained no access_token');
+            return false;
+        }
+
+        if (!$this->store_tokens($user_email, $token_data)) {
+            return false;
+        }
+
         return $token_data['access_token'];
+    }
+
+    /**
+     * Build a readable message from an OAuth error payload. `error_description`
+     * is optional, so reading it directly raises a warning and logs "null".
+     */
+    private static function describe_oauth_error($payload) {
+        $code = is_array($payload) && isset($payload['error']) ? $payload['error'] : 'unknown_error';
+        if (is_array($code)) {
+            $code = $code['code'] ?? 'unknown_error';
+        }
+        $detail = is_array($payload) && !empty($payload['error_description']) ? $payload['error_description'] : '';
+        return $detail !== '' ? $code . ': ' . $detail : (string) $code;
     }
     
     /**
@@ -311,18 +379,30 @@ class Azure_OneDrive_Media_Auth {
         
         $response_body = wp_remote_retrieve_body($response);
         $token_data = json_decode($response_body, true);
-        
-        if (isset($token_data['error'])) {
-            Azure_Logger::error('OneDrive Media Auth: App token error - ' . $token_data['error_description']);
+
+        if (!is_array($token_data)) {
+            Azure_Logger::error('OneDrive Media Auth: App token response was unparseable');
             return false;
         }
-        
+
+        if (isset($token_data['error'])) {
+            Azure_Logger::error('OneDrive Media Auth: App token error - ' . self::describe_oauth_error($token_data));
+            return false;
+        }
+
+        if (empty($token_data['access_token'])) {
+            Azure_Logger::error('OneDrive Media Auth: App token response contained no access_token');
+            return false;
+        }
+
         $access_token = $token_data['access_token'];
-        $expires_in = $token_data['expires_in'] ?? 3600;
-        
-        // Cache token for a bit less than expiry time
-        set_transient($cache_key, $access_token, $expires_in - 60);
-        
+        $expires_in = intval($token_data['expires_in'] ?? 3600);
+
+        // Cache for slightly less than the lifetime, but never for a
+        // non-positive span — get_transient() would miss immediately and every
+        // call would hit the token endpoint again.
+        set_transient($cache_key, $access_token, max(60, $expires_in - 60));
+
         return $access_token;
     }
     
@@ -331,17 +411,29 @@ class Azure_OneDrive_Media_Auth {
      */
     public function user_has_token($user_email = 'default') {
         global $wpdb;
-        
+
         $token_row = $wpdb->get_row($wpdb->prepare(
-            "SELECT expires_at FROM {$this->table_name} WHERE user_email = %s",
+            "SELECT expires_at, refresh_token FROM {$this->table_name} WHERE user_email = %s",
             $user_email
         ));
-        
+
+        // Mirror get_access_token()'s fallback, otherwise the admin screen
+        // reports "not connected" for a connection that works fine.
+        if (!$token_row && $user_email === 'default') {
+            $token_row = $wpdb->get_row(
+                "SELECT expires_at, refresh_token FROM {$this->table_name} ORDER BY updated_at DESC LIMIT 1"
+            );
+        }
+
         if (!$token_row) {
             return false;
         }
-        
-        // Check if token is still valid (not expired)
+
+        // An expired access token is still usable as long as we can refresh it.
+        if (!empty($token_row->refresh_token)) {
+            return true;
+        }
+
         return strtotime($token_row->expires_at) > time();
     }
     
