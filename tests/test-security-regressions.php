@@ -325,6 +325,15 @@ $t->check(
     strpos($rest, 'function require_shop_cap') !== false,
     'the shop routes share a capability gate'
 );
+// The gate must require a shop-administrator capability, and must not be
+// satisfied by merely being an authenticated user.
+$t->check(
+    preg_match(
+        '/function require_shop_cap.*?!current_user_can\(\$capability\).*?!current_user_can\(\'manage_woocommerce\'\)/s',
+        $rest
+    ) === 1,
+    'the gate accepts either the post-type capability or manage_woocommerce'
+);
 
 foreach (array(
     'list_orders'    => 'edit_shop_orders',

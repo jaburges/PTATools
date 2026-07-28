@@ -1281,14 +1281,23 @@ class Azure_PTSA_REST_API {
      * history) and issue refunds. The user routes already do this; the shop
      * routes did not.
      *
-     * @param string $capability WooCommerce capability the route requires.
+     * `manage_woocommerce` is accepted alongside the post-type capability
+     * because the two are spelled differently across this codebase — the
+     * reports routes below and the auction module gate on `manage_woocommerce`,
+     * while WooCommerce's own REST API uses the post-type caps. On a stock
+     * install both belong to administrator and shop_manager alike, but this
+     * plugin ships a role editor, so a hand-built role may hold one and not the
+     * other. Accepting either keeps a legitimately privileged user working
+     * without admitting anyone who isn't a shop administrator.
+     *
+     * @param string $capability WooCommerce post-type capability for the route.
      * @return WP_Error|null Error to return, or null when the caller may proceed.
      */
     private function require_shop_cap($capability) {
         if (!$this->require_wc()) {
             return $this->forbidden();
         }
-        if (!current_user_can($capability)) {
+        if (!current_user_can($capability) && !current_user_can('manage_woocommerce')) {
             return $this->forbidden();
         }
         return null;
