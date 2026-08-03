@@ -139,8 +139,11 @@ class Azure_OneDrive_Media_GraphAPI {
             return false;
         }
         
-        // Upload file in chunks
-        $chunk_size = 10 * 1024 * 1024; // 10MB chunks
+        // Upload file in chunks. Graph requires every chunk except the last to be
+        // a multiple of 320KiB, so the configured value is rounded down to one.
+        $chunk_size = (int) Azure_Settings::get_setting('onedrive_media_chunk_size', 10485760);
+        $graph_block = 320 * 1024;
+        $chunk_size = intdiv(max($graph_block, $chunk_size), $graph_block) * $graph_block;
         $file_handle = fopen($local_path, 'rb');
         $byte_position = 0;
         

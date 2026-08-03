@@ -265,6 +265,7 @@ class Azure_PTA_Cron {
             ),
             'enable_onedrive_media' => array(
                 'onedrive_media_auto_sync',
+                'onedrive_media_backup_queue',
             ),
             'enable_tickets' => array(
                 'azure_tickets_cleanup_reservations',

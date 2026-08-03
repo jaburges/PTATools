@@ -397,7 +397,51 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.142.0** | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.143.0** | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.143.0
+
+The OneDrive Media module becomes a real backup for the media library instead of
+an importer. The media library was already the primary copy — WordPress serves
+files from `wp-content/uploads/` and attachment URLs are never rewritten — but
+nothing actually copied that library out to OneDrive.
+
+**The whole library can now be backed up.** Previously the only file that ever
+reached OneDrive was one being uploaded through wp-admin at that moment, so
+every item that predated the module stayed unprotected with no way to catch up.
+*OneDrive Media → Back Up Media Library* queues everything missing a backup and
+uploads it in batches.
+
+**Uploads no longer block on Microsoft.** The Graph upload ran inline inside the
+upload request with a 4GB ceiling, so a large file could time out the editor and
+a failure had nowhere to be retried. Attachments are now queued and drained by a
+worker with exponential-backoff retries. A file too large for OneDrive is also
+no longer rejected by WordPress — it is accepted locally and reported as
+unbackable.
+
+**Deleting media keeps its backup.** Deleting an attachment deleted the OneDrive
+copy at the same time, which meant the backup could not protect against the most
+likely accident. The copy is now retained and its mapping marked orphaned.
+Mirroring is still available via *On Deletion* for anyone who wants it.
+
+**Sync direction is honoured.** The setting was saved and then ignored: every
+scheduled run performed an import regardless, so a site set to
+"WordPress → OneDrive" quietly pulled files in. The default is now
+`wp_to_onedrive`.
+
+**The importer respects a year cutoff.** A new *Import Year Cutoff* (default
+2026) stops the previous site's back catalogue being pulled into a fresh library
+and inflating the uploads volume.
+
+**Coverage is now reported honestly.** Statistics counted only rows the module
+had created, so it could show "12 synced" while silently omitting the 83 items
+never attempted. The dashboard now shows backed-up versus total library items,
+plus queued and failed counts.
+
+Settings that were rendered and saved but never read by any code — CDN
+optimization, sharing link type, link expiration, and the media library badge —
+have been removed rather than left implying behaviour that did not exist. Upload
+chunk size is now actually applied.
 
 ### What's new in v3.142.0
 

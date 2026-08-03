@@ -255,22 +255,29 @@ class Azure_Database {
             KEY sync_status (sync_status)
         ) $charset_collate;";
         
-        // OneDrive Media Sync Queue table for batch operations
+        // OneDrive Media Sync Queue table for batch operations.
+        // attachment_id is the media library item awaiting backup; the unique key
+        // on (operation, attachment_id) lets enqueue be an idempotent upsert so a
+        // re-run of the library backfill cannot pile up duplicate pending rows.
         $table_onedrive_sync_queue = $wpdb->prefix . 'azure_onedrive_sync_queue';
         $sql_onedrive_sync_queue = "CREATE TABLE $table_onedrive_sync_queue (
             id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             operation varchar(50) NOT NULL,
             file_id bigint(20) UNSIGNED,
+            attachment_id bigint(20) UNSIGNED,
             local_path text,
             onedrive_path text,
             status varchar(20) DEFAULT 'pending',
             retry_count int(11) DEFAULT 0,
             error_message text,
+            next_attempt_at datetime NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
+            UNIQUE KEY op_attachment (operation, attachment_id),
             KEY status (status),
-            KEY file_id (file_id)
+            KEY file_id (file_id),
+            KEY next_attempt_at (next_attempt_at)
         ) $charset_collate;";
         
         // OneDrive Media Tokens table for OAuth tokens

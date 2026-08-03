@@ -58,43 +58,108 @@ $has_auth = !empty($authorized_users);
     </div>
     <?php endif; ?>
     
-    <!-- Statistics Dashboard -->
+    <!-- Backup Coverage Dashboard -->
     <div class="onedrive-media-dashboard">
-        <h2>Storage Statistics</h2>
-        
+        <h2>Backup Coverage</h2>
+        <p class="description" style="margin-bottom: 12px;">
+            WordPress serves media from <code>/wp-content/uploads/</code> — that is the primary copy.
+            These figures show how much of the media library also has a backup copy in OneDrive.
+        </p>
+
         <div class="stats-cards">
             <div class="stat-card">
-                <div class="stat-number"><?php echo intval($stats['total_files'] ?? 0); ?></div>
-                <div class="stat-label">Total Files</div>
+                <div class="stat-number"><?php echo intval($stats['library_total'] ?? 0); ?></div>
+                <div class="stat-label">Library Items</div>
             </div>
             
             <div class="stat-card success">
-                <div class="stat-number"><?php echo intval($stats['synced_files'] ?? 0); ?></div>
-                <div class="stat-label">Synced</div>
+                <div class="stat-number"><?php echo intval($stats['backed_up_files'] ?? 0); ?></div>
+                <div class="stat-label">Backed Up (<?php echo intval($stats['coverage_pct'] ?? 0); ?>%)</div>
             </div>
             
             <div class="stat-card warning">
-                <div class="stat-number"><?php echo intval($stats['pending_files'] ?? 0); ?></div>
-                <div class="stat-label">Pending</div>
+                <div class="stat-number"><?php echo intval($stats['queued_files'] ?? 0); ?></div>
+                <div class="stat-label">Queued</div>
             </div>
             
             <div class="stat-card error">
-                <div class="stat-number"><?php echo intval($stats['error_files'] ?? 0); ?></div>
-                <div class="stat-label">Errors</div>
+                <div class="stat-number"><?php echo intval($stats['failed_files'] ?? 0); ?></div>
+                <div class="stat-label">Failed</div>
             </div>
             
             <div class="stat-card">
                 <div class="stat-number"><?php echo size_format($stats['total_size'] ?? 0); ?></div>
-                <div class="stat-label">Total Size</div>
+                <div class="stat-label">Backup Size</div>
             </div>
         </div>
+
+        <?php if (!empty($stats['not_queued'])): ?>
+        <div class="notice notice-warning inline" style="margin-top: 12px;">
+            <p>
+                <strong><?php echo intval($stats['not_queued']); ?> library item(s) have never been backed up.</strong>
+                Use <em>Back Up Media Library</em> below to queue them.
+            </p>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($stats['orphaned_files'])): ?>
+        <div class="notice notice-info inline" style="margin-top: 12px;">
+            <p>
+                <?php echo intval($stats['orphaned_files']); ?> backup copy(ies) remain in OneDrive for media that has
+                since been deleted from WordPress. These are retained deliberately so a deletion can be undone.
+            </p>
+        </div>
+        <?php endif; ?>
     </div>
-    
-    <!-- Import & Sync Actions -->
+
+    <!-- Library Backup -->
     <?php if ($has_auth): ?>
     <div class="onedrive-media-quick-sync">
+        <h2>Back Up Media Library to OneDrive</h2>
+        <p>
+            Copies each media library item's original file to OneDrive. Generated thumbnail sizes are skipped —
+            WordPress rebuilds those from the original. Files already backed up are not re-uploaded.
+        </p>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start;">
+            <div>
+                <button type="button" class="button button-primary backup-library-btn">
+                    <span class="dashicons dashicons-cloud-upload"></span>
+                    Back Up Media Library
+                </button>
+                <p class="description">Queues anything missing a backup, then uploads in small batches</p>
+            </div>
+            <?php if (!empty($stats['failed_files'])): ?>
+            <div>
+                <button type="button" class="button retry-failed-backups-btn">
+                    <span class="dashicons dashicons-update"></span>
+                    Retry <?php echo intval($stats['failed_files']); ?> Failed
+                </button>
+                <p class="description">Resets failed items back to pending</p>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <div id="onedrive-backup-panel" style="display: none; margin-top: 15px; background: #fff; border: 1px solid #c3c4c7; border-radius: 4px; padding: 16px 20px;">
+            <h3 style="margin-top:0;">Backup Progress</h3>
+            <div style="background: #e0e0e0; border-radius: 4px; height: 24px; margin-bottom: 10px; overflow: hidden;">
+                <div id="backup-overall-fill" style="background: #00a32a; height: 100%; width: 0%; transition: width 0.4s ease; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 600; min-width: 40px;">0%</div>
+            </div>
+            <div id="backup-status-text" style="margin-bottom: 12px; font-size: 13px; color: #50575e;">Scanning media library...</div>
+            <div id="backup-totals" style="display:none; margin-top: 12px; padding: 10px 14px; background: #ecf7ed; border: 1px solid #46b450; border-radius: 4px; color: #2e6b33; font-weight: 600;"></div>
+            <button type="button" id="backup-cancel-btn" class="button" style="margin-top: 10px; display:none;">Stop</button>
+        </div>
+    </div>
+
+    <!-- Import & Sync Actions -->
+    <div class="onedrive-media-quick-sync" style="margin-top: 20px;">
         <h2>Import from OneDrive</h2>
-        <p>One-time import that copies files from OneDrive/SharePoint into <code>wp-content/uploads/</code>, preserving the exact year/month folder structure. Processes one folder at a time.</p>
+        <p>
+            One-time import that copies files from OneDrive/SharePoint into <code>wp-content/uploads/</code>, preserving the exact year/month folder structure. Processes one folder at a time.
+            <?php $min_year = intval(Azure_Settings::get_setting('onedrive_media_import_min_year', 2026)); ?>
+            <?php if ($min_year > 0): ?>
+            <br><strong>Year folders before <?php echo esc_html($min_year); ?> are skipped</strong> so the previous site's back catalogue is not pulled into this library. Change the cutoff under Advanced Options.
+            <?php endif; ?>
+        </p>
         <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start;">
             <div>
                 <button type="button" class="button button-primary import-from-onedrive-btn">
@@ -366,17 +431,36 @@ $has_auth = !empty($authorized_users);
                 
                 <table class="form-table">
                     <tr>
-                        <th scope="row">Auto-Sync</th>
+                        <th scope="row">Sync Direction</th>
                         <td>
-                            <label>
-                                <input type="checkbox" name="onedrive_media_auto_sync" <?php checked(Azure_Settings::get_setting('onedrive_media_auto_sync', false)); ?> />
-                                <strong>Automatically sync files between WordPress and OneDrive</strong>
-                            </label>
-                            <p class="description">When enabled, files uploaded directly to OneDrive will appear in WordPress Media Library</p>
+                            <select name="onedrive_media_sync_direction">
+                                <?php $sync_dir = Azure_Settings::get_setting('onedrive_media_sync_direction', 'wp_to_onedrive'); ?>
+                                <option value="wp_to_onedrive" <?php selected($sync_dir, 'wp_to_onedrive'); ?>>WordPress → OneDrive (back up the media library)</option>
+                                <option value="two_way" <?php selected($sync_dir, 'two_way'); ?>>Two-Way (back up, and import new OneDrive files)</option>
+                                <option value="onedrive_to_wp" <?php selected($sync_dir, 'onedrive_to_wp'); ?>>OneDrive → WordPress only (import, no backup)</option>
+                            </select>
+                            <p class="description">
+                                <strong>WordPress → OneDrive</strong> is the recommended setting: the media library stays the primary
+                                copy and OneDrive holds a backup. The other options let files added directly in OneDrive be pulled
+                                into the library, which increases the size of <code>uploads/</code>.
+                            </p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">Sync Frequency</th>
+                        <th scope="row">Scheduled Import</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="onedrive_media_auto_sync" <?php checked(Azure_Settings::get_setting('onedrive_media_auto_sync', false)); ?> />
+                                <strong>Run the scheduled import on the frequency below</strong>
+                            </label>
+                            <p class="description">
+                                Only affects the import direction. Backups are queued as media is uploaded and drain on their own
+                                hourly schedule, so they do not depend on this checkbox.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Import Frequency</th>
                         <td>
                             <select name="onedrive_media_sync_frequency">
                                 <?php $sync_freq = Azure_Settings::get_setting('onedrive_media_sync_frequency', 'hourly'); ?>
@@ -387,92 +471,52 @@ $has_auth = !empty($authorized_users);
                             <p class="description">How often to check for new files in OneDrive</p>
                         </td>
                     </tr>
-                    <tr>
-                        <th scope="row">Sync Direction</th>
-                        <td>
-                            <select name="onedrive_media_sync_direction">
-                                <?php $sync_dir = Azure_Settings::get_setting('onedrive_media_sync_direction', 'two_way'); ?>
-                                <option value="two_way" <?php selected($sync_dir, 'two_way'); ?>>Two-Way Sync (WordPress ↔ OneDrive)</option>
-                                <option value="wp_to_onedrive" <?php selected($sync_dir, 'wp_to_onedrive'); ?>>WordPress → OneDrive Only</option>
-                                <option value="onedrive_to_wp" <?php selected($sync_dir, 'onedrive_to_wp'); ?>>OneDrive → WordPress Only</option>
-                            </select>
-                            <p class="description">Control sync direction between WordPress and OneDrive</p>
-                        </td>
-                    </tr>
                 </table>
             </div>
             
-            <!-- Step 4: CDN & Public Access -->
+            <!-- Step 4: Media Library Options -->
             <div class="onedrive-step-section">
-                <h2><span class="step-number">4</span> Public Access &amp; CDN</h2>
+                <h2><span class="step-number">4</span> Media Library Options</h2>
                 
                 <table class="form-table">
-                    <tr>
-                        <th scope="row">Sharing Link Type</th>
-                        <td>
-                            <select name="onedrive_media_sharing_link_type">
-                                <?php $link_type = Azure_Settings::get_setting('onedrive_media_sharing_link_type', 'anonymous'); ?>
-                                <option value="anonymous" <?php selected($link_type, 'anonymous'); ?>>Anonymous (Public) - Anyone with link can access</option>
-                                <option value="organization" <?php selected($link_type, 'organization'); ?>>Organization Only - Only your org members can access</option>
-                            </select>
-                            <p class="description">Type of sharing link to generate for public access to media files</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Link Expiration</th>
-                        <td>
-                            <select name="onedrive_media_link_expiration">
-                                <?php $expiration = Azure_Settings::get_setting('onedrive_media_link_expiration', 'never'); ?>
-                                <option value="never" <?php selected($expiration, 'never'); ?>>Never expire</option>
-                                <option value="30" <?php selected($expiration, '30'); ?>>30 Days</option>
-                                <option value="90" <?php selected($expiration, '90'); ?>>90 Days</option>
-                                <option value="365" <?php selected($expiration, '365'); ?>>1 Year</option>
-                            </select>
-                            <p class="description">When sharing links should expire</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">CDN Optimization</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="onedrive_media_cdn_optimization" <?php checked(Azure_Settings::get_setting('onedrive_media_cdn_optimization', true)); ?> />
-                                <strong>Enable CDN optimization for faster delivery</strong>
-                            </label>
-                            <p class="description">Leverage Microsoft's global CDN for faster media delivery worldwide</p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-            
-            <!-- Step 5: Media Library Options -->
-            <div class="onedrive-step-section">
-                <h2><span class="step-number">5</span> Media Library Options</h2>
-                
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">OneDrive Badge</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="onedrive_media_show_badge" <?php checked(Azure_Settings::get_setting('onedrive_media_show_badge', true)); ?> />
-                                Display OneDrive badge on media files in WordPress Media Library
-                            </label>
-                            <p class="description">Show a visual indicator for files stored in OneDrive</p>
-                        </td>
-                    </tr>
                     <tr>
                         <th scope="row">Local Storage</th>
                         <td>
-                            <p>Local copies are always kept. WordPress serves media from <code>/wp-content/uploads/</code>; OneDrive is used as a sync backup.</p>
+                            <p>Local copies are always kept. WordPress serves media from <code>/wp-content/uploads/</code>; OneDrive is used only as a backup.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">On Deletion</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="onedrive_media_delete_propagation" <?php checked(Azure_Settings::get_setting('onedrive_media_delete_propagation', false)); ?> />
+                                <strong>Also delete the OneDrive copy when media is deleted in WordPress</strong>
+                            </label>
+                            <p class="description">
+                                Leave this off for backup behaviour. When off, deleting an attachment keeps its OneDrive copy so an
+                                accidental deletion can still be recovered. Turning it on makes OneDrive a mirror instead — the
+                                backup disappears at the same moment the original does.
+                            </p>
                         </td>
                     </tr>
                 </table>
             </div>
             
-            <!-- Step 6: Advanced Options -->
+            <!-- Step 5: Advanced Options -->
             <div class="onedrive-step-section">
-                <h2><span class="step-number">6</span> Advanced Options</h2>
+                <h2><span class="step-number">5</span> Advanced Options</h2>
                 
                 <table class="form-table">
+                    <tr>
+                        <th scope="row">Import Year Cutoff</th>
+                        <td>
+                            <input type="number" name="onedrive_media_import_min_year" value="<?php echo esc_attr(Azure_Settings::get_setting('onedrive_media_import_min_year', 2026)); ?>" class="small-text" min="0" max="2100" />
+                            <p class="description">
+                                The importer ignores OneDrive year folders older than this. Keeps the previous site's unused media out
+                                of this library and off the uploads volume. Set to <code>0</code> to import every year.
+                            </p>
+                        </td>
+                    </tr>
                     <tr>
                         <th scope="row">Maximum File Size</th>
                         <td>
@@ -1319,6 +1363,143 @@ jQuery(document).ready(function($) {
         }).fail(function() {
             $btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-tools"></span> Repair SharePoint URLs');
             $result.html('<span style="color:#dc3232;">Request failed</span>');
+        });
+    });
+
+    // Back up the media library to OneDrive.
+    // Queues anything missing a backup, then walks the queue in small batches so
+    // no single request has to outlive the PHP time limit.
+    var backupCancelled = false;
+
+    $('.backup-library-btn').on('click', function() {
+        var $btn = $(this);
+        var $panel = $('#onedrive-backup-panel');
+        var $fill = $('#backup-overall-fill');
+        var $status = $('#backup-status-text');
+        var $totals = $('#backup-totals');
+
+        backupCancelled = false;
+        $btn.prop('disabled', true);
+        $panel.show();
+        $totals.hide().text('');
+        $('#backup-cancel-btn').show();
+        $fill.css('width', '0%').text('0%');
+        $status.text('Scanning media library...');
+
+        var totalToProcess = 0;
+        var processed = 0;
+        var succeeded = 0;
+        var failed = 0;
+
+        function finish(message, isError) {
+            $('#backup-cancel-btn').hide();
+            $btn.prop('disabled', false);
+            $totals
+                .css({
+                    background: isError ? '#fcf0f1' : '#ecf7ed',
+                    borderColor: isError ? '#dc3232' : '#46b450',
+                    color: isError ? '#8a1f11' : '#2e6b33'
+                })
+                .text(message)
+                .show();
+        }
+
+        function runBatch() {
+            if (backupCancelled) {
+                finish('Stopped. ' + succeeded + ' backed up, ' + (totalToProcess - processed) + ' still queued.', false);
+                return;
+            }
+
+            $.post(ajaxurl, {
+                action: 'onedrive_media_backup_library',
+                mode: 'batch',
+                nonce: azure_plugin_ajax.nonce
+            }, function(response) {
+                if (!response.success) {
+                    finish(response.data || 'Backup failed', true);
+                    return;
+                }
+
+                var d = response.data;
+                processed += d.attempted;
+                succeeded += d.succeeded;
+                failed += d.failed;
+
+                var denominator = totalToProcess > 0 ? totalToProcess : processed;
+                var pct = denominator > 0 ? Math.min(100, Math.round((processed / denominator) * 100)) : 100;
+                $fill.css('width', pct + '%').text(pct + '%');
+                $status.text('Backed up ' + succeeded + ' of ' + denominator +
+                    (failed > 0 ? ' (' + failed + ' failed)' : '') + '. ' + d.remaining + ' remaining...');
+
+                // A batch that attempts nothing while items remain means every
+                // remaining row is waiting out its retry backoff.
+                if (d.remaining > 0 && d.attempted > 0) {
+                    runBatch();
+                    return;
+                }
+
+                if (d.remaining > 0) {
+                    finish(succeeded + ' backed up. ' + d.remaining +
+                        ' item(s) are waiting on a retry and will be picked up by the hourly schedule.', false);
+                    return;
+                }
+
+                $fill.css('width', '100%').text('100%');
+                finish('Backup complete: ' + succeeded + ' uploaded' +
+                    (failed > 0 ? ', ' + failed + ' failed (see Logs)' : '') + '.', failed > 0);
+            }).fail(function() {
+                finish('Request failed while uploading a batch.', true);
+            });
+        }
+
+        $.post(ajaxurl, {
+            action: 'onedrive_media_backup_library',
+            mode: 'scan',
+            nonce: azure_plugin_ajax.nonce
+        }, function(response) {
+            if (!response.success) {
+                finish(response.data || 'Scan failed', true);
+                return;
+            }
+
+            var d = response.data;
+            totalToProcess = d.pending;
+
+            if (totalToProcess === 0) {
+                $fill.css('width', '100%').text('100%');
+                $status.text('Nothing to do.');
+                finish('All ' + d.total + ' library item(s) are already backed up.', false);
+                return;
+            }
+
+            $status.text('Queued ' + d.queued + ' item(s). Uploading...');
+            runBatch();
+        }).fail(function() {
+            finish('Request failed during scan.', true);
+        });
+    });
+
+    $('#backup-cancel-btn').on('click', function() {
+        backupCancelled = true;
+        $(this).prop('disabled', true).text('Stopping...');
+    });
+
+    $('.retry-failed-backups-btn').on('click', function() {
+        var $btn = $(this);
+        $btn.prop('disabled', true);
+
+        $.post(ajaxurl, {
+            action: 'onedrive_media_backup_library',
+            mode: 'retry_failed',
+            nonce: azure_plugin_ajax.nonce
+        }, function(response) {
+            if (response.success) {
+                $btn.text('Reset ' + response.data.reset + ' — click Back Up Media Library');
+            } else {
+                $btn.prop('disabled', false).text(response.data || 'Retry failed');
+            }
+        }).fail(function() {
+            $btn.prop('disabled', false).text('Request failed');
         });
     });
 });

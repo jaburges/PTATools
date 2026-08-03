@@ -403,14 +403,18 @@ class Azure_Settings {
             'onedrive_media_use_year_folders' => true,
             'onedrive_media_auto_sync' => false,
             'onedrive_media_sync_frequency' => 'hourly',
-            'onedrive_media_sync_direction' => 'two_way',
-            'onedrive_media_sharing_link_type' => 'anonymous',
-            'onedrive_media_link_expiration' => 'never',
-            'onedrive_media_cdn_optimization' => true,
-            'onedrive_media_show_badge' => true,
+            // The media library is the primary copy; OneDrive is its backup, so
+            // the default flow pushes out rather than pulling in.
+            'onedrive_media_sync_direction' => 'wp_to_onedrive',
             'onedrive_media_keep_local_copies' => true,
             'onedrive_media_max_file_size' => 4294967296,
             'onedrive_media_chunk_size' => 10485760,
+            // Deleting an attachment leaves its OneDrive backup in place unless
+            // this is explicitly turned on.
+            'onedrive_media_delete_propagation' => false,
+            'onedrive_media_import_min_year' => 2026,
+            'onedrive_media_backup_batch_size' => 25,
+            'onedrive_media_backup_time_budget' => 90,
             
             // Newsletter specific settings
             'newsletter_sending_service' => 'mailgun',

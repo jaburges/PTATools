@@ -653,9 +653,11 @@ class Azure_Restore_Wizard {
 
         $state = self::get_state();
 
-        // Switch OneDrive sync back to two-way
-        Azure_Settings::update_setting('onedrive_media_sync_direction', 'two_way');
-        Azure_Logger::info('Restore Wizard: OneDrive sync direction restored to two_way.', 'OneDrive');
+        // Return OneDrive to backup-only. Restoring 'two_way' would leave the
+        // importer running after the one-off media pull is finished, which pulls
+        // unreferenced media back into the library on every scheduled run.
+        Azure_Settings::update_setting('onedrive_media_sync_direction', 'wp_to_onedrive');
+        Azure_Logger::info('Restore Wizard: OneDrive sync direction restored to wp_to_onedrive (backup only).', 'OneDrive');
 
         // Remove temp admin user if created
         if (!empty($state['temp_admin']['user_id'])) {
@@ -687,8 +689,8 @@ class Azure_Restore_Wizard {
         check_ajax_referer('azure_restore_wizard', 'nonce');
         if (!current_user_can('manage_options')) wp_send_json_error('Permission denied');
 
-        // Restore sync direction if changed
-        Azure_Settings::update_setting('onedrive_media_sync_direction', 'two_way');
+        // Restore sync direction if changed (backup-only, not two-way)
+        Azure_Settings::update_setting('onedrive_media_sync_direction', 'wp_to_onedrive');
 
         self::clear_state();
         Azure_Logger::info('Restore Wizard: Cancelled by user.', 'Backup');
