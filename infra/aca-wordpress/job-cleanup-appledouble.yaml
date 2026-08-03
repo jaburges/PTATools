@@ -1,0 +1,57 @@
+location: westus2
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 1800
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+  template:
+    volumes:
+      - name: wpcontent
+        storageType: AzureFile
+        storageName: wpcontent
+    containers:
+      # macOS writes AppleDouble sidecars ("._name") to store extended
+      # attributes on filesystems that lack them, and they are invisible to ls
+      # on an SMB mount because the client folds them back into xattrs. One
+      # reached mu-plugins, where WordPress loads *every* .php file, so a binary
+      # metadata file was executed and emitted bytes before any headers. That
+      # broke the wp-admin redirect and turned 404s into 200s. This removes any
+      # others: harmless in uploads, but they show up as phantom media.
+      - name: cleanup
+        image: "docker.io/library/debian:stable-slim"
+        resources:
+          cpu: 1.0
+          memory: 2.0Gi
+        volumeMounts:
+          - volumeName: wpcontent
+            mountPath: /mnt/wpcontent
+        command: ["/bin/bash"]
+        args:
+          - "-c"
+          - |
+            set -eu
+            # Deliberately no pipefail: piping find into head closes the pipe
+            # early, which under pipefail aborts the script before the delete.
+            echo "=== surveying ==="
+            find /mnt/wpcontent -type f -name '._*' -print > /tmp/ad.txt 2>/dev/null || true
+            echo "AppleDouble files: $(wc -l < /tmp/ad.txt)"
+            echo "--- top directories ---"
+            sed 's|/[^/]*$||' /tmp/ad.txt | sort | uniq -c | sort -rn > /tmp/bydir.txt || true
+            head -10 /tmp/bydir.txt || true
+            echo "=== deleting ==="
+            find /mnt/wpcontent -type f -name '._*' -delete 2>/dev/null || true
+            find /mnt/wpcontent -type f -name '.DS_Store' -delete 2>/dev/null || true
+            echo "remaining AppleDouble: $(find /mnt/wpcontent -type f -name '._*' 2>/dev/null | wc -l)"
+            echo "remaining .DS_Store:   $(find /mnt/wpcontent -type f -name '.DS_Store' 2>/dev/null | wc -l)"
+            echo "=== mu-plugins is the sensitive directory (WP loads every .php there) ==="
+            ls -la /mnt/wpcontent/mu-plugins
+            echo "=== sanity: real content still present ==="
+            test -f "/mnt/wpcontent/themes/chromenews/style.css" && echo "theme ok"
+            test -f "/mnt/wpcontent/plugins/Azure Plugin/azure-plugin.php" && echo "plugin ok"
+            echo "total files now: $(find /mnt/wpcontent -type f | wc -l)"
+            echo CLEANUP_OK

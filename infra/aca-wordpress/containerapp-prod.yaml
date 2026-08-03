@@ -1,0 +1,158 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 80
+      transport: auto
+      allowInsecure: false
+      # Stays allow-listed until the Front Door origin switch. Add entries here
+      # rather than removing the restriction.
+      # No ipSecurityRestrictions: removed deliberately on 2026-08-03. The
+      # operator address rotated three times, and each stale entry produced an
+      # Envoy "RBAC: access denied" 403 that reads like an authentication
+      # failure rather than an allow-list miss.
+      #
+      # If restrictions are reinstated, note that Container Apps ingress rejects
+      # IPv6 ranges outright, so only IPv4 can be listed. At Front Door cutover
+      # the useful restriction is not an operator IP at all but limiting the
+      # origin to Front Door, so the container cannot be reached directly.
+    # The image is pulled with the user-assigned identity's AcrPull role, so no
+    # registry username or password is stored anywhere.
+    registries:
+      - server: wilderptsaacr.azurecr.io
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+    secrets:
+      - name: db-password
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+      - name: redis-password
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/redis-primary-key"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+  template:
+    volumes:
+      # Only uploads come off the share now. Code used to live here too, and it
+      # cost roughly 8 seconds on every request: a warm request loaded ~955 PHP
+      # files from this mount, and OPcache re-stat'd each one at ~4.8ms because
+      # the mount is set actimeo=1 and the attribute cache had always expired.
+      # Code now ships in the image, where the same stat costs 0.004ms.
+      #
+      # subPath keeps the existing share rather than copying 220MB of media to a
+      # new one: writing many small files here runs at about 5 files/second.
+      - name: wpcontent
+        storageType: AzureFile
+        storageName: wpcontent
+    containers:
+      - name: wordpress
+        image: "wilderptsaacr.azurecr.io/wilderptsa-wp:3.143.1"
+        resources:
+          # Right-sized after the migration. Observed peak over an hour was 0.042
+          # cores and 365 MiB, so 1.0/2.0Gi was paying idle rate on roughly 25x
+          # the CPU actually in use.
+          #
+          # Container Apps fixes the ratio at 1 vCPU : 2 GiB, so these move
+          # together. Halving from 1.0/2.0Gi was measured, not assumed: homepage
+          # TTFB stayed at 0.88-1.04s against 0.87-1.02s before, because a single
+          # render is latency-bound on sequential PHP and database round trips
+          # rather than starved of CPU.
+          #
+          # That holds at one request at a time. Concurrency is the untested
+          # direction, and it is the reason not to go lower: memory still has to
+          # cover the 256 MB OPcache plus a 512 MB PHP limit per worker.
+          # Re-measure under real traffic after the domain cutover.
+          cpu: 0.5
+          memory: 1.0Gi
+        volumeMounts:
+          - volumeName: wpcontent
+            mountPath: /var/www/html/wp-content/uploads
+            subPath: uploads
+        # No custom command: the permalink rewrite rules and everything else
+        # Apache needs are baked into the image at /etc/apache2/conf-enabled.
+        env:
+          - name: WORDPRESS_DB_HOST
+            value: wilderptsa-wpdb-small.mysql.database.azure.com
+          - name: WORDPRESS_DB_NAME
+            value: wilderptsa_wp
+          - name: WORDPRESS_DB_USER
+            value: ptsadbadmin
+          - name: WORDPRESS_DB_PASSWORD
+            secretRef: db-password
+          - name: WORDPRESS_TABLE_PREFIX
+            value: wp_
+          - name: WP_REDIS_PASSWORD
+            secretRef: redis-password
+          - name: WORDPRESS_CONFIG_EXTRA
+            value: |
+              /* Azure MySQL Flexible Server runs require_secure_transport=ON. */
+              define( 'MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL );
+
+              /* Ingress terminates TLS, so PHP sees plain HTTP. Without this
+                 WordPress emits http:// URLs and redirect-loops. */
+              if ( ! empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ) {
+                  $_SERVER['HTTPS'] = 'on';
+              }
+
+              /* Derived from the request, which matters more than usual here:
+                 the imported database carried siteurl and home pointing at
+                 wp.theburgessfamily.us. These constants take precedence, so the
+                 site kept answering on its own hostname immediately after the
+                 import instead of redirecting away, and it stays portable
+                 across the container hostname and the final domain. */
+              if ( ! empty( $_SERVER['HTTP_HOST'] ) ) {
+                  define( 'WP_HOME', 'https://' . $_SERVER['HTTP_HOST'] );
+                  define( 'WP_SITEURL', 'https://' . $_SERVER['HTTP_HOST'] );
+              }
+
+              /* Writes succeed without FTP credentials. Note that only uploads
+                 persist: wp-content is part of the image now, so a plugin or
+                 theme installed from wp-admin disappears on the next revision.
+                 Install by rebuilding the image instead. */
+              define( 'FS_METHOD', 'direct' );
+
+              /* Editing code from wp-admin would be invisible anyway, because
+                 the image runs OPcache with validate_timestamps=0. */
+              define( 'DISALLOW_FILE_EDIT', true );
+
+              /* Redis object cache. The drop-in is baked into the image at
+                 wp-content/object-cache.php; these constants are all it reads.
+                 Azure Cache for Redis requires TLS on 6380 — the non-TLS port
+                 is disabled on the instance. */
+              define( 'WP_REDIS_HOST', 'wilderptsa-redis.redis.cache.windows.net' );
+              define( 'WP_REDIS_PORT', 6380 );
+              define( 'WP_REDIS_SCHEME', 'tls' );
+              define( 'WP_REDIS_PASSWORD', getenv( 'WP_REDIS_PASSWORD' ) );
+              define( 'WP_REDIS_DATABASE', 0 );
+              define( 'WP_REDIS_TIMEOUT', 2 );
+              define( 'WP_REDIS_READ_TIMEOUT', 2 );
+
+              /* Namespaces the keys so a second site on this cache, or a restore
+                 from a different database, cannot read stale entries. */
+              define( 'WP_CACHE_KEY_SALT', 'wilderptsa_prod:' );
+
+              /* Headroom for admin-side work such as media handling and plugin
+                 updates. upload_max_filesize cannot be raised from here because
+                 it is PHP_INI_PERDIR, so large uploads need the share or a
+                 baked php.ini rather than wp-admin. */
+              @ini_set( 'memory_limit', '512M' );
+              @ini_set( 'max_execution_time', '900' );
+              define( 'WP_MEMORY_LIMIT', '512M' );
+              define( 'WP_MAX_MEMORY_LIMIT', '512M' );
+
+              /* Scheduled work is driven by a Container Apps job, not by
+                 request-triggered cron. */
+              define( 'DISABLE_WP_CRON', true );
+
+              define( 'WP_ENVIRONMENT_TYPE', 'production' );
+              define( 'AUTOMATIC_UPDATER_DISABLED', true );
+    scale:
+      # Pinned to one replica. Several WordPress instances writing to the same
+      # SMB share during a restore is a good way to corrupt it.
+      minReplicas: 1
+      maxReplicas: 1

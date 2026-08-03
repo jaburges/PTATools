@@ -1,0 +1,24 @@
+location: westus2
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 120
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+  template:
+    containers:
+      # Succeeds only if the container can reach the public internet. Used to
+      # confirm egress works from the VNet-injected subnet, since Azure no
+      # longer grants default outbound access to newly created subnets and
+      # installing plugins from wordpress.org depends on it.
+      - name: probe
+        image: "docker.io/curlimages/curl:latest"
+        command: ["curl"]
+        args: ["-fsS", "-m", "25", "-o", "/dev/null", "https://api.wordpress.org/core/version-check/1.7/"]
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi

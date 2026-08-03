@@ -1,0 +1,94 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 3600
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: db-password
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+  template:
+    containers:
+      # WP-CLI rather than SQL REPLACE(): three of the affected options hold
+      # serialized PHP, where a raw string swap corrupts the length prefixes.
+      # search-replace unserializes, substitutes, and re-serializes correctly.
+      - name: wpcli
+        image: "docker.io/library/wordpress:cli-php8.3"
+        resources:
+          cpu: 1.0
+          memory: 2.0Gi
+        env:
+          - name: DB_PASSWORD
+            secretRef: db-password
+          - name: OLD_URL
+            value: "https://wp.theburgessfamily.us"
+          # Rewrite target. At Front Door cutover, change this to
+          # https://wilderptsa.net and re-run the job with FROM_URL set to this
+          # value to move the content on again.
+          - name: NEW_URL
+            value: "https://wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io"
+        command: ["/bin/sh"]
+        args:
+          - "-c"
+          - |
+            set -e
+            # /usr/local/bin/wp is the phar itself, not the shell wrapper, so
+            # WP_CLI_PHP_ARGS is ignored and the 128M default applies. Calling
+            # php directly is the only way to raise the limit, which both core
+            # extraction and a --precise replace over 1,769 posts need.
+            WPBIN="php -d memory_limit=1024M /usr/local/bin/wp"
+            WP="$WPBIN --path=/tmp/wp --skip-plugins --skip-themes"
+            echo "=== staging a core checkout for CLI bootstrap ==="
+            # search-replace is pure database work, but WP-CLI still needs core
+            # plus a config to bootstrap. Plugins and themes stay unloaded so
+            # this cannot fire hooks against a half-migrated site.
+            mkdir -p /tmp/wp
+            $WPBIN core download --path=/tmp/wp --version=6.9.4 --force --quiet
+            # MYSQL_CLIENT_FLAGS mirrors the live container. Azure MySQL runs
+            # require_secure_transport=ON, and while `wp db check` succeeds by
+            # shelling out to the mysql client (which negotiates TLS itself),
+            # WordPress's own mysqli connection fails without this flag.
+            $WPBIN config create --path=/tmp/wp \
+              --dbname=wilderptsa_wp \
+              --dbuser=ptsadbadmin \
+              --dbpass="$DB_PASSWORD" \
+              --dbhost=wilderptsa-wpdb-small.mysql.database.azure.com \
+              --dbcharset=utf8mb4 \
+              --skip-check --force --quiet --extra-php <<'PHP'
+            define( 'MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL );
+            PHP
+            echo "=== connectivity check ==="
+            $WP db check || true
+            echo "current siteurl: $($WP option get siteurl)"
+            echo
+            echo "=== DRY RUN: what would change ==="
+            $WP search-replace "$OLD_URL" "$NEW_URL" \
+              --all-tables --precise --report-changed-only --dry-run
+            echo
+            echo "=== APPLYING ==="
+            $WP search-replace "$OLD_URL" "$NEW_URL" \
+              --all-tables --precise --report-changed-only
+            echo
+            echo "=== also normalising any http:// form ==="
+            $WP search-replace "http://wp.theburgessfamily.us" "$NEW_URL" \
+              --all-tables --precise --report-changed-only || true
+            echo
+            echo "=== clearing transients (they cached old-host asset URLs) ==="
+            $WP transient delete --all || true
+            echo
+            echo "=== verification ==="
+            echo "siteurl: $($WP option get siteurl)"
+            echo "home:    $($WP option get home)"
+            $WP db query "SELECT 'posts_remaining', COUNT(*) FROM wp_posts WHERE post_content LIKE '%wp.theburgessfamily.us%' OR guid LIKE '%wp.theburgessfamily.us%';" --skip-column-names
+            $WP db query "SELECT 'options_remaining', COUNT(*) FROM wp_options WHERE option_value LIKE '%wp.theburgessfamily.us%';" --skip-column-names
+            echo REWRITE_OK

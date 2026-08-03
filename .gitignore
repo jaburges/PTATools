@@ -25,3 +25,12 @@ ios-app/DerivedData/
 # Local summer park backups (DB dumps, secrets)
 .local-backups/
 
+# Container image build scratch — assembled from the migration export at build
+# time and can contain a full wp-content tree
+infra/wp-image/.context/
+infra/wp-image/.ctest/
+
+# Local scratch: diagnostic probes, held-back patches, and pre-deploy config
+# snapshots kept for rollback
+.tmp/
+

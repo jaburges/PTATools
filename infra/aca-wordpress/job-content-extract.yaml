@@ -1,0 +1,77 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    # Writing ~9,000 files onto an SMB share is the slow part, not the download.
+    replicaTimeout: 3600
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+  template:
+    volumes:
+      - name: wpcontent
+        storageType: AzureFile
+        storageName: wpcontent
+    containers:
+      # azure-cli image so the archives can be pulled with the managed identity.
+      # Using identity rather than an account key keeps this file safe to commit.
+      - name: extractor
+        image: "mcr.microsoft.com/azure-cli:latest"
+        resources:
+          cpu: 2.0
+          memory: 4.0Gi
+        volumeMounts:
+          - volumeName: wpcontent
+            mountPath: /mnt/wpcontent
+        env:
+          - name: AZURE_CLIENT_ID
+            value: "4b740332-8ed7-4cf1-aecf-f2e3abcd90fe"
+          - name: SA_NAME
+            value: "wilderptsac20b298091"
+        command: ["/bin/bash"]
+        args:
+          - "-c"
+          - |
+            set -euo pipefail
+            echo "=== authenticating with managed identity ==="
+            az login --identity --client-id "$AZURE_CLIENT_ID" -o none
+            mkdir -p /work
+            echo "=== downloading archives ==="
+            az storage blob download --auth-mode login --account-name "$SA_NAME" \
+              -c migration -n wp-code.tar.gz -f /work/wp-code.tar.gz --no-progress -o none
+            az storage blob download --auth-mode login --account-name "$SA_NAME" \
+              -c migration -n wp-uploads.tar -f /work/wp-uploads.tar --no-progress -o none
+            ls -lh /work
+            # This image ships no tar, so extract with Python's tarfile, which is
+            # guaranteed present because the CLI itself is Python. The "data"
+            # filter also drops ownership metadata, which suits an SMB mount
+            # where chown is not permitted anyway.
+            echo "=== extracting ==="
+            python3 - <<'PY'
+            import tarfile
+            for src in ("/work/wp-code.tar.gz", "/work/wp-uploads.tar"):
+                with tarfile.open(src) as t:
+                    try:
+                        t.extractall("/mnt/wpcontent", filter="data")
+                    except TypeError:
+                        t.extractall("/mnt/wpcontent")
+                print("extracted", src, flush=True)
+            PY
+            echo "=== result ==="
+            echo "themes:"; ls -1 /mnt/wpcontent/themes
+            echo "plugins:"; ls -1 /mnt/wpcontent/plugins
+            echo "mu-plugins:"; ls -1 /mnt/wpcontent/mu-plugins
+            echo "uploads:"; ls -1 /mnt/wpcontent/uploads | head -8
+            echo -n "theme stylesheet: "
+            test -f "/mnt/wpcontent/themes/chromenews/style.css" && echo yes || echo NO
+            echo -n "plugin entrypoint: "
+            test -f "/mnt/wpcontent/plugins/Azure Plugin/azure-plugin.php" && echo yes || echo NO
+            echo "total files: $(find /mnt/wpcontent -type f | wc -l)"
+            echo EXTRACT_OK
