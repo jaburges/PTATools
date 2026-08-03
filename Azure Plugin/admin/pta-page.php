@@ -1581,20 +1581,10 @@ jQuery(document).ready(function($) {
             </div>
         `;
         
+        $('#add-dept-form-modal').remove();
         $('body').append(formHtml);
-        
-        // Load users for VP dropdown
-        $.post(azure_plugin_ajax.ajax_url, {
-            action: 'pta_get_users',
-            nonce: azure_plugin_ajax.nonce
-        }, function(response) {
-            if (response.success) {
-                var select = $('#add-dept-form select[name="vp_user_id"]');
-                response.data.forEach(function(user) {
-                    select.append('<option value="' + user.ID + '">' + user.display_name + '</option>');
-                });
-            }
-        });
+
+        populateVPSelect($('#add-dept-form-modal').find('select[name="vp_user_id"]'), '');
         
         $('#add-dept-form-modal').show();
         
@@ -2153,6 +2143,63 @@ jQuery(document).ready(function($) {
         });
     }
     
+    /* Fill a VP <select> from pta_get_users.
+     *
+     * Centralised because the three department forms each had their own copy and
+     * they disagreed about failure. The assign-VP picker sat on "Loading
+     * users..." forever whenever the request did not come back, because nothing
+     * handled that case, and the edit form left a completely empty <select>
+     * because it only added its placeholder inside the success branch. Both
+     * looked like a hang rather than a failure. */
+    function populateVPSelect($select, selectedId) {
+        if (!$select.length) { return; }
+
+        $select.prop('disabled', true).html('<option value="">Loading users…</option>');
+
+        return $.post(azure_plugin_ajax.ajax_url, {
+            action: 'pta_get_users',
+            nonce: azure_plugin_ajax.nonce
+        }).done(function(response) {
+            $select.empty().prop('disabled', false);
+
+            if (!response || !response.success) {
+                var reason = (response && response.data) ? response.data : 'unknown error';
+                $select.append($('<option>', { value: '', text: 'Could not load users: ' + reason }));
+                return;
+            }
+
+            $select.append($('<option>', { value: '', text: '-- No VP Assigned --' }));
+
+            var ptsa = [], other = [];
+            (response.data || []).forEach(function(user) {
+                (user.is_ptsa_account ? ptsa : other).push(user);
+            });
+
+            // Board addresses first: the list is now every user rather than the
+            // handful on the azuread role, and a VP is nearly always one of them.
+            [['PTSA accounts', ptsa], ['Other users', other]].forEach(function(group) {
+                if (!group[1].length) { return; }
+                var $group = $('<optgroup>', { label: group[0] + ' (' + group[1].length + ')' });
+                group[1].forEach(function(user) {
+                    // Built as nodes, not concatenated HTML, so a display name
+                    // or address containing markup cannot break the picker.
+                    $group.append($('<option>', {
+                        value: user.ID,
+                        text: user.display_name + ' (' + user.user_email + ')',
+                        selected: String(selectedId) === String(user.ID)
+                    }));
+                });
+                $select.append($group);
+            });
+        }).fail(function(xhr, status, error) {
+            console.error('pta_get_users failed:', status, error, xhr && xhr.responseText);
+            $select.empty().prop('disabled', false).append($('<option>', {
+                value: '',
+                text: 'Could not load users (' + (status || 'error') + ') — see browser console'
+            }));
+        });
+    }
+
     // Show Assign VP Modal
     function showAssignVPModal(deptId) {
         // Fetch department data first
@@ -2206,25 +2253,14 @@ jQuery(document).ready(function($) {
                 </div>
             `;
             
+            // Reopening appended a second element with the same id, and the
+            // dropdown lookup then found the stale one, leaving the visible
+            // modal stuck on its placeholder.
+            $('#assign-vp-modal').remove();
             $('body').append(modalHtml);
-            
-            // Load users for VP dropdown
-            $.post(azure_plugin_ajax.ajax_url, {
-                action: 'pta_get_users',
-                nonce: azure_plugin_ajax.nonce
-            }, function(usersResponse) {
-                var vpSelect = $('#assign-vp-select');
-                vpSelect.empty();
-                vpSelect.append('<option value="">-- Select a VP --</option>');
-                
-                if (usersResponse.success) {
-                    usersResponse.data.forEach(function(user) {
-                        var selected = dept.vp_user_id == user.ID ? 'selected' : '';
-                        vpSelect.append('<option value="' + user.ID + '" ' + selected + '>' + user.display_name + ' (' + user.user_email + ')</option>');
-                    });
-                }
-            });
-            
+
+            populateVPSelect($('#assign-vp-modal').find('#assign-vp-select'), dept.vp_user_id);
+
             $('#assign-vp-modal').show();
             
             // Bind close handler
@@ -2316,22 +2352,10 @@ jQuery(document).ready(function($) {
                 </div>
             `;
             
+            $('#edit-dept-form-modal').remove();
             $('body').append(formHtml);
-            
-            // Load users for VP dropdown
-            $.post(azure_plugin_ajax.ajax_url, {
-                action: 'pta_get_users',
-                nonce: azure_plugin_ajax.nonce
-            }, function(usersResponse) {
-                if (usersResponse.success) {
-                    var vpSelect = $('#edit-dept-vp');
-                    vpSelect.append('<option value="">-- No VP Assigned --</option>');
-                    usersResponse.data.forEach(function(user) {
-                        var selected = dept.vp_user_id == user.ID ? 'selected' : '';
-                        vpSelect.append('<option value="' + user.ID + '" ' + selected + '>' + user.display_name + ' (' + user.user_email + ')</option>');
-                    });
-                }
-            });
+
+            populateVPSelect($('#edit-dept-form-modal').find('#edit-dept-vp'), dept.vp_user_id);
 
             // Load O365 groups and current department mapping in parallel
             var currentGroupId = '';

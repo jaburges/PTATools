@@ -191,6 +191,40 @@ class Azure_PTA_Manager {
     /**
      * Get user assignments
      */
+    /**
+     * Active assignments for many users in one query.
+     *
+     * get_user_assignments() per user is fine for a single profile but becomes
+     * one query per row when building a list; this exists so ajax_get_users()
+     * can return every user without issuing thousands of queries.
+     *
+     * @param int[] $user_ids
+     * @return array Rows with a user_id column to group by.
+     */
+    public function get_assignments_for_users($user_ids) {
+        global $wpdb;
+
+        $user_ids = array_filter(array_map('intval', (array) $user_ids));
+        if (empty($user_ids)) {
+            return array();
+        }
+
+        $assignments_table = Azure_PTA_Database::get_table_name('assignments');
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+        $id_list = implode(',', $user_ids);
+
+        $sql = "SELECT ra.*, r.name as role_name, r.slug as role_slug, r.department_id,
+                       d.name as department_name, d.slug as department_slug
+                FROM $assignments_table ra
+                JOIN $roles_table r ON ra.role_id = r.id
+                JOIN $dept_table d ON r.department_id = d.id
+                WHERE ra.user_id IN ($id_list) AND ra.status = %s
+                ORDER BY ra.is_primary DESC, d.name, r.name";
+
+        return $wpdb->get_results($wpdb->prepare($sql, 'active'));
+    }
+
     public function get_user_assignments($user_id, $active_only = true) {
         global $wpdb;
         $assignments_table = Azure_PTA_Database::get_table_name('assignments');
@@ -817,60 +851,75 @@ class Azure_PTA_Manager {
         
         try {
             global $wpdb;
-            
-            // Get all users with Azure SSO mapping (synced from Azure AD)
+
             $sso_users_table = Azure_Database::get_table_name('sso_users');
-            
-            $sso_user_ids = $wpdb->get_col("SELECT DISTINCT wordpress_user_id FROM $sso_users_table");
-            
-            // Get users with AzureAD role (SSO users)
-            $azure_users = get_users(array(
-                'role' => 'azuread',
-                'fields' => array('ID', 'display_name', 'user_email', 'user_registered', 'user_login')
+
+            /* Every user, not just those on the azuread role.
+             *
+             * This previously returned get_users(role => azuread) and only fell
+             * back to a wider set when that came back completely empty. On this
+             * site 15 of 735 users hold that role, so the fallback never
+             * triggered and the VP pickers in Department Management could only
+             * ever offer those 15 — 45 of the 53 @wilderptsa.net accounts were
+             * invisible, because they sit on editor, parent or administrator.
+             *
+             * Eligibility to hold a PTA role is not the same thing as how the
+             * account happens to authenticate, so the WordPress role is the
+             * wrong filter. Callers that want a narrower list should filter on
+             * the flags returned per user. */
+            $users = get_users(array(
+                'fields'  => array('ID', 'display_name', 'user_email', 'user_registered', 'user_login'),
+                'orderby' => 'display_name',
+                'order'   => 'ASC',
             ));
-            
-            // If no AzureAD role users, fall back to SSO mapped users or all users
-            if (empty($azure_users)) {
-                $user_args = array(
-                    'fields' => array('ID', 'display_name', 'user_email', 'user_registered', 'user_login')
-                );
-                
-                if (!empty($sso_user_ids)) {
-                    $user_args['include'] = $sso_user_ids;
-                } else {
-                    // Fallback to all users
-                    $user_args['number'] = 100; // Limit to prevent performance issues
-                }
-                
-                $users = get_users($user_args);
-            } else {
-                $users = $azure_users;
+
+            if (empty($users)) {
+                wp_send_json_success(array());
             }
-            
+
+            $user_ids = wp_list_pluck($users, 'ID');
+
+            /* Three bulk lookups instead of five queries per user. At 735 users
+             * the per-user form was ~3,700 queries and would not finish inside a
+             * request, which is what made widening the list possible at all. */
+            update_meta_cache('user', $user_ids);
+
+            $assignments_by_user = array();
+            foreach ($this->get_assignments_for_users($user_ids) as $assignment) {
+                $assignments_by_user[$assignment->user_id][] = $assignment;
+            }
+
+            $azure_by_user = array();
+            $id_list = implode(',', array_map('intval', $user_ids));
+            $azure_rows = $wpdb->get_results(
+                "SELECT wordpress_user_id, azure_email, azure_display_name, last_login
+                   FROM $sso_users_table
+                  WHERE wordpress_user_id IN ($id_list)"
+            );
+            foreach ((array) $azure_rows as $row) {
+                $azure_by_user[(int) $row->wordpress_user_id] = $row;
+            }
+
             $users_data = array();
             foreach ($users as $user) {
-                $assignments = $this->get_user_assignments($user->ID);
+                $assignments = isset($assignments_by_user[$user->ID]) ? $assignments_by_user[$user->ID] : array();
                 $roles_list = array();
                 $primary_role = null;
-                
+
                 foreach ($assignments as $assignment) {
                     $roles_list[] = $assignment->role_name;
                     if ($assignment->is_primary) {
                         $primary_role = $assignment->role_name;
                     }
                 }
-                
-                // Check if user is from Azure AD
-                $azure_info = $wpdb->get_row($wpdb->prepare(
-                    "SELECT azure_email, azure_display_name, last_login FROM $sso_users_table WHERE wordpress_user_id = %d",
-                    $user->ID
-                ));
-                
-                // Get user meta for additional info
+
+                $azure_info = isset($azure_by_user[$user->ID]) ? $azure_by_user[$user->ID] : null;
+
+                // Served from the primed cache, so these are not queries.
                 $first_name = get_user_meta($user->ID, 'first_name', true);
                 $last_name = get_user_meta($user->ID, 'last_name', true);
                 $job_title = get_user_meta($user->ID, 'job_title', true);
-                
+
                 $user_data = array(
                     'ID' => $user->ID,
                     'user_login' => $user->user_login,
@@ -887,7 +936,10 @@ class Azure_PTA_Manager {
                     'azure_email' => $azure_info ? $azure_info->azure_email : null,
                     'azure_display_name' => $azure_info ? $azure_info->azure_display_name : null,
                     'last_login' => $azure_info ? $azure_info->last_login : null,
-                    'has_roles' => count($assignments) > 0
+                    'has_roles' => count($assignments) > 0,
+                    // Lets the VP pickers put board addresses first now that the
+                    // list is every user rather than a pre-filtered handful.
+                    'is_ptsa_account' => (bool) preg_match('/@wilderptsa\.net$/i', (string) $user->user_email),
                 );
                 
                 $users_data[] = $user_data;
