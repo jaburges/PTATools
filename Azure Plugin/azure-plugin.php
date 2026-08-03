@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.143.4
+ * Version: 3.143.5
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.143.4');
+define('AZURE_PLUGIN_VERSION', '3.143.5');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -531,10 +531,12 @@ class AzurePlugin {
                     }
 
                     // v3.143.4: the Azure AD User role gained editor-equivalent
-                    // capabilities. Activation alone will not apply it, because
-                    // the role already exists on every installed site and the
-                    // create path returns early when it does.
+                    // capabilities, and v3.143.5 pointed SSO provisioning at it.
+                    // Activation alone will not apply either: the role already
+                    // exists on every installed site and the create path returns
+                    // early when it does.
                     $this->sync_azuread_role();
+                    $this->migrate_sso_default_role();
 
                     update_option('azure_plugin_db_version', AZURE_PLUGIN_VERSION);
 
@@ -1824,6 +1826,37 @@ class AzurePlugin {
      */
     private function create_azuread_role() {
         $this->sync_azuread_role();
+    }
+
+    /**
+     * Point SSO provisioning at the azuread role instead of subscriber.
+     *
+     * Changing the default in Azure_Settings only covers sites that never saved
+     * the value. Where it was saved as subscriber, new SSO accounts would keep
+     * arriving unable to edit anything, and would keep being promoted to editor
+     * by hand — the drift this is meant to stop.
+     *
+     * Only the old default is rewritten, so a deliberate choice of some other
+     * role is left alone, and the one-shot flag means an admin who sets it back
+     * to subscriber on purpose does not get overridden on the next upgrade.
+     */
+    private function migrate_sso_default_role() {
+        if (get_option('azure_sso_default_role_migrated')) {
+            return;
+        }
+
+        if (!class_exists('Azure_Settings')) {
+            return;
+        }
+
+        $current = Azure_Settings::get_setting('sso_default_role', '');
+
+        if ($current === 'subscriber' || $current === '') {
+            Azure_Settings::update_setting('sso_default_role', 'azuread');
+            Azure_Logger::info("SSO default role moved from '{$current}' to 'azuread'");
+        }
+
+        update_option('azure_sso_default_role_migrated', 1);
     }
 
     /**

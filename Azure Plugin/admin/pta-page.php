@@ -609,8 +609,44 @@ if (class_exists('Azure_PTA_Database')) {
     
 </div>
 
+<?php
+/* Role choices for the VP picker's filter, built from the roles that users
+ * actually hold so empty roles are not offered. count_users() is one query and
+ * gives the counts, which matter here: they are what makes it obvious at a
+ * glance that "Azure AD User" is the short, useful list and "All users" is not. */
+$pta_role_counts = count_users();
+$pta_avail_roles = isset($pta_role_counts['avail_roles']) ? $pta_role_counts['avail_roles'] : array();
+
+$pta_role_choices = array(
+    array(
+        'slug'  => 'all',
+        'name'  => __('All users', 'azure-plugin'),
+        'count' => isset($pta_role_counts['total_users']) ? (int) $pta_role_counts['total_users'] : 0,
+    ),
+);
+
+foreach (wp_roles()->get_names() as $pta_role_slug => $pta_role_name) {
+    $pta_role_count = isset($pta_avail_roles[$pta_role_slug]) ? (int) $pta_avail_roles[$pta_role_slug] : 0;
+    if ($pta_role_count < 1) {
+        continue;
+    }
+    $pta_role_choices[] = array(
+        'slug'  => $pta_role_slug,
+        'name'  => translate_user_role($pta_role_name),
+        'count' => $pta_role_count,
+    );
+}
+?>
 <script>
 jQuery(document).ready(function($) {
+    /* VPs are board members, who sign in through SSO, so the picker opens on
+     * the Azure AD User role. Falls back to all users if nobody holds it, which
+     * would otherwise present an empty picker with no obvious cause. */
+    var ptaRoleChoices = <?php echo wp_json_encode($pta_role_choices); ?>;
+    var ptaDefaultRoleFilter = ptaRoleChoices.some(function(r) { return r.slug === 'azuread'; })
+        ? 'azuread'
+        : 'all';
+
     // Handle org chart view
     $('#show-org-chart').click(function() {
         loadPTAApp('org-chart');
@@ -2151,14 +2187,59 @@ jQuery(document).ready(function($) {
      * handled that case, and the edit form left a completely empty <select>
      * because it only added its placeholder inside the success branch. Both
      * looked like a hang rather than a failure. */
-    function populateVPSelect($select, selectedId) {
+    /* The role filter is injected next to the <select> rather than written into
+     * each modal's markup: the three pickers are built in three separate places
+     * (two JS templates and one PHP form) and duplicated controls would drift
+     * apart, which is how the loading logic diverged in the first place. */
+    function ensureVPRoleFilter($select, selectedId) {
+        var $existing = $select.parent().find('.pta-vp-role-filter');
+        if ($existing.length) { return $existing; }
+
+        var $filter = $('<select>', { 'class': 'pta-vp-role-filter' })
+            .css({ display: 'block', 'margin-bottom': '6px' });
+
+        ptaRoleChoices.forEach(function(role) {
+            $filter.append($('<option>', {
+                value: role.slug,
+                text: role.name + ' (' + role.count + ')',
+                selected: role.slug === ptaDefaultRoleFilter
+            }));
+        });
+
+        $select.before(
+            $('<label>')
+                .css({ display: 'block', 'margin-bottom': '6px', 'font-size': '12px' })
+                .text('Filter by role: ')
+                .append($filter)
+        );
+
+        $filter.on('change', function() {
+            // Keeps whoever is selected, so switching filter cannot lose the
+            // current VP.
+            populateVPSelect($select, $select.val() || selectedId, $(this).val());
+        });
+
+        return $filter;
+    }
+
+    function populateVPSelect($select, selectedId, roleFilter) {
         if (!$select.length) { return; }
+
+        var $filter = ensureVPRoleFilter($select, selectedId);
+
+        if (typeof roleFilter === 'undefined' || roleFilter === null) {
+            roleFilter = $filter.val() || ptaDefaultRoleFilter;
+        }
+        $filter.val(roleFilter);
 
         $select.prop('disabled', true).html('<option value="">Loading users…</option>');
 
         return $.post(azure_plugin_ajax.ajax_url, {
             action: 'pta_get_users',
-            nonce: azure_plugin_ajax.nonce
+            nonce: azure_plugin_ajax.nonce,
+            wp_role: roleFilter,
+            // Asks for the current VP explicitly so the filter cannot drop them.
+            include_user_id: selectedId || 0
         }).done(function(response) {
             $select.empty().prop('disabled', false);
 
@@ -2170,8 +2251,21 @@ jQuery(document).ready(function($) {
 
             $select.append($('<option>', { value: '', text: '-- No VP Assigned --' }));
 
+            var users = response.data || [];
+
+            if (!users.length) {
+                // Says which filter produced nothing, so an empty picker does
+                // not look like the load failure it used to be mistaken for.
+                $select.append($('<option>', {
+                    value: '',
+                    disabled: true,
+                    text: 'No users hold this role — widen the filter above'
+                }));
+                return;
+            }
+
             var ptsa = [], other = [];
-            (response.data || []).forEach(function(user) {
+            users.forEach(function(user) {
                 (user.is_ptsa_account ? ptsa : other).push(user);
             });
 

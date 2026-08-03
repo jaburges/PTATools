@@ -854,24 +854,54 @@ class Azure_PTA_Manager {
 
             $sso_users_table = Azure_Database::get_table_name('sso_users');
 
-            /* Every user, not just those on the azuread role.
+            /* Defaults to every user rather than only the azuread role.
              *
-             * This previously returned get_users(role => azuread) and only fell
-             * back to a wider set when that came back completely empty. On this
-             * site 15 of 735 users hold that role, so the fallback never
-             * triggered and the VP pickers in Department Management could only
-             * ever offer those 15 — 45 of the 53 @wilderptsa.net accounts were
-             * invisible, because they sit on editor, parent or administrator.
+             * This previously returned get_users(role => azuread) unconditionally
+             * and only fell back to a wider set when that came back completely
+             * empty. On this site 15 of 735 users held that role, so the fallback
+             * never triggered and the VP pickers could only ever offer those 15.
              *
-             * Eligibility to hold a PTA role is not the same thing as how the
-             * account happens to authenticate, so the WordPress role is the
-             * wrong filter. Callers that want a narrower list should filter on
-             * the flags returned per user. */
-            $users = get_users(array(
+             * Eligibility to hold a PTA role is not the same thing as how an
+             * account authenticates, so the role is the wrong hard filter — but
+             * it is a useful optional one, since 735 names in a dropdown is not
+             * a picker. Callers pass wp_role to narrow it, and the VP pickers
+             * default to azuread. Omitting it keeps the full list for the Users
+             * tab, which needs everyone. */
+            $query = array(
                 'fields'  => array('ID', 'display_name', 'user_email', 'user_registered', 'user_login'),
                 'orderby' => 'display_name',
                 'order'   => 'ASC',
-            ));
+            );
+
+            $wp_role = isset($_POST['wp_role']) ? sanitize_key(wp_unslash($_POST['wp_role'])) : '';
+
+            if ($wp_role !== '' && $wp_role !== 'all') {
+                /* Validated against the roles that exist, so a stale or
+                 * misspelled slug fails loudly instead of quietly returning
+                 * everyone — which is the failure mode that hid the original
+                 * bug. */
+                if (!get_role($wp_role)) {
+                    wp_send_json_error(sprintf('Unknown role "%s"', $wp_role));
+                }
+                $query['role'] = $wp_role;
+            }
+
+            $users = get_users($query);
+
+            /* The currently selected user is always included, even when the role
+             * filter excludes them. Without this, opening a picker filtered to a
+             * role the existing VP does not hold would leave their option absent,
+             * the <select> would fall back to "No VP Assigned", and saving the
+             * form would silently clear a VP the admin never touched. */
+            $include_id = isset($_POST['include_user_id']) ? (int) $_POST['include_user_id'] : 0;
+
+            if ($include_id > 0 && !in_array($include_id, wp_list_pluck($users, 'ID'), false)) {
+                $extra = get_users(array(
+                    'include' => array($include_id),
+                    'fields'  => $query['fields'],
+                ));
+                $users = array_merge($extra, $users);
+            }
 
             if (empty($users)) {
                 wp_send_json_success(array());
@@ -920,6 +950,13 @@ class Azure_PTA_Manager {
                 $last_name = get_user_meta($user->ID, 'last_name', true);
                 $job_title = get_user_meta($user->ID, 'job_title', true);
 
+                /* WordPress roles, read out of the primed meta cache rather than
+                 * by constructing a WP_User per row. Named wp_roles because the
+                 * `roles` key below already means PTA role assignments, which is
+                 * a different thing entirely. */
+                $caps = get_user_meta($user->ID, $wpdb->get_blog_prefix() . 'capabilities', true);
+                $wp_role_slugs = is_array($caps) ? array_keys(array_filter($caps)) : array();
+
                 $user_data = array(
                     'ID' => $user->ID,
                     'user_login' => $user->user_login,
@@ -940,6 +977,8 @@ class Azure_PTA_Manager {
                     // Lets the VP pickers put board addresses first now that the
                     // list is every user rather than a pre-filtered handful.
                     'is_ptsa_account' => (bool) preg_match('/@wilderptsa\.net$/i', (string) $user->user_email),
+                    'wp_roles' => $wp_role_slugs,
+                    'is_sso_role' => in_array('azuread', $wp_role_slugs, true),
                 );
                 
                 $users_data[] = $user_data;

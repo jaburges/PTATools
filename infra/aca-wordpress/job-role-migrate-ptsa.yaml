@@ -1,0 +1,82 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 1800
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: db-password
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+  template:
+    containers:
+      - name: wpcli
+        image: "docker.io/library/wordpress:cli-php8.3"
+        resources:
+          cpu: 1.0
+          memory: 2.0Gi
+        env:
+          - name: DB_PASSWORD
+            secretRef: db-password
+          # "1" reports what would change and writes nothing. Set to "0" to apply.
+          - name: DRY_RUN
+            value: "0"
+        command: ["/bin/sh"]
+        args:
+          - "-c"
+          - |
+            set -e
+            WPBIN="php -d memory_limit=1024M /usr/local/bin/wp"
+            WP="$WPBIN --path=/tmp/wp --skip-plugins --skip-themes"
+            mkdir -p /tmp/wp
+            $WPBIN core download --path=/tmp/wp --version=7.0.2 --force --quiet
+            $WPBIN config create --path=/tmp/wp \
+              --dbname=wilderptsa_wp \
+              --dbuser=ptsadbadmin \
+              --dbpass="$DB_PASSWORD" \
+              --dbhost=wilderptsa-wpdb-small.mysql.database.azure.com \
+              --dbcharset=utf8mb4 \
+              --skip-check --force --quiet --extra-php <<'PHP'
+            define( 'MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL );
+            PHP
+
+            # Roles come from the wp_user_roles option, so azuread resolves even
+            # with plugins skipped. Skipping them is deliberate: this must not
+            # fire SSO or membership side effects while reassigning roles.
+            # Written to a file rather than piped: wp eval-file cannot read
+            # /dev/stdin from inside the phar.
+            cat > /tmp/migrate.php <<'PHP'
+            <?php
+            /* Read-only verification of the role filter's inputs. */
+            $counts = count_users();
+            printf( "total users: %d\n\n", $counts['total_users'] );
+            printf( "%-18s %s\n", 'ROLE', 'USERS (as the filter will list them)' );
+            foreach ( wp_roles()->get_names() as $slug => $name ) {
+                $n = isset( $counts['avail_roles'][ $slug ] ) ? (int) $counts['avail_roles'][ $slug ] : 0;
+                if ( $n < 1 ) { continue; }
+                printf( "%-18s %d\n", $slug, $n );
+            }
+
+            $sso = get_option( 'azure_plugin_settings' );
+            printf( "\nsso_default_role: %s\n", isset( $sso['sso_default_role'] ) ? $sso['sso_default_role'] : '(unset)' );
+            printf( "migration flag:   %s\n", get_option( 'azure_sso_default_role_migrated' ) ? 'set' : 'NOT SET' );
+            printf( "db_version:       %s\n", get_option( 'azure_plugin_db_version' ) );
+
+            $editors = get_users( array( 'role' => 'editor', 'fields' => array( 'user_email' ) ) );
+            $left = array();
+            foreach ( $editors as $e ) {
+                if ( preg_match( '/@wilderptsa\.net$/i', $e->user_email ) ) { $left[] = $e->user_email; }
+            }
+            printf( "\n@wilderptsa.net still on editor: %d%s\n", count( $left ), $left ? ' -> ' . implode( ', ', $left ) : '' );
+            PHP
+            $WP eval-file /tmp/migrate.php
+            echo ROLE_MIGRATE_OK

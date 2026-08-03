@@ -694,7 +694,19 @@ class Azure_SSO_Auth {
             return $role_slug;
         }
         
-        // Use standard WordPress role
-        return Azure_Settings::get_setting('sso_default_role', 'subscriber');
+        /* Defaults to azuread rather than subscriber: a subscriber cannot edit
+         * anything, so every board member provisioned this way had to be
+         * promoted to editor by hand, which is what made the role stop meaning
+         * "came from SSO". */
+        $role = Azure_Settings::get_setting('sso_default_role', 'azuread');
+
+        /* Never hand back a role that does not exist — wp_update_user() would
+         * silently leave the account with no role at all. */
+        if (!$role || !get_role($role)) {
+            Azure_Logger::warning("SSO: configured role '{$role}' does not exist; falling back to azuread");
+            return get_role('azuread') ? 'azuread' : 'subscriber';
+        }
+
+        return $role;
     }
 }

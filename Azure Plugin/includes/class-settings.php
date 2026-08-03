@@ -294,7 +294,11 @@ class Azure_Settings {
             'sso_redirect_uri' => home_url('/wp-admin/admin-ajax.php?action=azure_sso_callback'),
             'sso_require_sso' => false,
             'sso_auto_create_users' => true,
-            'sso_default_role' => 'subscriber',
+            // Accounts that sign in through Entra ID get the Azure AD User role
+            // so the role records how the account authenticates. It carries
+            // editor capabilities, so there is no need to promote board members
+            // to editor by hand afterwards — which is how roles drifted before.
+            'sso_default_role' => 'azuread',
             'sso_show_on_login_page' => true,
             'sso_login_button_text' => 'Sign in with Microsoft',
             'sso_login_org_heading'   => '',
