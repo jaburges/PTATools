@@ -1,0 +1,52 @@
+# Scheduled WP-Cron driver for the Container Apps WordPress site.
+#
+# The container sets DISABLE_WP_CRON (see containerapp-prod.yaml), which stops
+# WordPress spawning cron from visitor page loads. A direct request to
+# wp-cron.php still executes due events, so something external has to make that
+# request or no scheduled hook ever runs — including the OneDrive backup queue,
+# calendar sync, and backup cleanup.
+#
+# The pre-existing Logic App (wilderptsa-wpcron-scheduler) targets
+# https://wilderptsa.net/wp-cron.php, which still resolves to the old App
+# Service, and only fires once a day. This job drives the ACA host directly and
+# hourly. Once wilderptsa.net cuts over to ACA, either keep this job and disable
+# the Logic App, or point this job at the production domain.
+location: westus2
+properties:
+  environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 600
+    replicaRetryLimit: 1
+    scheduleTriggerConfig:
+      cronExpression: "0 * * * *"
+      parallelism: 1
+      replicaCompletionCount: 1
+  template:
+    containers:
+    - name: wpcron
+      # Image ships curl, so nothing is installed at runtime — a package install
+      # inside a scheduled job is an avoidable network dependency on every run.
+      image: docker.io/curlimages/curl:latest
+      resources:
+        cpu: 0.25
+        memory: 0.5Gi
+      env:
+      - name: WP_CRON_URL
+        value: https://wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io/wp-cron.php?doing_wp_cron
+      command:
+      - /bin/sh
+      args:
+      - -c
+      - |
+        set -e
+        # wp-cron.php returns an empty 200 even when it ran work, so the status
+        # code is the only useful signal here. The timeout is generous because a
+        # cold container plus a batch of due events can take well over a minute.
+        code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 600 "$WP_CRON_URL")
+        echo "wp-cron.php responded ${code}"
+        case "$code" in
+          200|204) echo WPCRON_OK ;;
+          *) echo "WPCRON_FAILED ${code}"; exit 1 ;;
+        esac
