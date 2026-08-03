@@ -35,6 +35,8 @@ class Azure_PTA_Manager {
         add_action('wp_ajax_pta_get_assignments', array($this, 'ajax_get_assignments'));
         add_action('wp_ajax_pta_assign_role', array($this, 'ajax_assign_role'));
         add_action('wp_ajax_pta_remove_assignment', array($this, 'ajax_remove_assignment'));
+        add_action('wp_ajax_pta_get_role_roster', array($this, 'ajax_get_role_roster'));
+        add_action('wp_ajax_pta_replace_assignment', array($this, 'ajax_replace_assignment'));
         add_action('wp_ajax_pta_update_role', array($this, 'ajax_update_role'));
         add_action('wp_ajax_pta_update_department', array($this, 'ajax_update_department'));
         add_action('wp_ajax_pta_get_org_data', array($this, 'ajax_get_org_data'));
@@ -840,11 +842,193 @@ class Azure_PTA_Manager {
         }
     }
     
+    /**
+     * A role's capacity and who currently holds it, in one request.
+     *
+     * The assignments modal needs both to show open spaces. pta_get_assignments
+     * returns only the assignments and is shared with the per-user view, so
+     * rather than change its shape this returns the pair. It also means the
+     * modal no longer has to scrape the role name out of the table behind it,
+     * which broke whenever the list was filtered or not rendered yet.
+     */
+    public function ajax_get_role_roster() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        $role_id = isset($_POST['role_id']) ? intval($_POST['role_id']) : 0;
+
+        try {
+            $role = $this->get_role($role_id);
+
+            if (!$role) {
+                wp_send_json_error('Invalid role ID');
+            }
+
+            $assignments = array();
+            foreach ($this->get_role_assignments($role_id) as $assignment) {
+                $assignments[] = array(
+                    'assignment_id' => (int) $assignment->id,
+                    'user_id'       => (int) $assignment->user_id,
+                    'display_name'  => $assignment->display_name,
+                    'user_email'    => $assignment->user_email,
+                    'is_primary'    => (bool) $assignment->is_primary,
+                );
+            }
+
+            $max = max(1, (int) $role->max_occupants);
+
+            wp_send_json_success(array(
+                'role' => array(
+                    'id'              => (int) $role->id,
+                    'name'            => $role->name,
+                    'department_name' => $role->department_name,
+                    'max_occupants'   => $max,
+                    'assigned_count'  => count($assignments),
+                    'open_positions'  => max(0, $max - count($assignments)),
+                ),
+                'assignments' => $assignments,
+            ));
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
+    }
+
+    /**
+     * Hand a role from one person to another, or change who holds it primarily.
+     */
+    public function ajax_replace_assignment() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        $role_id     = isset($_POST['role_id']) ? intval($_POST['role_id']) : 0;
+        $old_user_id = isset($_POST['old_user_id']) ? intval($_POST['old_user_id']) : 0;
+        $new_user_id = isset($_POST['new_user_id']) ? intval($_POST['new_user_id']) : 0;
+        $is_primary  = isset($_POST['is_primary']) ? (bool) intval($_POST['is_primary']) : null;
+
+        try {
+            $assignment_id = $this->replace_role_assignment($role_id, $old_user_id, $new_user_id, $is_primary);
+            wp_send_json_success(array('assignment_id' => $assignment_id));
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
+    }
+
+    /**
+     * Move a role from one holder to another.
+     *
+     * Freeing the slot has to happen before it can be refilled, because
+     * assign_user_to_role() refuses to exceed max_occupants. That leaves a
+     * window where the role has nobody in it, so everything that can be
+     * checked is checked before the first write, and the pair runs in a
+     * transaction — a failure between the two would otherwise silently drop
+     * someone from a role the admin was only trying to reassign.
+     *
+     * @param int       $role_id
+     * @param int       $old_user_id Current holder.
+     * @param int       $new_user_id Incoming holder; may equal the current one.
+     * @param bool|null $is_primary  Null leaves the existing flag alone.
+     * @return int Assignment id.
+     */
+    public function replace_role_assignment($role_id, $old_user_id, $new_user_id, $is_primary = null) {
+        global $wpdb;
+
+        $role = $this->get_role($role_id);
+        if (!$role) {
+            throw new Exception('Invalid role ID');
+        }
+
+        if (!get_userdata($new_user_id)) {
+            throw new Exception('Invalid user ID');
+        }
+
+        $table = Azure_PTA_Database::get_table_name('assignments');
+
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE user_id = %d AND role_id = %d AND status = 'active'",
+            $old_user_id,
+            $role_id
+        ));
+
+        if (!$existing) {
+            throw new Exception('Assignment not found');
+        }
+
+        // Same person, so only the primary flag can be changing.
+        if ((int) $old_user_id === (int) $new_user_id) {
+            if ($is_primary !== null && (bool) $existing->is_primary !== $is_primary) {
+                $this->set_assignment_primary((int) $existing->id, (int) $old_user_id, $is_primary);
+            }
+            return (int) $existing->id;
+        }
+
+        $conflict = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $table WHERE user_id = %d AND role_id = %d AND status = 'active'",
+            $new_user_id,
+            $role_id
+        ));
+
+        if ($conflict) {
+            throw new Exception('That person already holds this role');
+        }
+
+        // Carried over unless the caller says otherwise, so reassigning does not
+        // quietly demote a primary role holder.
+        $keep_primary = $is_primary === null ? (bool) $existing->is_primary : $is_primary;
+
+        $wpdb->query('START TRANSACTION');
+
+        try {
+            $this->remove_user_from_role($old_user_id, $role_id);
+            $assignment_id = $this->assign_user_to_role($new_user_id, $role_id, $keep_primary);
+            $wpdb->query('COMMIT');
+        } catch (Exception $e) {
+            $wpdb->query('ROLLBACK');
+            throw $e;
+        }
+
+        return $assignment_id;
+    }
+
+    /**
+     * Set or clear the primary flag on one assignment.
+     *
+     * A user has at most one primary role, so setting this clears their others,
+     * matching what assign_user_to_role() does on insert.
+     */
+    private function set_assignment_primary($assignment_id, $user_id, $is_primary) {
+        global $wpdb;
+        $table = Azure_PTA_Database::get_table_name('assignments');
+
+        if ($is_primary) {
+            $wpdb->update($table, array('is_primary' => 0), array('user_id' => $user_id), array('%d'), array('%d'));
+        }
+
+        $wpdb->update(
+            $table,
+            array('is_primary' => $is_primary ? 1 : 0),
+            array('id' => $assignment_id),
+            array('%d'),
+            array('%d')
+        );
+
+        $this->update_user_job_title($user_id);
+    }
+
     public function ajax_get_users() {
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }
-        
+
         if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Invalid nonce');
         }

@@ -1874,65 +1874,292 @@ jQuery(document).ready(function($) {
         });
     }
     
+    /* The assignments modal, as a roster of the role's slots.
+     *
+     * One row per position rather than one per assignment, so the open spaces
+     * are visible and fillable in place. It previously listed only the people
+     * already assigned, which meant a role's vacancies were invisible here and
+     * staffing one meant going out to the People screen and working backwards.
+     *
+     * Rebuilt in place after every change, so the counts and the remaining open
+     * rows stay honest without closing and reopening. */
     function showRoleAssignments(roleId) {
-        // Fetch and display role assignments
+        // Reopening used to append a second element with the same id, leaving
+        // handlers bound to the stale copy.
+        $('#role-assignments-modal').remove();
+
+        var $modal = $(
+            '<div id="role-assignments-modal" class="modal" style="z-index: 10002;">' +
+                '<div class="modal-content">' +
+                    '<div class="modal-header">' +
+                        '<h3 class="roster-title">Assignments</h3>' +
+                        '<button type="button" class="modal-close">&times;</button>' +
+                    '</div>' +
+                    '<div class="modal-body">' +
+                        '<div class="roster-summary" style="margin-bottom: 12px;"></div>' +
+                        '<div class="roster-body"><p><em>Loading…</em></p></div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>'
+        );
+
+        $('body').append($modal);
+        $modal.show();
+
+        // Scoped to this modal. The previous version bound to every .modal-close
+        // on the page, so closing an unrelated modal also tore this one down.
+        $modal.find('.modal-close').on('click', function() {
+            $modal.remove();
+        });
+
+        loadRoleRoster(roleId, $modal);
+    }
+
+    function loadRoleRoster(roleId, $modal) {
+        var $body = $modal.find('.roster-body');
+
         $.post(azure_plugin_ajax.ajax_url, {
-            action: 'pta_get_assignments',
+            action: 'pta_get_role_roster',
             role_id: roleId,
             nonce: azure_plugin_ajax.nonce
-        }, function(response) {
-            if (response.success) {
-                var assignments = response.data;
-                var roleRow = $('#roles-table-body tr').find('[data-role-id="' + roleId + '"]').closest('tr');
-                var roleName = roleRow.find('td:first strong').text();
-                
-                var detailsHtml = '<div id="role-assignments-modal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Assignments for: ' + roleName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
-                
-                if (assignments && assignments.length > 0) {
-                    detailsHtml += '<table class="wp-list-table widefat fixed striped"><thead><tr><th>User</th><th>Email</th><th>Primary</th><th>Actions</th></tr></thead><tbody>';
-                    assignments.forEach(function(assignment) {
-                        var primaryBadge = assignment.is_primary ? '<span style="color: green;">✓ Primary</span>' : '';
-                        detailsHtml += '<tr><td>' + assignment.display_name + '</td><td>' + assignment.user_email + '</td><td>' + primaryBadge + '</td>';
-                        detailsHtml += '<td><button type="button" class="button button-small button-link-delete remove-assignment-btn" data-user-id="' + assignment.user_id + '" data-role-id="' + roleId + '">Remove</button></td></tr>';
-                    });
-                    detailsHtml += '</tbody></table>';
-                } else {
-                    detailsHtml += '<p><em>No users assigned to this role</em></p>';
-                }
-                
-                detailsHtml += '</div></div></div>';
-                $('body').append(detailsHtml);
-                $('#role-assignments-modal').show();
-                
-                // Bind close handler
-                $('.modal-close').on('click', function() {
-                    $('#role-assignments-modal').remove();
-                });
-                
-                // Bind remove assignment handler
-                $('.remove-assignment-btn').on('click', function() {
-                    var userId = $(this).data('user-id');
-                    if (confirm('Remove this user from the role?')) {
-                        $.post(azure_plugin_ajax.ajax_url, {
-                            action: 'pta_remove_assignment',
-                            user_id: userId,
-                            role_id: roleId,
-                            nonce: azure_plugin_ajax.nonce
-                        }, function(removeResponse) {
-                            if (removeResponse.success) {
-                                alert('✅ Assignment removed successfully!');
-                                $('#role-assignments-modal').remove();
-                                loadRolesList(); // Refresh
-                            } else {
-                                alert('❌ Failed to remove assignment: ' + (removeResponse.data || 'Unknown error'));
-                            }
-                        });
-                    }
-                });
-            } else {
-                alert('❌ Failed to load role assignments: ' + (response.data || 'Unknown error'));
+        }).done(function(response) {
+            if (!response || !response.success) {
+                $body.html($('<p>').css('color', '#b32d2e').text(
+                    'Could not load this role: ' + ((response && response.data) || 'unknown error')
+                ));
+                return;
             }
+
+            renderRoleRoster(response.data, $modal);
+        }).fail(function(xhr, status, error) {
+            console.error('pta_get_role_roster failed:', status, error, xhr && xhr.responseText);
+            $body.html($('<p>').css('color', '#b32d2e').text(
+                'Could not load this role (' + (status || 'error') + ') — see browser console'
+            ));
         });
+    }
+
+    function renderRoleRoster(data, $modal) {
+        var role = data.role;
+        var assignments = data.assignments || [];
+        var roleId = role.id;
+
+        // Shared by every picker in this render, then discarded with it.
+        var userCache = {};
+
+        $modal.find('.roster-title').text('Assignments for: ' + role.name);
+
+        var open = role.open_positions;
+        $modal.find('.roster-summary').html('').append(
+            $('<div>').append(
+                $('<strong>').text(role.assigned_count + ' of ' + role.max_occupants + ' filled'),
+                $('<span>').css({ 'margin-left': '10px' })
+                    .addClass('status-badge ' + (open > 0 ? 'open' : 'filled'))
+                    .text(open > 0 ? open + ' open' : 'Fully staffed'),
+                $('<div>').css({ 'margin-top': '4px', color: '#666', 'font-size': '12px' })
+                    .text(role.department_name || '')
+            )
+        );
+
+        var $table = $('<table class="wp-list-table widefat striped">' +
+            '<thead><tr>' +
+                '<th style="width: 40px;">#</th>' +
+                '<th>Person</th>' +
+                '<th style="width: 90px;">Primary</th>' +
+                '<th style="width: 240px;">Actions</th>' +
+            '</tr></thead><tbody></tbody></table>');
+
+        var $tbody = $table.find('tbody');
+
+        assignments.forEach(function(assignment, index) {
+            $tbody.append(buildFilledRow(assignment, index + 1, roleId, $modal, userCache));
+        });
+
+        // One row per remaining space, each independently fillable, so a role
+        // with three vacancies shows three.
+        for (var slot = 0; slot < open; slot++) {
+            $tbody.append(buildOpenRow(assignments.length + slot + 1, roleId, $modal, userCache));
+        }
+
+        $modal.find('.roster-body').html('').append($table);
+    }
+
+    function buildFilledRow(assignment, position, roleId, $modal, userCache) {
+        var $row = $('<tr>');
+
+        $row.append($('<td>').text(position));
+        $row.append(
+            $('<td>').append(
+                // Text nodes, so a display name containing markup cannot break
+                // the table.
+                $('<strong>').text(assignment.display_name),
+                $('<br>'),
+                $('<small>').text(assignment.user_email)
+            )
+        );
+        $row.append(
+            $('<td>').append(
+                assignment.is_primary
+                    ? $('<span>').css('color', 'green').text('✓ Primary')
+                    : $('<span>').css('color', '#999').text('—')
+            )
+        );
+
+        var $change = $('<button type="button" class="button button-small">').text('Change');
+        var $remove = $('<button type="button" class="button button-small button-link-delete">')
+            .css('margin-left', '4px').text('Remove');
+
+        $change.on('click', function() {
+            showChangeHolderRow($row, assignment, position, roleId, $modal, userCache);
+        });
+
+        $remove.on('click', function() {
+            if (!confirm('Remove ' + assignment.display_name + ' from this role?')) { return; }
+
+            $remove.prop('disabled', true).text('Removing…');
+
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_remove_assignment',
+                user_id: assignment.user_id,
+                role_id: roleId,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    $remove.prop('disabled', false).text('Remove');
+                    alert('❌ Failed to remove: ' + ((res && res.data) || 'Unknown error'));
+                    return;
+                }
+                // Reloaded rather than just dropping the row, so the counts and
+                // the new open slot appear without reopening the modal.
+                loadRoleRoster(roleId, $modal);
+                loadRolesList();
+            }).fail(function(xhr, status) {
+                $remove.prop('disabled', false).text('Remove');
+                alert('❌ Network error removing assignment (' + (status || 'error') + ')');
+            });
+        });
+
+        $row.append($('<td>').append($change, $remove));
+
+        return $row;
+    }
+
+    /* Turns a filled row into a picker pre-selected to the current holder, so
+     * handing a role over is one step instead of remove-then-find-then-add. */
+    function showChangeHolderRow($row, assignment, position, roleId, $modal, userCache) {
+        var $cell = $('<td colspan="3">');
+        var $select = $('<select>').css('min-width', '320px');
+        var $primary = $('<label>').css({ 'margin-left': '10px', 'font-size': '12px' }).append(
+            $('<input type="checkbox">').prop('checked', !!assignment.is_primary),
+            ' Primary'
+        );
+
+        var $save = $('<button type="button" class="button button-primary button-small">')
+            .css('margin-left', '8px').text('Save');
+        var $cancel = $('<button type="button" class="button button-small">')
+            .css('margin-left', '4px').text('Cancel');
+
+        $cell.append($select, $primary, $save, $cancel);
+
+        $row.empty().append($('<td>').text(position), $cell);
+
+        populateUserSelect($select, {
+            selectedId: assignment.user_id,
+            emptyLabel: '-- Select a person --',
+            cache: userCache
+        });
+
+        $cancel.on('click', function() {
+            loadRoleRoster(roleId, $modal);
+        });
+
+        $save.on('click', function() {
+            var newUserId = $select.val();
+
+            if (!newUserId) {
+                alert('Pick someone, or use Remove to leave the position open.');
+                return;
+            }
+
+            $save.prop('disabled', true).text('Saving…');
+
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_replace_assignment',
+                role_id: roleId,
+                old_user_id: assignment.user_id,
+                new_user_id: newUserId,
+                is_primary: $primary.find('input').is(':checked') ? 1 : 0,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    $save.prop('disabled', false).text('Save');
+                    alert('❌ Failed to change: ' + ((res && res.data) || 'Unknown error'));
+                    return;
+                }
+                loadRoleRoster(roleId, $modal);
+                loadRolesList();
+            }).fail(function(xhr, status) {
+                $save.prop('disabled', false).text('Save');
+                alert('❌ Network error changing assignment (' + (status || 'error') + ')');
+            });
+        });
+    }
+
+    function buildOpenRow(position, roleId, $modal, userCache) {
+        var $row = $('<tr>').css('background-color', '#fff8e5');
+
+        $row.append($('<td>').text(position));
+
+        var $select = $('<select>').css('min-width', '320px');
+        var $primary = $('<label>').css({ 'margin-left': '10px', 'font-size': '12px' }).append(
+            $('<input type="checkbox">'),
+            ' Primary'
+        );
+
+        $row.append($('<td colspan="2">').append(
+            $('<em>').css({ color: '#8a6d3b', display: 'block', 'margin-bottom': '4px' }).text('Open position'),
+            $select,
+            $primary
+        ));
+
+        var $assign = $('<button type="button" class="button button-primary button-small">').text('Assign');
+
+        $assign.on('click', function() {
+            var userId = $select.val();
+
+            if (!userId) {
+                alert('Choose a person to assign to this position.');
+                return;
+            }
+
+            $assign.prop('disabled', true).text('Assigning…');
+
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_assign_role',
+                user_id: userId,
+                role_id: roleId,
+                is_primary: $primary.find('input').is(':checked') ? 1 : 0,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    $assign.prop('disabled', false).text('Assign');
+                    alert('❌ Failed to assign: ' + ((res && res.data) || 'Unknown error'));
+                    return;
+                }
+                loadRoleRoster(roleId, $modal);
+                loadRolesList();
+            }).fail(function(xhr, status) {
+                $assign.prop('disabled', false).text('Assign');
+                alert('❌ Network error assigning role (' + (status || 'error') + ')');
+            });
+        });
+
+        $row.append($('<td>').append($assign));
+
+        // Defaults to Azure AD accounts, which is who holds a PTA role.
+        populateUserSelect($select, { emptyLabel: '-- Choose a person --', cache: userCache });
+
+        return $row;
     }
     
     function showEditRoleForm(roleId) {
@@ -2239,11 +2466,11 @@ jQuery(document).ready(function($) {
      * each modal's markup: the three pickers are built in three separate places
      * (two JS templates and one PHP form) and duplicated controls would drift
      * apart, which is how the loading logic diverged in the first place. */
-    function ensureVPRoleFilter($select, selectedId) {
-        var $existing = $select.parent().find('.pta-vp-role-filter');
+    function ensureUserRoleFilter($select, opts) {
+        var $existing = $select.parent().find('.pta-user-role-filter');
         if ($existing.length) { return $existing; }
 
-        var $filter = buildRoleFilterSelect('pta-vp-role-filter', ptaDefaultRoleFilter)
+        var $filter = buildRoleFilterSelect('pta-user-role-filter', ptaDefaultRoleFilter)
             .css({ display: 'block', 'margin-bottom': '6px' });
 
         $select.before(
@@ -2254,33 +2481,71 @@ jQuery(document).ready(function($) {
         );
 
         $filter.on('change', function() {
-            // Keeps whoever is selected, so switching filter cannot lose the
-            // current VP.
-            populateVPSelect($select, $select.val() || selectedId, $(this).val());
+            // Keeps whoever is selected, so changing filter cannot lose the
+            // person already chosen.
+            populateUserSelect($select, $.extend({}, opts, {
+                selectedId: $select.val() || opts.selectedId,
+                roleFilter: $(this).val()
+            }));
         });
 
         return $filter;
     }
 
-    function populateVPSelect($select, selectedId, roleFilter) {
+    /* Fill a user <select> from pta_get_users, with the role filter attached.
+     *
+     * opts: { selectedId, roleFilter, emptyLabel, showFilter }
+     *
+     * Generic rather than VP-specific because this is the third place needing a
+     * user picker. The first two each had their own copy and disagreed about
+     * failure: one sat on "Loading users..." forever when the request did not
+     * come back, the other left an empty <select> because it only added its
+     * placeholder on success. Both looked like a hang rather than an error. */
+    function populateUserSelect($select, opts) {
         if (!$select.length) { return; }
 
-        var $filter = ensureVPRoleFilter($select, selectedId);
+        opts = opts || {};
+        var selectedId = opts.selectedId || '';
+        var emptyLabel = typeof opts.emptyLabel === 'string' ? opts.emptyLabel : '-- Select a person --';
+        var roleFilter = opts.roleFilter;
 
-        if (typeof roleFilter === 'undefined' || roleFilter === null) {
-            roleFilter = $filter.val() || ptaDefaultRoleFilter;
+        if (opts.showFilter !== false) {
+            var $filter = ensureUserRoleFilter($select, opts);
+            if (typeof roleFilter === 'undefined' || roleFilter === null) {
+                roleFilter = $filter.val() || ptaDefaultRoleFilter;
+            }
+            $filter.val(roleFilter);
+        } else if (typeof roleFilter === 'undefined' || roleFilter === null) {
+            roleFilter = ptaDefaultRoleFilter;
         }
-        $filter.val(roleFilter);
 
         $select.prop('disabled', true).html('<option value="">Loading users…</option>');
 
-        return $.post(azure_plugin_ajax.ajax_url, {
+        var params = {
             action: 'pta_get_users',
             nonce: azure_plugin_ajax.nonce,
             wp_role: roleFilter,
-            // Asks for the current VP explicitly so the filter cannot drop them.
+            // Asks for the current holder explicitly so the filter cannot drop them.
             include_user_id: selectedId || 0
-        }).done(function(response) {
+        };
+
+        /* Callers rendering several pickers at once pass a shared cache so they
+         * issue one request instead of one per picker — a role with five open
+         * positions was otherwise fetching the same user list five times. The
+         * cache is owned by the caller and lives for one render, so an assignment
+         * cannot leave a picker offering someone who has just been placed. */
+        var request;
+        if (opts.cache) {
+            var key = roleFilter + '|' + (selectedId || 0);
+            if (!opts.cache[key]) {
+                opts.cache[key] = $.post(azure_plugin_ajax.ajax_url, params);
+            }
+            request = opts.cache[key];
+        } else {
+            request = $.post(azure_plugin_ajax.ajax_url, params);
+        }
+
+        return request.done(function(response) {
             $select.empty().prop('disabled', false);
 
             if (!response || !response.success) {
@@ -2289,7 +2554,7 @@ jQuery(document).ready(function($) {
                 return;
             }
 
-            $select.append($('<option>', { value: '', text: '-- No VP Assigned --' }));
+            $select.append($('<option>', { value: '', text: emptyLabel }));
 
             var users = response.data || [];
 
@@ -2309,8 +2574,9 @@ jQuery(document).ready(function($) {
                 (user.is_ptsa_account ? ptsa : other).push(user);
             });
 
-            // Board addresses first: the list is now every user rather than the
-            // handful on the azuread role, and a VP is nearly always one of them.
+            // Board addresses first: the list can be every user rather than the
+            // handful on the azuread role, and the person wanted is nearly
+            // always one of them.
             [['PTSA accounts', ptsa], ['Other users', other]].forEach(function(group) {
                 if (!group[1].length) { return; }
                 var $group = $('<optgroup>', { label: group[0] + ' (' + group[1].length + ')' });
@@ -2325,12 +2591,24 @@ jQuery(document).ready(function($) {
                 });
                 $select.append($group);
             });
+
+            if (typeof opts.onLoaded === 'function') {
+                opts.onLoaded($select, users);
+            }
         }).fail(function(xhr, status, error) {
             console.error('pta_get_users failed:', status, error, xhr && xhr.responseText);
             $select.empty().prop('disabled', false).append($('<option>', {
                 value: '',
                 text: 'Could not load users (' + (status || 'error') + ') — see browser console'
             }));
+        });
+    }
+
+    function populateVPSelect($select, selectedId, roleFilter) {
+        return populateUserSelect($select, {
+            selectedId: selectedId,
+            roleFilter: roleFilter,
+            emptyLabel: '-- No VP Assigned --'
         });
     }
 

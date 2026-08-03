@@ -41,21 +41,39 @@ properties:
                collation and clash with these tables' utf8mb4_unicode_520_ci on
                LIKE — use string literals instead. */
 
-            /* Did the azuread role pick up editor's capabilities? */
-            SELECT option_name,
-                   LENGTH(option_value) AS len,
-                   option_value LIKE '%azuread%' AS has_azuread
-              FROM wp_options WHERE option_name = 'wp_user_roles';
+            /* Roster maths the assignments modal will display. */
+            SELECT r.id, r.name, d.name AS dept, r.max_occupants,
+                   COUNT(a.id) AS assigned,
+                   GREATEST(0, r.max_occupants - COUNT(a.id)) AS open_positions
+              FROM wp_pta_roles r
+              JOIN wp_pta_departments d ON d.id = r.department_id
+              LEFT JOIN wp_pta_role_assignments a
+                     ON a.role_id = r.id AND a.status = 'active'
+             GROUP BY r.id, r.name, d.name, r.max_occupants
+             ORDER BY open_positions DESC, r.name
+             LIMIT 12;
 
-            SELECT 'azuread grants edit_posts' AS check_name,
-                   option_value REGEXP 'azuread.*edit_posts.*;b:1;' AS result
-              FROM wp_options WHERE option_name = 'wp_user_roles';
+            SELECT SUM(max_occupants) AS total_positions FROM wp_pta_roles;
 
-            SELECT option_value AS wp_user_roles_azuread_slice
-              FROM wp_options WHERE option_name = 'wp_user_roles';
+            SELECT COUNT(*) AS active_assignments
+              FROM wp_pta_role_assignments WHERE status = 'active';
 
-            SELECT option_name, option_value AS plugin_db_version
-              FROM wp_options WHERE option_name = 'azure_plugin_db_version';
+            /* Multiple active rows for the same person+role would break the
+               roster's one-row-per-slot assumption. */
+            SELECT COUNT(*) AS duplicate_active_pairs FROM (
+              SELECT user_id, role_id FROM wp_pta_role_assignments
+               WHERE status = 'active'
+               GROUP BY user_id, role_id HAVING COUNT(*) > 1
+            ) dupes;
+
+            /* Over-subscribed roles would render negative open space. */
+            SELECT COUNT(*) AS overfilled_roles FROM (
+              SELECT r.id FROM wp_pta_roles r
+                LEFT JOIN wp_pta_role_assignments a
+                       ON a.role_id = r.id AND a.status = 'active'
+               GROUP BY r.id, r.max_occupants
+              HAVING COUNT(a.id) > r.max_occupants
+            ) o;
 
             SQL
             echo QUERY_OK
