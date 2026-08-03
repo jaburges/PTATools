@@ -51,7 +51,7 @@ properties:
         storageName: wpcontent
     containers:
       - name: wordpress
-        image: "wilderptsaacr.azurecr.io/wilderptsa-wp:3.143.8"
+        image: "wilderptsaacr.azurecr.io/wilderptsa-wp:3.143.9"
         resources:
           # Right-sized after the migration. Observed peak over an hour was 0.042
           # cores and 365 MiB, so 1.0/2.0Gi was paying idle rate on roughly 25x

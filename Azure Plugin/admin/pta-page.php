@@ -1947,6 +1947,11 @@ jQuery(document).ready(function($) {
         // Shared by every picker in this render, then discarded with it.
         var userCache = {};
 
+        /* Who already holds this role. Passed to the pickers so the same person
+         * cannot be offered for it twice; it does not affect their availability
+         * for any other role. */
+        var holderIds = assignments.map(function(a) { return a.user_id; });
+
         $modal.find('.roster-title').text('Assignments for: ' + role.name);
 
         var open = role.open_positions;
@@ -1972,19 +1977,19 @@ jQuery(document).ready(function($) {
         var $tbody = $table.find('tbody');
 
         assignments.forEach(function(assignment, index) {
-            $tbody.append(buildFilledRow(assignment, index + 1, roleId, $modal, userCache));
+            $tbody.append(buildFilledRow(assignment, index + 1, roleId, $modal, userCache, holderIds));
         });
 
         // One row per remaining space, each independently fillable, so a role
         // with three vacancies shows three.
         for (var slot = 0; slot < open; slot++) {
-            $tbody.append(buildOpenRow(assignments.length + slot + 1, roleId, $modal, userCache));
+            $tbody.append(buildOpenRow(assignments.length + slot + 1, roleId, $modal, userCache, holderIds));
         }
 
         $modal.find('.roster-body').html('').append($table);
     }
 
-    function buildFilledRow(assignment, position, roleId, $modal, userCache) {
+    function buildFilledRow(assignment, position, roleId, $modal, userCache, holderIds) {
         var $row = $('<tr>');
 
         $row.append($('<td>').text(position));
@@ -2010,7 +2015,7 @@ jQuery(document).ready(function($) {
             .css('margin-left', '4px').text('Remove');
 
         $change.on('click', function() {
-            showChangeHolderRow($row, assignment, position, roleId, $modal, userCache);
+            showChangeHolderRow($row, assignment, position, roleId, $modal, userCache, holderIds);
         });
 
         $remove.on('click', function() {
@@ -2046,7 +2051,7 @@ jQuery(document).ready(function($) {
 
     /* Turns a filled row into a picker pre-selected to the current holder, so
      * handing a role over is one step instead of remove-then-find-then-add. */
-    function showChangeHolderRow($row, assignment, position, roleId, $modal, userCache) {
+    function showChangeHolderRow($row, assignment, position, roleId, $modal, userCache, holderIds) {
         var $cell = $('<td colspan="3">');
         var $select = $('<select>').css('min-width', '320px');
         var $primary = $('<label>').css({ 'margin-left': '10px', 'font-size': '12px' }).append(
@@ -2066,7 +2071,9 @@ jQuery(document).ready(function($) {
         populateUserSelect($select, {
             selectedId: assignment.user_id,
             emptyLabel: '-- Select a person --',
-            cache: userCache
+            cache: userCache,
+            // The person being changed stays; the role's other holders drop out.
+            excludeIds: holderIds
         });
 
         $cancel.on('click', function() {
@@ -2105,7 +2112,7 @@ jQuery(document).ready(function($) {
         });
     }
 
-    function buildOpenRow(position, roleId, $modal, userCache) {
+    function buildOpenRow(position, roleId, $modal, userCache, holderIds) {
         var $row = $('<tr>').css('background-color', '#fff8e5');
 
         $row.append($('<td>').text(position));
@@ -2157,7 +2164,11 @@ jQuery(document).ready(function($) {
         $row.append($('<td>').append($assign));
 
         // Defaults to Azure AD accounts, which is who holds a PTA role.
-        populateUserSelect($select, { emptyLabel: '-- Choose a person --', cache: userCache });
+        populateUserSelect($select, {
+            emptyLabel: '-- Choose a person --',
+            cache: userCache,
+            excludeIds: holderIds
+        });
 
         return $row;
     }
@@ -2556,15 +2567,40 @@ jQuery(document).ready(function($) {
 
             $select.append($('<option>', { value: '', text: emptyLabel }));
 
-            var users = response.data || [];
+            var users = (response.data || []).slice();
+            var matchedFilter = users.length;
+
+            /* Only people already holding *this* role are dropped, and never the
+             * one being edited. Holding several different roles is normal and
+             * must not take someone out of the pool — but the same role twice is
+             * rejected server-side, so offering it is an action that can only
+             * fail. */
+            if (opts.excludeIds && opts.excludeIds.length) {
+                var excluded = opts.excludeIds.map(String);
+                users = users.filter(function(user) {
+                    return String(user.ID) === String(selectedId)
+                        || excluded.indexOf(String(user.ID)) === -1;
+                });
+            }
+
+            /* Alphabetical, so a person keeps their place in the list after being
+             * given a role. The endpoint sorts users with no PTA role first,
+             * which suits the People list but in a picker means anyone you just
+             * assigned jumps to the bottom and reads as having disappeared. */
+            users.sort(function(a, b) {
+                return String(a.display_name || '').localeCompare(String(b.display_name || ''));
+            });
 
             if (!users.length) {
-                // Says which filter produced nothing, so an empty picker does
-                // not look like the load failure it used to be mistaken for.
+                // Distinguishes the two reasons a picker can come back empty, so
+                // it does not look like the load failure it used to be mistaken
+                // for, and does not blame the filter when exclusion emptied it.
                 $select.append($('<option>', {
                     value: '',
                     disabled: true,
-                    text: 'No users hold this role — widen the filter above'
+                    text: matchedFilter > 0
+                        ? 'Everyone in this role filter already holds this role'
+                        : 'No users have this WordPress role — widen the filter above'
                 }));
                 return;
             }
@@ -2581,11 +2617,22 @@ jQuery(document).ready(function($) {
                 if (!group[1].length) { return; }
                 var $group = $('<optgroup>', { label: group[0] + ' (' + group[1].length + ')' });
                 group[1].forEach(function(user) {
+                    var label = user.display_name + ' (' + user.user_email + ')';
+
+                    /* Flags what someone already holds instead of hiding them.
+                     * Holding more than one role is normal, but it should be a
+                     * visible choice when staffing rather than a surprise. */
+                    if (user.assignments_count > 0) {
+                        label += ' · holds ' + user.assignments_count
+                            + (user.assignments_count === 1 ? ' role' : ' roles');
+                    }
+
                     // Built as nodes, not concatenated HTML, so a display name
                     // or address containing markup cannot break the picker.
                     $group.append($('<option>', {
                         value: user.ID,
-                        text: user.display_name + ' (' + user.user_email + ')',
+                        text: label,
+                        title: user.roles || '',
                         selected: String(selectedId) === String(user.ID)
                     }));
                 });
