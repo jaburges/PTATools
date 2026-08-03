@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.143.3
+ * Version: 3.143.4
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.143.3');
+define('AZURE_PLUGIN_VERSION', '3.143.4');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -529,6 +529,12 @@ class AzurePlugin {
                     if (class_exists('Azure_Upcoming_Module')) {
                         Azure_Upcoming_Module::invalidate_cache();
                     }
+
+                    // v3.143.4: the Azure AD User role gained editor-equivalent
+                    // capabilities. Activation alone will not apply it, because
+                    // the role already exists on every installed site and the
+                    // create path returns early when it does.
+                    $this->sync_azuread_role();
 
                     update_option('azure_plugin_db_version', AZURE_PLUGIN_VERSION);
 
@@ -1817,36 +1823,102 @@ class AzurePlugin {
      * Create AzureAD WordPress role for SSO users
      */
     private function create_azuread_role() {
-        // Check if role already exists
-        if (get_role('azuread')) {
-            Azure_Logger::info('AzureAD role already exists');
+        $this->sync_azuread_role();
+    }
+
+    /**
+     * Create or update the "Azure AD User" role.
+     *
+     * The role exists to make SSO-provisioned accounts recognisable at a glance,
+     * which is why it stays a separate role rather than just using editor. It
+     * originally granted only `read`, which meant board members provisioned
+     * through SSO could not edit anything and had to be put on editor instead —
+     * defeating the point, and leaving the roles as a poor signal of where an
+     * account came from. It now carries the same capabilities as editor.
+     *
+     * Safe to call repeatedly; it converges an existing role rather than
+     * replacing it.
+     */
+    private function sync_azuread_role() {
+        $target = $this->get_azuread_capabilities();
+        $role = get_role('azuread');
+
+        if (!$role) {
+            add_role('azuread', 'Azure AD User', $target);
+            Azure_Logger::info('Created AzureAD role for SSO users (editor-equivalent capabilities)');
             return;
         }
-        
-        // Add AzureAD role with basic capabilities
-        add_role('azuread', 'Azure AD User', array(
+
+        /* Converged in place. remove_role() followed by add_role() would be
+         * simpler but leaves every account on this role with no capabilities in
+         * between, and the role name stored against each user would briefly
+         * resolve to nothing. */
+        $changed = 0;
+
+        foreach ($target as $cap => $grant) {
+            $current = isset($role->capabilities[$cap]) ? $role->capabilities[$cap] : null;
+            if ($current !== $grant) {
+                $role->add_cap($cap, $grant);
+                $changed++;
+            }
+        }
+
+        /* The read-only version recorded explicit false entries for things like
+         * edit_posts. Those have all been reassigned above, but drop anything
+         * else left over so a stale denial cannot shadow an editor capability. */
+        foreach (array_keys($role->capabilities) as $cap) {
+            if (!array_key_exists($cap, $target)) {
+                $role->remove_cap($cap);
+                $changed++;
+            }
+        }
+
+        if ($changed > 0) {
+            Azure_Logger::info("Updated AzureAD role capabilities ({$changed} change(s)) to match editor");
+        }
+    }
+
+    /**
+     * Capabilities for the Azure AD User role: whatever editor currently has.
+     *
+     * Read from the live editor role so the two cannot drift, and so any
+     * capability another plugin grants editor is picked up here too. The literal
+     * list is only a fallback for the case where editor has been removed.
+     */
+    private function get_azuread_capabilities() {
+        $editor = get_role('editor');
+        if ($editor && !empty($editor->capabilities)) {
+            return $editor->capabilities;
+        }
+
+        return array(
             'read' => true,
-            'edit_posts' => false,
-            'delete_posts' => false,
-            'publish_posts' => false,
-            'upload_files' => false,
-            'edit_pages' => false,
-            'edit_others_posts' => false,
-            'edit_published_posts' => false,
-            'delete_others_posts' => false,
-            'delete_published_posts' => false,
-            'delete_pages' => false,
-            'manage_categories' => false,
-            'manage_links' => false,
-            'moderate_comments' => false,
-            'unfiltered_html' => false,
-            'edit_others_pages' => false,
-            'edit_published_pages' => false,
-            'delete_others_pages' => false,
-            'delete_published_pages' => false
-        ));
-        
-        Azure_Logger::info('Created AzureAD role for SSO users');
+            'upload_files' => true,
+            'edit_posts' => true,
+            'edit_others_posts' => true,
+            'edit_published_posts' => true,
+            'edit_private_posts' => true,
+            'publish_posts' => true,
+            'delete_posts' => true,
+            'delete_others_posts' => true,
+            'delete_published_posts' => true,
+            'delete_private_posts' => true,
+            'read_private_posts' => true,
+            'edit_pages' => true,
+            'edit_others_pages' => true,
+            'edit_published_pages' => true,
+            'edit_private_pages' => true,
+            'publish_pages' => true,
+            'delete_pages' => true,
+            'delete_others_pages' => true,
+            'delete_published_pages' => true,
+            'delete_private_pages' => true,
+            'read_private_pages' => true,
+            'manage_categories' => true,
+            'manage_links' => true,
+            'moderate_comments' => true,
+            'unfiltered_html' => true,
+        );
     }
 }
 

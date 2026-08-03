@@ -1,0 +1,61 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    ? /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+    : {}
+properties:
+  environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 900
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: db-password
+        keyVaultUrl: https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password
+        identity: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+  template:
+    containers:
+      - name: sql
+        image: docker.io/library/mysql:8
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: MYSQL_PWD
+            secretRef: db-password
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            set -e
+            mysql --host=wilderptsa-wpdb-small.mysql.database.azure.com \
+              --user=ptsadbadmin --ssl-mode=REQUIRED --default-character-set=utf8mb4 \
+              -t wilderptsa_wp <<'SQL'
+            /* Scratch query slot. Overwrite the body for one-off investigation;
+               keep it read-only. Note user variables carry the connection
+               collation and clash with these tables' utf8mb4_unicode_520_ci on
+               LIKE — use string literals instead. */
+
+            /* Did the azuread role pick up editor's capabilities? */
+            SELECT option_name,
+                   LENGTH(option_value) AS len,
+                   option_value LIKE '%azuread%' AS has_azuread
+              FROM wp_options WHERE option_name = 'wp_user_roles';
+
+            SELECT 'azuread grants edit_posts' AS check_name,
+                   option_value REGEXP 'azuread.*edit_posts.*;b:1;' AS result
+              FROM wp_options WHERE option_name = 'wp_user_roles';
+
+            SELECT option_value AS wp_user_roles_azuread_slice
+              FROM wp_options WHERE option_name = 'wp_user_roles';
+
+            SELECT option_name, option_value AS plugin_db_version
+              FROM wp_options WHERE option_name = 'azure_plugin_db_version';
+
+            SQL
+            echo QUERY_OK
