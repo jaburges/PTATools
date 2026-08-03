@@ -2757,7 +2757,6 @@ class Azure_Admin {
                 $deps = array(
                     array('WooCommerce', class_exists('WooCommerce'), 'woocommerce'),
                     array('Forminator', class_exists('Forminator'), 'forminator'),
-                    array('Beaver Builder', class_exists('FLBuilder'), 'beaver-builder-lite-version'),
                 );
                 foreach ($deps as $dep):
                     $color = $dep[1] ? '#46b450' : '#dc3232';

@@ -607,25 +607,6 @@ if (class_exists('Azure_PTA_Database')) {
         </div>
     </div>
     
-    <div class="beaver-builder-info">
-        <h3>🦫 Beaver Builder Integration</h3>
-        <p><strong>Drag & Drop Modules Available:</strong></p>
-        <ul>
-            <li><strong>PTA Roles Directory</strong> - Full-featured roles directory with visual settings</li>
-            <li><strong>PTA Department Roles</strong> - Department-specific role display</li>
-            <li><strong>PTA Org Chart</strong> - Interactive organizational chart</li>
-            <li><strong>PTA Open Positions</strong> - Current openings display</li>
-        </ul>
-        <p>Find these modules in the <strong>"PTA Tools"</strong> category when editing with Beaver Builder. Each module includes:</p>
-        <ul>
-            <li>✅ All shortcode parameters as visual form fields</li>
-            <li>✅ Color customization options</li>
-            <li>✅ Typography controls</li>
-            <li>✅ Spacing & layout settings</li>
-            <li>✅ Responsive design options</li>
-        </ul>
-        <p><em>Note: Beaver Builder modules are only available when the Beaver Builder plugin is active.</em></p>
-    </div>
 </div>
 
 <script>
@@ -3196,34 +3177,10 @@ jQuery(document).ready(function($) {
     color: #007cba;
 }
 
-.beaver-builder-info {
-    background: #f0f8ff;
-    border: 1px solid #b3d9ff;
-    border-radius: 6px;
-    padding: 20px;
-    margin-top: 20px;
-}
 
-.beaver-builder-info h3 {
-    margin: 0 0 15px 0;
-    color: #0073aa;
-    font-size: 18px;
-}
 
-.beaver-builder-info ul {
-    margin: 10px 0;
-    padding-left: 20px;
-}
 
-.beaver-builder-info li {
-    margin-bottom: 5px;
-    line-height: 1.5;
-}
 
-.beaver-builder-info em {
-    color: #666;
-    font-style: italic;
-}
 
 @media (max-width: 768px) {
     .shortcode-examples {

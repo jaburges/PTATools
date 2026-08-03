@@ -312,11 +312,6 @@ if (!defined('ABSPATH')) {
                             'check'   => class_exists('Forminator'),
                             'modules' => 'PTA Roles (Signup Forms)',
                         ),
-                        array(
-                            'name'    => 'Beaver Builder',
-                            'check'   => class_exists('FLBuilder'),
-                            'modules' => 'PTA Roles (Custom Modules)',
-                        ),
                     );
                     foreach ($dependencies as $dep):
                         $status_class = $dep['check'] ? 'success' : 'error';

@@ -95,7 +95,6 @@
 |--------|--------------|
 | [WooCommerce](https://woocommerce.com/) | Classes, Event Tickets, Auction modules |
 | [Forminator](https://wpmudev.com/project/forminator/) | PTA Roles signup form integration |
-| [Beaver Builder](https://www.wpbeaverbuilder.com/) | Page builder integration |
 | [Event Tickets](https://theeventscalendar.com/products/wordpress-event-tickets/) | Event Tickets module |
 
 ---

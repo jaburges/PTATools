@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.143.2
+ * Version: 3.143.3
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.143.2');
+define('AZURE_PLUGIN_VERSION', '3.143.3');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -1058,18 +1058,17 @@ class AzurePlugin {
 
     /**
      * PTA module
-     *   - Database, Manager, Shortcode, Forminator, BeaverBuilder: front-end + admin
+     *   - Database, Manager, Shortcode, Forminator: front-end + admin
      *   - Sync Engine, Groups Manager: admin/cron only (Graph API user provisioning)
      */
     private function init_pta_components($ctx) {
         try {
-            // Always loaded (front-end shortcodes + Forminator/BB integrations + table accessors)
+            // Always loaded (front-end shortcodes + Forminator integration + table accessors)
             $this->require_module_files(array(
                 'class-pta-database.php',
                 'class-pta-manager.php',
                 'class-pta-shortcode.php',
                 'class-pta-forminator.php',
-                'class-pta-beaver-builder.php',
             ));
 
             if (class_exists('Azure_PTA_Database')) {
@@ -1080,9 +1079,6 @@ class AzurePlugin {
             }
             if (class_exists('Azure_PTA_Shortcode')) {
                 new Azure_PTA_Shortcode();
-            }
-            if (class_exists('Azure_PTA_BeaverBuilder')) {
-                new Azure_PTA_BeaverBuilder();
             }
             if (class_exists('Azure_PTA_Forminator')) {
                 Azure_PTA_Forminator::get_instance();
