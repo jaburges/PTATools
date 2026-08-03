@@ -112,38 +112,46 @@ properties:
                AND (d.vp_user_id IS NULL OR a.user_id <> d.vp_user_id);
             SQL
 
+            # Written out at the base indentation on purpose: YAML strips the
+            # block's common indent, and a heredoc terminator only counts at
+            # column 0. Indenting these to sit inside the "if" below leaves
+            # leading spaces on the terminator, which swallows the rest of the
+            # script and fails with "unexpected end of file".
+            cat > /tmp/vp-link-apply.sql <<'SQL'
+            /* 1. Link each VP role to the department it leads. */
+            UPDATE wp_pta_roles r
+              JOIN wp_pta_departments d
+                ON d.name = CASE WHEN r.name = 'Executive VP'
+                                 THEN 'Exec Board'
+                                 ELSE TRIM(SUBSTRING(r.name, 4))
+                            END
+               SET r.vp_for_department_id = d.id
+             WHERE (r.name LIKE 'VP %' OR r.name = 'Executive VP')
+               AND r.vp_for_department_id IS NULL;
+
+            /* 2. Seed an assignment from the department's current VP, but only
+                  where the seat is empty — an existing holder is a decision
+                  someone made in the UI, reported as a conflict above rather
+                  than overwritten. */
+            INSERT INTO wp_pta_role_assignments
+                   (user_id, role_id, is_primary, assigned_by, status, metadata)
+            SELECT d.vp_user_id, r.id, 0, 0, 'active',
+                   JSON_OBJECT('assigned_via', 'vp_link_backfill')
+              FROM wp_pta_roles r
+              JOIN wp_pta_departments d ON d.id = r.vp_for_department_id
+             WHERE d.vp_user_id IS NOT NULL
+               AND d.vp_user_id > 0
+               AND NOT EXISTS (
+                     SELECT 1 FROM wp_pta_role_assignments a
+                      WHERE a.role_id = r.id AND a.status = 'active'
+                   );
+            SQL
+
             if [ "$DRY_RUN" = "0" ]; then
               echo
               echo "=== APPLYING ==="
-              $MYSQL <<'SQL'
-              /* 1. Link each VP role to the department it leads. */
-              UPDATE wp_pta_roles r
-                JOIN wp_pta_departments d
-                  ON d.name = CASE WHEN r.name = 'Executive VP'
-                                   THEN 'Exec Board'
-                                   ELSE TRIM(SUBSTRING(r.name, 4))
-                              END
-                 SET r.vp_for_department_id = d.id
-               WHERE (r.name LIKE 'VP %' OR r.name = 'Executive VP')
-                 AND r.vp_for_department_id IS NULL;
-
-              /* 2. Seed an assignment from the department's current VP, but only
-                    where the seat is empty — an existing holder is a decision
-                    someone made in the UI and is reported as a conflict above
-                    rather than overwritten. */
-              INSERT INTO wp_pta_role_assignments
-                     (user_id, role_id, is_primary, assigned_by, status, metadata)
-              SELECT d.vp_user_id, r.id, 0, 0, 'active',
-                     JSON_OBJECT('assigned_via', 'vp_link_backfill')
-                FROM wp_pta_roles r
-                JOIN wp_pta_departments d ON d.id = r.vp_for_department_id
-               WHERE d.vp_user_id IS NOT NULL
-                 AND d.vp_user_id > 0
-                 AND NOT EXISTS (
-                       SELECT 1 FROM wp_pta_role_assignments a
-                        WHERE a.role_id = r.id AND a.status = 'active'
-                     );
-              SQL
+              $MYSQL < /tmp/vp-link-apply.sql
+              echo "  applied"
             else
               echo
               echo "=== DRY RUN, nothing written ==="
