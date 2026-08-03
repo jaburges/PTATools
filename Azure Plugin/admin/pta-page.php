@@ -647,6 +647,31 @@ jQuery(document).ready(function($) {
         ? 'azuread'
         : 'all';
 
+    /* Held outside loadUsersAndRoles so the five places that refresh the People
+     * list after an edit keep the chosen filter instead of snapping back. */
+    var ptaPeopleRoleFilter = ptaDefaultRoleFilter;
+
+    /* One builder for every role filter, so the options and counts cannot
+     * diverge between the People list and the VP pickers. */
+    function buildRoleFilterSelect(className, selectedSlug) {
+        var $filter = $('<select>', { 'class': className });
+
+        ptaRoleChoices.forEach(function(role) {
+            $filter.append($('<option>', {
+                value: role.slug,
+                text: role.name + ' (' + role.count + ')',
+                selected: role.slug === selectedSlug
+            }));
+        });
+
+        return $filter;
+    }
+
+    function roleFilterLabel(slug) {
+        var match = ptaRoleChoices.filter(function(r) { return r.slug === slug; })[0];
+        return match ? match.name : slug;
+    }
+
     // Handle org chart view
     $('#show-org-chart').click(function() {
         loadPTAApp('org-chart');
@@ -937,25 +962,45 @@ jQuery(document).ready(function($) {
     }
     
     // Load users and roles for assignment
-    function loadUsersAndRoles() {
-        // Load WordPress users synced from Azure AD
+    function loadUsersAndRoles(roleFilter) {
+        if (typeof roleFilter === 'string' && roleFilter !== '') {
+            ptaPeopleRoleFilter = roleFilter;
+        }
+
+        /* Filtered server-side rather than by hiding rows: unfiltered this is
+         * 735 rows, and the point of the filter is to not build them. */
         $.post(azure_plugin_ajax.ajax_url, {
             action: 'pta_get_users',
-            nonce: azure_plugin_ajax.nonce
+            nonce: azure_plugin_ajax.nonce,
+            wp_role: ptaPeopleRoleFilter
         }, function(response) {
             if (response.success) {
                 var usersList = $('#people-users-list');
                 usersList.empty();
                 
                 // Add header with actions and bulk controls
+                // The heading names the active filter. It used to read "Azure AD
+                // Synced Users" while listing all 735 accounts regardless.
                 var header = $('<div class="modal-section-header">' +
-                    '<h4>People Management - Azure AD Synced Users</h4>' +
+                    '<h4>People Management — ' + roleFilterLabel(ptaPeopleRoleFilter) + '</h4>' +
                     '<div class="section-actions">' +
                         '<input type="text" id="people-search-input" placeholder="Search people..." class="search-input">' +
                         '<button type="button" class="button" id="select-all-users">Select All</button>' +
                         '<button type="button" class="button" id="clear-selection-users">Clear</button>' +
                     '</div>' +
                 '</div>');
+
+                header.find('.section-actions').prepend(
+                    $('<label>').css({ 'margin-right': '8px', 'font-size': '12px' })
+                        .text('Role: ')
+                        .append(
+                            buildRoleFilterSelect('pta-people-role-filter', ptaPeopleRoleFilter)
+                                .on('change', function() {
+                                    loadUsersAndRoles($(this).val());
+                                })
+                        )
+                );
+
                 usersList.append(header);
                 
                 // Add bulk actions bar
@@ -1030,10 +1075,13 @@ jQuery(document).ready(function($) {
                     tableBody.append(row);
                 });
                 
-                // Add summary info
+                // Add summary info. Says "shown" rather than "total" because the
+                // list is a filtered subset, and names the filter so the number
+                // is not mistaken for the whole site.
                 var summary = $('<div style="margin-top: 10px; padding: 10px; background: #f0f0f1;">' +
-                    '<strong>Summary:</strong> ' + response.data.length + ' total users, ' +
-                    response.data.filter(function(u) { return !u.has_roles; }).length + ' unassigned, ' +
+                    '<strong>Summary:</strong> ' + response.data.length + ' users shown' +
+                    ' (role: ' + roleFilterLabel(ptaPeopleRoleFilter) + '), ' +
+                    response.data.filter(function(u) { return !u.has_roles; }).length + ' with no PTA role, ' +
                     response.data.filter(function(u) { return u.is_azure_user; }).length + ' from Azure AD' +
                 '</div>');
                 usersList.append(summary);
@@ -2195,16 +2243,8 @@ jQuery(document).ready(function($) {
         var $existing = $select.parent().find('.pta-vp-role-filter');
         if ($existing.length) { return $existing; }
 
-        var $filter = $('<select>', { 'class': 'pta-vp-role-filter' })
+        var $filter = buildRoleFilterSelect('pta-vp-role-filter', ptaDefaultRoleFilter)
             .css({ display: 'block', 'margin-bottom': '6px' });
-
-        ptaRoleChoices.forEach(function(role) {
-            $filter.append($('<option>', {
-                value: role.slug,
-                text: role.name + ' (' + role.count + ')',
-                selected: role.slug === ptaDefaultRoleFilter
-            }));
-        });
 
         $select.before(
             $('<label>')

@@ -1,3 +1,20 @@
+# Moves @wilderptsa.net accounts from the editor role onto azuread ("Azure AD
+# User"), so the WordPress role records how an account authenticates.
+#
+# Safe to re-run: it reports what it would change and writes nothing unless
+# DRY_RUN is set to "0". Applied against wilderptsa.net on 2026-08-03, which
+# moved 31 accounts and dropped 1 redundant editor role, taking azuread from
+# 15 users to 46. Kept for future drift and for lwptsa.net.
+#
+# Deliberately out of scope:
+#   - administrators, because converting them would strip admin access
+#     (jamieb@ and admin@ among them)
+#   - parent / bbp_participant accounts, because azuread now carries editor
+#     capabilities, so moving them would be a privilege escalation rather than
+#     the like-for-like swap it is for editors
+#
+# Requires plugin >= 3.143.4, which is what gave azuread editor capabilities.
+# Running it before that would leave 31 people unable to edit anything.
 location: westus2
 identity:
   type: UserAssigned
@@ -29,7 +46,7 @@ properties:
             secretRef: db-password
           # "1" reports what would change and writes nothing. Set to "0" to apply.
           - name: DRY_RUN
-            value: "0"
+            value: "1"
         command: ["/bin/sh"]
         args:
           - "-c"
@@ -56,27 +73,73 @@ properties:
             # /dev/stdin from inside the phar.
             cat > /tmp/migrate.php <<'PHP'
             <?php
-            /* Read-only verification of the role filter's inputs. */
-            $counts = count_users();
-            printf( "total users: %d\n\n", $counts['total_users'] );
-            printf( "%-18s %s\n", 'ROLE', 'USERS (as the filter will list them)' );
-            foreach ( wp_roles()->get_names() as $slug => $name ) {
-                $n = isset( $counts['avail_roles'][ $slug ] ) ? (int) $counts['avail_roles'][ $slug ] : 0;
-                if ( $n < 1 ) { continue; }
-                printf( "%-18s %d\n", $slug, $n );
+            $dry = getenv( 'DRY_RUN' ) !== '0';
+
+            global $wpdb;
+            $ids = $wpdb->get_col(
+                "SELECT ID FROM {$wpdb->users}
+                  WHERE user_email LIKE '%@wilderptsa.net'
+                  ORDER BY user_email"
+            );
+
+            if ( ! wp_roles()->is_role( 'azuread' ) ) {
+                WP_CLI::error( 'The azuread role does not exist; deploy the plugin first.' );
             }
 
-            $sso = get_option( 'azure_plugin_settings' );
-            printf( "\nsso_default_role: %s\n", isset( $sso['sso_default_role'] ) ? $sso['sso_default_role'] : '(unset)' );
-            printf( "migration flag:   %s\n", get_option( 'azure_sso_default_role_migrated' ) ? 'set' : 'NOT SET' );
-            printf( "db_version:       %s\n", get_option( 'azure_plugin_db_version' ) );
+            $moved = $skipped_admin = $skipped_no_editor = $already = $deduped = 0;
 
-            $editors = get_users( array( 'role' => 'editor', 'fields' => array( 'user_email' ) ) );
-            $left = array();
-            foreach ( $editors as $e ) {
-                if ( preg_match( '/@wilderptsa\.net$/i', $e->user_email ) ) { $left[] = $e->user_email; }
+            printf( "%-6s %-30s %-34s %s\n", 'ID', 'EMAIL', 'ROLES BEFORE', 'ACTION' );
+
+            foreach ( $ids as $id ) {
+                $user = new WP_User( $id );
+                $before = implode( ',', $user->roles );
+
+                /* Administrators are left alone. Moving them would strip admin
+                   access, and this list includes the accounts used to administer
+                   the site. */
+                if ( in_array( 'administrator', $user->roles, true ) ) {
+                    $action = 'skip (administrator)';
+                    $skipped_admin++;
+                } elseif ( in_array( 'azuread', $user->roles, true ) ) {
+                    if ( in_array( 'editor', $user->roles, true ) ) {
+                        /* Holding both is redundant now that they carry the same
+                           capabilities, and it muddies the signal the role is
+                           there to give. Dropping editor changes nothing. */
+                        $action = $dry ? 'WOULD drop redundant editor' : 'dropped redundant editor';
+                        if ( ! $dry ) {
+                            $user->remove_role( 'editor' );
+                        }
+                        $deduped++;
+                    } else {
+                        $action = 'skip (already azuread)';
+                        $already++;
+                    }
+                } elseif ( ! in_array( 'editor', $user->roles, true ) ) {
+                    /* parent / bbp_participant accounts are out of scope: azuread
+                       now carries editor capabilities, so moving them would be a
+                       privilege escalation rather than a like-for-like swap. */
+                    $action = 'skip (not editor)';
+                    $skipped_no_editor++;
+                } else {
+                    $action = $dry ? 'WOULD move editor -> azuread' : 'moved editor -> azuread';
+                    if ( ! $dry ) {
+                        /* Added before removed so the account is never left
+                           without a role, and only editor is removed so
+                           bbp_participant and parent survive. */
+                        $user->add_role( 'azuread' );
+                        $user->remove_role( 'editor' );
+                    }
+                    $moved++;
+                }
+
+                printf( "%-6d %-30s %-34s %s\n", $id, $user->user_email, $before, $action );
             }
-            printf( "\n@wilderptsa.net still on editor: %d%s\n", count( $left ), $left ? ' -> ' . implode( ', ', $left ) : '' );
+
+            printf(
+                "\n%s\nmoved: %d | redundant editor dropped: %d | already azuread: %d | admins skipped: %d | not editor: %d | total: %d\n",
+                $dry ? '=== DRY RUN, nothing written ===' : '=== APPLIED ===',
+                $moved, $deduped, $already, $skipped_admin, $skipped_no_editor, count( $ids )
+            );
             PHP
             $WP eval-file /tmp/migrate.php
             echo ROLE_MIGRATE_OK
