@@ -673,6 +673,29 @@ body.admin-color-midnight .module-description p {
     border: 1px solid #ccd0d4 !important;
 }
 
+/* The dark-mode block above turns headings white to sit on a dark card, but the
+   rule immediately above forces this screen's cards back to white in every mode.
+   Without these the module titles were white on white and invisible. The colour
+   has to be set on the heading itself: the dark-mode rule uses !important, so it
+   is not overridden by inheriting a colour from the card. */
+.azure-plugin-dashboard .module-header h3,
+.azure-plugin-dashboard .module-card h3 {
+    color: #1d2327 !important;
+}
+
+.azure-plugin-dashboard .module-header h3 .dashicons {
+    color: #0078d4 !important;
+}
+
+.azure-plugin-dashboard .module-description p,
+.azure-plugin-dashboard .module-card p {
+    color: #50575e !important;
+}
+
+.azure-plugin-dashboard h2 {
+    color: #1d2327 !important;
+}
+
 /* Setup Wizard Progress Banner */
 .setup-progress-banner {
     background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
