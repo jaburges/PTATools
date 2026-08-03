@@ -2909,7 +2909,7 @@ class Azure_Admin {
             $active_assignments = $wpdb->get_var("SELECT COUNT(*) FROM {$assignments_table} WHERE status = 'active'") ?: 0;
             
             // Calculate total capacity and open positions
-            $total_capacity = $wpdb->get_var("SELECT COALESCE(SUM(max_assignees), 0) FROM {$roles_table}") ?: 0;
+            $total_capacity = $wpdb->get_var("SELECT COALESCE(SUM(max_occupants), 0) FROM {$roles_table}") ?: 0;
             $stats['open_positions'] = max(0, $total_capacity - $active_assignments);
             
             // Count roles that have at least one filled position
