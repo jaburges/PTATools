@@ -1,8 +1,11 @@
 # Cutover plan: pointing wilderptsa.net at the Container Apps site
 
-Status: **not ready to execute.** Three things must be fixed first, all in
-[Blockers](#blockers-fix-these-first). The switch itself is one command and
-reverses in about a minute; the risk is entirely in the preparation.
+Status: **prepared, not executed.** The hostname blocker — the one that would
+actually have broken the site — is fixed and verified against the live container
+by replaying Front Door's headers. What remains before flipping the route is
+locking down direct access to the container, and the content URL rewrite in 1b.
+The switch itself is one command and reverses in about a minute; the risk is
+entirely in the preparation.
 
 ## The good news: no DNS change is involved
 
@@ -39,33 +42,57 @@ rather than a performance bug.
 
 ## Blockers: fix these first
 
-### 1. WordPress will emit the wrong hostname
+### 1. WordPress will emit the wrong hostname — FIXED 2026-08-03
 
-Measured on 2026-08-03, and this is the one that would actually break the site:
+Container Apps ingress answers **404** to any `Host` other than its own FQDN, so
+Front Door must override the origin host header (the `container` target in
+`afd-switch-origin.sh` does that). WordPress then sees the ACA hostname and, as
+measured, does **not** read `X-Forwarded-Host` — the page came back full of
+`https://wilderptsa-wp.…azurecontainerapps.io/wp-content/…` URLs.
 
-- Container Apps ingress answers **404** to any `Host` other than its own FQDN.
-  So Front Door has to override the origin host header — the `container` target in
-  `afd-switch-origin.sh` does exactly that.
-- But then WordPress sees the ACA hostname. It does **not** read
-  `X-Forwarded-Host`: sending that header produced a page full of
-  `https://wilderptsa-wp.…azurecontainerapps.io/wp-content/…` URLs.
+Fixed in `WORDPRESS_CONFIG_EXTRA` (revision 7). `WP_HOME`/`WP_SITEURL` now prefer
+`X-Forwarded-Host`, gated on `X-Azure-FDID` matching
+`863cc6c3-7117-4e08-9159-c86b5feb4911` and checked against a fixed list of
+`wilderptsa.net` / `www.wilderptsa.net`. Ungated it would let any visitor set the
+site's URLs, including the ones in password reset mail. The canonical domain is
+the fallback, so it works whether or not Front Door forwards the original host.
+The plain `HTTP_HOST` path is kept so the ACA hostname still works for debugging
+instead of bouncing to the live domain.
 
-Left alone, visitors to wilderptsa.net would get pages whose assets, links and
-canonical URLs all point at the container hostname, and `WP_HOME` would not match
-the requested host, which is the classic WordPress redirect loop.
+**Setting the constants alone was not enough, and failed in a way that looks fine
+until the domain is switched.** `redirect_canonical()` builds the requested URL
+from `HTTP_HOST` — still the container's hostname after the edge rewrite — and
+compares it to `home_url()`, so it 301s to the public domain, which comes back
+through Front Door unchanged and redirects again. A simulated Front Door request
+returned exactly that: `301 → https://wilderptsa.net/`. `HTTP_HOST` and
+`SERVER_NAME` are therefore rewritten too.
 
-The fix is in `WORDPRESS_CONFIG_EXTRA`, where `WP_HOME`/`WP_SITEURL` are
-currently derived from `HTTP_HOST`. It needs to prefer `X-Forwarded-Host` — but
-**only when the request genuinely came through Front Door**, because otherwise
-anyone can set that header and poison every URL on the page (and any password
-reset link WordPress generates). Gate it on the Front Door id:
+Verified against the live container by replaying the headers Front Door will send:
 
-```
-X-Azure-FDID: 863cc6c3-7117-4e08-9159-c86b5feb4911
-```
+| Request | Result |
+| --- | --- |
+| Valid FDID + `X-Forwarded-Host: wilderptsa.net` | `200`, canonical `https://wilderptsa.net/`, 159 public URLs |
+| Valid FDID + `www.wilderptsa.net` | `200`, canonical on `www` |
+| Valid FDID, no `X-Forwarded-Host` | falls back to `wilderptsa.net` |
+| `X-Forwarded-Host` with **no** FDID | ignored, stays on container host |
+| Valid FDID + host not on the list | ignored, falls back to `wilderptsa.net` |
 
-Keeping the `HTTP_HOST` fallback is deliberate: it leaves the ACA hostname
-working for debugging instead of bouncing to the live domain.
+### 1b. Absolute container URLs in content
+
+`WP_HOME` is computed per request, so it needs no database change — but URLs baked
+into content do, or the public site will hotlink `azurecontainerapps.io`. One
+already showed up in the verified response: a placeholder image in the Home page.
+
+Counted 2026-08-03 via `job-db-audit-versions.yaml`:
+
+| Location | Rows |
+| --- | --- |
+| `wp_posts.post_content` | 30 |
+| `wp_options` | 7 |
+| postmeta / termmeta / usermeta / excerpt | 0 |
+
+Rewrite these as part of cutover, after the route is switched, and keep
+`siteurl`/`home` consistent with the new domain while doing it.
 
 ### 2. The container is directly reachable on the internet
 

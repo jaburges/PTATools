@@ -36,42 +36,46 @@ properties:
             mysql --host=wilderptsa-wpdb-small.mysql.database.azure.com \
               --user=ptsadbadmin --ssl-mode=REQUIRED --default-character-set=utf8mb4 \
               -t wilderptsa_wp <<'SQL'
-            /* Does the database think it is on a newer WordPress than the files?
-               The image pins core at 6.9.4 (db_version 60717). A core update
-               applied from wp-admin writes to the ephemeral layer, but its
-               database upgrade is permanent — so a mismatch here is the lasting
-               half of an update that otherwise disappeared on restart. */
+            /* Read-only pre-cutover check. Two things to confirm:
+
+               1. The WordPress version in the database matches the version in
+                  the image. Core cannot persist an update applied from wp-admin,
+                  but its schema upgrade can, and wp-admin compares the two for
+                  inequality — so a database left ahead of the files sends every
+                  admin page to upgrade.php.
+                    6.9.4 = 60717    7.0.2 = 61833
+
+               2. How much content still carries the container hostname as an
+                  absolute URL. WP_HOME and WP_SITEURL are derived per request so
+                  they need no change, but URLs baked into post content do, or the
+                  public site will hotlink azurecontainerapps.io after cutover. */
             SELECT option_name, option_value
               FROM wp_options
-             WHERE option_name IN ('db_version','initial_db_version','siteurl','home','template','stylesheet');
+             WHERE option_name IN ('db_version','initial_db_version','siteurl','home');
 
-            /* Beaver Builder: is any content actually built with it? */
-            SELECT 'bb_enabled_posts' AS metric, COUNT(*) AS n
-              FROM wp_postmeta WHERE meta_key = '_fl_builder_enabled' AND meta_value IN ('1','on')
+            SELECT 'posts_content' AS location, COUNT(*) AS rows_affected
+              FROM wp_posts   WHERE post_content LIKE '%wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io%'
             UNION ALL
-            SELECT 'bb_draft_data', COUNT(*) FROM wp_postmeta WHERE meta_key LIKE '\_fl\_builder%'
+            SELECT 'posts_excerpt', COUNT(*) FROM wp_posts
+             WHERE post_excerpt LIKE '%wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io%'
             UNION ALL
-            SELECT 'bb_options', COUNT(*) FROM wp_options WHERE option_name LIKE '%fl\_builder%'
+            SELECT 'postmeta', COUNT(*) FROM wp_postmeta
+             WHERE meta_value LIKE '%wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io%'
             UNION ALL
-            SELECT 'bb_shortcode_posts', COUNT(*) FROM wp_posts
-             WHERE post_status = 'publish' AND post_content LIKE '%[fl_builder%'
+            SELECT 'options', COUNT(*) FROM wp_options
+             WHERE option_value LIKE '%wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io%'
             UNION ALL
-            /* Forminator: any forms defined, and any entries submitted? */
-            SELECT 'forminator_form_posts', COUNT(*) FROM wp_posts WHERE post_type LIKE 'forminator%'
+            SELECT 'termmeta', COUNT(*) FROM wp_termmeta
+             WHERE meta_value LIKE '%wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io%'
             UNION ALL
-            SELECT 'forminator_options', COUNT(*) FROM wp_options WHERE option_name LIKE '%forminator%'
-            UNION ALL
-            SELECT 'forminator_shortcode_posts', COUNT(*) FROM wp_posts
-             WHERE post_status = 'publish' AND post_content LIKE '%[forminator%';
+            SELECT 'usermeta', COUNT(*) FROM wp_usermeta
+             WHERE meta_value LIKE '%wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io%';
 
-            /* Which of those tables even exist (plugin tables survive uninstall
-               only if the plugin left them behind). */
-            SELECT table_name, table_rows
-              FROM information_schema.tables
-             WHERE table_schema = 'wilderptsa_wp'
-               AND (table_name LIKE '%forminator%' OR table_name LIKE '%fl_builder%');
-
-            SELECT option_value AS active_plugins
-              FROM wp_options WHERE option_name = 'active_plugins';
+            /* Which posts, so the rewrite can be spot-checked afterwards. */
+            SELECT ID, post_type, post_status, LEFT(post_title, 42) AS title
+              FROM wp_posts
+             WHERE post_content LIKE '%wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io%'
+             ORDER BY ID
+             LIMIT 25;
             SQL
             echo QUERY_OK

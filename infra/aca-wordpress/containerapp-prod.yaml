@@ -51,7 +51,7 @@ properties:
         storageName: wpcontent
     containers:
       - name: wordpress
-        image: "wilderptsaacr.azurecr.io/wilderptsa-wp:3.143.2"
+        image: "wilderptsaacr.azurecr.io/wilderptsa-wp:3.143.3"
         resources:
           # Right-sized after the migration. Observed peak over an hour was 0.042
           # cores and 365 MiB, so 1.0/2.0Gi was paying idle rate on roughly 25x
@@ -104,10 +104,59 @@ properties:
                  wp.theburgessfamily.us. These constants take precedence, so the
                  site kept answering on its own hostname immediately after the
                  import instead of redirecting away, and it stays portable
-                 across the container hostname and the final domain. */
-              if ( ! empty( $_SERVER['HTTP_HOST'] ) ) {
-                  define( 'WP_HOME', 'https://' . $_SERVER['HTTP_HOST'] );
-                  define( 'WP_SITEURL', 'https://' . $_SERVER['HTTP_HOST'] );
+                 across the container hostname and the final domain.
+
+                 Front Door complicates this. Container Apps ingress returns 404
+                 for any Host it does not recognise, so the edge has to rewrite
+                 Host to this container's own hostname. WordPress builds every
+                 URL from Host and ignores X-Forwarded-Host, so without the
+                 branch below the public site would serve canonical and asset
+                 URLs pointing at azurecontainerapps.io.
+
+                 Trust is gated on X-Azure-FDID matching our own Front Door.
+                 X-Forwarded-Host is caller-supplied and trivially spoofed —
+                 believing it unconditionally would hand any visitor control of
+                 the site's URLs, which is a password-reset-poisoning primitive.
+                 The FDID header is stamped by the edge and cannot be forged by
+                 a client reaching the container directly, and the result is
+                 still checked against a fixed list rather than used as given. */
+              $wp_public_hosts = array( 'wilderptsa.net', 'www.wilderptsa.net' );
+              $wp_host = ! empty( $_SERVER['HTTP_HOST'] ) ? $_SERVER['HTTP_HOST'] : '';
+
+              if ( ! empty( $_SERVER['HTTP_X_AZURE_FDID'] )
+                   && hash_equals( '863cc6c3-7117-4e08-9159-c86b5feb4911', $_SERVER['HTTP_X_AZURE_FDID'] ) ) {
+
+                  /* Canonical domain is the fallback, so this works whether or
+                     not Front Door forwards the original host. */
+                  $wp_host = $wp_public_hosts[0];
+
+                  if ( ! empty( $_SERVER['HTTP_X_FORWARDED_HOST'] ) ) {
+                      /* Comma-separated when it has passed through more than one
+                         proxy; the original client host is the first entry. */
+                      $wp_fwd = explode( ',', $_SERVER['HTTP_X_FORWARDED_HOST'] );
+                      $wp_fwd = strtolower( trim( $wp_fwd[0] ) );
+                      if ( in_array( $wp_fwd, $wp_public_hosts, true ) ) {
+                          $wp_host = $wp_fwd;
+                      }
+                  }
+              }
+
+              if ( '' !== $wp_host ) {
+                  define( 'WP_HOME', 'https://' . $wp_host );
+                  define( 'WP_SITEURL', 'https://' . $wp_host );
+
+                  /* Setting only the constants is not enough and fails in a way
+                     that looks fine until the domain is actually switched over.
+                     redirect_canonical() compares the requested URL — built from
+                     HTTP_HOST, still the container's hostname after the edge
+                     rewrite — against home_url(), and 301s to the latter. The
+                     browser then re-requests the public domain and arrives back
+                     here unchanged, so the site redirect-loops. Verified against
+                     the live container before cutover: a request carrying the
+                     Front Door headers returned 301 to https://wilderptsa.net/
+                     until HTTP_HOST was rewritten too. */
+                  $_SERVER['HTTP_HOST']   = $wp_host;
+                  $_SERVER['SERVER_NAME'] = $wp_host;
               }
 
               /* Writes succeed without FTP credentials. Note that only uploads
