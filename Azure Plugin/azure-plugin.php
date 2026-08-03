@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.143.9
+ * Version: 3.143.10
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.143.9');
+define('AZURE_PLUGIN_VERSION', '3.143.10');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -509,6 +509,21 @@ class AzurePlugin {
                 if (version_compare($stored_version, AZURE_PLUGIN_VERSION, '<')) {
                     if (class_exists('Azure_Database')) {
                         Azure_Database::create_tables();
+                    }
+
+                    /* The PTA tables were only ever built on activation, so any
+                     * schema change to them never reached an already-installed
+                     * site. The roles table gains vp_for_department_id in
+                     * 3.143.10, which would have been silently absent and made
+                     * every query touching it fail. create_pta_tables() is pure
+                     * dbDelta — no seeding, nothing destructive — so it is safe
+                     * to re-run. Seeding stays where it is, on activation. */
+                    $pta_db_file = AZURE_PLUGIN_PATH . 'includes/class-pta-database.php';
+                    if (!class_exists('Azure_PTA_Database') && file_exists($pta_db_file)) {
+                        require_once $pta_db_file;
+                    }
+                    if (class_exists('Azure_PTA_Database')) {
+                        Azure_PTA_Database::create_pta_tables();
                     }
                     // Defer the rewrite flush to wp_loaded so every module's
                     // `add_rewrite_endpoint` hook on init has fired first.

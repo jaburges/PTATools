@@ -1966,6 +1966,24 @@ jQuery(document).ready(function($) {
             )
         );
 
+        /* Says out loud that this seat is the department's VP. Filling it also
+         * sets who the org chart shows and who Azure AD records as the manager
+         * of everyone in that department, which the role name alone does not
+         * convey. */
+        if (role.vp_for_department) {
+            $modal.find('.roster-summary').append(
+                $('<div class="notice notice-info inline">')
+                    .css({ margin: '8px 0 0', padding: '6px 10px' })
+                    .append(
+                        $('<p>').css({ margin: 0, 'font-size': '12px' }).append(
+                            'Whoever holds this position is the VP of ',
+                            $('<strong>').text(role.vp_for_department),
+                            ' — it sets the department VP, the org chart and the Azure AD manager.'
+                        )
+                    )
+            );
+        }
+
         var $table = $('<table class="wp-list-table widefat striped">' +
             '<thead><tr>' +
                 '<th style="width: 40px;">#</th>' +

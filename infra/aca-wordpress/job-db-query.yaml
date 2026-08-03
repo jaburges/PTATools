@@ -41,39 +41,30 @@ properties:
                collation and clash with these tables' utf8mb4_unicode_520_ci on
                LIKE — use string literals instead. */
 
-            /* Roster maths the assignments modal will display. */
-            SELECT r.id, r.name, d.name AS dept, r.max_occupants,
-                   COUNT(a.id) AS assigned,
-                   GREATEST(0, r.max_occupants - COUNT(a.id)) AS open_positions
+            /* Departments and the VP recorded on the department row. */
+            SELECT d.id, d.name AS department, d.vp_user_id,
+                   COALESCE(u.display_name, '(none)') AS vp_on_department
+              FROM wp_pta_departments d
+              LEFT JOIN wp_users u ON u.ID = d.vp_user_id
+             ORDER BY d.name;
+
+            /* Roles that look like a VP position, and whether anyone holds them. */
+            SELECT r.id, r.name AS role_name, d.name AS department,
+                   r.max_occupants,
+                   COUNT(a.id) AS assigned
               FROM wp_pta_roles r
               JOIN wp_pta_departments d ON d.id = r.department_id
               LEFT JOIN wp_pta_role_assignments a
                      ON a.role_id = r.id AND a.status = 'active'
+             WHERE r.name LIKE '%VP%' OR r.name LIKE '%Vice President%'
              GROUP BY r.id, r.name, d.name, r.max_occupants
-             ORDER BY open_positions DESC, r.name
-             LIMIT 12;
+             ORDER BY d.name, r.name;
 
-            SELECT SUM(max_occupants) AS total_positions FROM wp_pta_roles;
-
-            SELECT COUNT(*) AS active_assignments
-              FROM wp_pta_role_assignments WHERE status = 'active';
-
-            /* Multiple active rows for the same person+role would break the
-               roster's one-row-per-slot assumption. */
-            SELECT COUNT(*) AS duplicate_active_pairs FROM (
-              SELECT user_id, role_id FROM wp_pta_role_assignments
-               WHERE status = 'active'
-               GROUP BY user_id, role_id HAVING COUNT(*) > 1
-            ) dupes;
-
-            /* Over-subscribed roles would render negative open space. */
-            SELECT COUNT(*) AS overfilled_roles FROM (
-              SELECT r.id FROM wp_pta_roles r
-                LEFT JOIN wp_pta_role_assignments a
-                       ON a.role_id = r.id AND a.status = 'active'
-               GROUP BY r.id, r.max_occupants
-              HAVING COUNT(a.id) > r.max_occupants
-            ) o;
+            /* How many departments have a VP set vs a VP-looking role. */
+            SELECT
+              (SELECT COUNT(*) FROM wp_pta_departments) AS departments,
+              (SELECT COUNT(*) FROM wp_pta_departments WHERE vp_user_id IS NOT NULL AND vp_user_id > 0) AS with_vp_on_row,
+              (SELECT COUNT(DISTINCT department_id) FROM wp_pta_roles WHERE name LIKE '%VP%') AS depts_with_vp_role;
 
             SQL
             echo QUERY_OK

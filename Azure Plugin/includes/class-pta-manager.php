@@ -55,6 +55,8 @@ class Azure_PTA_Manager {
         
         // Hooks for user sync
         add_action('pta_user_assignment_changed', array($this, 'trigger_user_sync'), 10, 3);
+        // Keeps departments.vp_user_id in step with whoever holds the VP role.
+        add_action('pta_user_assignment_changed', array($this, 'sync_department_vp_from_assignment'), 5, 3);
         add_action('pta_department_vp_changed', array($this, 'trigger_department_sync'), 10, 2);
 
         // Daily cleanup handler. The schedule_event call lives in
@@ -528,6 +530,44 @@ class Azure_PTA_Manager {
         $table = Azure_PTA_Database::get_table_name('departments');
         
         $old_department = $this->get_department($department_id);
+
+        /* Writes through to the VP role, so "Assign VP" and assigning the VP
+         * role are two doors into one record rather than two records. The column
+         * is then written by sync_department_vp_from_assignment().
+         *
+         * The guard matters: that listener writes the column directly, but a
+         * future listener calling back into here would otherwise loop. */
+        static $writing_through = false;
+
+        if (!$writing_through) {
+            $vp_role = $this->get_vp_role_for_department($department_id);
+
+            if ($vp_role) {
+                $writing_through = true;
+
+                try {
+                    $this->set_vp_role_holder((int) $vp_role->id, (int) $vp_user_id);
+                } catch (Exception $e) {
+                    $writing_through = false;
+                    Azure_Logger::error('PTA: could not set VP via role assignment - ' . $e->getMessage());
+                    throw $e;
+                }
+
+                $writing_through = false;
+
+                Azure_PTA_Database::log_audit(
+                    'department',
+                    $department_id,
+                    'vp_updated',
+                    array('vp_user_id' => $old_department ? $old_department->vp_user_id : null),
+                    array('vp_user_id' => $vp_user_id)
+                );
+
+                return true;
+            }
+            // No VP role yet (a department created before this existed), so fall
+            // through and write the column as before rather than refusing.
+        }
         
         $result = $wpdb->update(
             $table,
@@ -882,14 +922,27 @@ class Azure_PTA_Manager {
 
             $max = max(1, (int) $role->max_occupants);
 
+            /* Flagged so the modal can say that filling this seat also makes the
+             * person the department's VP — it drives the org chart and the Azure
+             * AD manager field, which is not obvious from the role name alone. */
+            $vp_for = null;
+            if (!empty($role->vp_for_department_id)) {
+                $vp_for = $wpdb->get_var($wpdb->prepare(
+                    "SELECT name FROM " . Azure_PTA_Database::get_table_name('departments') . " WHERE id = %d",
+                    (int) $role->vp_for_department_id
+                ));
+            }
+
             wp_send_json_success(array(
                 'role' => array(
-                    'id'              => (int) $role->id,
-                    'name'            => $role->name,
-                    'department_name' => $role->department_name,
-                    'max_occupants'   => $max,
-                    'assigned_count'  => count($assignments),
-                    'open_positions'  => max(0, $max - count($assignments)),
+                    'id'                   => (int) $role->id,
+                    'name'                 => $role->name,
+                    'department_name'      => $role->department_name,
+                    'max_occupants'        => $max,
+                    'assigned_count'       => count($assignments),
+                    'open_positions'       => max(0, $max - count($assignments)),
+                    'vp_for_department_id' => !empty($role->vp_for_department_id) ? (int) $role->vp_for_department_id : null,
+                    'vp_for_department'    => $vp_for,
                 ),
                 'assignments' => $assignments,
             ));
@@ -1336,19 +1389,31 @@ class Azure_PTA_Manager {
         try {
             global $wpdb;
             $table = Azure_PTA_Database::get_table_name('departments');
-            
+
+            $previous = $this->get_department($dept_id);
+
+            /* Only the name is written here. The VP goes through
+             * update_department_vp() below so the role assignment stays the
+             * record of who the VP is — writing vp_user_id here as well is what
+             * let this form disagree with the roles screen. */
             $result = $wpdb->update(
                 $table,
-                array(
-                    'name' => $name,
-                    'vp_user_id' => $vp_user_id
-                ),
+                array('name' => $name),
                 array('id' => $dept_id),
-                array('%s', '%d'),
+                array('%s'),
                 array('%d')
             );
             
             if ($result !== false) {
+                // A department that predates the VP role gets one now.
+                $this->ensure_department_vp_role($dept_id, $name);
+
+                if ($previous && $previous->name !== $name) {
+                    $this->rename_department_vp_role($dept_id, $name);
+                }
+
+                $this->update_department_vp($dept_id, $vp_user_id);
+
                 Azure_Logger::info("PTA: Department updated - ID: $dept_id, Name: $name, VP: $vp_user_id");
                 wp_send_json_success(array('message' => 'Department updated successfully'));
             } else {
@@ -1441,7 +1506,24 @@ class Azure_PTA_Manager {
             'vp_user_id' => $vp_user_id ?: null
         ), array('%s', '%s', $vp_user_id ? '%d' : null));
         
-        return $result ? $wpdb->insert_id : false;
+        if (!$result) {
+            return false;
+        }
+
+        $dept_id = $wpdb->insert_id;
+
+        /* Every department has a VP post, so the role exists because the
+         * department does rather than having to be remembered separately. That
+         * is what stopped the two representations agreeing before. */
+        $this->ensure_department_vp_role($dept_id, $name);
+
+        if ($vp_user_id) {
+            // Routed through the role so the assignment is the record of it, and
+            // the column is derived rather than set independently.
+            $this->update_department_vp($dept_id, $vp_user_id);
+        }
+
+        return $dept_id;
     }
     
     private function delete_department($dept_id) {
@@ -1449,14 +1531,264 @@ class Azure_PTA_Manager {
         $dept_table = Azure_PTA_Database::get_table_name('departments');
         $roles_table = Azure_PTA_Database::get_table_name('roles');
         
-        // Check if department has roles
-        $role_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $roles_table WHERE department_id = %d", $dept_id));
+        /* The department's own VP post does not count towards the roles that
+         * block deletion. It lives under Exec Board, so it would not be caught
+         * by the check below and would be left pointing at a department that no
+         * longer exists. */
+        $vp_role = $this->get_vp_role_for_department($dept_id);
+
+        $role_count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $roles_table
+              WHERE department_id = %d
+                AND (vp_for_department_id IS NULL OR vp_for_department_id <> %d)",
+            $dept_id,
+            $dept_id
+        ));
         
         if ($role_count > 0) {
             throw new Exception('Cannot delete department: ' . $role_count . ' roles belong to this department');
         }
+
+        if ($vp_role) {
+            $this->delete_role((int) $vp_role->id);
+        }
         
         return $wpdb->delete($dept_table, array('id' => $dept_id), array('%d'));
+    }
+
+    /**
+     * Make one person the holder of a VP role, replacing whoever is there.
+     *
+     * A VP post has one seat, so this clears the current holder rather than
+     * failing on max_occupants the way a plain assign would.
+     *
+     * @param int $role_id
+     * @param int $user_id Zero or empty leaves the post vacant.
+     */
+    private function set_vp_role_holder($role_id, $user_id) {
+        $holders = $this->get_role_assignments($role_id);
+
+        foreach ($holders as $holder) {
+            if ((int) $holder->user_id === (int) $user_id) {
+                return; // Already theirs; nothing to do.
+            }
+        }
+
+        foreach ($holders as $holder) {
+            $this->remove_user_from_role((int) $holder->user_id, $role_id);
+        }
+
+        if ($user_id) {
+            $this->assign_user_to_role($user_id, $role_id, false);
+        }
+    }
+
+    /**
+     * The role that is the VP post for a department, if it has one.
+     */
+    public function get_vp_role_for_department($department_id) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $roles_table WHERE vp_for_department_id = %d",
+            $department_id
+        ));
+    }
+
+    /**
+     * Create the VP post for a department if it does not already have one.
+     *
+     * @return int|false Role id, or false if it could not be created.
+     */
+    public function ensure_department_vp_role($department_id, $department_name = null) {
+        global $wpdb;
+
+        $existing = $this->get_vp_role_for_department($department_id);
+        if ($existing) {
+            return (int) $existing->id;
+        }
+
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+
+        if ($department_name === null) {
+            $department_name = $wpdb->get_var($wpdb->prepare(
+                "SELECT name FROM $dept_table WHERE id = %d",
+                $department_id
+            ));
+        }
+
+        if (!$department_name) {
+            return false;
+        }
+
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+        $name = 'VP ' . $department_name;
+
+        $result = $wpdb->insert(
+            $roles_table,
+            array(
+                'name'                 => $name,
+                'slug'                 => $this->unique_role_slug($name),
+                'department_id'        => $this->get_vp_role_home_department($department_id),
+                'max_occupants'        => 1,
+                'description'          => sprintf('Vice President for %s.', $department_name),
+                'vp_for_department_id' => $department_id,
+            ),
+            array('%s', '%s', '%d', '%d', '%s', '%d')
+        );
+
+        if (!$result) {
+            Azure_Logger::error("PTA: could not create VP role for department $department_id");
+            return false;
+        }
+
+        Azure_Logger::info("PTA: created VP role '$name' for department $department_id");
+
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Follow a department rename through to its VP post.
+     *
+     * Left alone, "VP Events" would still be called that after the department
+     * became "Community Events", and the name is the only thing tying the two
+     * together for anyone reading the roles list.
+     */
+    private function rename_department_vp_role($department_id, $department_name) {
+        global $wpdb;
+
+        $vp_role = $this->get_vp_role_for_department($department_id);
+        if (!$vp_role) {
+            return;
+        }
+
+        $new_name = 'VP ' . $department_name;
+        if ($vp_role->name === $new_name) {
+            return;
+        }
+
+        $wpdb->update(
+            Azure_PTA_Database::get_table_name('roles'),
+            array(
+                'name'        => $new_name,
+                'description' => sprintf('Vice President for %s.', $department_name),
+            ),
+            array('id' => $vp_role->id),
+            array('%s', '%s'),
+            array('%d')
+        );
+
+        Azure_Logger::info("PTA: renamed VP role {$vp_role->id} to '$new_name'");
+    }
+
+    /**
+     * Which department the VP posts themselves are filed under.
+     *
+     * The VP roles sit together under the Exec Board rather than inside the
+     * department each one leads, because collectively they *are* the exec board.
+     * Read from where the existing VP posts live so a new department's post
+     * lands with the others instead of somewhere else, with a name lookup and
+     * then the department itself as fallbacks.
+     */
+    private function get_vp_role_home_department($fallback_department_id) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+
+        $home = $wpdb->get_var(
+            "SELECT department_id FROM $roles_table
+              WHERE vp_for_department_id IS NOT NULL
+              GROUP BY department_id
+              ORDER BY COUNT(*) DESC
+              LIMIT 1"
+        );
+
+        if (!$home) {
+            $home = $wpdb->get_var(
+                "SELECT id FROM $dept_table
+                  WHERE name IN ('Exec Board', 'Executive Board')
+                  ORDER BY id LIMIT 1"
+            );
+        }
+
+        return $home ? (int) $home : (int) $fallback_department_id;
+    }
+
+    private function unique_role_slug($name) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+
+        $base = sanitize_title($name);
+        $slug = $base;
+        $suffix = 2;
+
+        // slug is UNIQUE on the table, so an insert would otherwise fail for a
+        // second department whose name sanitises to the same thing.
+        while ($wpdb->get_var($wpdb->prepare("SELECT id FROM $roles_table WHERE slug = %s", $slug))) {
+            $slug = $base . '-' . $suffix++;
+        }
+
+        return $slug;
+    }
+
+    /**
+     * Keep a department's vp_user_id in step with whoever holds its VP role.
+     *
+     * One direction only: the assignment is the record, the column is derived.
+     * Everything that already reads vp_user_id — the org chart, the public
+     * shortcodes, the REST API and the Azure AD manager sync — therefore keeps
+     * working untouched.
+     */
+    public function sync_department_vp_from_assignment($user_id, $role_id, $action) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+
+        $department_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT vp_for_department_id FROM $roles_table WHERE id = %d",
+            $role_id
+        ));
+
+        if (!$department_id) {
+            return;
+        }
+
+        /* Read back rather than trusting $action: a replace removes and assigns
+         * in one go, and the removal must not blank a column the assignment has
+         * just set. */
+        $holders = $this->get_role_assignments($role_id);
+        $vp_user_id = !empty($holders) ? (int) $holders[0]->user_id : null;
+
+        $this->write_department_vp_column((int) $department_id, $vp_user_id);
+    }
+
+    /**
+     * Write the derived vp_user_id column, without going back through the role.
+     */
+    private function write_department_vp_column($department_id, $vp_user_id) {
+        global $wpdb;
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+
+        $current = $wpdb->get_var($wpdb->prepare(
+            "SELECT vp_user_id FROM $dept_table WHERE id = %d",
+            $department_id
+        ));
+
+        if ((int) $current === (int) $vp_user_id) {
+            return;
+        }
+
+        $wpdb->update(
+            $dept_table,
+            array('vp_user_id' => $vp_user_id ?: null),
+            array('id' => $department_id),
+            array($vp_user_id ? '%d' : null),
+            array('%d')
+        );
+
+        Azure_Logger::info("PTA: department $department_id VP derived from role assignment -> " . ($vp_user_id ?: 'none'));
+
+        do_action('pta_department_vp_changed', $department_id, $vp_user_id);
     }
     
     /**

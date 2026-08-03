@@ -105,12 +105,21 @@ class Azure_PTA_Database {
             max_occupants int(11) DEFAULT 1,
             description text DEFAULT NULL,
             metadata longtext DEFAULT NULL,
+            vp_for_department_id bigint(20) DEFAULT NULL,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            KEY department_id (department_id)
+            KEY department_id (department_id),
+            UNIQUE KEY vp_for_department_id (vp_for_department_id)
         ) $charset_collate;";
         
+        /* vp_for_department_id records that a role *is* the VP post for a
+         * department, which is a different thing from department_id — the VP
+         * roles sit under Exec Board while leading another department. It is
+         * UNIQUE so a department cannot end up with two VP posts; MySQL permits
+         * repeated NULLs, so ordinary roles are unaffected. The department's
+         * vp_user_id is derived from whoever holds this role. */
+
         // PTA Role Assignments table (junction table)
         $table_name_assignments = $wpdb->prefix . 'pta_role_assignments';
         $sql_assignments = "CREATE TABLE $table_name_assignments (
