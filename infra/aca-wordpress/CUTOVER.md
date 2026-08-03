@@ -101,7 +101,7 @@ the revision `Healthy`; site verified on the ACA hostname.
 # 1. Switch the route. Creates the origin group and origin on first run, then
 #    purges the endpoint. Uses ARM REST because `az afd route update` can drop
 #    the custom domains off the route.
-./infra/school-year-redeploy/scripts/afd-switch-origin.sh container
+./infra/aca-wordpress/scripts/afd-switch-origin.sh container
 
 # 2. Verify the live domain is actually being served by the container.
 curl -sS -o /dev/null -w 'code=%{http_code} ttfb=%{time_starttransfer}\n' https://wilderptsa.net/
@@ -122,8 +122,8 @@ caching mistake.
 ### Rollback
 
 ```bash
-./infra/school-year-redeploy/scripts/afd-switch-origin.sh swa    # back to the placeholder
-./infra/school-year-redeploy/scripts/afd-switch-origin.sh wordpress  # or to App Service
+./infra/aca-wordpress/scripts/afd-switch-origin.sh swa    # back to the placeholder
+./infra/aca-wordpress/scripts/afd-switch-origin.sh wordpress  # or to App Service
 ```
 
 The script purges the endpoint on the way through. Because no DNS changes, this
@@ -143,16 +143,16 @@ takes effect in about a minute.
   where the remaining ~0.9s goes away for anonymous visitors. Treat WooCommerce
   and logged-in sessions as bypass rules from the start, not as an afterthought.
 
-## A decision that should be made first
+## Decision already taken: the container is the target
 
-`infra/school-year-redeploy/` provisions an entirely **new App Service** stack
-(B1 plan) for the fall reopen, and its README says "do not run until school-year
-cutover". That plan predates the container work and now points in a different
-direction.
+`infra/school-year-redeploy/` used to sit alongside this, provisioning a whole new
+App Service stack (B1) for the fall reopen. It was removed on 2026-08-03: App
+Service is being retired, and the measurements had made that plan hard to justify
+anyway — the container serves its homepage in ~0.9s against 1.0–1.4s from the
+existing P1v3, and the redeploy plan specified B1, which is weaker still.
 
-The measurements make the comparison awkward for App Service: the container site
-serves its homepage in ~0.9s, while the existing App Service P1v3 instance serves
-a smaller page in 1.0–1.4s — and the redeploy plan specifies B1, which is
-substantially weaker than P1v3. Running both paths also means paying for both.
-
-Worth settling which stack is the fall target before investing further in either.
+`scripts/afd-switch-origin.sh` came across from that directory because it manages
+the live domain's route and is not tied to App Service. Its `wordpress` target is
+kept deliberately: until the App Service is actually deleted it remains the
+fastest rollback if the container has a bad day. Once App Service is gone, that
+target should go with it, leaving `container` and `swa`.

@@ -39,6 +39,51 @@ To roll back, reactivate the previous revision — the old image tag is still in
 the registry, and a snapshot of the last known-good app definition is kept under
 `.tmp/rollback/`.
 
+## WordPress core updates do not work from wp-admin
+
+Core lives in the container's own filesystem layer. The base image keeps
+WordPress at `/usr/src/wordpress` and the entrypoint copies it into
+`/var/www/html` at every container start, so an update applied from wp-admin is
+overwritten on the next restart or revision.
+
+This is not theoretical: 7.0.2 was applied from wp-admin twice in early August
+2026 and both times the site came back on the image's version.
+
+**To change the WordPress version, change the `FROM` tag** in the Dockerfile and
+rebuild:
+
+```dockerfile
+FROM wordpress:7.0.2-php8.3-apache
+```
+
+Then deploy, and complete the database half of the upgrade, which does *not*
+happen by itself on the front end:
+
+```bash
+curl -sS "https://<host>/wp-admin/upgrade.php?step=upgrade_db"
+```
+
+Verify both halves agree afterwards — the version WordPress reports and the
+`db_version` option:
+
+```bash
+curl -sS https://<host>/ | grep -o 'content="WordPress [0-9.]*'
+# and via infra/aca-wordpress/job-db-audit-versions.yaml:
+#   db_version should match the release (7.0.2 = 61833, 6.9.4 = 60717)
+```
+
+The order matters. Run the database upgrade *after* the new code is live: doing it
+first would migrate the schema ahead of the files.
+
+A mismatch is the one genuinely bad outcome here. wp-admin compares
+`db_version` against the code for *inequality*, not "older than", so a database
+left ahead of the files sends every admin page to `upgrade.php`. That is what
+would have happened if one of those wp-admin updates had completed its schema
+migration before the container recycled.
+
+The `000-container-core-pin.php` mu-plugin therefore hides core update offers and
+explains why, rather than leaving a button that cannot work.
+
 ## Why this exists: the site was eight seconds slower without it
 
 Measured on 2026-08-03, before the change. Every PHP request took roughly the

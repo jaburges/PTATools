@@ -11,7 +11,10 @@
 # request, and skipping revalidation removes that many stat() calls from every
 # hit.
 
-FROM wordpress:6.9.4-php8.3-apache
+# Core version is set here and nowhere else. Updating from wp-admin cannot
+# persist — core lives in this image layer, not on the uploads share — so bumping
+# this tag is how the site's WordPress version changes.
+FROM wordpress:7.0.2-php8.3-apache
 
 # unzip is needed by WordPress for plugin/theme operations; the rest of the
 # base image already carries the required PHP extensions.
@@ -41,6 +44,10 @@ COPY apache-wp.conf /etc/apache2/conf-enabled/zz-wordpress.conf
 COPY --chown=www-data:www-data wp-content/themes/     /var/www/html/wp-content/themes/
 COPY --chown=www-data:www-data wp-content/plugins/    /var/www/html/wp-content/plugins/
 COPY --chown=www-data:www-data wp-content/mu-plugins/ /var/www/html/wp-content/mu-plugins/
+
+# Hides the core update offer and explains why. Copied after the export so it
+# cannot be shadowed by a stale copy from the source site.
+COPY --chown=www-data:www-data mu-plugins/ /var/www/html/wp-content/mu-plugins/
 
 # The plugin ships from this repository rather than from the exported site, so
 # the released version wins over whatever the source install happened to run.

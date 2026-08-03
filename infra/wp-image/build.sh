@@ -100,6 +100,7 @@ cp -R "$REPO_ROOT/Azure Plugin/." "$CONTEXT/azure-plugin/"
 
 cp "$HERE/Dockerfile" "$HERE/php-opcache.ini" "$HERE/php-wordpress.ini" \
    "$HERE/apache-wp.conf" "$HERE/healthz.php" "$CONTEXT/"
+cp -R "$HERE/mu-plugins" "$CONTEXT/mu-plugins"
 
 echo "==> contents going into the image"
 printf '    themes    : %s\n' "$(ls -1 "$CONTEXT/wp-content/themes"    2>/dev/null | tr '\n' ' ')"

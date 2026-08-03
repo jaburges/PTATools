@@ -1,0 +1,77 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    ? /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+    : {}
+properties:
+  environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 900
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: db-password
+        keyVaultUrl: https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password
+        identity: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+  template:
+    containers:
+      - name: sql
+        image: docker.io/library/mysql:8
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: MYSQL_PWD
+            secretRef: db-password
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            set -e
+            mysql --host=wilderptsa-wpdb-small.mysql.database.azure.com \
+              --user=ptsadbadmin --ssl-mode=REQUIRED --default-character-set=utf8mb4 \
+              -t wilderptsa_wp <<'SQL'
+            /* Does the database think it is on a newer WordPress than the files?
+               The image pins core at 6.9.4 (db_version 60717). A core update
+               applied from wp-admin writes to the ephemeral layer, but its
+               database upgrade is permanent — so a mismatch here is the lasting
+               half of an update that otherwise disappeared on restart. */
+            SELECT option_name, option_value
+              FROM wp_options
+             WHERE option_name IN ('db_version','initial_db_version','siteurl','home','template','stylesheet');
+
+            /* Beaver Builder: is any content actually built with it? */
+            SELECT 'bb_enabled_posts' AS metric, COUNT(*) AS n
+              FROM wp_postmeta WHERE meta_key = '_fl_builder_enabled' AND meta_value IN ('1','on')
+            UNION ALL
+            SELECT 'bb_draft_data', COUNT(*) FROM wp_postmeta WHERE meta_key LIKE '\_fl\_builder%'
+            UNION ALL
+            SELECT 'bb_options', COUNT(*) FROM wp_options WHERE option_name LIKE '%fl\_builder%'
+            UNION ALL
+            SELECT 'bb_shortcode_posts', COUNT(*) FROM wp_posts
+             WHERE post_status = 'publish' AND post_content LIKE '%[fl_builder%'
+            UNION ALL
+            /* Forminator: any forms defined, and any entries submitted? */
+            SELECT 'forminator_form_posts', COUNT(*) FROM wp_posts WHERE post_type LIKE 'forminator%'
+            UNION ALL
+            SELECT 'forminator_options', COUNT(*) FROM wp_options WHERE option_name LIKE '%forminator%'
+            UNION ALL
+            SELECT 'forminator_shortcode_posts', COUNT(*) FROM wp_posts
+             WHERE post_status = 'publish' AND post_content LIKE '%[forminator%';
+
+            /* Which of those tables even exist (plugin tables survive uninstall
+               only if the plugin left them behind). */
+            SELECT table_name, table_rows
+              FROM information_schema.tables
+             WHERE table_schema = 'wilderptsa_wp'
+               AND (table_name LIKE '%forminator%' OR table_name LIKE '%fl_builder%');
+
+            SELECT option_value AS active_plugins
+              FROM wp_options WHERE option_name = 'active_plugins';
+            SQL
+            echo QUERY_OK
