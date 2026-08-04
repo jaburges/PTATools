@@ -1403,8 +1403,13 @@ jQuery(document).ready(function($) {
     }
     
     // Bind event handlers for People actions
+    // Namespaced and cleared first for the same reason as bindRolesActions():
+    // this runs again on every People render, and duplicate delete handlers
+    // stack up confirm() dialogs that look like one dialog refusing to close.
     function bindPeopleActions() {
-        $('#people-search-input').on('keyup', function() {
+        $(document).off('.ptaPeople');
+
+        $('#people-search-input').off('.ptaPeople').on('keyup.ptaPeople', function() {
             var searchTerm = $(this).val().toLowerCase();
             $('#users-table-body tr').each(function() {
                 var text = $(this).text().toLowerCase();
@@ -1412,12 +1417,12 @@ jQuery(document).ready(function($) {
             });
         });
         
-        $(document).on('click', '#add-person-btn', function() {
+        $(document).on('click.ptaPeople', '#add-person-btn', function() {
             // This would open a form to add a new WordPress user
             alert('Add New Person functionality would be implemented here.\nNote: Users are typically created through WordPress admin or SSO.');
         });
         
-        $(document).on('click', '.assign-role-btn', function() {
+        $(document).on('click.ptaPeople', '.assign-role-btn', function() {
             var userId = $(this).data('user-id');
             $('#assignment-user-id').val(userId);
             // Set higher z-index to appear in front of other modals
@@ -1425,13 +1430,13 @@ jQuery(document).ready(function($) {
         });
         
         // Unassign role button handler
-        $(document).on('click', '.unassign-role-btn', function() {
+        $(document).on('click.ptaPeople', '.unassign-role-btn', function() {
             var userId = $(this).data('user-id');
             var userName = $(this).data('user-name');
             showUnassignRoleModal(userId, userName);
         });
         
-        $(document).on('click', '.delete-user-btn', function() {
+        $(document).on('click.ptaPeople', '.delete-user-btn', function() {
             var userId = $(this).data('user-id');
             var userName = $(this).data('user-name');
             
@@ -1465,15 +1470,25 @@ jQuery(document).ready(function($) {
             });
         });
         
-        $(document).on('click', '.edit-user-btn', function() {
+        $(document).on('click.ptaPeople', '.edit-user-btn', function() {
             var userId = $(this).data('user-id');
             showUserDetails(userId);
         });
     }
     
-    // Bind event handlers for Roles actions
+    /* Bind event handlers for Roles actions.
+     *
+     * Called both on page load and every time the roles list re-renders, so the
+     * handlers are namespaced and cleared first. Without that they accumulated
+     * on document: reopening the list twice gave three copies of the delete
+     * handler, so confirm() reappeared as each one fired and the dialog looked
+     * like it was refreshing itself with OK and Cancel doing nothing. The
+     * delegated handlers do not actually need rebinding, but #role-dept-filter
+     * is recreated with the list and does. */
     function bindRolesActions() {
-        $('#role-dept-filter').on('change', function() {
+        $(document).off('.ptaRoles');
+
+        $('#role-dept-filter').off('.ptaRoles').on('change.ptaRoles', function() {
             var selectedDept = $(this).val();
             $('#roles-table-body tr').each(function() {
                 var deptCell = $(this).find('td:nth-child(2)').text();
@@ -1481,21 +1496,21 @@ jQuery(document).ready(function($) {
             });
         });
         
-        $(document).on('click', '#add-role-btn', function() {
+        $(document).on('click.ptaRoles', '#add-role-btn', function() {
             showAddRoleForm();
         });
         
-        $(document).on('click', '.view-role-assignments', function() {
+        $(document).on('click.ptaRoles', '.view-role-assignments', function() {
             var roleId = $(this).data('role-id');
             showRoleAssignments(roleId);
         });
         
-        $(document).on('click', '.edit-role-btn', function() {
+        $(document).on('click.ptaRoles', '.edit-role-btn', function() {
             var roleId = $(this).data('role-id');
             showEditRoleForm(roleId);
         });
         
-        $(document).on('click', '.delete-role-btn', function() {
+        $(document).on('click.ptaRoles', '.delete-role-btn', function() {
             var roleId = $(this).data('role-id');
             if (confirm('Are you sure you want to delete this role? This action cannot be undone.')) {
                 deleteRole(roleId);
@@ -1503,41 +1518,44 @@ jQuery(document).ready(function($) {
         });
     }
     
-    // Bind event handlers for Departments actions
+    // Bind event handlers for Departments actions. Namespaced and cleared first
+    // for the same reason as bindRolesActions().
     function bindDepartmentsActions() {
-        $(document).on('click', '#add-department-btn', function() {
+        $(document).off('.ptaDepts');
+
+        $(document).on('click.ptaDepts', '#add-department-btn', function() {
             showAddDepartmentForm();
         });
         
-        $(document).on('click', '#auto-assign-all-vps', function() {
+        $(document).on('click.ptaDepts', '#auto-assign-all-vps', function() {
             assignAllVPs();
         });
         
         // Assign VP button handler
-        $(document).on('click', '.assign-vp-btn', function() {
+        $(document).on('click.ptaDepts', '.assign-vp-btn', function() {
             var deptId = $(this).data('dept-id');
             showAssignVPModal(deptId);
         });
         
         // View Details button on main page department cards
-        $(document).on('click', '.view-dept-details', function() {
+        $(document).on('click.ptaDepts', '.view-dept-details', function() {
             var deptId = $(this).data('dept-id');
             showDepartmentDetails(deptId);
         });
         
-        $(document).on('click', '.edit-dept-btn', function() {
+        $(document).on('click.ptaDepts', '.edit-dept-btn', function() {
             var deptId = $(this).data('dept-id');
             showEditDepartmentForm(deptId);
         });
         
-        $(document).on('click', '.delete-dept-btn', function() {
+        $(document).on('click.ptaDepts', '.delete-dept-btn', function() {
             var deptId = $(this).data('dept-id');
             if (confirm('Are you sure you want to delete this department? This action cannot be undone.')) {
                 deleteDepartment(deptId);
             }
         });
         
-        $(document).on('click', '.view-dept-roles', function() {
+        $(document).on('click.ptaDepts', '.view-dept-roles', function() {
             var deptId = $(this).data('dept-id');
             // Filter roles modal to show only this department's roles
             showRolesModal();

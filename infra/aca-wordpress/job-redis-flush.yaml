@@ -1,0 +1,49 @@
+# Flushes the WordPress object cache in Azure Cache for Redis.
+#
+# Needed after any bulk database rewrite: search-replace edits rows directly, so
+# anything already cached in Redis keeps serving the old values. After the
+# cutover rewrite the database was clean but a page still rendered one
+# azurecontainerapps.io image URL, which was the cache rather than the data.
+#
+# Database 0 with the wilderptsa_prod: key salt is what the container app uses.
+# Flushing is safe at any time — it costs a few slow requests while the cache
+# refills, nothing more.
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 300
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: redis-key
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/redis-primary-key"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+  template:
+    containers:
+      - name: redis
+        image: docker.io/library/redis:7-alpine
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+        env:
+          - name: REDIS_KEY
+            secretRef: redis-key
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            set -e
+            R="redis-cli --tls -h wilderptsa-redis.redis.cache.windows.net -p 6380 -a $REDIS_KEY -n 0 --no-auth-warning"
+            echo "keys before: $($R DBSIZE)"
+            $R FLUSHDB
+            echo "keys after:  $($R DBSIZE)"
+            echo FLUSH_OK

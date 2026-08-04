@@ -41,15 +41,26 @@ properties:
                collation and clash with these tables' utf8mb4_unicode_520_ci on
                LIKE — use string literals instead. */
 
-            /* Did the 3.143.10 dbDelta migration add the link column? */
-            SHOW COLUMNS FROM wp_pta_roles LIKE 'vp_for_department_id';
-
-            /* And is the uniqueness constraint there? */
-            SHOW INDEX FROM wp_pta_roles WHERE Key_name = 'vp_for_department_id';
-
-            /* What the plugin thinks its schema version is. */
+            /* What the database thinks the site's address is. */
             SELECT option_name, option_value FROM wp_options
-             WHERE option_name IN ('azure_plugin_db_version');
+             WHERE option_name IN ('siteurl','home');
+
+            /* Absolute URLs baked into content, by flavour, so the rewrite is
+               aimed at whatever is actually there. */
+            SELECT 'posts_container' AS what, COUNT(*) AS rows_affected
+              FROM wp_posts WHERE post_content LIKE '%azurecontainerapps.io%'
+            UNION ALL SELECT 'posts_guid_container', COUNT(*)
+              FROM wp_posts WHERE guid LIKE '%azurecontainerapps.io%'
+            UNION ALL SELECT 'options_container', COUNT(*)
+              FROM wp_options WHERE option_value LIKE '%azurecontainerapps.io%'
+            UNION ALL SELECT 'postmeta_container', COUNT(*)
+              FROM wp_postmeta WHERE meta_value LIKE '%azurecontainerapps.io%'
+            UNION ALL SELECT 'posts_burgess', COUNT(*)
+              FROM wp_posts WHERE post_content LIKE '%theburgessfamily%'
+            UNION ALL SELECT 'options_burgess', COUNT(*)
+              FROM wp_options WHERE option_value LIKE '%theburgessfamily%'
+            UNION ALL SELECT 'posts_wilderptsa_net', COUNT(*)
+              FROM wp_posts WHERE post_content LIKE '%wilderptsa.net%';
 
             SQL
             echo QUERY_OK

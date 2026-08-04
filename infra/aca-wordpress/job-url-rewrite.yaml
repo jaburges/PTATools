@@ -30,13 +30,21 @@ properties:
         env:
           - name: DB_PASSWORD
             secretRef: db-password
+          # Cutover run, 2026-08-03: moving content off the container's own
+          # hostname and onto the public domain. The previous run moved it from
+          # wp.theburgessfamily.us to the container host, which is why the
+          # container host is what needs replacing now.
           - name: OLD_URL
-            value: "https://wp.theburgessfamily.us"
-          # Rewrite target. At Front Door cutover, change this to
-          # https://wilderptsa.net and re-run the job with FROM_URL set to this
-          # value to move the content on again.
-          - name: NEW_URL
             value: "https://wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io"
+          - name: NEW_URL
+            value: "https://wilderptsa.net"
+          - name: OLD_HOST
+            value: "wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io"
+          - name: NEW_HOST
+            value: "wilderptsa.net"
+          # One options row still holds the original migration host.
+          - name: LEGACY_HOST
+            value: "wp.theburgessfamily.us"
         command: ["/bin/sh"]
         args:
           - "-c"
@@ -80,7 +88,21 @@ properties:
               --all-tables --precise --report-changed-only
             echo
             echo "=== also normalising any http:// form ==="
-            $WP search-replace "http://wp.theburgessfamily.us" "$NEW_URL" \
+            $WP search-replace "http://$OLD_HOST" "$NEW_URL" \
+              --all-tables --precise --report-changed-only || true
+            echo
+            # Catches protocol-relative (//host/…) and bare mentions that the
+            # scheme-prefixed passes above cannot see.
+            echo "=== bare host references ==="
+            $WP search-replace "$OLD_HOST" "$NEW_HOST" \
+              --all-tables --precise --report-changed-only || true
+            echo
+            echo "=== leftovers from the original migration host ==="
+            for scheme in "https://" "http://"; do
+              $WP search-replace "$scheme$LEGACY_HOST" "$NEW_URL" \
+                --all-tables --precise --report-changed-only || true
+            done
+            $WP search-replace "$LEGACY_HOST" "$NEW_HOST" \
               --all-tables --precise --report-changed-only || true
             echo
             echo "=== clearing transients (they cached old-host asset URLs) ==="
@@ -89,6 +111,8 @@ properties:
             echo "=== verification ==="
             echo "siteurl: $($WP option get siteurl)"
             echo "home:    $($WP option get home)"
-            $WP db query "SELECT 'posts_remaining', COUNT(*) FROM wp_posts WHERE post_content LIKE '%wp.theburgessfamily.us%' OR guid LIKE '%wp.theburgessfamily.us%';" --skip-column-names
-            $WP db query "SELECT 'options_remaining', COUNT(*) FROM wp_options WHERE option_value LIKE '%wp.theburgessfamily.us%';" --skip-column-names
+            $WP db query "SELECT 'posts_content_remaining', COUNT(*) FROM wp_posts WHERE post_content LIKE '%$OLD_HOST%';" --skip-column-names
+            $WP db query "SELECT 'posts_guid_remaining', COUNT(*) FROM wp_posts WHERE guid LIKE '%$OLD_HOST%';" --skip-column-names
+            $WP db query "SELECT 'options_remaining', COUNT(*) FROM wp_options WHERE option_value LIKE '%$OLD_HOST%';" --skip-column-names
+            $WP db query "SELECT 'legacy_remaining', COUNT(*) FROM wp_options WHERE option_value LIKE '%$LEGACY_HOST%';" --skip-column-names
             echo REWRITE_OK
