@@ -148,6 +148,7 @@ class Azure_PTA_Shortcode {
             'description' => false,
             'status' => 'all', // all, open, filled, partial
             'columns' => 3,
+            'width' => '', // Max width of the whole block, e.g. "1100px" or "80%"; empty fills the container
             'show_count' => true,
             'show_vp' => false,
             'layout' => 'grid', // grid, list, cards, team-cards
@@ -295,7 +296,8 @@ class Azure_PTA_Shortcode {
         $atts = shortcode_atts(array(
             'department' => 'all',
             'interactive' => false,
-            'height' => '400px'
+            'height' => '400px',
+            'width' => '' // Max width of the chart, e.g. "1600px"; empty fills the container
         ), $atts);
         
         // Convert string boolean values to actual booleans
@@ -307,7 +309,9 @@ class Azure_PTA_Shortcode {
         
         $chart_id = 'pta-org-chart-' . uniqid();
         
-        $output = '<div class="pta-org-chart-container">';
+        // The width lands on the container rather than the chart div because
+        // the D3 renderer sizes the SVG from the chart div's measured width.
+        $output = '<div class="pta-org-chart-container"' . $this->build_width_style($atts['width']) . '>';
         $output .= '<div id="' . $chart_id . '" class="pta-org-chart" style="height: ' . esc_attr($atts['height']) . ';"></div>';
         $output .= '</div>';
         
@@ -542,7 +546,8 @@ class Azure_PTA_Shortcode {
         $leadership_structure = filter_var($atts['leadership_structure'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $leader_role_name = strtolower($atts['leader_role'] ?? 'president');
         $leader_photo_size = intval($atts['leader_photo_size'] ?? 120);
-        
+        $width_style = $this->build_width_style($atts['width'] ?? '');
+
         $output = '';
         $leader_role = null;
         $other_roles = array();
@@ -559,7 +564,7 @@ class Azure_PTA_Shortcode {
             
             // Render the leader section if found
             if ($leader_role) {
-                $output .= '<div class="pta-leadership-structure">';
+                $output .= '<div class="pta-leadership-structure"' . $width_style . '>';
                 $output .= '<div class="pta-leader-section">';
                 $output .= $this->render_single_role_card($leader_role, $atts, $leader_photo_size, true);
                 $output .= '</div>';
@@ -579,8 +584,8 @@ class Azure_PTA_Shortcode {
         }
         
         // Normal rendering (no leadership structure or leader not found)
-        $output .= '<div class="pta-roles-directory pta-layout-' . esc_attr($layout) . '" data-columns="' . $columns . '">';
-        
+        $output .= '<div class="pta-roles-directory pta-layout-' . esc_attr($layout) . '" data-columns="' . $columns . '"' . $width_style . '>';
+
         foreach ($roles as $role) {
             $output .= $this->render_single_role_card($role, $atts, $photo_size, false);
         }
@@ -589,6 +594,25 @@ class Azure_PTA_Shortcode {
         return $output;
     }
     
+    /**
+     * Turn a shortcode `width` value into an inline max-width style.
+     *
+     * Accepts a bare number, treated as pixels, or a number carrying a CSS
+     * length unit. Anything else returns an empty string, so a malformed
+     * attribute cannot inject extra declarations into the style attribute.
+     */
+    private function build_width_style($width) {
+        $width = trim((string) $width);
+
+        if ($width === '' || !preg_match('/^(\d+(?:\.\d+)?)(px|%|em|rem|vw)?$/', $width, $matches)) {
+            return '';
+        }
+
+        $value = $matches[1] . (empty($matches[2]) ? 'px' : $matches[2]);
+
+        return ' style="max-width:' . esc_attr($value) . ';margin-left:auto;margin-right:auto;"';
+    }
+
     /**
      * Render a single role card (used by render_roles_directory)
      */

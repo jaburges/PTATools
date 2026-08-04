@@ -514,6 +514,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>description:</strong> true/false - Show role descriptions (default: false)</li>
                 <li><strong>status:</strong> "all", "open", "filled", "partial" - Filter by status (default: all)</li>
                 <li><strong>columns:</strong> 1-5 - Number of columns for grid layout (default: 3)</li>
+                <li><strong>width:</strong> Max width of the block, centered - e.g. "1100px" or "80%" (default: fills the container)</li>
                 <li><strong>show_count:</strong> true/false - Show position counts (default: true)</li>
                 <li><strong>layout:</strong> "grid", "list", "cards", "team-cards" - Layout style (default: grid)</li>
                 <li><strong>show_image:</strong> true/false - Show WordPress profile photos (default: false)</li>
@@ -555,6 +556,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>department:</strong> "all" or specific department - Scope of chart (default: all)</li>
                 <li><strong>interactive:</strong> true/false - Enable click interactions (default: false)</li>
                 <li><strong>height:</strong> CSS height value - Chart height (default: 400px)</li>
+                <li><strong>width:</strong> Max width of the chart, centered - e.g. "1600px" (default: fills the container). Allow roughly 200px per department.</li>
             </ul>
         </div>
         
