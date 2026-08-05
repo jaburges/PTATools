@@ -97,28 +97,103 @@
     // Expose globally so the D3 chart can call it
     window.ptaOpenSignupModal = openSignupModal;
     
+    // Org chart geometry, in the SVG's own coordinate space
+    var ORG_CHART_LAYOUT = {
+        margin: 20,
+        gap: 10,
+        columnWidth: 200,
+        deptHeight: 60,
+        roleHeight: 40,
+        roleGap: 5,
+        deptToRolesGap: 20
+    };
+
+    /**
+     * Size the chart needs to draw everything at full scale. Gutters sit
+     * between columns, so there are one fewer of them than there are columns —
+     * counting one per column is what used to push the last department past
+     * the right edge.
+     */
+    function orgChartNaturalSize(departments, roles) {
+        var L = ORG_CHART_LAYOUT;
+        var columns = Math.max(departments.length, 1);
+        var tallest = 0;
+
+        departments.forEach(function(dept) {
+            var count = roles.filter(function(role) {
+                return role.department_id == dept.id;
+            }).length;
+            if (count > tallest) {
+                tallest = count;
+            }
+        });
+
+        return {
+            width: (2 * L.margin) + (columns * L.columnWidth) + ((columns - 1) * L.gap),
+            height: Math.max(
+                L.margin + L.deptHeight + L.deptToRolesGap
+                    + (tallest * (L.roleHeight + L.roleGap)) + L.margin,
+                200
+            )
+        };
+    }
+
+    function drawOrgChart(el, data, options) {
+        var container = d3.select(el);
+        container.selectAll("*").remove();
+
+        var departments = (data && data.departments) || [];
+        var roles = (data && data.roles) || [];
+        var natural = orgChartNaturalSize(departments, roles);
+        var available = el.getBoundingClientRect().width || natural.width;
+
+        /* Shrink to fit a narrow container so no column is ever clipped, but
+           never enlarge past full scale or the text balloons on wide screens.
+           Matching the pixel height to natural height * scale means
+           preserveAspectRatio settles on exactly this scale. */
+        var scale = Math.min(1, available / natural.width);
+
+        // The height attribute is a floor: grow past it rather than cut content off.
+        var minHeight = parseInt(options && options.height, 10) || 400;
+        var displayHeight = Math.max(minHeight, Math.ceil(natural.height * scale));
+
+        var svg = container.append("svg")
+            .attr("width", "100%")
+            .attr("height", displayHeight)
+            .attr("viewBox", "0 0 " + natural.width + " " + natural.height)
+            .attr("preserveAspectRatio", "xMidYMin meet");
+
+        renderSimpleOrgChart(svg, data, natural.width, natural.height, options);
+    }
+
     // Global function for rendering org charts
     window.renderPTAOrgChart = function(containerId, data, options) {
         if (typeof d3 === 'undefined') {
             console.error('D3.js is required for org charts');
             return;
         }
-        
-        var container = d3.select('#' + containerId);
-        var width = container.node().getBoundingClientRect().width;
-        var height = parseInt(options.height) || 400;
-        
-        // Clear any existing content
-        container.selectAll("*").remove();
-        
-        var svg = container.append("svg")
-            .attr("width", width)
-            .attr("height", height);
-        
-        // Create a simple hierarchical layout
-        renderSimpleOrgChart(svg, data, width, height, options);
+
+        var el = document.getElementById(containerId);
+        if (!el) {
+            return;
+        }
+
+        drawOrgChart(el, data, options);
+
+        // The scale comes from the measured container, so it has to be recomputed
+        // when that width changes.
+        if (!el.ptaResizeBound) {
+            el.ptaResizeBound = true;
+            var pending = null;
+            window.addEventListener('resize', function() {
+                clearTimeout(pending);
+                pending = setTimeout(function() {
+                    drawOrgChart(el, data, options);
+                }, 150);
+            });
+        }
     };
-    
+
     function renderSimpleOrgChart(svg, data, width, height, options) {
         var departments = data.departments;
         var roles = data.roles;
@@ -134,18 +209,21 @@
             return;
         }
         
-        // Simple layout: departments as boxes with roles beneath
-        var deptWidth = Math.min(200, (width - 40) / departments.length);
-        var deptHeight = 60;
-        var roleHeight = 40;
-        var margin = 20;
-        
+        // Simple layout: departments as boxes with roles beneath. Drawing happens
+        // in the natural coordinate space that orgChartNaturalSize() computed, so
+        // these are fixed and the SVG's viewBox handles fitting the container.
+        var L = ORG_CHART_LAYOUT;
+        var deptWidth = L.columnWidth;
+        var deptHeight = L.deptHeight;
+        var roleHeight = L.roleHeight;
+        var margin = L.margin;
+
         // Group for departments
         var deptGroup = svg.append("g")
             .attr("class", "departments");
-        
+
         departments.forEach(function(dept, i) {
-            var x = margin + (i * (deptWidth + 10));
+            var x = margin + (i * (deptWidth + L.gap));
             var y = margin;
             
             // Department box
@@ -200,7 +278,7 @@
             });
             
             deptRoles.forEach(function(role, j) {
-                var roleY = y + deptHeight + 20 + (j * (roleHeight + 5));
+                var roleY = y + deptHeight + L.deptToRolesGap + (j * (roleHeight + L.roleGap));
                 
                 var roleBox = deptGroup.append("g")
                     .attr("class", "role")

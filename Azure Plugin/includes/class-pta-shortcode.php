@@ -284,7 +284,11 @@ class Azure_PTA_Shortcode {
     
     /**
      * Org Chart shortcode
-     * Usage: [pta-org-chart department="all" interactive=true]
+     * Usage: [pta-org-chart department="all" interactive=true height="500px" width="1600px"]
+     *
+     * "height" is a minimum; the chart grows taller when a department has more
+     * roles than that allows. Straight quotes are required — a smart-quoted
+     * width="1600px" fails validation and is ignored.
      */
     public function org_chart_shortcode($atts) {
         // Check if PTA Manager is available
@@ -311,8 +315,10 @@ class Azure_PTA_Shortcode {
         
         // The width lands on the container rather than the chart div because
         // the D3 renderer sizes the SVG from the chart div's measured width.
+        // "height" is a floor, not a fixed size: a department with many roles
+        // needs a taller canvas, and the container clips whatever overflows.
         $output = '<div class="pta-org-chart-container"' . $this->build_width_style($atts['width']) . '>';
-        $output .= '<div id="' . $chart_id . '" class="pta-org-chart" style="height: ' . esc_attr($atts['height']) . ';"></div>';
+        $output .= '<div id="' . $chart_id . '" class="pta-org-chart" style="min-height: ' . esc_attr($atts['height']) . ';"></div>';
         $output .= '</div>';
         
         // Add inline JavaScript for the chart
