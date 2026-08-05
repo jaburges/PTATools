@@ -132,15 +132,19 @@ jQuery(function ($) {
     // <option> to the dropdown, auto-selects it, and triggers the
     // existing field-swap path so the form populates immediately.
 
-    var $addBtn  = $('#azure-pf-add-child');
-    var $modal   = $('#azure-pf-add-child-modal');
-    var $newName = $('#azure-pf-new-child-name');
-    var $error   = $('#azure-pf-add-child-error');
-    var ajaxCfg  = (data && data.ajax) ? data.ajax : null;
+    var $addBtn     = $('#azure-pf-add-child');
+    var $modal      = $('#azure-pf-add-child-modal');
+    var $newName    = $('#azure-pf-new-child-name');
+    var $newGrade   = $('#azure-pf-new-child-grade');
+    var $newTeacher = $('#azure-pf-new-child-teacher');
+    var $error      = $('#azure-pf-add-child-error');
+    var ajaxCfg     = (data && data.ajax) ? data.ajax : null;
 
     function showModal() {
         $error.hide().text('');
         $newName.val('');
+        $newGrade.val('');
+        $newTeacher.val('');
         $modal.fadeIn(120).attr('aria-hidden', 'false');
         setTimeout(function () { $newName.trigger('focus'); }, 50);
     }
@@ -181,20 +185,21 @@ jQuery(function ($) {
             $.post(ajaxCfg.url, {
                 action: 'azure_pf_quick_add_child',
                 nonce: ajaxCfg.nonce_quick_add,
-                child_name: name
+                child_name: name,
+                child_grade: $newGrade.val() || '',
+                child_teacher: ($newTeacher.val() || '').trim()
             }, function (resp) {
                 $btn.prop('disabled', false).text('Add child');
                 if (resp && resp.success && resp.data && resp.data.id) {
                     var id = parseInt(resp.data.id, 10);
                     var label = resp.data.name || name;
-                    // Append + auto-select. Then trigger change so the
-                    // existing populateChildFields path runs even though
-                    // there's no profile data yet (it'll just no-op the
-                    // child-scope fields).
+                    // Append + auto-select, then trigger change so the
+                    // existing populateChildFields path fills in the grade
+                    // and teacher we just saved.
                     if (!$selector.find('option[value="' + id + '"]').length) {
                         $selector.append($('<option/>').val(id).text(label));
                     }
-                    children[id] = { name: label, fields: {} };
+                    children[id] = { name: label, fields: resp.data.fields || {} };
                     $selector.val(id).trigger('change');
                     hideModal();
                 } else {

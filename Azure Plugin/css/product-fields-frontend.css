@@ -130,13 +130,19 @@
     font-size: 14px;
 }
 
-.azure-pf-modal-dialog input[type="text"] {
+.azure-pf-modal-dialog input[type="text"],
+.azure-pf-modal-dialog select {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 14px;
     box-sizing: border-box;
+    background-color: #fff;
+}
+
+.azure-pf-modal-dialog p {
+    margin: 0 0 14px;
 }
 
 .azure-pf-modal-actions {
