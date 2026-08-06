@@ -290,12 +290,12 @@ The network is not the problem. DNS, TCP and TLS together account for roughly
 40 ms; essentially all of the remainder is origin think time. Two findings
 explain it:
 
-**Front Door caching is still entirely disabled.** Every route has
-`cacheConfiguration: null`, and responses carry `x-cache: CONFIG_NOCACHE`, so
-every visit to every page is a full PHP render. Compression at the edge is off
-too. For a site that is mostly static pages this is the largest available win
-and it costs nothing. It needs care around WooCommerce cart, checkout and
-logged-in sessions, which must stay uncached.
+**Front Door caching was entirely disabled.** Every route had
+`cacheConfiguration: null`, and responses carried `x-cache: CONFIG_NOCACHE`, so
+every visit to every page was a full PHP render. Compression at the edge was off
+too. For a site that is mostly static pages this was the largest available win
+and it cost nothing. It was switched on the same day — see *Edge caching* below
+for the arrangement, the measured result and the traps.
 
 **0.5 vCPU is the binding constraint.** During the measurement above — a single
 *sequential* request loop, no concurrency — container CPU averaged 0.29 vCPU and
@@ -312,6 +312,162 @@ wire TTFB — comparing the two would overstate the regression. The same header
 today reports 108–411 ms elapsed at plugin-init, which is only the bootstrap
 portion of the request — theme and WooCommerce rendering happen after it, and
 account for most of the remaining time.
+
+## Edge caching
+
+Switched on 2026-08-06 in plugin v3.144.2. Anonymous page views are served from
+the Front Door edge; everything personal or transactional is not.
+
+Measured immediately after, medians of six requests per URL from a residential
+connection. Cached figures are repeat requests to a warm URL, uncached are
+cache-busted:
+
+| URL | Cached TTFB | Uncached TTFB |
+| --- | --- | --- |
+| `/` | 567 ms | 1,228 ms |
+| `/ptsa/` | 257 ms | 1,217 ms |
+| `/art-docent/` | 477 ms | 1,021 ms |
+| `/shop/` | 358 ms | 1,284 ms |
+
+Median across pages: **418 ms cached against 1,222 ms uncached**, so roughly a
+third of the previous time, and the origin stops seeing the request at all. The
+spread is wide (145–1,474 ms) because the measurement is over a home connection;
+treat the medians as the signal.
+
+### How correctness is arranged
+
+Three layers, in order of how much they are trusted.
+
+**The origin decides, and it is the only guarantee.** `Azure_Edge_Cache` sends
+`Cache-Control: private, no-store` on every response rendered for a signed-in
+user, and on anonymous responses that are not shareable — cart, checkout,
+account, previews, search, 404s, password-protected posts, and any visitor
+holding a cart, WooCommerce session, `wp-postpass_` or commenter cookie.
+Everything else gets `public, max-age=0, s-maxage=300`. Front Door honours this:
+a `no-store` response reports `x-cache: PRIVATE_NOSTORE` and is neither stored
+nor served. Front Door assigns its own default TTL to a response carrying no
+cache directives at all, which is why both branches are explicit rather than one
+of them staying silent.
+
+**Front Door rules are defence in depth, not the guarantee.** They are
+configuration, changeable in the portal without review, so nothing
+safety-critical rests on them alone. Rule set `wpcachebypass` on the route
+disables caching for `/wp-admin/`, `/wp-login.php`, `/wp-cron.php`, `/wp-json/`,
+`/xmlrpc.php`, `/cart/`, `/checkout/`, `/my-account/`, for requests carrying
+`wordpress_logged_in_`, `woocommerce_items_in_cart`, `woocommerce_cart_hash`,
+`wp_woocommerce_session_` or `wp-postpass_` cookies, and for `add-to-cart`,
+`wc-ajax`, `removed_item` and `undo_item` query strings. Ordinary cookies do not
+bypass: a request carrying only `_ga` still gets `TCP_HIT`, which is what keeps
+the hit ratio worth having.
+
+**The header hydrates client-side, so a cached page fits any visitor.** The one
+personal element on an otherwise generic page was the account dropdown. For
+anonymous requests the shortcode now renders a guest shell that is identical for
+everybody, and a small script swaps in the real account menu when the
+`pta_signed_in` marker cookie is present. The marker exists because WordPress
+sets `wordpress_logged_in_` HttpOnly, so a cached page cannot otherwise tell; it
+carries presence only, never identity. Signed-in requests bypass the cache and
+render the real menu inline, so they pay no extra round trip.
+
+That last layer is what makes the whole thing safe to get wrong. If a cookie
+rule fails to apply and a signed-in visitor is served the cached anonymous copy,
+they still end up with their own account menu instead of a stranger's.
+
+Hydration uses `admin-ajax.php`, not the REST API. A REST request authenticated
+only by cookies and carrying no `X-WP-Nonce` resolves to user 0, so the endpoint
+would always answer "not signed in" — and the nonce cannot be embedded in the
+page, because the page is shared between visitors and the nonce expires.
+
+### Purge on publish
+
+Publishing a public post, or saving a nav menu, purges the endpoint. Debounced to
+one purge per 30 s so a burst of edits does not fire repeatedly, dispatched
+non-blocking so the editor never waits on ARM, and gated on `edit_posts` so
+parent account activity cannot trigger it. `s-maxage=300` is the backstop if a
+purge is ever lost.
+
+The container authenticates with the `id-wilderptsa-aca` user-assigned identity.
+Two things had to be fixed for this to work at all:
+
+- **Container Apps does not answer on the flat IMDS address.** The existing code
+  asked `http://169.254.169.254/metadata/identity/...`, which only responds on
+  VM-hosted platforms, so the purge had been silently failing since cutover.
+  Container Apps injects `IDENTITY_ENDPOINT` (observed as
+  `http://localhost:12356/msi/token`) and `IDENTITY_HEADER`, and expects
+  `X-IDENTITY-HEADER`. The plugin now prefers that and keeps the flat address as
+  a fallback.
+- **No built-in role grants AFD purge narrowly.** `CDN Endpoint Contributor`
+  covers classic CDN `profiles/endpoints/*` and does *not* include
+  `Microsoft.Cdn/profiles/afdEndpoints/purge/action` — it returns 403. The only
+  built-in role that does is `CDN Profile Contributor`, via `Microsoft.Cdn/
+  profiles/*`, which would also let a compromised WordPress rewrite origins,
+  routes and custom domains. A custom role, **Front Door Purge Only**, grants
+  purge plus reads and nothing else, assigned at the profile scope.
+
+Env vars carrying this config on the container app: `AZURE_CLIENT_ID`,
+`AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AFD_ENABLED`,
+`AFD_PROFILE_NAME`, `AFD_ENDPOINT_NAME`, `AFD_DOMAIN`.
+
+To verify the Azure half without involving WordPress, run the
+`wp-afd-purge-check` job (`infra/aca-wordpress/job-afd-purge-check.yaml`). It
+reproduces the token fetch and the purge call and prints `RESULT=purge-accepted`,
+`RESULT=forbidden-check-role-assignment` or `RESULT=no-token`, which localises a
+failure to the platform rather than the plugin.
+
+### Rule changes do not apply until the route re-associates the rule set
+
+This is the trap that cost the most time, and it will mislead anyone who changes
+these rules.
+
+Editing a rule inside a rule set — creating, deleting, changing values — reports
+`provisioningState: Succeeded` and takes effect at the edge **not at all** until
+the route is updated to reference the rule set again:
+
+```bash
+az afd route update -g PTSAWebsite --profile-name WilderPTSAAFD \
+  --endpoint-name wilderptsa-c20b298090 --route-name default-route \
+  --rule-sets wpcachebypass
+```
+
+Until that runs, the edge keeps enforcing the previous generation of the rule
+set. Deleted rules keep working and new rules do nothing, which reads exactly
+like "my condition is wrong". Two wrong conclusions were reached this way: first
+that cookie conditions match when the header is absent (they do not — that was
+deleted rules still being enforced), then that cookie conditions never work at
+all (they do, once the route re-associates). `deploymentStatus` sits at
+`NotStarted` throughout and is not a useful signal.
+
+After re-associating, allow about five minutes and only then test. Verify with
+the cookie matrix rather than a single request, because a partial rollout gives
+different answers per attempt:
+
+```bash
+# cookieless and _ga must HIT; wordpress_logged_in_ and cart cookies must not
+for C in "" "_ga=GA1.2.1.1" "wordpress_logged_in_abc=u|1|t|h" "woocommerce_cart_hash=abc"; do
+  printf '%-34s ' "${C:-<none>}"
+  curl -sS -D - -o /dev/null --compressed ${C:+-b "$C"} https://wilderptsa.net/ptsa/ \
+    | grep -i '^x-cache:'
+done
+```
+
+`--clean true` is not involved anywhere here, and must never be: see
+`.cursor/rules/deployment-safety.mdc`.
+
+### WooCommerce page IDs were stale, which this exposed
+
+`woocommerce_cart_page_id` and `woocommerce_checkout_page_id` still pointed at
+pages 9 and 10. The redesign deleted both and rebuilt cart and checkout as the
+block-based pages 23140 and 23141. `woocommerce_myaccount_page_id` was correct at
+11, which is why `is_account_page()` worked and `is_cart()` did not.
+
+The consequence went beyond caching: while those options were wrong,
+`is_cart()` and `is_checkout()` were false on the real cart and checkout pages,
+so WooCommerce never sent its own no-cache headers there, and
+`wc_get_cart_url()` could not resolve. Fixed by
+`infra/aca-wordpress/job-fix-woo-page-ids.yaml`, followed by a Redis flush so the
+options were re-read. `Azure_Edge_Cache` additionally detects cart and checkout
+by their blocks and shortcodes, so the cache decision no longer depends on those
+options staying correct.
 
 ## Remaining work
 

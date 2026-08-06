@@ -1,0 +1,71 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    ? /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+    : {}
+properties:
+  environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 600
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+  template:
+    containers:
+      - name: check
+        image: mcr.microsoft.com/azure-cli:latest
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: AZURE_CLIENT_ID
+            value: 4b740332-8ed7-4cf1-aecf-f2e3abcd90fe
+          - name: SUB
+            value: 97f6936d-7300-4a49-a2ad-cbfee3b28e00
+          - name: RG
+            value: PTSAWebsite
+          - name: PROFILE
+            value: WilderPTSAAFD
+          - name: ENDPOINT
+            value: wilderptsa-c20b298090
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            # Reproduces exactly what the plugin's fetch_arm_access_token() and
+            # burst_afd_cache() do, so a failure here localises the problem to
+            # the platform (identity injection, role assignment, API shape)
+            # rather than to WordPress.
+            set -u
+            echo "IDENTITY_ENDPOINT is ${IDENTITY_ENDPOINT:+set}${IDENTITY_ENDPOINT:-UNSET}"
+            echo "IDENTITY_HEADER   is ${IDENTITY_HEADER:+set}${IDENTITY_HEADER:-UNSET}"
+
+            if [ -z "${IDENTITY_ENDPOINT:-}" ]; then
+              echo "RESULT=no-identity-endpoint"; exit 1
+            fi
+
+            TOKEN=$(curl -s -H "X-IDENTITY-HEADER: $IDENTITY_HEADER" \
+              "${IDENTITY_ENDPOINT}?api-version=2019-08-01&resource=https%3A%2F%2Fmanagement.azure.com%2F&client_id=${AZURE_CLIENT_ID}" \
+              | python3 -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))' 2>/dev/null)
+
+            if [ -z "$TOKEN" ]; then
+              echo "RESULT=no-token"; exit 1
+            fi
+            echo "token acquired, length ${#TOKEN}"
+
+            CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+              -d '{"contentPaths":["/*"],"domains":["wilderptsa.net"]}' \
+              "https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Cdn/profiles/${PROFILE}/afdEndpoints/${ENDPOINT}/purge?api-version=2023-05-01")
+
+            echo "purge HTTP $CODE"
+            head -c 400 /tmp/out; echo
+            case "$CODE" in
+              2*) echo "RESULT=purge-accepted" ;;
+              403) echo "RESULT=forbidden-check-role-assignment" ;;
+              *)   echo "RESULT=unexpected-$CODE" ;;
+            esac
