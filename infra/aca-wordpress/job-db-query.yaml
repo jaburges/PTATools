@@ -41,26 +41,30 @@ properties:
                collation and clash with these tables' utf8mb4_unicode_520_ci on
                LIKE — use string literals instead. */
 
-            /* What the database thinks the site's address is. */
-            SELECT option_name, option_value FROM wp_options
-             WHERE option_name IN ('siteurl','home');
-
-            /* Absolute URLs baked into content, by flavour, so the rewrite is
-               aimed at whatever is actually there. */
-            SELECT 'posts_container' AS what, COUNT(*) AS rows_affected
-              FROM wp_posts WHERE post_content LIKE '%azurecontainerapps.io%'
-            UNION ALL SELECT 'posts_guid_container', COUNT(*)
-              FROM wp_posts WHERE guid LIKE '%azurecontainerapps.io%'
-            UNION ALL SELECT 'options_container', COUNT(*)
-              FROM wp_options WHERE option_value LIKE '%azurecontainerapps.io%'
-            UNION ALL SELECT 'postmeta_container', COUNT(*)
-              FROM wp_postmeta WHERE meta_value LIKE '%azurecontainerapps.io%'
-            UNION ALL SELECT 'posts_burgess', COUNT(*)
-              FROM wp_posts WHERE post_content LIKE '%theburgessfamily%'
-            UNION ALL SELECT 'options_burgess', COUNT(*)
-              FROM wp_options WHERE option_value LIKE '%theburgessfamily%'
-            UNION ALL SELECT 'posts_wilderptsa_net', COUNT(*)
-              FROM wp_posts WHERE post_content LIKE '%wilderptsa.net%';
+            /* Which module flags are present in the settings, and their values. */
+            SELECT 'enable_auction' AS flag, SUBSTRING(option_value, LOCATE('enable_auction', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_backup' AS flag, SUBSTRING(option_value, LOCATE('enable_backup', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_calendar' AS flag, SUBSTRING(option_value, LOCATE('enable_calendar', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_classes' AS flag, SUBSTRING(option_value, LOCATE('enable_classes', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_donations' AS flag, SUBSTRING(option_value, LOCATE('enable_donations', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_email' AS flag, SUBSTRING(option_value, LOCATE('enable_email', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_newsletter' AS flag, SUBSTRING(option_value, LOCATE('enable_newsletter', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_onedrive_media' AS flag, SUBSTRING(option_value, LOCATE('enable_onedrive_media', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_product_fields' AS flag, SUBSTRING(option_value, LOCATE('enable_product_fields', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_pta' AS flag, SUBSTRING(option_value, LOCATE('enable_pta', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_sso' AS flag, SUBSTRING(option_value, LOCATE('enable_sso', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
+            UNION ALL
+            SELECT 'enable_volunteer' AS flag, SUBSTRING(option_value, LOCATE('enable_volunteer', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings';
 
             SQL
             echo QUERY_OK

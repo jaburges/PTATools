@@ -8,22 +8,33 @@ and no admin session.
 
 ## Status
 
-Phase 1 complete. The site is fully populated and serving on the container URL.
+**Complete and live.** Both phases are done, `wilderptsa.net` cut over to the
+container app, and App Service has been deleted. Verified 2026-08-06.
 
 | Thing | Value |
 | --- | --- |
-| Container app | `wilderptsa-wp` |
-| URL | https://wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io |
-| Database | `wilderptsa_wp` on `wilderptsa-wpdb-small` — 92 tables, 1,862 posts, 735 users |
-| `wp-content` | Azure Files share `wp-content` — 13,780 files, theme + 4 plugins + 220 MB uploads |
-| Image | Stock `wordpress:6.9.4-php8.3-apache` plus a startup Apache rewrite config |
-| Ingress | Allow-listed to the operator IPv4 only |
-| Sizing | 1 vCPU / 2 GiB, pinned to 1 replica |
+| Container app | `wilderptsa-wp` (revision `--0000018`) |
+| Public URL | https://wilderptsa.net and `www`, via Front Door `WilderPTSAAFD` |
+| Origin URL | https://wilderptsa-wp.wittysky-40aa8bc1.westus2.azurecontainerapps.io — returns 403 direct; Front Door only |
+| Database | `wilderptsa_wp` on `wilderptsa-wpdb-small` — B1ms Burstable, 64 GB, MySQL 8.0.21, **no public access** |
+| Image | `wilderptsaacr.azurecr.io/wilderptsa-wp:<plugin version>` — `wp-content` baked in |
+| Mount | Azure Files share `wp-content`, `subPath: uploads`, at `wp-content/uploads` only |
+| Secrets | Key Vault references to `mysql-small-ptsadbadmin-password` and `redis-primary-key` |
+| Sizing | **0.5 vCPU / 1 GiB, min = max = 1 replica** |
+| Cron | `wilderptsa-wpcron` job, hourly |
 
-Verified end to end: pages resolve on pretty permalinks (`/art-docent/`,
-`/room-parents/`, `/volunteer/`) in 0.4–1.0 s, media serves from the share,
-missing paths return a real 404, `/wp-admin/` returns a 302 to login, and no PHP
-warnings are emitted.
+Verified end to end: pretty permalinks resolve, media serves, missing paths
+return a real 404, `/wp-admin/` returns 302, and the smoke script passes all six
+checks.
+
+Two corrections to earlier drafts of this document, both worth knowing because
+they change what you would conclude from it:
+
+- **Sizing is 0.5 vCPU / 1 GiB, not the 1 vCPU / 2 GiB recorded during Phase 1.**
+  It was reduced at some point after cutover. That halving is the main reason
+  TTFB now sits near a second — see Performance below.
+- **The App Service is gone**, so the deployment procedure in this repository's
+  `.cursor/rules/` is not merely outdated, it cannot succeed. See Deploying.
 
 ## What was actually migrated, and how
 
@@ -161,16 +172,65 @@ never matches them. This database was checked and had none.
 
 ### At cutover, re-run the rewrite
 
-Content URLs currently point at the container hostname. Set `NEW_URL` in
-`job-url-rewrite.yaml` to `https://wilderptsa.net`, and `OLD_URL` to the
-container hostname, then run it again. Rewriting straight to the final domain
-before cutover was rejected on purpose: wilderptsa.net still serves the parked
-SWA, so every image would have 404'd during verification.
+*Done — kept because the sequencing is the reusable part.*
+
+Content URLs pointed at the container hostname, so at cutover `NEW_URL` in
+`job-url-rewrite.yaml` was set to `https://wilderptsa.net` and `OLD_URL` to the
+container hostname, and the job re-run. Rewriting straight to the final domain
+*before* cutover was rejected on purpose: wilderptsa.net was still served by the
+parked placeholder SWA at that point, so every image would have 404'd during
+verification. Two rewrites was the cost of being able to verify the site at all.
+
+## Deploying — the only supported path
+
+**Plugin and theme changes ship as a new image.** The code layer is read-only,
+so there is no zip push and no dashboard update. Three steps:
+
+```bash
+# 1. Commit first. build.sh derives the tag from the plugin version header,
+#    so an uncommitted tree produces an image that matches no commit.
+git commit -am "…"
+
+# 2. Build and push. Tag comes from "Version:" in Azure Plugin/azure-plugin.php.
+./infra/wp-image/build.sh
+
+# 3. Point the app at the new tag.
+az containerapp update -g PTSAWebsite -n wilderptsa-wp \
+  --image wilderptsaacr.azurecr.io/wilderptsa-wp:<version>
+```
+
+Then verify, because a healthy revision does not prove the new code is serving:
+
+```bash
+# Wait for the revision to reach Healthy at 100% traffic, then confirm the
+# asset actually changed. Use --compressed: without it curl writes the gzip
+# body to disk and every grep silently finds nothing.
+curl -s --compressed \
+  "https://wilderptsa.net/wp-content/plugins/Azure%20Plugin/assets/pta-shortcodes.js" \
+  | grep -c "<a string only the new code has>"
+bash infra/post-change-smoke.sh
+```
+
+Mid-rollout requests can still hit the old replica, so a single stale response
+right after `containerapp update` is expected rather than a failed deploy.
+Re-check once traffic shows 100% on the new revision.
+
+`build.sh` pushes to **ACR** (`wilderptsaacr`), not GHCR as an earlier draft of
+this document said, and tags both `:<version>` and `:latest`.
+
+### The rules files in this repo are wrong
+
+`.cursor/rules/deployment.mdc` and `.cursor/rules/deployment-safety.mdc` both
+describe `az webapp deploy -g PTSAWebsite -n wilderptsa`. That App Service no
+longer exists. Everything those files say about `--clean true`, relative
+`--target-path` and Kudu VFS applies to a host that is gone. Until they are
+rewritten, an agent that follows them will fail — and their genuinely useful
+warnings now protect nothing. Rewriting them is the highest-value item left.
 
 ## Phase 2 — bake an image, for the performance win
 
-Once the migrated site is verified, move `wp-content` from the share into the
-image. This is where the real speed improvement lives.
+*Done.* `wp-content` now lives in the image and the share is mounted only at
+`wp-content/uploads`. Recorded here for the reasoning.
 
 The site loads roughly 1,800–2,300 PHP files per request. On a mutable
 filesystem OPcache must `stat()` each one on every hit, and over SMB that is
@@ -184,8 +244,8 @@ allows `opcache.validate_timestamps=0`, removing those checks entirely.
 - `php-opcache.ini` — `validate_timestamps=0`, 30,000 file slots, 256 MB
 - `php-wordpress.ini` — 512 MB memory, 64 MB uploads, generous realpath cache
 - `healthz.php` — liveness endpoint that deliberately never touches MySQL
-- `build.sh` — assembles the context and pushes to GHCR (free for private
-  images, so no paid registry is needed)
+- `build.sh` — assembles the context and pushes to ACR `wilderptsaacr`. GHCR was
+  the original plan; ACR is what shipped.
 
 Point `build.sh` at the migrated `wp-content` from the share, publish, then
 switch the app to that image and reduce the mount to `wp-content/uploads` only.
@@ -194,13 +254,86 @@ The trade-off: plugin and theme updates through the dashboard stop working,
 because the code layer is read-only. Updates become a rebuild. That is the
 price of `validate_timestamps=0`, and it is worth it here.
 
+## Cutover — the static site was the switch
+
+The domain was moved using a **free Static Web App as a placeholder origin**
+behind Front Door. Front Door already held `wilderptsa.net`, `www`, and the TLS
+certificates, so the cutover was an origin swap rather than a DNS change: point
+the route at the placeholder, then at the container app once verified. That
+keeps the domain and certificate bindings untouched throughout, and makes
+rollback a single origin switch instead of a DNS propagation wait.
+
+The placeholder has since been **deleted deliberately** — it was scaffolding for
+the switch, not a permanent rollback target. An earlier draft of this document
+said to keep it as the rollback and summer-park placeholder; that is no longer
+the arrangement, and no Static Web App exists in the subscription now.
+
+Consequence worth stating plainly: **there is currently no parked placeholder to
+switch to.** If the park/rollback capability is wanted again — for next summer,
+or for an incident — it has to be recreated. `infra/school-year-redeploy/`
+contains a `summer-swa.bicep` module and an `afd-switch-origin.sh` script, which
+is the same pattern and the natural starting point.
+
+## Performance — measured, and the one free win
+
+Measured 2026-08-06 from a residential connection, medians of six cache-busted
+requests per URL:
+
+| URL | TTFB | Range |
+| --- | --- | --- |
+| `/` | 1,265 ms | 1,214–1,634 |
+| `/ptsa/` | 1,189 ms | 895–1,445 |
+| `/art-docent/` | 1,011 ms | 931–1,242 |
+| `/shop/` | 950 ms | 817–1,047 |
+
+The network is not the problem. DNS, TCP and TLS together account for roughly
+40 ms; essentially all of the remainder is origin think time. Two findings
+explain it:
+
+**Front Door caching is still entirely disabled.** Every route has
+`cacheConfiguration: null`, and responses carry `x-cache: CONFIG_NOCACHE`, so
+every visit to every page is a full PHP render. Compression at the edge is off
+too. For a site that is mostly static pages this is the largest available win
+and it costs nothing. It needs care around WooCommerce cart, checkout and
+logged-in sessions, which must stay uncached.
+
+**0.5 vCPU is the binding constraint.** During the measurement above — a single
+*sequential* request loop, no concurrency — container CPU averaged 0.29 vCPU and
+peaked at 0.43 against its 0.50 limit, about 86% of ceiling. One visitor at a
+time nearly saturates the app, and with `minReplicas = maxReplicas = 1` there is
+no headroom for a second. Memory is comfortable at ~390 MB of 1,024. Raising CPU
+to 1.0 and allowing 2–3 replicas is the obvious next step, and restores the
+Phase 1 sizing this document originally recorded.
+
+Do not read these numbers against the "App Service 358–428 ms" figure under *Why
+containers, honestly* above: that was server-side PHP time from `X-PTA-Trace`,
+which excludes web server overhead and the network, so it is not comparable to
+wire TTFB — comparing the two would overstate the regression. The same header
+today reports 108–411 ms elapsed at plugin-init, which is only the bootstrap
+portion of the request — theme and WooCommerce rendering happen after it, and
+account for most of the remaining time.
+
 ## Remaining work
 
-1. Replace WP-Cron with a scheduled Container Apps job. `DISABLE_WP_CRON` is
-   set, so nothing currently fires scheduled work — newsletters, calendar sync
-   and backups will not run until this exists. Use `job-db-import.yaml` as the
-   structural template; define jobs in YAML, not CLI flags.
-2. Check the four live URLs with no matching page slug, and add redirects if they
+Ordered by value as of 2026-08-06. Items 1–3 are the live ones.
+
+1. **Rewrite `.cursor/rules/deployment*.mdc` for the container path.** They
+   currently instruct any agent to deploy to an App Service that no longer
+   exists. See Deploying above.
+2. **Enable Front Door caching and edge compression.** Free, and the largest
+   remaining performance win. Exclude WooCommerce cart, checkout and
+   authenticated sessions.
+3. **Restore sizing to 1 vCPU / 2 GiB and allow 2–3 replicas.** A single
+   sequential visitor already reaches 86% of the 0.5 vCPU ceiling.
+4. ~~Replace WP-Cron with a scheduled Container Apps job.~~ **Done** —
+   `wilderptsa-wpcron` runs hourly and is firing. `DISABLE_WP_CRON` remains set,
+   which is correct.
+5. Rotate the storage account key and move it to a Key Vault reference. The Redis
+   password is already a Key Vault reference; the storage key is not, and it was
+   exposed in plaintext App Service settings before that host was deleted.
+6. Recreate a parked placeholder origin if the park/rollback capability is still
+   wanted — see Cutover above.
+7. Check the four live URLs with no matching page slug, and add redirects if they
    are still wanted: `/become-an-lwsd-approved-volunteer/`,
    `/meet-your-2025-26-ptsa-board-committee/`,
    `/room-parents-event-volunteers-needed-at-wilder/`,
@@ -209,22 +342,22 @@ price of `validate_timestamps=0`, and it is worth it here.
 3. Confirm the four active plugins behave on the new host, particularly
    WooCommerce and WooCommerce Payments. Payment gateway credentials and webhook
    URLs are host-specific and were not touched by the URL rewrite.
-4. The `Azure Plugin` on the share is 3.142.0 from this repo, while the imported
-   database came from 3.141.12. That is a normal plugin upgrade path, but the
-   upgrade routine has not been exercised against this data — check the plugin's
-   own admin pages before cutover.
-5. Attach the custom domain and switch the Front Door production route from
-   `summer-swa-origin-group` to the container app. Rollback is switching it
-   back, which is why the SWA placeholder should stay in place.
-6. Re-run `job-url-rewrite.yaml` for the final domain — see "At cutover" above.
-7. Remove the ingress IP allow-list at cutover, or restrict it to Front Door.
-   Note it can only hold IPv4: Container Apps rejects IPv6 ranges, and a stale
-   entry presents as an Envoy `RBAC: access denied` 403 that reads like an
-   authentication failure.
-8. Rewrite `deploy-staging.yml` / `promote-prod.yml` and the two `.cursor` rules
-   files. They all describe `az webapp deploy` zip pushes to App Service, which
-   no longer applies. **Until this is done those rules are actively misleading.**
-9. Spin down App Service, then delete resources listed below.
+Item 1 also covers `deploy-staging.yml` and `promote-prod.yml`, which describe the
+same App Service zip push and are equally dead.
+
+### Closed at cutover
+
+- **Custom domain and route switch.** `wilderptsa.net` and `www` are attached to
+  Front Door and the single `default-route` sends `/*` to the container app.
+- **Ingress restricted to Front Door.** Direct requests to the container FQDN
+  return 403. Note the allow-list can only hold IPv4 — Container Apps rejects
+  IPv6 ranges, and a stale entry presents as an Envoy `RBAC: access denied` 403
+  that reads like an authentication failure.
+- **URL rewrite re-run for the final domain.**
+- **Plugin upgrade path exercised.** The concern was 3.142.0 in the repo against
+  3.141.12 in the imported database; the site has since run 3.143.x and been
+  deployed repeatedly against this data.
+- **App Service spun down and deleted.**
 
 ## Cost
 
@@ -234,25 +367,77 @@ price of `validate_timestamps=0`, and it is worth it here.
 | MySQL | 2 × B1ms $70.32 | 1 × B1ms (64 GB) ~$20 |
 | Front Door Standard | $34.37 | $34.37 — holds custom domains, TLS, park switch |
 | Azure Monitor | $20.88 | ~$5 with a daily cap |
-| Redis | $15.71 | $0 until the caching work happens |
-| Registry | — | $0 (GHCR) |
+| Redis | $15.71 | Basic C0 in use — the object cache drop-in is live and connected |
+| Registry | — | ACR Basic, ~$5 (1.17 GB of the 10 GB allowance) |
 | Storage / DNS | $1.00 | ~$3 (adds the wp-content share) |
 | **Total** | **$252.96** | **~$83** |
 
-## Safe to delete, in this order, after the new site is verified
+These "After" figures are **estimates made before cutover, not measurements**.
+They have not been validated, and cannot be from the portal APIs: this is a
+Microsoft Grant subscription, and the consumption API returns a null cost on
+every usage record, so per-resource spend reads as $0.00. Treat the total as a
+projection. Note also that the Redis and registry lines above have been corrected
+— the original table assumed Redis would sit unused at $0 and that a free
+registry would be used.
 
-1. `wordpress-dev` container app and the `migration` blob container — scaffolding.
-2. The `wilderptsa_c20b298090_database` copy on `wilderptsa-wpdb-small`.
-3. App Service `wilderptsa` and plan `ASP-PTSAWebsite-a9e9`.
-4. `wilderptsa-c20b298090-wpdbserver` — **only** after archiving a verified
-   dump. It holds the WooCommerce order history, which a PTA may be required to
-   retain.
+## Teardown status, as of 2026-08-06
 
-Keep the Free Static Web App: it is the rollback target and the summer park
-placeholder.
+Already deleted and confirmed absent from the group: App Service `wilderptsa`,
+plan `ASP-PTSAWebsite-a9e9`, the `wordpress-dev` container app, the old
+`wilderptsa-c20b298090-wpdbserver` MySQL server, and the placeholder Static Web
+App.
 
-## Also outstanding
+> **Check before going further.** `wilderptsa-c20b298090-wpdbserver` was deleted,
+> and this document said to do that *only* after archiving a verified dump
+> because it held WooCommerce order history a PTA may be required to retain.
+> Confirm that dump exists. The `wilderptsa_c20b298090_database` copy still on
+> `wilderptsa-wpdb-small` may now be the last surviving copy, so do not drop it
+> until the archive is verified.
 
-The storage account key and Redis password are stored in plaintext App Service
-app settings and were exposed during this work. Rotate both and move them to
-Key Vault references as part of the cutover.
+Still present and safe to remove:
+
+1. `wilderptsa-c20b298090-wpidentity` — the old App Service managed identity, no
+   longer referenced by the app or any job.
+2. The `blobwilder-origin-group-c20b298090` Front Door origin group — orphaned;
+   only one route exists and it sends `/*` to the container app.
+3. Blob containers `blobwilderptsac20b298090` and `…staging` — legacy media
+   offload, ~3,200 blobs and 2.6 GB between them, 86% of it `2026/03`. Both were
+   checked against the media still missing from the site and contain none of it.
+4. The `migration` file share and blob container. Detach the `migrationfiles`
+   storage definition from the environment first.
+5. The `wp-uploads` share — not mounted; the environment only defines
+   `migrationfiles` and `wpcontent`.
+6. `flexibleserverdb` — the empty default database.
+7. The ten spent one-shot jobs: `wp-db-import`, `wp-content-extract`,
+   `wp-url-rewrite`, `wp-permalinks`, `wp-role-migrate`, `wp-vp-link`,
+   `wp-cleanup-appledouble`, `wp-audit-versions`, and similar.
+8. Three stale subnets: `wilderptsa-c20b298090-appsubnet`,
+   `wilderptsa-c20b298090-dbsubnet`, `wilderptsa-aci-subnet`.
+
+**Do not delete the VNet or the private DNS zone.** They look like App Service
+leftovers and are not: MySQL has public access disabled and is delegated into
+`wilderptsa-dbsubnet-small`, and the Container Apps environment is VNet-injected
+into `aca-subnet`. Removing either severs all database connectivity. The two
+subnets that matter are the two least obviously named.
+
+Keep `wp-db-query`, `wp-db-sql` and `wp-redis-flush`. They are migration-era but
+they are the only way to reach a private database at all, and idle jobs bill
+nothing.
+
+None of this saves meaningful money — jobs bill per execution, empty subnets are
+free, and 2.6 GB of blobs is pennies. The reason to do it is that a group holding
+ten spent jobs and two near-identical blob containers is one where the next
+person deletes the wrong thing.
+
+## Secrets
+
+The storage account key and Redis password were stored in plaintext App Service
+app settings and were exposed during this work. That App Service is now deleted,
+so the exposure surface is gone, but **the credentials themselves were never
+rotated** — deleting the host does not undo the exposure.
+
+Current state on the container app: the MySQL password and Redis key are Key
+Vault references (`mysql-small-ptsadbadmin-password`, `redis-primary-key`)
+resolved through the app's managed identity. The storage account key is still a
+plain secret value. Rotating it and converting it to a Key Vault reference is
+item 5 under Remaining work.

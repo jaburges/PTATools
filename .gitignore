@@ -34,3 +34,6 @@ infra/wp-image/.ctest/
 # snapshots kept for rollback
 .tmp/
 
+
+# Local zip/build artifacts from infra scripts
+.build/
