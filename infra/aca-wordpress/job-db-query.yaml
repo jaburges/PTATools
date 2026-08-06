@@ -37,34 +37,22 @@ properties:
               --user=ptsadbadmin --ssl-mode=REQUIRED --default-character-set=utf8mb4 \
               -t wilderptsa_wp <<'SQL'
             /* Scratch query slot. Overwrite the body for one-off investigation;
-               keep it read-only. Note user variables carry the connection
-               collation and clash with these tables' utf8mb4_unicode_520_ci on
-               LIKE — use string literals instead. */
+               keep it read-only. */
 
-            /* Which module flags are present in the settings, and their values. */
-            SELECT 'enable_auction' AS flag, SUBSTRING(option_value, LOCATE('enable_auction', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_backup' AS flag, SUBSTRING(option_value, LOCATE('enable_backup', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_calendar' AS flag, SUBSTRING(option_value, LOCATE('enable_calendar', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_classes' AS flag, SUBSTRING(option_value, LOCATE('enable_classes', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_donations' AS flag, SUBSTRING(option_value, LOCATE('enable_donations', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_email' AS flag, SUBSTRING(option_value, LOCATE('enable_email', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_newsletter' AS flag, SUBSTRING(option_value, LOCATE('enable_newsletter', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_onedrive_media' AS flag, SUBSTRING(option_value, LOCATE('enable_onedrive_media', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_product_fields' AS flag, SUBSTRING(option_value, LOCATE('enable_product_fields', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_pta' AS flag, SUBSTRING(option_value, LOCATE('enable_pta', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_sso' AS flag, SUBSTRING(option_value, LOCATE('enable_sso', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings'
-            UNION ALL
-            SELECT 'enable_volunteer' AS flag, SUBSTRING(option_value, LOCATE('enable_volunteer', option_value), 60) AS snippet FROM wp_options WHERE option_name='azure_plugin_settings';
+            /* Which pages WooCommerce believes are cart/checkout/account, next
+               to the pages actually answering those URLs. */
+            SELECT option_name, option_value
+              FROM wp_options
+             WHERE option_name IN (
+                   'woocommerce_cart_page_id',
+                   'woocommerce_checkout_page_id',
+                   'woocommerce_myaccount_page_id',
+                   'woocommerce_shop_page_id',
+                   'woocommerce_terms_page_id');
 
+            SELECT ID, post_name, post_status, post_type
+              FROM wp_posts
+             WHERE ID IN (23140, 23141, 11)
+                OR (post_name IN ('cart','checkout','my-account') AND post_type='page');
             SQL
             echo QUERY_OK

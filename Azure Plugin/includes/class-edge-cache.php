@@ -144,10 +144,7 @@ class Azure_Edge_Cache {
             return false;
         }
 
-        if (function_exists('is_cart') && (is_cart() || is_checkout())) {
-            return false;
-        }
-        if (function_exists('is_account_page') && is_account_page()) {
+        if ($this->is_commerce_page()) {
             return false;
         }
 
@@ -159,6 +156,46 @@ class Azure_Edge_Cache {
         }
 
         return true;
+    }
+
+    /**
+     * Whether this page transacts, and therefore must never be shared.
+     *
+     * is_cart() and is_checkout() resolve through woocommerce_cart_page_id and
+     * woocommerce_checkout_page_id, and those drift: on this site they still
+     * pointed at pages 9 and 10 after the redesign rebuilt cart and checkout as
+     * 23140 and 23141, so both conditionals returned false on the real cart
+     * page. Looking for the blocks and shortcodes that make a page a cart is
+     * independent of that setting and survives the next rebuild.
+     */
+    private function is_commerce_page() {
+        if (function_exists('is_cart') && (is_cart() || is_checkout())) {
+            return true;
+        }
+        if (function_exists('is_account_page') && is_account_page()) {
+            return true;
+        }
+
+        $post = get_post();
+        if (!($post instanceof WP_Post)) {
+            return false;
+        }
+
+        if (function_exists('has_block')) {
+            foreach (array('woocommerce/cart', 'woocommerce/checkout', 'woocommerce/mini-cart') as $block) {
+                if (has_block($block, $post)) {
+                    return true;
+                }
+            }
+        }
+
+        foreach (array('woocommerce_cart', 'woocommerce_checkout', 'woocommerce_my_account') as $shortcode) {
+            if (has_shortcode((string) $post->post_content, $shortcode)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function has_visitor_state_cookie() {
