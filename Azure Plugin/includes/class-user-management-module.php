@@ -53,6 +53,13 @@ class Azure_User_Management_Module {
         if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX)) {
             add_action('wp_ajax_pta_um_search_families', array($this, 'ajax_search_families'));
             add_action('wp_ajax_pta_um_assign_account_menu', array($this, 'ajax_assign_account_menu'));
+
+            // Hydration for the header account menu on a cached page. Both
+            // variants are registered because a visitor whose session expired
+            // still has the marker cookie and will ask; they get a "not signed
+            // in" answer rather than a 400.
+            add_action('wp_ajax_pta_header_account', array($this, 'ajax_header_account'));
+            add_action('wp_ajax_nopriv_pta_header_account', array($this, 'ajax_header_account'));
         }
 
         // Parents dashboard widget (24h / 7d / 30d / total). Cheap — only
@@ -249,13 +256,94 @@ class Azure_User_Management_Module {
         $this->maybe_enqueue_dropdown_assets();
 
         if (!is_user_logged_in()) {
-            return sprintf(
-                '<a class="pta-user-dropdown pta-user-dropdown--guest" href="%s">%s</a>',
-                esc_url(wp_login_url(home_url($_SERVER['REQUEST_URI'] ?? '/'))),
-                esc_html($atts['logged_out_text'])
-            );
+            return $this->render_guest_shell($atts);
         }
 
+        // Signed-in responses are sent `no-store` by Azure_Edge_Cache, so this
+        // markup can never be shared and is safe to render inline. Rendering it
+        // here rather than hydrating it keeps the signed-in path free of an
+        // extra round trip.
+        return $this->render_signed_in_dropdown($atts);
+    }
+
+    /**
+     * The guest header, built to be identical for every anonymous visitor so
+     * Front Door can hold one copy of the page for all of them.
+     *
+     * Two things are deliberately absent. There is no display name or menu,
+     * because that would make the page personal. And there is no `redirect_to`
+     * baked into the sign-in link: the cached copy is shared across visitors,
+     * so the return path is filled in client-side from the address bar
+     * instead — otherwise everyone would be sent back to whichever page
+     * happened to be cached first.
+     *
+     * If a signed-in visitor is ever served this copy, the script swaps in
+     * their real menu. In normal operation that does not happen, because their
+     * requests bypass the cache; it matters when an edge rule is wrong, and it
+     * is what would allow caching for signed-in shoppers later.
+     */
+    private function render_guest_shell($atts) {
+        $guest = sprintf(
+            '<a class="pta-user-dropdown pta-user-dropdown--guest" href="%s" data-pta-login>%s</a>',
+            esc_url(wp_login_url()),
+            esc_html($atts['logged_out_text'])
+        );
+
+        $script = sprintf(
+            '(function(){var r=document.querySelector("[data-pta-account-shell]");if(!r)return;' .
+            'var l=r.querySelector("[data-pta-login]");' .
+            'if(l){var u=l.getAttribute("href");l.setAttribute("href",u+(u.indexOf("?")===-1?"?":"&")+"redirect_to="+encodeURIComponent(location.pathname+location.search));}' .
+            'if(!/(?:^|;\s*)%s=1(?:;|$)/.test(document.cookie))return;' .
+            'fetch(%s,{credentials:"same-origin",headers:{"Accept":"application/json"}})' .
+            '.then(function(x){return x.ok?x.json():null})' .
+            '.then(function(d){if(d&&d.success&&d.data&&d.data.logged_in&&d.data.html){r.innerHTML=d.data.html;}})' .
+            '.catch(function(){});})();',
+            esc_js($this->marker_cookie_name()),
+            wp_json_encode(add_query_arg('action', 'pta_header_account', admin_url('admin-ajax.php')))
+        );
+
+        return '<span class="pta-user-dropdown-shell" data-pta-account-shell>' . $guest . '</span>'
+            . '<script>' . $script . '</script>';
+    }
+
+    private function marker_cookie_name() {
+        return class_exists('Azure_Edge_Cache') ? Azure_Edge_Cache::MARKER_COOKIE : 'pta_signed_in';
+    }
+
+    /**
+     * Return the signed-in header markup for whoever holds the cookie.
+     *
+     * No nonce is required or wanted. This reads nothing but the requester's
+     * own session and changes no state, and a nonce would have to be embedded
+     * in the cached page — where it would be shared between visitors and
+     * expire, which is the whole problem this endpoint exists to avoid.
+     */
+    public function ajax_header_account() {
+        nocache_headers();
+        header('Cache-Control: private, no-store, max-age=0');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_success(array('logged_in' => false, 'html' => ''));
+        }
+
+        // No asset enqueue here: the cached page that is asking already carries
+        // the dropdown CSS and JS from its own guest render, and the toggle
+        // binds through delegation on document, so injected markup just works.
+        wp_send_json_success(array(
+            'logged_in' => true,
+            'html'      => $this->render_signed_in_dropdown(array(
+                'logged_out_text' => __('Sign in', 'azure-plugin'),
+                'show_avatar'     => 'yes',
+                'show_name'       => 'yes',
+            )),
+        ));
+    }
+
+    /**
+     * Return the account markup for the current signed-in user. Shared by the
+     * inline render and the hydration endpoint so the two cannot drift.
+     */
+    private function render_signed_in_dropdown($atts) {
         $user        = wp_get_current_user();
         $avatar_html = ($atts['show_avatar'] === 'yes') ? get_avatar($user->ID, 32, '', $user->display_name, array('class' => 'pta-user-dropdown__avatar')) : '';
         $name_html   = ($atts['show_name'] === 'yes')

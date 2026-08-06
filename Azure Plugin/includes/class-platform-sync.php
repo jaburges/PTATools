@@ -656,7 +656,7 @@ class Azure_Platform_Sync {
      *
      * @return array{success:bool,message:string,details?:array}
      */
-    public static function burst_afd_cache() {
+    public static function burst_afd_cache($blocking = true) {
         if (strtolower((string) (getenv('AFD_ENABLED') ?: '')) !== 'true') {
             return array(
                 'success' => false,
@@ -706,9 +706,28 @@ class Azure_Platform_Sync {
                 'Authorization' => 'Bearer ' . $token,
                 'Content-Type'  => 'application/json',
             ),
-            'body'    => wp_json_encode($body),
-            'timeout' => 45,
+            'body'     => wp_json_encode($body),
+            'timeout'  => $blocking ? 45 : 1,
+            'blocking' => (bool) $blocking,
         ));
+
+        // Fire-and-forget: there is no status code to inspect, so report the
+        // dispatch rather than the outcome. Used by the automatic purge on
+        // publish, where waiting up to 45s on ARM would stall the editor.
+        if (!$blocking) {
+            if (is_wp_error($response)) {
+                Azure_Logger::warning('Cache burst: AFD purge dispatch failed — ' . $response->get_error_message(), 'Platform');
+                return array(
+                    'success' => false,
+                    'message' => sprintf(__('Front Door purge request failed: %s', 'azure-plugin'), $response->get_error_message()),
+                );
+            }
+            return array(
+                'success' => true,
+                'message' => __('Front Door purge dispatched.', 'azure-plugin'),
+                'details' => array('endpoint' => $cfg['endpoint_name'], 'blocking' => false),
+            );
+        }
 
         if (is_wp_error($response)) {
             return array(
@@ -767,15 +786,25 @@ class Azure_Platform_Sync {
      * }
      */
     private static function get_afd_purge_config() {
-        $subscription_id = trim((string) (getenv('WEBSITE_OWNER_NAME') ?: ''));
+        // AZURE_SUBSCRIPTION_ID is the portable form and is what the container
+        // sets. WEBSITE_OWNER_NAME only exists on App Service and carries
+        // "<sub-id>+<rg>-<region>webspace", so the subscription has to be split
+        // off the front of it rather than used whole.
+        $subscription_id = trim((string) (getenv('AZURE_SUBSCRIPTION_ID') ?: ''));
         if ($subscription_id === '') {
+            $owner = trim((string) (getenv('WEBSITE_OWNER_NAME') ?: ''));
+            if ($owner !== '') {
+                $subscription_id = strtok($owner, '+');
+            }
+        }
+        if ($subscription_id === '' || $subscription_id === false) {
             $subscription_id = trim((string) Azure_Settings::get_setting('platform_azure_subscription_id', ''));
         }
 
         // No defaults for these: guessing a resource group or Front Door
         // profile would aim an ARM purge at someone else's resources. Empty
         // leaves `configured` false, which disables the purge entirely.
-        $resource_group = trim((string) (getenv('WEBSITE_RESOURCE_GROUP') ?: ''));
+        $resource_group = trim((string) (getenv('AZURE_RESOURCE_GROUP') ?: getenv('WEBSITE_RESOURCE_GROUP') ?: ''));
         if ($resource_group === '') {
             $resource_group = trim((string) Azure_Settings::get_setting('platform_afd_resource_group', ''));
         }
@@ -812,17 +841,42 @@ class Azure_Platform_Sync {
      * @return string|false
      */
     private static function fetch_arm_access_token() {
+        $resource  = 'https://management.azure.com/';
         $client_id = trim((string) (getenv('ENTRA_CLIENT_ID') ?: getenv('AZURE_CLIENT_ID') ?: ''));
-        $url       = 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2019-08-01&resource='
-            . rawurlencode('https://management.azure.com/');
-        if ($client_id !== '') {
-            $url .= '&client_id=' . rawurlencode($client_id);
+
+        // Container Apps and App Service both inject IDENTITY_ENDPOINT and
+        // IDENTITY_HEADER and expect the header-authenticated form. The flat
+        // 169.254.169.254 address only answers on VM-hosted platforms, so it is
+        // the fallback rather than the default — reaching for it first is why
+        // this returned nothing at all after the move off App Service.
+        $identity_endpoint = trim((string) (getenv('IDENTITY_ENDPOINT') ?: ''));
+        $identity_header   = trim((string) (getenv('IDENTITY_HEADER') ?: ''));
+
+        if ($identity_endpoint !== '' && $identity_header !== '') {
+            $url = add_query_arg(
+                array('api-version' => '2019-08-01', 'resource' => $resource),
+                $identity_endpoint
+            );
+            if ($client_id !== '') {
+                $url = add_query_arg('client_id', $client_id, $url);
+            }
+            $args = array(
+                'headers' => array('X-IDENTITY-HEADER' => $identity_header),
+                'timeout' => 15,
+            );
+        } else {
+            $url = 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2019-08-01&resource='
+                . rawurlencode($resource);
+            if ($client_id !== '') {
+                $url .= '&client_id=' . rawurlencode($client_id);
+            }
+            $args = array(
+                'headers' => array('Metadata' => 'true'),
+                'timeout' => 15,
+            );
         }
 
-        $response = wp_remote_get($url, array(
-            'headers' => array('Metadata' => 'true'),
-            'timeout' => 15,
-        ));
+        $response = wp_remote_get($url, $args);
 
         if (is_wp_error($response)) {
             Azure_Logger::warning('Cache burst: IMDS token request failed — ' . $response->get_error_message(), 'Platform');
