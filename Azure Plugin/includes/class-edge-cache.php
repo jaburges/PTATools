@@ -102,9 +102,16 @@ class Azure_Edge_Cache {
         if (is_admin() || headers_sent() || is_user_logged_in()) {
             return;
         }
+
+        // Both branches are explicit on purpose. Front Door assigns its own
+        // default TTL to a response that arrives with no cache directives at
+        // all, so staying silent here would hand the decision to whatever the
+        // edge defaults happen to be rather than to this list.
         if (!$this->is_cacheable_anonymous_request()) {
+            header('Cache-Control: private, no-store, max-age=0');
             return;
         }
+
         header('Cache-Control: public, max-age=0, s-maxage=' . (int) self::SHARED_MAX_AGE);
     }
 
