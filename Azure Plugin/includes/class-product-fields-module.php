@@ -353,7 +353,7 @@ class Azure_Product_Fields_Module {
                     <h3 id="azure-pf-add-child-title"><?php esc_html_e('Add a child', 'azure-plugin'); ?></h3>
                     <p>
                         <label for="azure-pf-new-child-name"><?php esc_html_e("Child's name", 'azure-plugin'); ?></label>
-                        <input type="text" id="azure-pf-new-child-name" placeholder="<?php esc_attr_e('e.g. Greyson Burgess', 'azure-plugin'); ?>" autocomplete="off" />
+                        <input type="text" id="azure-pf-new-child-name" placeholder="<?php esc_attr_e('Child\'s name', 'azure-plugin'); ?>" autocomplete="off" />
                     </p>
                     <p>
                         <label for="azure-pf-new-child-grade"><?php esc_html_e('Grade', 'azure-plugin'); ?></label>
@@ -581,6 +581,10 @@ class Azure_Product_Fields_Module {
     // ─── Validation ────────────────────────────────────────────────────
 
     public function validate_fields($passed, $product_id, $quantity) {
+        if (!empty($_POST['pta_donated_product'])) {
+            return $passed;
+        }
+
         $groups = self::get_groups_for_product($product_id);
 
         // For logged-in parents the "Child's Name" field is collected via
@@ -624,6 +628,10 @@ class Azure_Product_Fields_Module {
     // ─── Cart ──────────────────────────────────────────────────────────
 
     public function add_cart_item_data($cart_item_data, $product_id, $variation_id) {
+        if (!empty($cart_item_data['_pta_donated_product']) || !empty($_POST['pta_donated_product'])) {
+            return $cart_item_data;
+        }
+
         $groups = self::get_groups_for_product($product_id);
         $field_values = array();
 

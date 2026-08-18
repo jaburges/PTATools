@@ -58,6 +58,7 @@ class Azure_Membership_Module {
         if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX)) {
             add_action('admin_menu', array($this, 'register_admin_page'), 25);
             add_action('admin_init', array($this, 'maybe_export_csv'));
+            add_action('wp_dashboard_setup', array($this, 'register_dashboard_widget'));
         }
     }
 
@@ -219,6 +220,9 @@ class Azure_Membership_Module {
         $found_indiv  = false;
         foreach ($order->get_items() as $item) {
             if (!is_object($item) || !method_exists($item, 'get_product_id')) {
+                continue;
+            }
+            if (method_exists($item, 'get_meta') && $item->get_meta('_pta_donated_product')) {
                 continue;
             }
             $candidates = array((int) $item->get_product_id());
@@ -846,6 +850,111 @@ class Azure_Membership_Module {
         }
         return has_shortcode($post->post_content, self::SHORTCODE_A)
             || has_shortcode($post->post_content, self::SHORTCODE_B);
+    }
+
+    // ─── Dashboard widget ───────────────────────────────────────────
+
+    public function register_dashboard_widget() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        wp_add_dashboard_widget(
+            'azure_membership_stats',
+            __('Membership', 'azure-plugin'),
+            array($this, 'render_dashboard_widget')
+        );
+    }
+
+    /**
+     * @return array{parents:int,memberships:int,bought_week:int,year_label:string}
+     */
+    public static function dashboard_stats() {
+        $counts  = function_exists('count_users') ? count_users() : array();
+        $role    = class_exists('Azure_Parent_Role') ? Azure_Parent_Role::ROLE_SLUG : 'parent';
+        $parents = isset($counts['avail_roles'][$role]) ? (int) $counts['avail_roles'][$role] : 0;
+
+        $map = self::get_member_map();
+        $range = self::school_year_range();
+
+        return array(
+            'parents'      => $parents,
+            'memberships'  => count($map),
+            'bought_week'  => self::count_membership_orders_since('-7 days'),
+            'year_label'   => $range['label'],
+        );
+    }
+
+    /**
+     * Paid membership orders (not donated) created since a relative time.
+     */
+    public static function count_membership_orders_since($relative) {
+        $family_ids = array_flip(self::get_family_product_ids());
+        $indiv_ids  = array_flip(self::get_individual_product_ids());
+        if ((empty($family_ids) && empty($indiv_ids)) || !function_exists('wc_get_orders')) {
+            return 0;
+        }
+
+        $tz   = wp_timezone();
+        $to   = new DateTimeImmutable('now', $tz);
+        $from = $to->modify($relative);
+        $orders = wc_get_orders(array(
+            'status'       => array('processing', 'completed'),
+            'type'         => 'shop_order',
+            'date_created' => $from->format('Y-m-d H:i:s') . '...' . $to->format('Y-m-d H:i:s'),
+            'limit'        => -1,
+            'return'       => 'objects',
+        ));
+
+        $count = 0;
+        foreach ($orders as $order) {
+            if (self::order_membership_type($order, $family_ids, $indiv_ids)) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    public function render_dashboard_widget() {
+        $stats = self::dashboard_stats();
+        $page  = admin_url('admin.php?page=azure-plugin-membership');
+        ?>
+        <style>
+            .azure-membership-widget .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+            .azure-membership-widget .stat-card { background: #f9f9f9; padding: 12px; text-align: center; border-radius: 4px; border-left: 3px solid #0078d4; }
+            .azure-membership-widget .stat-card .stat-number { font-size: 22px; font-weight: 700; color: #1d2327; line-height: 1.2; }
+            .azure-membership-widget .stat-card .stat-label { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: 0.3px; }
+            .azure-membership-widget .stat-card.warm { border-left-color: #2271b1; }
+            .azure-membership-widget .stat-card.fresh { border-left-color: #00a32a; }
+        </style>
+        <div class="azure-membership-widget">
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <div class="stat-number"><?php echo esc_html(number_format_i18n($stats['parents'])); ?></div>
+                    <div class="stat-label"><?php esc_html_e('Parents', 'azure-plugin'); ?></div>
+                </div>
+                <div class="stat-card warm">
+                    <div class="stat-number"><?php echo esc_html(number_format_i18n($stats['memberships'])); ?></div>
+                    <div class="stat-label"><?php esc_html_e('Memberships', 'azure-plugin'); ?></div>
+                </div>
+                <div class="stat-card fresh">
+                    <div class="stat-number"><?php echo esc_html(number_format_i18n($stats['bought_week'])); ?></div>
+                    <div class="stat-label"><?php esc_html_e('Bought last week', 'azure-plugin'); ?></div>
+                </div>
+            </div>
+            <p class="description" style="margin:0 0 8px;font-size:11px;color:#646970;">
+                <?php
+                printf(
+                    /* translators: %s: school year label like 2026–2027 */
+                    esc_html__('Memberships are paid Family or Individual products this school year (%s). Last week counts orders, not people. Donated memberships are excluded.', 'azure-plugin'),
+                    esc_html($stats['year_label'])
+                );
+                ?>
+            </p>
+            <p style="margin:0;">
+                <a class="button button-small" href="<?php echo esc_url($page); ?>"><?php esc_html_e('Open Membership', 'azure-plugin'); ?></a>
+            </p>
+        </div>
+        <?php
     }
 
     // ─── Admin page ─────────────────────────────────────────────────

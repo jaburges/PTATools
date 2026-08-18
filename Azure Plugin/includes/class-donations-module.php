@@ -2,8 +2,9 @@
 /**
  * Donations Module
  *
- * Round-up at checkout, custom donation amounts, and [pta-donate] shortcode.
- * Donations are added as WooCommerce cart fees and tracked per campaign.
+ * Round-up at checkout, custom donation amounts, gift products, and shortcodes.
+ * Cash donations are WooCommerce cart fees. Gift products are real line items
+ * marked `_pta_donated_product` so product fields and membership credit are skipped.
  */
 
 if (!defined('ABSPATH')) {
@@ -63,7 +64,7 @@ class Azure_Donations_Module {
      * the flag). Without this the query fires on every admin request.
      */
     private function ensure_tables() {
-        if (get_transient('azure_donations_tables_ok')) {
+        if (get_transient('azure_donations_tables_v3')) {
             return;
         }
         global $wpdb;
@@ -71,7 +72,30 @@ class Azure_Donations_Module {
         if ($table && $wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
             Azure_Database::create_tables();
         }
-        set_transient('azure_donations_tables_ok', 1, 6 * HOUR_IN_SECONDS);
+        $this->ensure_record_columns();
+        set_transient('azure_donations_tables_v3', 1, 6 * HOUR_IN_SECONDS);
+    }
+
+    /**
+     * dbDelta adds columns on version bump; this covers a frontend thank-you
+     * that lands before an admin request has run the migration.
+     */
+    private function ensure_record_columns() {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('donation_records');
+        if (!$table) {
+            return;
+        }
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+            Azure_Database::create_tables();
+        }
+        $col = $wpdb->get_results("SHOW COLUMNS FROM {$table} LIKE 'product_id'");
+        if (!empty($col)) {
+            return;
+        }
+        $wpdb->query("ALTER TABLE {$table} ADD COLUMN product_id bigint(20) UNSIGNED DEFAULT 0 AFTER donation_type");
+        $wpdb->query("ALTER TABLE {$table} ADD COLUMN product_name varchar(255) DEFAULT '' AFTER product_id");
+        $wpdb->query("ALTER TABLE {$table} ADD COLUMN donor_role varchar(50) DEFAULT '' AFTER product_name");
     }
 
     private function init_admin_hooks() {
@@ -89,7 +113,14 @@ class Azure_Donations_Module {
         add_action('woocommerce_after_cart_totals', array($this, 'render_cart_widget'));
         add_action('wp_footer', array($this, 'render_blocks_checkout_widget'));
         add_action('woocommerce_thankyou', array($this, 'record_donation'), 10, 1);
+        add_action('woocommerce_payment_complete', array($this, 'record_donation'), 10, 1);
+        add_action('woocommerce_order_status_processing', array($this, 'record_donation'), 10, 1);
+        add_action('woocommerce_checkout_create_order_line_item', array($this, 'save_donated_item_meta'), 10, 4);
+        add_filter('woocommerce_get_item_data', array($this, 'display_donated_item_data'), 10, 2);
+        add_action('wp_ajax_azure_donations_add_gift_product', array($this, 'ajax_add_gift_product'));
+        add_action('wp_ajax_nopriv_azure_donations_add_gift_product', array($this, 'ajax_add_gift_product'));
         add_shortcode('pta-donate', array($this, 'shortcode_donate'));
+        add_shortcode('donations-list', array($this, 'shortcode_donations_list'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
     }
 
@@ -411,55 +442,262 @@ class Azure_Donations_Module {
 
     public function record_donation($order_id) {
         $order = wc_get_order($order_id);
-        if (!$order) return;
+        if (!$order) {
+            return;
+        }
+        if ($order->get_meta('_pta_donation_recorded')) {
+            return;
+        }
 
-        if ($order->get_meta('_pta_donation_recorded')) return;
+        $this->ensure_record_columns();
 
         global $wpdb;
         $records_table = Azure_Database::get_table_name('donation_records');
         $campaigns_table = Azure_Database::get_table_name('donation_campaigns');
-        if (!$records_table || !$campaigns_table) return;
+        if (!$records_table) {
+            return;
+        }
 
         $campaign = self::get_default_campaign();
-        $campaign_id = $campaign ? $campaign->id : 0;
-        $user_id = $order->get_user_id();
+        $campaign_id = $campaign ? (int) $campaign->id : 0;
+        $user_id = (int) $order->get_user_id();
+        $donor_role = self::donor_role_for_user($user_id);
+        $recorded = 0;
 
         foreach ($order->get_fees() as $fee) {
-            if (strpos($fee->get_name(), 'Donation') !== false) {
-                $amount = abs(floatval($fee->get_total()));
-                if ($amount <= 0) continue;
-
-                $type = 'custom';
-                if (strpos($fee->get_name(), 'Round') !== false) {
-                    $type = 'roundup';
-                }
-
-                $wpdb->insert($records_table, array(
-                    'campaign_id'   => $campaign_id,
-                    'order_id'      => $order_id,
-                    'user_id'       => $user_id,
-                    'amount'        => $amount,
-                    'donation_type' => $type,
-                    'created_at'    => current_time('mysql'),
-                ));
-
-                if ($campaign_id) {
-                    $wpdb->query($wpdb->prepare(
-                        "UPDATE {$campaigns_table} SET raised_amount = raised_amount + %f, updated_at = %s WHERE id = %d",
-                        $amount, current_time('mysql'), $campaign_id
-                    ));
-                }
+            if (strpos($fee->get_name(), 'Donation') === false) {
+                continue;
             }
+            $amount = abs(floatval($fee->get_total()));
+            if ($amount <= 0) {
+                continue;
+            }
+            $type = (strpos($fee->get_name(), 'Round') !== false) ? 'roundup' : 'custom';
+            if ($this->insert_donation_record($records_table, array(
+                'campaign_id'   => $campaign_id,
+                'order_id'      => (int) $order_id,
+                'user_id'       => $user_id,
+                'amount'        => $amount,
+                'donation_type' => $type,
+                'product_id'    => 0,
+                'product_name'  => '',
+                'donor_role'    => $donor_role,
+                'created_at'    => current_time('mysql'),
+            ))) {
+                $recorded++;
+                $this->bump_campaign_raised($campaigns_table, $campaign_id, $amount);
+                $this->send_admin_donation_email($order, '$' . number_format($amount, 2));
+            }
+        }
+
+        foreach ($order->get_items() as $item) {
+            if (!is_object($item) || !method_exists($item, 'get_meta')) {
+                continue;
+            }
+            if (!$item->get_meta('_pta_donated_product')) {
+                continue;
+            }
+            $amount = abs(floatval($item->get_total()));
+            $product_id = method_exists($item, 'get_product_id') ? (int) $item->get_product_id() : 0;
+            $product_name = $item->get_name();
+            if ($this->insert_donation_record($records_table, array(
+                'campaign_id'   => $campaign_id,
+                'order_id'      => (int) $order_id,
+                'user_id'       => $user_id,
+                'amount'        => $amount,
+                'donation_type' => 'product',
+                'product_id'    => $product_id,
+                'product_name'  => $product_name,
+                'donor_role'    => $donor_role,
+                'created_at'    => current_time('mysql'),
+            ))) {
+                $recorded++;
+                $this->bump_campaign_raised($campaigns_table, $campaign_id, $amount);
+                $this->send_admin_donation_email($order, $product_name);
+            }
+        }
+
+        if ($recorded === 0) {
+            return;
         }
 
         $order->update_meta_data('_pta_donation_recorded', 1);
         $order->save();
 
-        // Clear session
         if (WC()->session) {
             WC()->session->set('pta_donation_roundup', false);
             WC()->session->set('pta_donation_custom', 0);
         }
+    }
+
+    private function insert_donation_record($table, array $row) {
+        global $wpdb;
+        $ok = $wpdb->insert($table, $row);
+        return $ok !== false;
+    }
+
+    private function bump_campaign_raised($campaigns_table, $campaign_id, $amount) {
+        if (!$campaigns_table || !$campaign_id || $amount <= 0) {
+            return;
+        }
+        global $wpdb;
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$campaigns_table} SET raised_amount = raised_amount + %f, updated_at = %s WHERE id = %d",
+            $amount,
+            current_time('mysql'),
+            $campaign_id
+        ));
+    }
+
+    /**
+     * Public list stores only parent / staff / guest — never a name or email.
+     */
+    public static function donor_role_for_user($user_id) {
+        if (!$user_id) {
+            return 'guest';
+        }
+        $user = get_userdata((int) $user_id);
+        if (!$user) {
+            return 'guest';
+        }
+        $roles = (array) $user->roles;
+        if (in_array('school_staff', $roles, true)) {
+            return 'staff';
+        }
+        if (in_array('parent', $roles, true)) {
+            return 'parent';
+        }
+        return 'guest';
+    }
+
+    public static function donor_role_label($role) {
+        if ($role === 'staff') {
+            return __('Staff', 'azure-plugin');
+        }
+        if ($role === 'parent') {
+            return __('Parent', 'azure-plugin');
+        }
+        return __('Guest', 'azure-plugin');
+    }
+
+    /**
+     * Admin email only: Parent 1 name when the buyer has an account,
+     * otherwise the order billing / Stripe email.
+     */
+    private function donor_admin_name($order) {
+        $user_id = (int) $order->get_user_id();
+        if ($user_id) {
+            $parent1 = trim((string) get_user_meta($user_id, 'pta_pf_parent_1_name', true));
+            if ($parent1 !== '') {
+                return $parent1;
+            }
+            $first = trim((string) get_user_meta($user_id, 'first_name', true));
+            $last  = trim((string) get_user_meta($user_id, 'last_name', true));
+            $full  = trim($first . ' ' . $last);
+            if ($full !== '') {
+                return $full;
+            }
+        }
+        $email = trim((string) $order->get_billing_email());
+        if ($email !== '') {
+            return $email;
+        }
+        return __('A supporter', 'azure-plugin');
+    }
+
+    private function send_admin_donation_email($order, $gift_label) {
+        $to = get_option('admin_email');
+        if (!is_email($to)) {
+            return;
+        }
+        $who = $this->donor_admin_name($order);
+        $gift = wp_strip_all_tags(html_entity_decode((string) $gift_label, ENT_QUOTES, 'UTF-8'));
+        $subject = __('Congrats on the donation', 'azure-plugin');
+        $body = sprintf(
+            '<p>%s</p><p>%s</p>',
+            esc_html($subject),
+            sprintf(
+                /* translators: 1: Parent 1 name or billing email, 2: product name or amount */
+                esc_html__('%1$s has kindly donated %2$s.', 'azure-plugin'),
+                esc_html($who),
+                esc_html($gift)
+            )
+        );
+        $headers = array('Content-Type: text/html; charset=UTF-8');
+        wp_mail($to, $subject, $body, $headers);
+    }
+
+    public function save_donated_item_meta($item, $cart_item_key, $values, $order) {
+        if (empty($values['_pta_donated_product'])) {
+            return;
+        }
+        $item->update_meta_data('_pta_donated_product', 1);
+        $item->update_meta_data(__('Donation', 'azure-plugin'), __('Gift item', 'azure-plugin'));
+    }
+
+    public function display_donated_item_data($item_data, $cart_item) {
+        if (empty($cart_item['_pta_donated_product'])) {
+            return $item_data;
+        }
+        $item_data[] = array(
+            'key'   => __('Donation', 'azure-plugin'),
+            'value' => __('Gift item — product fields skipped', 'azure-plugin'),
+        );
+        return $item_data;
+    }
+
+    public static function get_gift_products() {
+        $raw = Azure_Settings::get_setting('donations_gift_products', array());
+        if (!is_array($raw)) {
+            return array();
+        }
+        $out = array();
+        foreach ($raw as $row) {
+            $pid = isset($row['product_id']) ? (int) $row['product_id'] : 0;
+            $label = isset($row['label']) ? sanitize_text_field($row['label']) : '';
+            if ($pid > 0 && $label !== '') {
+                $out[] = array('label' => $label, 'product_id' => $pid);
+            }
+        }
+        return $out;
+    }
+
+    public function ajax_add_gift_product() {
+        check_ajax_referer('pta_donations_nonce', 'nonce');
+        if (!class_exists('WooCommerce')) {
+            wp_send_json_error(array('message' => __('WooCommerce is required.', 'azure-plugin')));
+        }
+
+        $product_id = isset($_POST['product_id']) ? (int) $_POST['product_id'] : 0;
+        $allowed = array();
+        foreach (self::get_gift_products() as $row) {
+            $allowed[$row['product_id']] = true;
+        }
+        if ($product_id <= 0 || empty($allowed[$product_id])) {
+            wp_send_json_error(array('message' => __('That gift is not available.', 'azure-plugin')));
+        }
+
+        $product = wc_get_product($product_id);
+        if (!$product || !$product->is_purchasable()) {
+            wp_send_json_error(array('message' => __('That product cannot be purchased.', 'azure-plugin')));
+        }
+
+        if (null === WC()->cart) {
+            wc_load_cart();
+        }
+
+        $_POST['pta_donated_product'] = 1;
+        $key = WC()->cart->add_to_cart($product_id, 1, 0, array(), array(
+            '_pta_donated_product' => 1,
+        ));
+        if (!$key) {
+            wp_send_json_error(array('message' => __('Could not add that gift to your cart.', 'azure-plugin')));
+        }
+
+        wp_send_json_success(array(
+            'message'      => __('Gift added to your cart.', 'azure-plugin'),
+            'checkout_url' => wc_get_checkout_url(),
+        ));
     }
 
     // ─── Shortcode [pta-donate] ──────────────────────────────────────
@@ -533,6 +771,19 @@ class Azure_Donations_Module {
             <?php endif; ?>
 
             <button type="button" class="pta-donate-submit button"><?php echo esc_html($atts['button_text']); ?></button>
+            <?php
+            $gifts = self::get_gift_products();
+            if (!empty($gifts)):
+            ?>
+            <div class="pta-donate-gifts">
+                <p class="pta-donate-gifts-label"><?php esc_html_e('Or donate a membership', 'azure-plugin'); ?></p>
+                <?php foreach ($gifts as $gift): ?>
+                    <button type="button" class="pta-donate-gift-btn button" data-product-id="<?php echo (int) $gift['product_id']; ?>">
+                        <?php echo esc_html($gift['label']); ?>
+                    </button>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
             <div class="pta-donate-message" style="display:none;"></div>
         </div>
 
@@ -585,18 +836,114 @@ class Azure_Donations_Module {
                     $msg.text('Network error.').css('color', '#d63638').show();
                 });
             });
+
+            $form.find('.pta-donate-gift-btn').on('click', function() {
+                var $gbtn = $(this);
+                var $msg = $form.find('.pta-donate-message');
+                $gbtn.prop('disabled', true);
+                $msg.hide();
+                $.post('<?php echo esc_js(admin_url('admin-ajax.php')); ?>', {
+                    action: 'azure_donations_add_gift_product',
+                    nonce: '<?php echo esc_js($nonce); ?>',
+                    product_id: $gbtn.data('product-id'),
+                    pta_donated_product: 1
+                }, function(resp) {
+                    $gbtn.prop('disabled', false);
+                    if (resp.success) {
+                        var url = (resp.data && resp.data.checkout_url) ? resp.data.checkout_url : '<?php echo esc_js(wc_get_checkout_url()); ?>';
+                        $msg.html('Gift added to your cart! <a href="' + url + '">Proceed to checkout</a>').css('color', '#00a32a').show();
+                    } else {
+                        $msg.text((resp.data && resp.data.message) ? resp.data.message : 'Could not add that gift.').css('color', '#d63638').show();
+                    }
+                }).fail(function() {
+                    $gbtn.prop('disabled', false);
+                    $msg.text('Network error.').css('color', '#d63638').show();
+                });
+            });
         });
         </script>
         <?php
         return ob_get_clean();
     }
 
+    /**
+     * Public recap: date, role type, product or amount. No names or emails.
+     */
+    public function shortcode_donations_list($atts) {
+        $atts = shortcode_atts(array(
+            'limit' => 25,
+        ), $atts, 'donations-list');
+
+        $this->ensure_record_columns();
+
+        global $wpdb;
+        $table = Azure_Database::get_table_name('donation_records');
+        if (!$table) {
+            return '';
+        }
+
+        $limit = max(1, min(100, (int) $atts['limit']));
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT created_at, donor_role, product_name, amount, donation_type
+             FROM {$table}
+             ORDER BY created_at DESC
+             LIMIT %d",
+            $limit
+        ));
+
+        ob_start();
+        ?>
+        <div class="pta-donations-list">
+            <table class="pta-donations-list-table">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e('Date', 'azure-plugin'); ?></th>
+                        <th><?php esc_html_e('Role', 'azure-plugin'); ?></th>
+                        <th><?php esc_html_e('Gift', 'azure-plugin'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($rows)): ?>
+                        <tr>
+                            <td colspan="3"><?php esc_html_e('No donations yet.', 'azure-plugin'); ?></td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($rows as $row): ?>
+                            <tr>
+                                <td><?php echo esc_html(date_i18n(get_option('date_format'), strtotime($row->created_at))); ?></td>
+                                <td><?php echo esc_html(self::donor_role_label($row->donor_role)); ?></td>
+                                <td><?php echo esc_html(self::public_gift_label($row)); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    public static function public_gift_label($row) {
+        $name = isset($row->product_name) ? trim((string) $row->product_name) : '';
+        if ($name !== '') {
+            return $name;
+        }
+        $amount = isset($row->amount) ? floatval($row->amount) : 0;
+        return '$' . number_format($amount, 2);
+    }
+
     // ─── Frontend Assets ─────────────────────────────────────────────
 
     public function enqueue_frontend_assets() {
         $post = get_post();
-        $has_shortcode = $post && has_shortcode($post->post_content ?? '', 'pta-donate');
-        if (!is_checkout() && !is_cart() && !$has_shortcode) return;
+        $content = $post ? ($post->post_content ?? '') : '';
+        $has_shortcode = $post && (
+            has_shortcode($content, 'pta-donate')
+            || has_shortcode($content, 'donations-list')
+        );
+        if (!is_checkout() && !is_cart() && !$has_shortcode) {
+            return;
+        }
 
         wp_enqueue_style('dashicons');
         wp_enqueue_style(
@@ -736,6 +1083,29 @@ class Azure_Donations_Module {
             }
         }
 
+        if (isset($_POST['donations_gift_products'])) {
+            $raw = json_decode(wp_unslash($_POST['donations_gift_products']), true);
+            Azure_Settings::update_setting('donations_gift_products', self::sanitize_gift_products($raw));
+        }
+
         wp_send_json_success(array('message' => 'Settings saved'));
+    }
+
+    public static function sanitize_gift_products($raw) {
+        $out = array();
+        if (!is_array($raw)) {
+            return $out;
+        }
+        foreach ($raw as $row) {
+            $pid = isset($row['product_id']) ? (int) $row['product_id'] : 0;
+            $label = isset($row['label']) ? sanitize_text_field($row['label']) : '';
+            if ($pid > 0 && $label !== '') {
+                $out[] = array(
+                    'label'      => $label,
+                    'product_id' => $pid,
+                );
+            }
+        }
+        return $out;
     }
 }

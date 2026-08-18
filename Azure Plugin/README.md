@@ -64,7 +64,7 @@
 | **[Classes (WooCommerce)](https://github.com/jaburges/PTATools/wiki/Classes-Module)** | Create class products that auto-generate `pta_event` sessions on the calendar, variable pricing, commit-to-buy |
 | **[Auction](https://github.com/jaburges/PTATools/wiki/Auction-Module)** | Timed manual bidding, Buy It Now, confirm-bid modal, outbid + winner emails, instant updates |
 | **[Product Fields](https://github.com/jaburges/PTATools/wiki/Product-Fields-Module)** | Custom checkout fields with children profiles, applied by category |
-| **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, campaigns with goals, `[pta-donate]` shortcode |
+| **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, gift products, admin email, `[pta-donate]` and `[donations-list]` |
 
 ### 🙋 Volunteering
 | Module | Description |

@@ -486,6 +486,9 @@ class Azure_Database {
             user_id bigint(20) UNSIGNED DEFAULT 0,
             amount decimal(10,2) NOT NULL,
             donation_type varchar(50) NOT NULL,
+            product_id bigint(20) UNSIGNED DEFAULT 0,
+            product_name varchar(255) DEFAULT '',
+            donor_role varchar(50) DEFAULT '',
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY campaign_id (campaign_id),
@@ -878,7 +881,7 @@ class Azure_Database {
         self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Name',  'parent_2_name',  'parent', 'text',  false, true, 40);
         self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Email', 'parent_2_email', 'parent', 'email', false, true, 50);
         self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Cell',  'parent_2_cell',  'parent', 'text',  false, true, 60);
-        self::ensure_field($fields_table, $parent_group_id, 'List Parent 2 in the parent directory', 'parent_2_opt_in', 'parent', 'checkbox', false, true, 65, 'Show Parent 2 in the parent directory');
+        self::ensure_field($fields_table, $parent_group_id, 'Opt Parent 2 in to directory', 'parent_2_opt_in', 'parent', 'checkbox', false, true, 65, 'Show Parent 2 in the parent directory');
 
         // 4. Enrichment group: ensure exists, add Allergies if missing. Existing
         // fields are matched on label (best-effort) since they predate field_key.
@@ -943,7 +946,7 @@ class Azure_Database {
         self::ensure_field(
             $fields_table,
             $parent_group_id,
-            'List Parent 2 in the parent directory',
+            'Opt Parent 2 in to directory',
             'parent_2_opt_in',
             'parent',
             'checkbox',

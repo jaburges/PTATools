@@ -131,6 +131,49 @@ foreach ($rows as $r) {
         </p>
     </form>
 
+    <div class="azure-membership-shortcode">
+        <h2><?php esc_html_e('Parent directory shortcode', 'azure-plugin'); ?></h2>
+        <p class="description">
+            <?php esc_html_e('Put this on any page. Only opted-in parents are listed. Visitors must be signed in as a parent, staff, or Azure AD user. Names never appear to guests.', 'azure-plugin'); ?>
+        </p>
+        <p>
+            <code id="azure-mem-shortcode">[parent-directory]</code>
+            <button type="button" class="button button-small" id="azure-mem-copy-shortcode"><?php esc_html_e('Copy', 'azure-plugin'); ?></button>
+        </p>
+        <table class="widefat striped" style="max-width:720px;">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e('Attribute', 'azure-plugin'); ?></th>
+                    <th><?php esc_html_e('Default', 'azure-plugin'); ?></th>
+                    <th><?php esc_html_e('What it does', 'azure-plugin'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>show_email</code></td>
+                    <td><code>false</code></td>
+                    <td><?php esc_html_e('Set to true to show the parent email column.', 'azure-plugin'); ?></td>
+                </tr>
+                <tr>
+                    <td><code>show_cell</code></td>
+                    <td><code>false</code></td>
+                    <td><?php esc_html_e('Set to true to show the parent phone column.', 'azure-plugin'); ?></td>
+                </tr>
+            </tbody>
+        </table>
+        <p class="description" style="margin-top:12px;">
+            <?php esc_html_e('Examples:', 'azure-plugin'); ?>
+            <code>[parent-directory]</code>
+            &nbsp;
+            <code>[parent-directory show_email="true"]</code>
+            &nbsp;
+            <code>[parent-directory show_email="true" show_cell="true"]</code>
+        </p>
+        <p class="description">
+            <?php esc_html_e('[Parent-directory] is accepted as an alias. This list is not the paid roster — it is opt-in only.', 'azure-plugin'); ?>
+        </p>
+    </div>
+
     <h2><?php esc_html_e('Roster', 'azure-plugin'); ?></h2>
     <div class="azure-membership-toolbar">
         <input type="search" id="azure-mem-search" placeholder="<?php esc_attr_e('Search name or email…', 'azure-plugin'); ?>" />
@@ -204,7 +247,10 @@ foreach ($rows as $r) {
 .azure-membership-stat { background:#fff; border:1px solid #dcdcde; border-radius:4px; padding:12px 16px; min-width:120px; }
 .azure-membership-stat strong { display:block; font-size:22px; line-height:1.2; }
 .azure-membership-stat span { color:#646970; font-size:12px; }
-.azure-membership-settings { background:#fff; border:1px solid #dcdcde; border-radius:4px; padding:16px 18px; margin:0 0 24px; max-width:960px; }
+.azure-membership-settings,
+.azure-membership-shortcode { background:#fff; border:1px solid #dcdcde; border-radius:4px; padding:16px 18px; margin:0 0 24px; max-width:960px; }
+.azure-membership-shortcode h2 { margin-top:0; }
+.azure-membership-shortcode code { font-size:13px; }
 .azure-membership-pickers { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:800px; }
 .azure-membership-pickers label span { display:block; font-weight:600; margin-bottom:6px; }
 .azure-membership-pickers select { width:100%; }
@@ -248,5 +294,14 @@ foreach ($rows as $r) {
         el.addEventListener('change', apply);
     });
     apply();
+    var copyBtn = document.getElementById('azure-mem-copy-shortcode');
+    if (copyBtn && navigator.clipboard) {
+        copyBtn.addEventListener('click', function(){
+            navigator.clipboard.writeText('[parent-directory]').then(function(){
+                copyBtn.textContent = 'Copied';
+                setTimeout(function(){ copyBtn.textContent = 'Copy'; }, 1500);
+            });
+        });
+    }
 })();
 </script>

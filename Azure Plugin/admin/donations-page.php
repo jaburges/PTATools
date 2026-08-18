@@ -13,6 +13,16 @@ $default_campaign = intval($settings['donations_default_campaign'] ?? 0);
 $enable_roundup = !empty($settings['donations_enable_roundup']);
 $enable_custom = !empty($settings['donations_enable_custom']);
 $quick_amounts = $settings['donations_quick_amounts'] ?? '1,5,10';
+$gift_products = Azure_Donations_Module::get_gift_products();
+$wc_products = array();
+if (function_exists('wc_get_products')) {
+    $wc_products = wc_get_products(array(
+        'status'  => array('publish', 'private'),
+        'limit'   => -1,
+        'orderby' => 'title',
+        'order'   => 'ASC',
+    ));
+}
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -64,10 +74,36 @@ $quick_amounts = $settings['donations_quick_amounts'] ?? '1,5,10';
                 </td>
             </tr>
             <tr>
-                <th>Shortcode</th>
+                <th>Gift products</th>
+                <td>
+                    <p class="description" style="margin-top:0;">Buttons on <code>[pta-donate]</code> that add a WooCommerce product to the cart and skip product fields (for donated memberships). Site admin is emailed on every donation.</p>
+                    <div id="donation-gift-rows">
+                        <?php if (empty($gift_products)): ?>
+                            <p class="description donation-gift-empty">No gift products yet. Add Individual and Staff membership here.</p>
+                        <?php endif; ?>
+                    </div>
+                    <p><button type="button" class="button add-gift-product"><?php esc_html_e('Add gift product', 'azure-plugin'); ?></button></p>
+                    <template id="donation-gift-row-tpl">
+                        <div class="donation-gift-row" style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+                            <input type="text" class="gift-label regular-text" placeholder="Donate an Individual PTA Membership" />
+                            <select class="gift-product-id">
+                                <option value="0">— Select product —</option>
+                                <?php foreach ($wc_products as $product): ?>
+                                    <option value="<?php echo (int) $product->get_id(); ?>"><?php echo esc_html($product->get_name()); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="button" class="button-link-delete remove-gift-row">Remove</button>
+                        </div>
+                    </template>
+                </td>
+            </tr>
+            <tr>
+                <th>Shortcodes</th>
                 <td>
                     <code>[pta-donate]</code>
-                    <p class="description">Place on any page. Attributes: <code>campaign_id</code>, <code>amounts="5,10,25,50"</code>, <code>show_custom="yes"</code>, <code>button_text="Donate Now"</code></p>
+                    <p class="description">Donation form. Attributes: <code>campaign_id</code>, <code>amounts="5,10,25,50"</code>, <code>show_custom="yes"</code>, <code>button_text="Donate Now"</code></p>
+                    <code>[donations-list]</code>
+                    <p class="description">Public table: date, role (Parent / Staff / Guest), and product or amount. Never includes names or emails. Optional: <code>limit="25"</code></p>
                 </td>
             </tr>
         </table>
@@ -187,6 +223,42 @@ jQuery(function($) {
     var nonce = '<?php echo esc_js(wp_create_nonce('azure_plugin_nonce')); ?>';
 
     // ── Settings ──
+    var existingGifts = <?php echo wp_json_encode($gift_products); ?>;
+
+    function addGiftRow(label, productId) {
+        var $tpl = $($('#donation-gift-row-tpl').html());
+        $tpl.find('.gift-label').val(label || '');
+        $tpl.find('.gift-product-id').val(String(productId || 0));
+        $('#donation-gift-rows .donation-gift-empty').remove();
+        $('#donation-gift-rows').append($tpl);
+    }
+
+    (existingGifts || []).forEach(function(g) {
+        addGiftRow(g.label, g.product_id);
+    });
+
+    $('.add-gift-product').on('click', function() {
+        addGiftRow('', 0);
+    });
+
+    $('#donation-gift-rows').on('click', '.remove-gift-row', function() {
+        $(this).closest('.donation-gift-row').remove();
+        if (!$('#donation-gift-rows .donation-gift-row').length) {
+            $('#donation-gift-rows').append('<p class="description donation-gift-empty">No gift products yet. Add Individual and Staff membership here.</p>');
+        }
+    });
+
+    function collectGiftProducts() {
+        var rows = [];
+        $('#donation-gift-rows .donation-gift-row').each(function() {
+            rows.push({
+                label: $(this).find('.gift-label').val(),
+                product_id: parseInt($(this).find('.gift-product-id').val(), 10) || 0
+            });
+        });
+        return rows;
+    }
+
     $('.save-donation-settings').on('click', function() {
         var $btn = $(this), $res = $('#donation-settings-result');
         $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 5px 0 0;"></span> Saving...');
@@ -197,7 +269,8 @@ jQuery(function($) {
             donations_enable_roundup: $('#donations_enable_roundup').is(':checked') ? '1' : '0',
             donations_enable_custom: $('#donations_enable_custom').is(':checked') ? '1' : '0',
             donations_quick_amounts: $('#donations_quick_amounts').val(),
-            donations_default_campaign: $('#donations_default_campaign').val()
+            donations_default_campaign: $('#donations_default_campaign').val(),
+            donations_gift_products: JSON.stringify(collectGiftProducts())
         }, function(r) {
             $btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:middle;line-height:1;margin-right:4px;"></span> Save Settings');
             $res.css('color', r.success ? '#00a32a' : '#d63638').text(r.success ? 'Saved!' : (r.data || 'Error')).show();
@@ -273,13 +346,16 @@ jQuery(function($) {
             if (d.records.length === 0) {
                 html += '<p class="description">No donations recorded yet.</p>';
             } else {
-                html += '<table class="widefat striped"><thead><tr><th>Date</th><th>Campaign</th><th>Type</th><th>Amount</th><th>Order</th></tr></thead><tbody>';
+                html += '<table class="widefat striped"><thead><tr><th>Date</th><th>Campaign</th><th>Role</th><th>Gift</th><th>Type</th><th>Order</th></tr></thead><tbody>';
                 d.records.forEach(function(r) {
+                    var gift = (r.product_name && String(r.product_name).trim()) ? r.product_name : ('$' + parseFloat(r.amount || 0).toFixed(2));
+                    var role = r.donor_role === 'staff' ? 'Staff' : (r.donor_role === 'parent' ? 'Parent' : (r.donor_role ? 'Guest' : '—'));
                     html += '<tr>';
                     html += '<td>' + r.created_at + '</td>';
                     html += '<td>' + (r.campaign_name || '—') + '</td>';
+                    html += '<td>' + role + '</td>';
+                    html += '<td>' + gift + '</td>';
                     html += '<td>' + r.donation_type + '</td>';
-                    html += '<td>$' + parseFloat(r.amount).toFixed(2) + '</td>';
                     html += '<td>' + (r.order_id ? '<a href="post.php?post=' + r.order_id + '&action=edit">#' + r.order_id + '</a>' : '—') + '</td>';
                     html += '</tr>';
                 });
