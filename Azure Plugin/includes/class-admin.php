@@ -485,6 +485,15 @@ class Azure_Admin {
         $settings['backup_types'] = isset($_POST['azure_plugin_settings']['backup_types']) 
             ? array_map('sanitize_text_field', $_POST['azure_plugin_settings']['backup_types']) 
             : array();
+
+        // Explicit list (including empty) — do not treat a missing POST key
+        // as "all plugins/themes". Unchecked boxes are omitted from POST.
+        $settings['backup_selected_plugins'] = isset($_POST['azure_plugin_settings']['backup_selected_plugins'])
+            ? array_map('sanitize_text_field', (array) $_POST['azure_plugin_settings']['backup_selected_plugins'])
+            : array();
+        $settings['backup_selected_themes'] = isset($_POST['azure_plugin_settings']['backup_selected_themes'])
+            ? array_map('sanitize_text_field', (array) $_POST['azure_plugin_settings']['backup_selected_themes'])
+            : array();
         
         $settings['backup_schedule_enabled'] = isset($_POST['azure_plugin_settings']['backup_schedule_enabled']);
         

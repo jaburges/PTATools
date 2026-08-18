@@ -1,0 +1,98 @@
+.pta-parent-directory {
+    max-width: 960px;
+    margin: 0 0 2em;
+}
+
+.pta-parent-directory--login,
+.pta-parent-directory--denied {
+    padding: 1.25em 1.4em;
+    border: 1px solid #d6dbe1;
+    border-radius: 6px;
+    background: #f7f8fa;
+}
+
+.pta-parent-directory__login {
+    display: inline-block;
+    margin-top: 0.25em;
+    font-weight: 600;
+}
+
+.pta-parent-directory__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.pta-parent-directory__search {
+    flex: 1 1 220px;
+    max-width: 320px;
+    padding: 8px 10px;
+    border: 1px solid #c5c9d0;
+    border-radius: 4px;
+    font-size: 15px;
+}
+
+.pta-parent-directory__grade-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+}
+
+.pta-parent-directory__grade {
+    padding: 7px 8px;
+    border: 1px solid #c5c9d0;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.pta-parent-directory__count {
+    color: #5c6370;
+    font-size: 13px;
+}
+
+.pta-parent-directory__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+}
+
+.pta-parent-directory__table th,
+.pta-parent-directory__table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #e4e7ec;
+}
+
+.pta-parent-directory__table th {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.pta-parent-directory__table th[data-sort]::after {
+    content: " \2195";
+    color: #9aa1ab;
+    font-size: 12px;
+}
+
+.pta-parent-directory__table th.is-asc::after {
+    content: " \2191";
+    color: #333;
+}
+
+.pta-parent-directory__table th.is-desc::after {
+    content: " \2193";
+    color: #333;
+}
+
+.pta-parent-directory__table tbody tr:nth-child(even) {
+    background: #fafbfc;
+}
+
+.pta-parent-directory__empty td {
+    color: #667;
+    font-style: italic;
+}

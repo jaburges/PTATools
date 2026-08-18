@@ -542,6 +542,10 @@ class Azure_Database {
         // existing field config matches by normalized label. One-shot.
         self::consolidate_v367_field_duplicates();
 
+        // v3.145: parent directory opt-in checkboxes. Separate gate because
+        // azure_pf_v367_seed_done is already set on live installs.
+        self::seed_membership_optin_fields();
+
         // Log successful table creation
         Azure_Logger::info('Azure Plugin database tables created successfully');
     }
@@ -870,9 +874,11 @@ class Azure_Database {
         self::ensure_field($fields_table, $parent_group_id, 'Parent 1 Name',  'parent_1_name',  'parent', 'text',  false, true, 10);
         self::ensure_field($fields_table, $parent_group_id, 'Parent 1 Email', 'parent_1_email', 'parent', 'email', false, true, 20);
         self::ensure_field($fields_table, $parent_group_id, 'Parent 1 Cell',  'parent_1_cell',  'parent', 'text',  false, true, 30);
+        self::ensure_field($fields_table, $parent_group_id, 'List me in the parent directory', 'parent_1_opt_in', 'parent', 'checkbox', false, true, 35, 'Show my name in the parent directory');
         self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Name',  'parent_2_name',  'parent', 'text',  false, true, 40);
         self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Email', 'parent_2_email', 'parent', 'email', false, true, 50);
         self::ensure_field($fields_table, $parent_group_id, 'Parent 2 Cell',  'parent_2_cell',  'parent', 'text',  false, true, 60);
+        self::ensure_field($fields_table, $parent_group_id, 'List Parent 2 in the parent directory', 'parent_2_opt_in', 'parent', 'checkbox', false, true, 65, 'Show Parent 2 in the parent directory');
 
         // 4. Enrichment group: ensure exists, add Allergies if missing. Existing
         // fields are matched on label (best-effort) since they predate field_key.
@@ -891,6 +897,63 @@ class Azure_Database {
         self::ensure_field($fields_table, $emergency_group_id, 'Emergency Contact Cell',  'emergency_contact_cell',  'family', 'text',  false, true, 30);
 
         update_option('azure_pf_v367_seed_done', 'yes', false);
+    }
+
+    /**
+     * Seed the two parent-directory opt-in checkboxes.
+     *
+     * Lives in its own option gate because `azure_pf_v367_seed_done` is
+     * already set on production. `ensure_field()` matches on field_key so
+     * re-runs are safe. If Parent Core is already mapped to the membership
+     * product category, the boxes appear on those products automatically.
+     */
+    public static function seed_membership_optin_fields() {
+        if (get_option('azure_pf_membership_optin_seed_done') === 'yes') {
+            return;
+        }
+
+        $groups_table = self::get_table_name('product_field_groups');
+        $fields_table = self::get_table_name('product_fields');
+        if (!$groups_table || !$fields_table) {
+            return;
+        }
+
+        $parent_group_id = self::ensure_field_group(
+            $groups_table,
+            'Parent Core',
+            'Parent contact details, pre-filled from profile',
+            20
+        );
+        if (!$parent_group_id) {
+            return;
+        }
+
+        self::ensure_field(
+            $fields_table,
+            $parent_group_id,
+            'List me in the parent directory',
+            'parent_1_opt_in',
+            'parent',
+            'checkbox',
+            false,
+            true,
+            35,
+            'Show my name in the parent directory'
+        );
+        self::ensure_field(
+            $fields_table,
+            $parent_group_id,
+            'List Parent 2 in the parent directory',
+            'parent_2_opt_in',
+            'parent',
+            'checkbox',
+            false,
+            true,
+            65,
+            'Show Parent 2 in the parent directory'
+        );
+
+        update_option('azure_pf_membership_optin_seed_done', 'yes', false);
     }
 
     /**
@@ -923,7 +986,7 @@ class Azure_Database {
      * Get an existing field by `field_key` or insert it. `field_key` is
      * immutable so this is safe to re-run.
      */
-    private static function ensure_field($fields_table, $group_id, $label, $field_key, $scope, $field_type, $required, $save_to_profile, $sort_order) {
+    private static function ensure_field($fields_table, $group_id, $label, $field_key, $scope, $field_type, $required, $save_to_profile, $sort_order, $placeholder = '') {
         global $wpdb;
         $existing = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT id FROM {$fields_table} WHERE field_key = %s LIMIT 1",
@@ -940,7 +1003,7 @@ class Azure_Database {
                 'field_key'       => $field_key,
                 'scope'           => $scope,
                 'field_type'      => $field_type,
-                'placeholder'     => '',
+                'placeholder'     => $placeholder,
                 'required'        => $required ? 1 : 0,
                 'save_to_profile' => $save_to_profile ? 1 : 0,
                 'user_meta_key'   => 'pta_pf_' . $field_key,

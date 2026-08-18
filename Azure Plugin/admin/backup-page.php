@@ -224,13 +224,16 @@ $settings = Azure_Settings::get_all_settings();
                             <?php
                             // Default includes 'uploads' -- see docs/backup-review-2026-05-22.md.
                             $backup_types = $settings['backup_types'] ?? array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads');
-                            $selected_plugins = $settings['backup_selected_plugins'] ?? array();
-                            $selected_themes  = $settings['backup_selected_themes']  ?? array();
+                            $plugins_configured = array_key_exists('backup_selected_plugins', $settings);
+                            $themes_configured  = array_key_exists('backup_selected_themes', $settings);
+                            $selected_plugins = $plugins_configured ? (array) $settings['backup_selected_plugins'] : array();
+                            $selected_themes  = $themes_configured ? (array) $settings['backup_selected_themes'] : array();
 
                             $simple_types = array(
                                 'database'   => 'Database',
                                 'mu-plugins' => 'Must-Use Plugins',
                                 'content'    => 'Content Files',
+                                'uploads'    => 'Media / Uploads',
                             );
 
                             $all_plugins = get_plugins();
@@ -252,13 +255,13 @@ $settings = Azure_Settings::get_all_settings();
                                 <a href="#" class="backup-expand-toggle" data-target="backup-plugins-list" style="margin-left: 6px; font-size: 12px; text-decoration: none;">[select individually ▾]</a>
                                 <div id="backup-plugins-list" style="display: none; margin: 6px 0 6px 24px; padding: 8px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; max-height: 200px; overflow-y: auto;">
                                     <label style="display: block; margin-bottom: 4px; font-weight: bold;">
-                                        <input type="checkbox" class="backup-select-all" data-group="backup-plugin-item" checked /> Select All
+                                        <input type="checkbox" class="backup-select-all" data-group="backup-plugin-item" /> Select All
                                     </label>
                                     <hr style="margin: 4px 0;">
                                     <?php foreach ($all_plugins as $plugin_file => $plugin_data):
                                         $slug = dirname($plugin_file);
                                         if ($slug === '.') $slug = basename($plugin_file, '.php');
-                                        $is_checked = empty($selected_plugins) || in_array($slug, $selected_plugins);
+                                        $is_checked = !$plugins_configured || in_array($slug, $selected_plugins, true);
                                     ?>
                                     <label style="display: block; margin: 2px 0;">
                                         <input type="checkbox" class="backup-plugin-item" name="azure_plugin_settings[backup_selected_plugins][]" value="<?php echo esc_attr($slug); ?>" <?php checked($is_checked); ?> />
@@ -278,12 +281,12 @@ $settings = Azure_Settings::get_all_settings();
                                 <a href="#" class="backup-expand-toggle" data-target="backup-themes-list" style="margin-left: 6px; font-size: 12px; text-decoration: none;">[select individually ▾]</a>
                                 <div id="backup-themes-list" style="display: none; margin: 6px 0 6px 24px; padding: 8px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; max-height: 200px; overflow-y: auto;">
                                     <label style="display: block; margin-bottom: 4px; font-weight: bold;">
-                                        <input type="checkbox" class="backup-select-all" data-group="backup-theme-item" checked /> Select All
+                                        <input type="checkbox" class="backup-select-all" data-group="backup-theme-item" /> Select All
                                     </label>
                                     <hr style="margin: 4px 0;">
                                     <?php foreach ($all_themes as $theme_slug => $theme_obj): ?>
                                     <label style="display: block; margin: 2px 0;">
-                                        <input type="checkbox" class="backup-theme-item" name="azure_plugin_settings[backup_selected_themes][]" value="<?php echo esc_attr($theme_slug); ?>" <?php checked(empty($selected_themes) || in_array($theme_slug, $selected_themes)); ?> />
+                                        <input type="checkbox" class="backup-theme-item" name="azure_plugin_settings[backup_selected_themes][]" value="<?php echo esc_attr($theme_slug); ?>" <?php checked(!$themes_configured || in_array($theme_slug, $selected_themes, true)); ?> />
                                         <?php echo esc_html($theme_obj->get('Name')); ?>
                                         <span style="color: #888; font-size: 11px;">(<?php echo esc_html($theme_slug); ?>)</span>
                                     </label>
@@ -502,12 +505,17 @@ jQuery(document).ready(function($) {
         var group = $(this).data('group');
         $('.' + group).prop('checked', $(this).is(':checked'));
     });
-    // Keep "Select All" in sync when individual items change
+    function syncBackupSelectAll(cls) {
+        var $items = $('.' + cls);
+        var all = $items.length;
+        var checked = $items.filter(':checked').length;
+        $items.closest('div').find('.backup-select-all').prop('checked', all > 0 && all === checked);
+    }
+    syncBackupSelectAll('backup-plugin-item');
+    syncBackupSelectAll('backup-theme-item');
     $(document).on('change', '.backup-plugin-item, .backup-theme-item', function() {
         var cls = $(this).hasClass('backup-plugin-item') ? 'backup-plugin-item' : 'backup-theme-item';
-        var all = $('.' + cls).length;
-        var checked = $('.' + cls + ':checked').length;
-        $(this).closest('div').find('.backup-select-all').prop('checked', all === checked);
+        syncBackupSelectAll(cls);
     });
 
     // Expand/collapse backup detail rows

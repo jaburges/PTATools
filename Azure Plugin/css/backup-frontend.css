@@ -260,12 +260,20 @@
     color: #333 !important;
 }
 
-.form-table input,
+.form-table input[type="text"],
+.form-table input[type="password"],
+.form-table input[type="email"],
+.form-table input[type="number"],
 .form-table select,
 .form-table textarea {
     color: #333 !important;
     background: #fff !important;
     border: 1px solid #ddd;
+}
+
+.form-table input[type="checkbox"] {
+    margin-right: 6px;
+    vertical-align: middle;
 }
 
 .form-table .description {
@@ -310,11 +318,11 @@
     transition: .4s;
 }
 
-input:checked + .slider {
+.switch input:checked + .slider {
     background-color: #0073aa;
 }
 
-input:checked + .slider:before {
+.switch input:checked + .slider:before {
     transform: translateX(26px);
 }
 

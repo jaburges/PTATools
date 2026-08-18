@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
         foreach ($parent_meta as $f) {
             $by_key[$f['key']] = $f;
         }
-        $sub_keys = array('name', 'email', 'cell');
+        $sub_keys = array('name', 'email', 'cell', 'opt_in');
         foreach ($sub_keys as $sub) {
             $k1 = 'pta_pf_parent_1_' . $sub;
             $k2 = 'pta_pf_parent_2_' . $sub;
@@ -306,6 +306,13 @@ jQuery(function($) {
             var formData = $form.serializeArray();
             var postData = { action: action, nonce: nonce };
             $.each(formData, function(i, field) { postData[field.name] = field.value; });
+            // Unchecked boxes are omitted by serializeArray. Send an empty
+            // value so directory opt-in can be cleared from My Account.
+            $form.find('input[type="checkbox"]').each(function() {
+                if (!this.checked && this.name) {
+                    postData[this.name] = '';
+                }
+            });
 
             $.post(ajaxUrl, postData, function(res) {
                 $btn.prop('disabled', false);
