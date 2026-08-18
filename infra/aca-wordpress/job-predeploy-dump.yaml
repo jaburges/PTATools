@@ -1,0 +1,67 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    ? /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+    : {}
+properties:
+  environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 3600
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+    - name: db-password
+      keyVaultUrl: https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password
+      identity: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+  template:
+    volumes:
+      - name: migrationfiles
+        storageType: AzureFile
+        storageName: migrationfiles
+    containers:
+      - name: dump
+        image: docker.io/library/mysql:8
+        resources:
+          cpu: 1.0
+          memory: 2.0Gi
+        volumeMounts:
+          - volumeName: migrationfiles
+            mountPath: /backup
+        env:
+          - name: MYSQL_PWD
+            secretRef: db-password
+        command: ["/bin/bash"]
+        args:
+          - "-c"
+          - |
+            set -euo pipefail
+            HOST="wilderptsa-wpdb-small.mysql.database.azure.com"
+            USER="ptsadbadmin"
+            DB="wilderptsa_wp"
+            STAMP="$(date -u +%Y%m%d-%H%M%S)"
+            OUT="/backup/predeploy-$STAMP"
+            mkdir -p "$OUT"
+            echo "=== dumping $DB ==="
+            mysql --host="$HOST" --user="$USER" --ssl-mode=REQUIRED -N -e "SELECT VERSION(), DATABASE();" "$DB"
+            mysqldump --host="$HOST" --user="$USER" --ssl-mode=REQUIRED \
+              --default-character-set=utf8mb4 --single-transaction \
+              --routines --triggers --events --no-tablespaces \
+              --column-statistics=0 --set-gtid-purged=OFF \
+              "$DB" | gzip -9 > "$OUT/$DB.sql.gz"
+            gzip -t "$OUT/$DB.sql.gz"
+            if gzip -dc "$OUT/$DB.sql.gz" | tail -5 | grep -q "Dump completed"; then
+              echo "completion marker: yes"
+            else
+              echo "completion marker: NO" >&2
+              exit 1
+            fi
+            echo -n "tables: "
+            gzip -dc "$OUT/$DB.sql.gz" | grep -c "^CREATE TABLE"
+            du -h "$OUT/$DB.sql.gz"
+            echo "$OUT"
+            echo DUMP_OK
