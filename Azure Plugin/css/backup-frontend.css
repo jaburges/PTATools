@@ -177,16 +177,34 @@
     box-shadow: 0 1px 1px rgba(0,0,0,.04);
 }
 
-/* Force light background for all form elements */
-.credentials-section input,
+/* Text-like fields only. Styling every input (including checkbox/radio)
+   paints a box over the native control and hides the checked state. */
+.azure-backup-page,
+.azure-backup-page .form-table,
+.azure-backup-page input[type="text"],
+.azure-backup-page input[type="password"],
+.azure-backup-page input[type="email"],
+.azure-backup-page input[type="number"],
+.azure-backup-page select,
+.azure-backup-page textarea {
+    color-scheme: light;
+}
+
+.credentials-section input[type="text"],
+.credentials-section input[type="password"],
+.credentials-section input[type="email"],
+.credentials-section input[type="number"],
 .credentials-section select,
 .credentials-section textarea,
-.backup-configuration input,
+.backup-configuration input[type="text"],
+.backup-configuration input[type="password"],
+.backup-configuration input[type="email"],
+.backup-configuration input[type="number"],
 .backup-configuration select,
 .backup-configuration textarea {
     background: #fff !important;
-    color: #333 !important;
-    border: 1px solid #ddd !important;
+    color: #1d2327 !important;
+    border: 1px solid #8c8f94 !important;
 }
 
 .backup-configuration h2,
@@ -251,29 +269,48 @@
 }
 
 /* Form Elements */
-.form-table th {
-    color: #333 !important;
-    background: #f9f9f9 !important;
-}
-
-.form-table td {
-    color: #333 !important;
-}
-
-.form-table input[type="text"],
-.form-table input[type="password"],
-.form-table input[type="email"],
-.form-table input[type="number"],
-.form-table select,
-.form-table textarea {
-    color: #333 !important;
+.azure-backup-page .form-table th,
+.azure-backup-page .form-table td {
+    color: #1d2327 !important;
     background: #fff !important;
-    border: 1px solid #ddd;
 }
 
-.form-table input[type="checkbox"] {
-    margin-right: 6px;
+.azure-backup-page .form-table input[type="text"],
+.azure-backup-page .form-table input[type="password"],
+.azure-backup-page .form-table input[type="email"],
+.azure-backup-page .form-table input[type="number"],
+.azure-backup-page .form-table select,
+.azure-backup-page .form-table textarea {
+    color: #1d2327 !important;
+    background: #fff !important;
+    border: 1px solid #8c8f94;
+}
+
+.azure-backup-page input[type="checkbox"],
+.azure-backup-page input[type="radio"] {
+    appearance: auto;
+    -webkit-appearance: auto;
+    background: initial !important;
+    background-color: initial !important;
+    border: initial !important;
+    box-shadow: none !important;
+    color: initial !important;
+    width: 1rem !important;
+    height: 1rem !important;
+    max-width: none !important;
+    margin: 0 6px 0 0;
     vertical-align: middle;
+    accent-color: #2271b1;
+    color-scheme: light;
+}
+
+.azure-backup-page .switch input[type="checkbox"] {
+    appearance: none;
+    opacity: 0;
+    width: 0 !important;
+    height: 0 !important;
+    background: none !important;
+    border: none !important;
 }
 
 .form-table .description {

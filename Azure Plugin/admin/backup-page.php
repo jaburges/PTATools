@@ -36,7 +36,7 @@ if ($backup_jobs_table) {
 $settings = Azure_Settings::get_all_settings();
 ?>
 
-<div class="wrap">
+<div class="wrap azure-backup-page">
     <h1>PTA Tools - Backup Settings</h1>
     
     <!-- Module Status Toggle -->
@@ -269,9 +269,6 @@ $settings = Azure_Settings::get_all_settings();
                             <?php
                             // Default includes 'uploads' -- see docs/backup-review-2026-05-22.md.
                             $backup_types = $settings['backup_types'] ?? array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads');
-                            if ($host_resolved === 'container' && !in_array('container_code', $backup_types, true)) {
-                                $backup_types[] = 'container_code';
-                            }
                             $plugins_configured = array_key_exists('backup_selected_plugins', $settings);
                             $themes_configured  = array_key_exists('backup_selected_themes', $settings);
                             $selected_plugins = $plugins_configured ? (array) $settings['backup_selected_plugins'] : array();

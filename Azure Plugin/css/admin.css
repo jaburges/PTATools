@@ -611,25 +611,30 @@ input:checked + .slider:before {
 
 /* Dark mode support - WordPress admin specific */
 @media (prefers-color-scheme: dark) {
+    /* Keep WordPress admin cards light. Darkening .credentials-section
+       here left black cells around the backup storage fields. */
     .wp-core-ui .module-card,
     .wp-core-ui .credentials-section,
-    .wp-core-ui .info-box {
-        background: #1e1e1e !important;
-        border-color: #444 !important;
-        color: #fff !important;
-    }
-    
-    /* Force light background for backup page specifically */
-    body.toplevel_page_azure-plugin-backup .credentials-section,
-    body.azure-plugin_page_azure-plugin-backup .credentials-section {
+    .wp-core-ui .info-box,
+    .azure-backup-page .credentials-section,
+    .azure-backup-page .backup-configuration {
         background: #fff !important;
-        color: #333 !important;
+        border-color: #ccd0d4 !important;
+        color: #1d2327 !important;
+    }
+
+    body.toplevel_page_azure-plugin-backup .credentials-section,
+    body.azure-plugin_page_azure-plugin-backup .credentials-section,
+    .azure-backup-page .credentials-section {
+        background: #fff !important;
+        color: #1d2327 !important;
         border-color: #ccd0d4 !important;
     }
     
     body.toplevel_page_azure-plugin-backup .credentials-section h2,
-    body.azure-plugin_page_azure-plugin-backup .credentials-section h2 {
-        color: #333 !important;
+    body.azure-plugin_page_azure-plugin-backup .credentials-section h2,
+    .azure-backup-page .credentials-section h2 {
+        color: #1d2327 !important;
     }
     
     .wp-core-ui .module-header h3 {
