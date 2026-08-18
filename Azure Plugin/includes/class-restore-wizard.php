@@ -558,7 +558,7 @@ class Azure_Restore_Wizard {
             $blob_ref = $this->find_restore_blob($prefix);
 
             // Restore everything except database and media
-            $file_types = array('mu-plugins', 'plugins', 'themes', 'others', 'content');
+            $file_types = array('mu-plugins', 'plugins', 'themes', 'others', 'content', 'container_code');
 
             self::log_activity('Components to restore: ' . implode(', ', $file_types));
 

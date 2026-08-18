@@ -216,6 +216,9 @@ class Azure_Backup {
             // even when OneDrive Media sync is disabled or its auth has expired.
             // See docs/backup-review-2026-05-22.md for context.
             $types = json_decode($job->backup_types, true) ?: array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads');
+            if (class_exists('Azure_Backup_Host') && Azure_Backup_Host::is_container() && !in_array('container_code', $types, true)) {
+                $types[] = 'container_code';
+            }
             foreach ($types as $t) {
                 $entity_state[$t] = array('status' => 'pending', 'files' => array());
             }
@@ -270,6 +273,11 @@ class Azure_Backup {
                         if ($blob) {
                             $blob_names[] = $blob;
                             $blob_sizes[] = $asize;
+                            if ($entity === 'container_code' && class_exists('Azure_Backup_Host')) {
+                                $latest = Azure_Backup_Host::latest_blob_prefix() . '/container-code.zip';
+                                $storage->upload_backup($apath, $latest);
+                                Azure_Logger::info("Backup: Published container-latest pointer {$latest}", 'Backup');
+                            }
                         }
                         @unlink($apath);
                     }
@@ -368,6 +376,9 @@ class Azure_Backup {
             case 'content':
             case 'others':
                 return $engine->backup_entity('others', WP_CONTENT_DIR, Azure_Backup_Engine::get_others_exclusions());
+
+            case 'container_code':
+                return $engine->backup_container_code();
 
             default:
                 Azure_Logger::warning("Backup: Unknown entity type: {$entity}", 'Backup');

@@ -201,7 +201,7 @@
             if (d.components && d.components.length) {
                 var cHtml = '<ul style="list-style:disc; margin-left:24px;">';
                 d.components.forEach(function (c) {
-                    var label = { database: 'Database', plugins: 'Plugins', themes: 'Themes', others: 'Other Content', content: 'Other Content' }[c.entity] || c.entity;
+                    var label = { database: 'Database', plugins: 'Plugins', themes: 'Themes', others: 'Other Content', content: 'Other Content', container_code: 'Container code', uploads: 'Media / Uploads', media: 'Media / Uploads', 'mu-plugins': 'Must-Use Plugins' }[c.entity] || c.entity;
                     cHtml += '<li>' + esc(label) + ' (' + c.file_count + ' file' + (c.file_count !== 1 ? 's' : '') + ')</li>';
                 });
                 cHtml += '</ul>';
@@ -288,7 +288,7 @@
                 var msgLower = msg.toLowerCase();
 
                 // Update sidebar based on current entity being restored
-                var order = ['mu-plugins', 'plugins', 'themes', 'others'];
+                var order = ['mu-plugins', 'plugins', 'themes', 'others', 'container_code'];
                 var activeIdx = -1;
                 for (var i = 0; i < order.length; i++) {
                     if (msgLower.indexOf(order[i]) !== -1) {
@@ -314,7 +314,7 @@
             });
 
             if (r.success) {
-                ['mu-plugins', 'plugins', 'themes', 'others'].forEach(function (e) {
+                ['mu-plugins', 'plugins', 'themes', 'others', 'container_code'].forEach(function (e) {
                     markStep('#rw-files-steps', e, 'done');
                 });
                 markStep('#rw-files-steps', 'cleaning', 'done');

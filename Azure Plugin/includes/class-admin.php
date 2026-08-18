@@ -527,6 +527,14 @@ class Azure_Admin {
         $settings['backup_schedule_time'] = sanitize_text_field($_POST['backup_schedule_time'] ?? '02:00');
         $settings['backup_email_notifications'] = isset($_POST['backup_email_notifications']);
         $settings['backup_notification_email'] = sanitize_email($_POST['backup_notification_email'] ?? get_option('admin_email'));
+
+        $hosting = isset($_POST['azure_plugin_settings']['backup_hosting_mode'])
+            ? sanitize_key($_POST['azure_plugin_settings']['backup_hosting_mode'])
+            : 'auto';
+        if (!in_array($hosting, array('auto', 'app_service', 'container'), true)) {
+            $hosting = 'auto';
+        }
+        $settings['backup_hosting_mode'] = $hosting;
     }
     
     private function save_calendar_settings(&$settings) {

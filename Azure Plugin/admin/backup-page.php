@@ -216,24 +216,73 @@ $settings = Azure_Settings::get_all_settings();
             <!-- Backup Configuration -->
             <div class="backup-configuration">
                 <h2>Backup Configuration</h2>
-                
+                <?php
+                $host_detected = class_exists('Azure_Backup_Host') ? Azure_Backup_Host::detect() : 'unknown';
+                $host_setting  = class_exists('Azure_Backup_Host') ? Azure_Backup_Host::setting() : 'auto';
+                $host_resolved = class_exists('Azure_Backup_Host') ? Azure_Backup_Host::resolved() : 'app_service';
+                $host_labels = array(
+                    'auto'        => 'Auto-detect',
+                    'app_service' => 'App Service',
+                    'container'   => 'Container Apps',
+                    'unknown'     => 'Unknown',
+                );
+                ?>
                 <table class="form-table">
+                    <tr>
+                        <th scope="row">Hosting</th>
+                        <td>
+                            <fieldset>
+                                <label>
+                                    <input type="radio" name="azure_plugin_settings[backup_hosting_mode]" value="auto" <?php checked($host_setting, 'auto'); ?> />
+                                    Auto-detect
+                                </label><br>
+                                <label>
+                                    <input type="radio" name="azure_plugin_settings[backup_hosting_mode]" value="container" <?php checked($host_setting, 'container'); ?> />
+                                    Container Apps
+                                </label><br>
+                                <label>
+                                    <input type="radio" name="azure_plugin_settings[backup_hosting_mode]" value="app_service" <?php checked($host_setting, 'app_service'); ?> />
+                                    App Service
+                                </label>
+                            </fieldset>
+                            <p class="description">
+                                Detected: <strong><?php echo esc_html($host_labels[$host_detected] ?? $host_detected); ?></strong>
+                                · Using: <strong><?php echo esc_html($host_labels[$host_resolved] ?? $host_resolved); ?></strong>
+                            </p>
+                            <?php if ($host_resolved === 'container'): ?>
+                            <div class="notice notice-info inline" style="margin:10px 0 0;">
+                                <p>
+                                    <strong>Container mode.</strong>
+                                    Each backup also writes a <code>container-code</code> snapshot (plugins + themes + mu-plugins) to Azure Blob.
+                                    Restore applies it onto the live container immediately (hot restore).
+                                    The latest snapshot is also published at
+                                    <code><?php echo esc_html(class_exists('Azure_Backup_Host') ? Azure_Backup_Host::latest_blob_prefix() . '/…' : 'container-latest'); ?></code>.
+                                    Rebuild the WordPress image from that snapshot so the next revision keeps the same plugins.
+                                </p>
+                            </div>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
                     <tr>
                         <th scope="row">Backup Types</th>
                         <td>
                             <?php
                             // Default includes 'uploads' -- see docs/backup-review-2026-05-22.md.
                             $backup_types = $settings['backup_types'] ?? array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads');
+                            if ($host_resolved === 'container' && !in_array('container_code', $backup_types, true)) {
+                                $backup_types[] = 'container_code';
+                            }
                             $plugins_configured = array_key_exists('backup_selected_plugins', $settings);
                             $themes_configured  = array_key_exists('backup_selected_themes', $settings);
                             $selected_plugins = $plugins_configured ? (array) $settings['backup_selected_plugins'] : array();
                             $selected_themes  = $themes_configured ? (array) $settings['backup_selected_themes'] : array();
 
                             $simple_types = array(
-                                'database'   => 'Database',
-                                'mu-plugins' => 'Must-Use Plugins',
-                                'content'    => 'Content Files',
-                                'uploads'    => 'Media / Uploads',
+                                'database'       => 'Database',
+                                'mu-plugins'     => 'Must-Use Plugins',
+                                'content'        => 'Content Files',
+                                'uploads'        => 'Media / Uploads',
+                                'container_code' => 'Container code snapshot (plugins + themes + mu-plugins)',
                             );
 
                             $all_plugins = get_plugins();
@@ -556,7 +605,7 @@ jQuery(document).ready(function($) {
                 return;
             }
 
-            var entityLabels = {database:'Database', plugins:'Plugins', themes:'Themes', uploads:'Media / Uploads', media:'Media / Uploads', content:'Other Content', others:'Other Content'};
+            var entityLabels = {database:'Database', plugins:'Plugins', themes:'Themes', uploads:'Media / Uploads', media:'Media / Uploads', content:'Other Content', others:'Other Content', 'container_code':'Container code', muPlugins:'Must-Use Plugins', 'mu-plugins':'Must-Use Plugins'};
             var html = '<table class="widefat" style="margin:0; border:none; box-shadow:none;">';
             html += '<thead><tr><th>Component</th><th>File</th><th>Size</th><th></th></tr></thead><tbody>';
 
@@ -897,7 +946,8 @@ jQuery(document).ready(function($) {
     var entityLabelsRestore = {
         database: 'Database', plugins: 'Plugins', themes: 'Themes',
         uploads: 'Media / Uploads', media: 'Media / Uploads',
-        content: 'Other Content', others: 'Other Content'
+        content: 'Other Content', others: 'Other Content',
+        container_code: 'Container code', 'mu-plugins': 'Must-Use Plugins'
     };
 
     $(document).on('click', '.restore-backup', function() {

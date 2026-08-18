@@ -455,19 +455,61 @@ class Azure_Backup_Engine {
         return false;
     }
 
-    // ------------------------------------------------------------------
-    // Manifest
-    // ------------------------------------------------------------------
-
     /**
-     * Build a manifest JSON describing the backup set.
+     * Single archive of plugins + themes + mu-plugins, shaped like the
+     * image build input (wp-content/{plugins,themes,mu-plugins}).
      *
-     * @param array $components Assoc array: entity => ['files' => [...], 'status' => ...]
-     * @return string Path to the manifest file.
+     * @return string[]
      */
+    public function backup_container_code() {
+        $sources = array(
+            'plugins'    => array(WP_PLUGIN_DIR, self::get_plugin_exclusions()),
+            'themes'     => array(get_theme_root(), array()),
+            'mu-plugins' => array(
+                defined('WPMU_PLUGIN_DIR') ? WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins',
+                array(),
+            ),
+        );
+
+        $name = $this->backup_id . '-container-code.zip';
+        $zip_path = $this->backup_dir . '/' . $name;
+        $zip = new ZipArchive();
+        $result = $zip->open($zip_path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        if ($result !== true) {
+            throw new Exception("Failed to create container-code archive (error {$result})");
+        }
+
+        $added = 0;
+        foreach ($sources as $prefix => $pair) {
+            list($dir, $exclude) = $pair;
+            if (!is_dir($dir)) {
+                continue;
+            }
+            foreach ($this->collect_files($dir, $exclude) as $file_info) {
+                list($abs_path, $rel_path) = $file_info;
+                if (!is_readable($abs_path)) {
+                    continue;
+                }
+                $zip->addFile($abs_path, $prefix . '/' . str_replace('\\', '/', $rel_path));
+                $added++;
+            }
+        }
+
+        $ok = $zip->close();
+        clearstatcache(true, $zip_path);
+        if (!$ok || !file_exists($zip_path) || filesize($zip_path) === 0 || $added === 0) {
+            Azure_Logger::warning('Backup Engine: container-code archive was empty', 'Backup');
+            @unlink($zip_path);
+            return array();
+        }
+
+        Azure_Logger::info("Backup Engine: container-code archive has {$added} files, " . size_format(filesize($zip_path)), 'Backup');
+        return array($zip_path);
+    }
+
     public function generate_manifest($components) {
         $manifest = array(
-            'version'      => '2.0',
+            'version'      => '2.1',
             'plugin'       => 'AzureSSO',
             'site_url'     => get_site_url(),
             'home_url'     => get_home_url(),
@@ -475,6 +517,9 @@ class Azure_Backup_Engine {
             'php_version'  => PHP_VERSION,
             'timestamp'    => gmdate('c'),
             'backup_id'    => $this->backup_id,
+            'hosting_mode' => class_exists('Azure_Backup_Host') ? Azure_Backup_Host::resolved() : '',
+            'hosting_detected' => class_exists('Azure_Backup_Host') ? Azure_Backup_Host::detect() : '',
+            'inventory'    => class_exists('Azure_Backup_Host') ? Azure_Backup_Host::inventory() : array(),
             'components'   => $components,
         );
 
