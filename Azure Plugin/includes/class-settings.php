@@ -339,7 +339,7 @@ class Azure_Settings {
             'calendar_embed_mailbox_email' => '',
             'calendar_embed_enabled_calendars' => array(),
             'calendar_embed_timezones' => array(),
-            'calendar_default_timezone' => 'America/New_York',
+            'calendar_default_timezone' => 'America/Los_Angeles',
             'calendar_default_view' => 'month',
             'calendar_default_color_theme' => 'blue',
             'calendar_cache_duration' => 3600,

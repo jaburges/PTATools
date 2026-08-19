@@ -1019,7 +1019,7 @@ class Azure_Event_CPT {
         }
         $description = wp_strip_all_tags(get_the_excerpt($post_id));
 
-        $tz = get_option('timezone_string') ?: 'UTC';
+        $tz = azure_wp_timezone_string();
         $fmt_for_gcal = function ($s) use ($tz) {
             if (!$s) return '';
             try {
@@ -1136,7 +1136,7 @@ class Azure_Event_CPT {
         $title = $post->post_title;
         $start = get_post_meta($id, '_EventStartDate', true);
         $end   = get_post_meta($id, '_EventEndDate', true);
-        $tz    = get_option('timezone_string') ?: 'UTC';
+        $tz    = azure_wp_timezone_string();
         $venue = (string) get_post_meta($id, '_EventVenue', true);
         if (!$venue) {
             $vid = (int) get_post_meta($id, '_EventVenueID', true);
@@ -1302,7 +1302,7 @@ class Azure_Event_CPT {
             'order'    => 'ASC',
         ));
 
-        $tz_string = get_option('timezone_string') ?: 'UTC';
+        $tz_string = azure_wp_timezone_string();
         $host      = parse_url(home_url(), PHP_URL_HOST);
         $now_utc   = gmdate('Ymd\THis\Z');
 

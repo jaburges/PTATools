@@ -117,7 +117,7 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                                     <strong>Default Timezone:</strong>
                                     <select class="calendar-timezone-select" data-calendar-id="<?php echo esc_attr($calendar['id']); ?>">
                                         <?php
-                                        $current_tz = $settings['calendar_timezone_' . $calendar['id']] ?? 'America/New_York';
+                                        $current_tz = $settings['calendar_timezone_' . $calendar['id']] ?? azure_wp_timezone_string();
                                         $timezones = array(
                                             'America/New_York' => 'Eastern Time',
                                             'America/Chicago' => 'Central Time',
@@ -231,7 +231,7 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                             <td>
                                 <select name="calendar_default_timezone">
                                     <?php
-                                    $current_timezone = $settings['calendar_default_timezone'] ?? 'America/New_York';
+                                    $current_timezone = $settings['calendar_default_timezone'] ?? azure_wp_timezone_string();
                                     $timezones = array(
                                         'America/New_York' => 'Eastern Time (US & Canada)',
                                         'America/Chicago' => 'Central Time (US & Canada)',

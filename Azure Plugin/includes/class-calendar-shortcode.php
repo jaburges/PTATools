@@ -810,21 +810,16 @@ class Azure_Calendar_Shortcode {
         // from Outlook, so they are not trusted output.
         $events_json = wp_json_encode($events, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         
-        // Determine timezone: shortcode attr > per-calendar setting > plugin default > WordPress default
-        $timezone = '';
+        // Display TZ must match how pta_event times are stored (WP local).
+        // A stale plugin default of America/New_York used to win over the
+        // site timezone and shift Outlook-synced events by several hours.
+        $timezone = azure_wp_timezone_string();
         if (!empty($atts['timezone'])) {
             $timezone = $atts['timezone'];
         } else {
             $settings = Azure_Settings::get_all_settings();
-            // Check for per-calendar timezone setting
             if (!empty($atts['id']) && !empty($settings['calendar_timezone_' . $atts['id']])) {
                 $timezone = $settings['calendar_timezone_' . $atts['id']];
-            } elseif (!empty($settings['calendar_default_timezone'])) {
-                // Fall back to plugin default timezone
-                $timezone = $settings['calendar_default_timezone'];
-            } else {
-                // Fall back to WordPress timezone
-                $timezone = wp_timezone_string();
             }
         }
         

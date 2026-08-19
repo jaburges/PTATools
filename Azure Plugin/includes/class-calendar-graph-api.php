@@ -268,18 +268,14 @@ class Azure_Calendar_GraphAPI {
             
             Azure_Logger::debug("Calendar API: Full URL: " . substr($api_url, 0, 200) . "...", 'Calendar');
             
-            // Get the preferred timezone for this calendar from settings
+            // Ask Graph for wall-clock times in the site timezone so the
+            // dateTime + timeZone pair is an unambiguous instant. The plugin
+            // used to default this to America/New_York, which turned a
+            // 11 AM Pacific Outlook event into 6 PM on a UTC WordPress site.
             $settings = Azure_Settings::get_all_settings();
-            $preferred_timezone = '';
-            
-            // Check for per-calendar timezone setting first
+            $preferred_timezone = azure_wp_timezone_string();
             if (!empty($settings['calendar_timezone_' . $calendar_id])) {
                 $preferred_timezone = $settings['calendar_timezone_' . $calendar_id];
-            } elseif (!empty($settings['calendar_default_timezone'])) {
-                $preferred_timezone = $settings['calendar_default_timezone'];
-            } else {
-                // Fall back to WordPress timezone
-                $preferred_timezone = wp_timezone_string();
             }
             
             // Convert IANA timezone to Windows format for Graph API if needed
@@ -567,24 +563,27 @@ class Azure_Calendar_GraphAPI {
             return '';
         }
         
+        $raw = $datetime_obj['dateTime'];
+        // Graph emits 7 fractional digits; PHP DateTime accepts at most 6.
+        $raw = preg_replace('/\.\d+/', '', $raw);
+
         $timezone = $datetime_obj['timeZone'] ?? 'UTC';
-        
-        // Convert Windows timezone names to IANA format that PHP understands
         $timezone = $this->convert_windows_timezone($timezone);
-        
+
         try {
-            $dt = new DateTime($datetime_obj['dateTime'], new DateTimeZone($timezone));
-            // Return ISO 8601 format WITH timezone offset so FullCalendar knows the correct time
-            // Example: 2025-12-04T09:00:00-08:00 (Pacific Time)
-            return $dt->format('c'); // 'c' = ISO 8601 with timezone offset
+            if (preg_match('/Z$|[+-]\d{2}:\d{2}$/', $raw)) {
+                $dt = new DateTime($raw);
+            } else {
+                $dt = new DateTime($raw, new DateTimeZone($timezone));
+            }
+            return $dt->format('c');
         } catch (Exception $e) {
             Azure_Logger::warning("Calendar: Failed to parse datetime with timezone '{$timezone}': " . $e->getMessage(), 'Calendar');
-            // Fall back to treating the datetime as UTC
             try {
-                $dt = new DateTime($datetime_obj['dateTime'], new DateTimeZone('UTC'));
+                $dt = new DateTime($raw, new DateTimeZone('UTC'));
                 return $dt->format('c');
             } catch (Exception $e2) {
-                return $datetime_obj['dateTime'];
+                return $raw;
             }
         }
     }

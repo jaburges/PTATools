@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.1
+ * Version: 3.147.2
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.1');
+define('AZURE_PLUGIN_VERSION', '3.147.2');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -36,6 +36,100 @@ if (!function_exists('azure_user_can')) {
         }
         return user_can($user_id, 'manage_options');
     }
+}
+
+if (!function_exists('azure_wp_timezone_string')) {
+    /**
+     * IANA name or UTC offset for the site timezone.
+     * Prefer this over `timezone_string ?: 'UTC'`, which ignores gmt_offset.
+     */
+    function azure_wp_timezone_string() {
+        if (function_exists('wp_timezone')) {
+            $name = wp_timezone()->getName();
+            if (is_string($name) && $name !== '') {
+                return $name;
+            }
+        }
+        $named = (string) get_option('timezone_string', '');
+        return $named !== '' ? $named : 'UTC';
+    }
+}
+
+if (!function_exists('azure_maybe_fix_utc_calendar_timezone')) {
+    /**
+     * One-shot v3.147.2: UTC WordPress stored Outlook instants as 18:00
+     * and displayed 11 AM Pacific as 6 PM. Switch the site to Pacific
+     * and rewrite timed pta_event wall clocks.
+     */
+    function azure_maybe_fix_utc_calendar_timezone() {
+        if (get_option('azure_calendar_tz_fix_31472')) {
+            return;
+        }
+        if (!wp_cache_add('azure_calendar_tz_fix_31472_lock', 1, '', 120)) {
+            return;
+        }
+
+        $named  = (string) get_option('timezone_string', '');
+        $offset = (float) get_option('gmt_offset', 0);
+        $is_utc = ($named === '' || strcasecmp($named, 'UTC') === 0) && abs($offset) < 0.01;
+        if (!$is_utc) {
+            update_option('azure_calendar_tz_fix_31472', 'skipped-not-utc:' . $named . ':' . $offset, false);
+            return;
+        }
+
+        update_option('timezone_string', 'America/Los_Angeles');
+        update_option('gmt_offset', -7);
+
+        $from = new DateTimeZone('UTC');
+        $to   = new DateTimeZone('America/Los_Angeles');
+        $converted = 0;
+
+        $q = new WP_Query(array(
+            'post_type'      => 'pta_event',
+            'post_status'    => 'any',
+            'posts_per_page' => 500,
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
+        ));
+
+        foreach ((array) $q->posts as $post_id) {
+            $all_day = strtolower((string) get_post_meta($post_id, '_EventAllDay', true));
+            if (in_array($all_day, array('yes', '1', 'true'), true)) {
+                update_post_meta($post_id, '_EventTimezone', 'America/Los_Angeles');
+                continue;
+            }
+            foreach (array('_EventStartDate', '_EventEndDate') as $key) {
+                $local = (string) get_post_meta($post_id, $key, true);
+                if ($local === '' || !preg_match('/^\d{4}-\d{2}-\d{2} /', $local)) {
+                    continue;
+                }
+                $utc_key = ($key === '_EventStartDate') ? '_EventStartDateUTC' : '_EventEndDateUTC';
+                if ((string) get_post_meta($post_id, $utc_key, true) === '') {
+                    update_post_meta($post_id, $utc_key, $local);
+                }
+                try {
+                    $dt = new DateTime($local, $from);
+                    $dt->setTimezone($to);
+                    update_post_meta($post_id, $key, $dt->format('Y-m-d H:i:s'));
+                } catch (Throwable $e) {
+                    continue;
+                }
+            }
+            update_post_meta($post_id, '_EventTimezone', 'America/Los_Angeles');
+            try {
+                update_post_meta($post_id, '_EventTimezoneAbbr', (new DateTime('now', $to))->format('T'));
+            } catch (Throwable $e) {
+                update_post_meta($post_id, '_EventTimezoneAbbr', 'PDT');
+            }
+            $converted++;
+        }
+
+        update_option('azure_calendar_tz_fix_31472', 'applied:' . $converted, false);
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info("Calendar TZ fix: set America/Los_Angeles and converted {$converted} timed events", 'Calendar');
+        }
+    }
+    add_action('init', 'azure_maybe_fix_utc_calendar_timezone', 5);
 }
 
 if (!function_exists('azure_auction_admin_can')) {
@@ -1751,7 +1845,7 @@ class AzurePlugin {
                     'calendar_client_id' => '',
                     'calendar_client_secret' => '',
                     'calendar_tenant_id' => '',
-                    'calendar_default_timezone' => 'America/New_York',
+                    'calendar_default_timezone' => 'America/Los_Angeles',
                     'calendar_default_view' => 'month',
                     'calendar_default_color_theme' => 'blue',
                     'calendar_cache_duration' => 3600,
