@@ -653,6 +653,57 @@ jQuery(document).ready(function($) {
      * list after an edit keep the chosen filter instead of snapping back. */
     var ptaPeopleRoleFilter = ptaDefaultRoleFilter;
 
+    function openUserPhotoPicker(userId, displayName, onSaved) {
+        if (typeof wp === 'undefined' || !wp.media) {
+            alert('The media library is not available. Refresh this page and try again.');
+            return;
+        }
+        var frame = wp.media({
+            title: 'Photo for ' + displayName,
+            button: { text: 'Use this photo' },
+            library: { type: 'image' },
+            multiple: false
+        });
+        frame.on('select', function() {
+            var att = frame.state().get('selection').first().toJSON();
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_set_user_photo',
+                user_id: userId,
+                attachment_id: att.id,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    alert('Could not save photo: ' + ((res && res.data) || 'unknown error'));
+                    return;
+                }
+                if (typeof onSaved === 'function') {
+                    onSaved(res.data && res.data.url ? res.data.url : '');
+                }
+            }).fail(function() {
+                alert('Network error saving photo');
+            });
+        });
+        frame.open();
+    }
+
+    function removeUserPhoto(userId, onSaved) {
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'pta_remove_user_photo',
+            user_id: userId,
+            nonce: azure_plugin_ajax.nonce
+        }).done(function(res) {
+            if (!res || !res.success) {
+                alert('Could not remove photo: ' + ((res && res.data) || 'unknown error'));
+                return;
+            }
+            if (typeof onSaved === 'function') {
+                onSaved('');
+            }
+        }).fail(function() {
+            alert('Network error removing photo');
+        });
+    }
+
     /* One builder for every role filter, so the options and counts cannot
      * diverge between the People list and the VP pickers. */
     function buildRoleFilterSelect(className, selectedSlug) {
@@ -1061,7 +1112,7 @@ jQuery(document).ready(function($) {
                     if (isUnassigned) {
                         actions += ' <button type="button" class="button button-small button-link-delete delete-user-btn" data-user-id="' + user.ID + '" data-user-name="' + user.display_name + '">Delete</button>';
                     }
-                    actions += ' <button type="button" class="button button-small edit-user-btn" data-user-id="' + user.ID + '">Details</button>';
+                    actions += ' <button type="button" class="button button-small edit-user-btn" data-user-id="' + user.ID + '" data-photo-url="' + (user.photo_url || '') + '">Details</button>';
                     
                     var rowClass = isUnassigned ? ' class="unassigned-user-row" style="background-color: #fff2cc;"' : '';
                     var row = $('<tr' + rowClass + '>' +
@@ -1843,7 +1894,23 @@ jQuery(document).ready(function($) {
                 var userName = user.find('td:nth-child(2) strong').text();
                 var userEmail = user.find('td:nth-child(3)').text();
                 
+                var photoUrl = ($('#users-table-body .edit-user-btn').filter(function() {
+                    return String($(this).data('user-id')) === String(userId);
+                }).data('photo-url')) || '';
+
                 var detailsHtml = '<div id="user-details-modal" class="modal"><div class="modal-content"><div class="modal-header"><h3>User Details: ' + userName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
+                detailsHtml += '<div class="pta-user-photo-block" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;">';
+                detailsHtml += '<div class="pta-user-photo-preview">';
+                if (photoUrl) {
+                    detailsHtml += '<img src="' + photoUrl + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">';
+                } else {
+                    detailsHtml += '<div style="width:72px;height:72px;border-radius:50%;background:#e0e0e0;"></div>';
+                }
+                detailsHtml += '</div><div>';
+                detailsHtml += '<button type="button" class="button" id="pta-user-photo-choose">Set photo</button> ';
+                detailsHtml += '<button type="button" class="button" id="pta-user-photo-remove">Remove</button>';
+                detailsHtml += '<p class="description" style="margin:6px 0 0;">Local photo for the board page. The person does not need a Gravatar account.</p>';
+                detailsHtml += '</div></div>';
                 detailsHtml += '<p><strong>Email:</strong> ' + userEmail + '</p>';
                 detailsHtml += '<h4>Role Assignments:</h4>';
                 
@@ -1864,8 +1931,29 @@ jQuery(document).ready(function($) {
                 $('#user-details-modal').show();
                 
                 // Bind close handler
-                $('.modal-close').on('click', function() {
+                $('#user-details-modal .modal-close').on('click', function() {
                     $('#user-details-modal').remove();
+                });
+
+                $('#pta-user-photo-choose').on('click', function() {
+                    openUserPhotoPicker(userId, userName, function(url) {
+                        var $preview = $('#user-details-modal .pta-user-photo-preview');
+                        if (url) {
+                            $preview.html('<img src="' + url + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">');
+                        }
+                        $('#users-table-body .edit-user-btn').filter(function() {
+                            return String($(this).data('user-id')) === String(userId);
+                        }).data('photo-url', url);
+                    });
+                });
+                $('#pta-user-photo-remove').on('click', function() {
+                    if (!confirm('Remove this photo?')) { return; }
+                    removeUserPhoto(userId, function() {
+                        $('#user-details-modal .pta-user-photo-preview').html('<div style="width:72px;height:72px;border-radius:50%;background:#e0e0e0;"></div>');
+                        $('#users-table-body .edit-user-btn').filter(function() {
+                            return String($(this).data('user-id')) === String(userId);
+                        }).data('photo-url', '');
+                    });
                 });
                 
                 // Bind remove assignment handler
@@ -2009,7 +2097,7 @@ jQuery(document).ready(function($) {
                 '<th style="width: 40px;">#</th>' +
                 '<th>Person</th>' +
                 '<th style="width: 90px;">Primary</th>' +
-                '<th style="width: 240px;">Actions</th>' +
+                '<th style="width: 320px;">Actions</th>' +
             '</tr></thead><tbody></tbody></table>');
 
         var $tbody = $table.find('tbody');
@@ -2031,10 +2119,17 @@ jQuery(document).ready(function($) {
         var $row = $('<tr>');
 
         $row.append($('<td>').text(position));
+        var $thumb = assignment.photo_url
+            ? $('<img>').attr({ src: assignment.photo_url, alt: '', width: 40, height: 40 }).css({
+                borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: '8px'
+            })
+            : $('<span>').css({
+                display: 'inline-block', width: 40, height: 40, borderRadius: '50%',
+                background: '#e0e0e0', verticalAlign: 'middle', marginRight: '8px'
+            });
         $row.append(
             $('<td>').append(
-                // Text nodes, so a display name containing markup cannot break
-                // the table.
+                $thumb,
                 $('<strong>').text(assignment.display_name),
                 $('<br>'),
                 $('<small>').text(assignment.user_email)
@@ -2049,11 +2144,19 @@ jQuery(document).ready(function($) {
         );
 
         var $change = $('<button type="button" class="button button-small">').text('Change');
+        var $photo = $('<button type="button" class="button button-small">')
+            .css('margin-left', '4px').text(assignment.photo_url ? 'Change photo' : 'Add photo');
         var $remove = $('<button type="button" class="button button-small button-link-delete">')
             .css('margin-left', '4px').text('Remove');
 
         $change.on('click', function() {
             showChangeHolderRow($row, assignment, position, roleId, $modal, userCache, holderIds);
+        });
+
+        $photo.on('click', function() {
+            openUserPhotoPicker(assignment.user_id, assignment.display_name, function() {
+                loadRoleRoster(roleId, $modal);
+            });
         });
 
         $remove.on('click', function() {
@@ -2082,7 +2185,7 @@ jQuery(document).ready(function($) {
             });
         });
 
-        $row.append($('<td>').append($change, $remove));
+        $row.append($('<td>').append($change, $photo, $remove));
 
         return $row;
     }

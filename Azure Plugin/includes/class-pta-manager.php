@@ -911,12 +911,17 @@ class Azure_PTA_Manager {
 
             $assignments = array();
             foreach ($this->get_role_assignments($role_id) as $assignment) {
+                $photo_url = '';
+                if (class_exists('Azure_Local_Avatars')) {
+                    $photo_url = Azure_Local_Avatars::url((int) $assignment->user_id, 80);
+                }
                 $assignments[] = array(
                     'assignment_id' => (int) $assignment->id,
                     'user_id'       => (int) $assignment->user_id,
                     'display_name'  => $assignment->display_name,
                     'user_email'    => $assignment->user_email,
                     'is_primary'    => (bool) $assignment->is_primary,
+                    'photo_url'     => $photo_url,
                 );
             }
 
@@ -925,6 +930,7 @@ class Azure_PTA_Manager {
             /* Flagged so the modal can say that filling this seat also makes the
              * person the department's VP — it drives the org chart and the Azure
              * AD manager field, which is not obvious from the role name alone. */
+            global $wpdb;
             $vp_for = null;
             if (!empty($role->vp_for_department_id)) {
                 $vp_for = $wpdb->get_var($wpdb->prepare(
@@ -1216,6 +1222,9 @@ class Azure_PTA_Manager {
                     'is_ptsa_account' => (bool) preg_match('/@wilderptsa\.net$/i', (string) $user->user_email),
                     'wp_roles' => $wp_role_slugs,
                     'is_sso_role' => in_array('azuread', $wp_role_slugs, true),
+                    'photo_url' => (class_exists('Azure_Local_Avatars') && Azure_Local_Avatars::attachment_id($user->ID))
+                        ? Azure_Local_Avatars::url($user->ID, 96)
+                        : '',
                 );
                 
                 $users_data[] = $user_data;

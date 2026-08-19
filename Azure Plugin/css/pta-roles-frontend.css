@@ -301,6 +301,19 @@
     text-transform: uppercase;
 }
 
+.pta-assignment-photo .pta-initials {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
 .pta-role-assigned-names {
     font-size: 14px;
     color: #555;
