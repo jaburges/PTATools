@@ -12,7 +12,7 @@
  * - status: all, open, filled, partial (default: all)
  * - description: true/false - show role description
  * - show_count: true/false - show filled/total count
- * - show_image: true/false - show admin-set local photos, else initials (default: false)
+ * - show_image: true/false - show each person's photo when they have one (default: false)
  * - include_photo: true/false - alias for show_image (default: false)
  * - photo_size: number - photo size in pixels (default: 80)
  * - show_avatars: true/false (for team-cards layout)
@@ -637,36 +637,9 @@ class Azure_PTA_Shortcode {
             . ' data-role-name="' . esc_attr($role->name) . '"'
             . ' data-department-name="' . esc_attr($role->department_name) . '"';
         $output = '<div class="pta-role-item pta-status-' . esc_attr($status) . $leader_class . '"' . $data_attrs . '>';
-        
-        // Show photo if include_photo is true and role has assignments
-        if ($include_photo && !empty($role->assignments)) {
-            $first_user = get_user_by('ID', $role->assignments[0]->user_id);
-            if ($first_user) {
-                $output .= $this->render_user_photo_block($first_user, $photo_size);
-            }
-        } elseif ($include_photo) {
-            // Show placeholder for unfilled roles
-            $initials = $this->get_role_initials($role->name);
-            $output .= '<div class="pta-role-photo pta-photo-placeholder" style="width: ' . $photo_size . 'px; height: ' . $photo_size . 'px;">';
-            $output .= '<span class="pta-initials">' . esc_html($initials) . '</span>';
-            $output .= '</div>';
-        }
-        
+
         $output .= '<h4 class="pta-role-name">' . esc_html($role->name) . '</h4>';
-        
-        // Show assigned user names if include_photo is true
-        if ($include_photo && !empty($role->assignments)) {
-            $user_names = array();
-            foreach ($role->assignments as $assignment) {
-                $user = get_user_by('ID', $assignment->user_id);
-                if ($user) {
-                    $user_names[] = esc_html($user->display_name);
-                }
-            }
-            if (!empty($user_names)) {
-                $output .= '<div class="pta-role-assigned-names">' . implode(', ', $user_names) . '</div>';
-            }
-        }
+        $output .= $this->render_assigned_people($role, $photo_size, $include_photo);
 
         // Show O365 group email for leadership structure roles
         $role_emails = $atts['_role_emails'] ?? array();
@@ -709,25 +682,21 @@ class Azure_PTA_Shortcode {
             $assigned_user = get_user_by('ID', $role->assignments[0]->user_id);
         }
         
-        // Avatar/Photo section — local upload only; never Gravatar
+        // Person photo only — roles have no image of their own
         if ($atts['show_avatars'] && $assigned_user) {
             $avatar_url = $this->local_avatar_url($assigned_user->ID, intval($atts['avatar_size']));
             if ($avatar_url) {
                 $output .= '<div class="pta-role-avatar" style="background-image: url(' . esc_url($avatar_url) . ');"></div>';
-            } else {
-                $output .= '<div class="pta-role-avatar">' . esc_html($this->get_person_initials($assigned_user->display_name)) . '</div>';
             }
-        } else {
-            $initials = $this->get_role_initials($role->name);
-            $output .= '<div class="pta-role-avatar">' . esc_html($initials) . '</div>';
         }
         
         // Text content section
         $output .= '<div class="pta-role-textblock">';
         
-        // Role name
+        // Role name, then the people (photo belongs to the person)
         $output .= '<h4 class="pta-role-name">' . esc_html($role->name) . '</h4>';
-        
+        $output .= $this->render_assigned_people($role, intval($atts['avatar_size'] ?? 80), false);
+
         // Department
         $output .= '<div class="pta-role-department">' . esc_html($role->department_name) . '</div>';
         
@@ -796,33 +765,6 @@ class Azure_PTA_Shortcode {
             . '</button>';
     }
     
-    /**
-     * Generate initials from role name for placeholder avatars
-     */
-    private function get_role_initials($name) {
-        $words = explode(' ', trim($name));
-        if (count($words) >= 2) {
-            return strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1));
-        } else {
-            return strtoupper(substr($name, 0, 2));
-        }
-    }
-
-    private function get_person_initials($name) {
-        $parts = preg_split('/\s+/', trim((string) $name));
-        $out = '';
-        foreach ($parts as $part) {
-            if ($part === '') {
-                continue;
-            }
-            $out .= strtoupper(substr($part, 0, 1));
-            if (strlen($out) >= 2) {
-                break;
-            }
-        }
-        return $out !== '' ? $out : '?';
-    }
-
     private function local_avatar_url($user_id, $size) {
         if (!class_exists('Azure_Local_Avatars')) {
             return '';
@@ -831,28 +773,42 @@ class Azure_PTA_Shortcode {
     }
 
     /**
-     * Circle photo from the media library, or initials. Gravatar is never used.
+     * The people holding a role. Photos belong to the person, never the role.
+     * A photo is rendered only when that user has a local upload.
      */
-    private function render_user_photo_block($user, $size, $wrapper_class = 'pta-role-photo') {
-        $size = max(24, (int) $size);
-        $url = $this->local_avatar_url($user->ID, $size);
-        if ($url) {
-            return '<div class="' . esc_attr($wrapper_class) . '">'
-                . '<img class="avatar pta-user-avatar" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />'
-                . '</div>';
+    private function render_assigned_people($role, $photo_size, $show_photos) {
+        if (empty($role->assignments)) {
+            return '';
         }
-        return '<div class="' . esc_attr($wrapper_class) . ' pta-photo-placeholder" style="width: ' . $size . 'px; height: ' . $size . 'px;">'
-            . '<span class="pta-initials">' . esc_html($this->get_person_initials($user->display_name)) . '</span>'
-            . '</div>';
+
+        $html = '<div class="pta-role-people">';
+        foreach ($role->assignments as $assignment) {
+            $user = get_user_by('ID', $assignment->user_id);
+            if (!$user) {
+                continue;
+            }
+            $html .= '<div class="pta-person">';
+            if ($show_photos) {
+                $url = $this->local_avatar_url($user->ID, $photo_size);
+                if ($url) {
+                    $size = max(24, (int) $photo_size);
+                    $html .= '<img class="pta-person-photo" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
+                }
+            }
+            $html .= '<span class="pta-person-name">' . esc_html($user->display_name) . '</span>';
+            $html .= '</div>';
+        }
+        $html .= '</div>';
+        return $html;
     }
 
     private function render_user_photo_inline($user, $size) {
         $size = max(24, (int) $size);
         $url = $this->local_avatar_url($user->ID, $size);
-        if ($url) {
-            return '<img class="avatar pta-user-avatar" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
+        if (!$url) {
+            return '';
         }
-        return '<span class="pta-initials">' . esc_html($this->get_person_initials($user->display_name)) . '</span>';
+        return '<img class="avatar pta-user-avatar" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
     }
     
     private function render_role_card($role, $atts) {
@@ -861,15 +817,7 @@ class Azure_PTA_Shortcode {
         $photo_size = intval($atts['photo_size'] ?? 80);
         
         $output = '<div class="pta-role-card pta-status-' . esc_attr($status) . '">';
-        
-        // Show photo of first assigned user if include_photo is true
-        if ($include_photo && !empty($role->assignments)) {
-            $first_user = get_user_by('ID', $role->assignments[0]->user_id);
-            if ($first_user) {
-                $output .= $this->render_user_photo_block($first_user, $photo_size);
-            }
-        }
-        
+
         $output .= '<h3 class="pta-role-title">' . esc_html($role->name) . '</h3>';
         $output .= '<div class="pta-role-department">' . esc_html($role->department_name) . '</div>';
         
@@ -888,7 +836,10 @@ class Azure_PTA_Shortcode {
                 if ($user) {
                     $output .= '<li class="pta-assignment-item">';
                     if ($include_photo) {
-                        $output .= '<span class="pta-assignment-photo">' . $this->render_user_photo_inline($user, 32) . '</span>';
+                        $photo = $this->render_user_photo_inline($user, 32);
+                        if ($photo !== '') {
+                            $output .= '<span class="pta-assignment-photo">' . $photo . '</span>';
+                        }
                     }
                     $output .= '<span class="pta-assignment-name">' . esc_html($user->display_name) . '</span>';
                     if ($atts['show_contact'] && $user->user_email) {

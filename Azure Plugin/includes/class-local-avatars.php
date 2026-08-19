@@ -95,7 +95,7 @@ class Azure_Local_Avatars {
                     <input type="hidden" name="azure_local_avatar_id" id="azure_local_avatar_id" value="<?php echo esc_attr($att_id); ?>" />
                     <button type="button" class="button" id="azure-local-avatar-choose"><?php esc_html_e('Choose photo', 'azure-plugin'); ?></button>
                     <button type="button" class="button" id="azure-local-avatar-clear" <?php disabled($att_id < 1); ?>><?php esc_html_e('Remove', 'azure-plugin'); ?></button>
-                    <p class="description"><?php esc_html_e('Used on the PTSA board and anywhere WordPress shows this user’s avatar.', 'azure-plugin'); ?></p>
+                    <p class="description"><?php esc_html_e('This person’s photo — roles do not have photos. Shown on the board when they hold a seat.', 'azure-plugin'); ?></p>
                     <script>
                     jQuery(function($) {
                         var $id = $('#azure_local_avatar_id');

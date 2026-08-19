@@ -517,7 +517,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>width:</strong> Max width of the block, centered - e.g. "1100px" or "80%" (default: fills the container)</li>
                 <li><strong>show_count:</strong> true/false - Show position counts (default: true)</li>
                 <li><strong>layout:</strong> "grid", "list", "cards", "team-cards" - Layout style (default: grid)</li>
-                <li><strong>show_image:</strong> true/false - Show WordPress profile photos (default: false)</li>
+                <li><strong>show_image:</strong> true/false - Show each person's photo when they have one (default: false). Roles never have a photo.</li>
                 <li><strong>photo_size:</strong> Number - Photo size in pixels (default: 80)</li>
                 <li><strong>show_contact:</strong> true/false - Show email links (default: true)</li>
             </ul>
@@ -569,7 +569,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>show_contact:</strong> true/false - Show contact information (default: false)</li>
                 <li><strong>show_description:</strong> true/false - Show role description (default: true)</li>
                 <li><strong>show_assignments:</strong> true/false - Show current assignments (default: true)</li>
-                <li><strong>show_image:</strong> true/false - Show WordPress profile photos (default: false)</li>
+                <li><strong>show_image:</strong> true/false - Show each assigned person's photo when they have one (default: false)</li>
                 <li><strong>photo_size:</strong> Number - Photo size in pixels (default: 80)</li>
             </ul>
         </div>
@@ -1909,7 +1909,7 @@ jQuery(document).ready(function($) {
                 detailsHtml += '</div><div>';
                 detailsHtml += '<button type="button" class="button" id="pta-user-photo-choose">Set photo</button> ';
                 detailsHtml += '<button type="button" class="button" id="pta-user-photo-remove">Remove</button>';
-                detailsHtml += '<p class="description" style="margin:6px 0 0;">Local photo for the board page. The person does not need a Gravatar account.</p>';
+                detailsHtml += '<p class="description" style="margin:6px 0 0;">This person\'s photo. Roles do not have photos — only people do. Used on the board when they hold a seat.</p>';
                 detailsHtml += '</div></div>';
                 detailsHtml += '<p><strong>Email:</strong> ' + userEmail + '</p>';
                 detailsHtml += '<h4>Role Assignments:</h4>';
