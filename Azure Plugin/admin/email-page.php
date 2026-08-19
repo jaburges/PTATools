@@ -889,7 +889,12 @@ input:checked + .slider:before {
     color: #333 !important;
 }
 
-.form-table input,
+.form-table input[type="text"],
+.form-table input[type="password"],
+.form-table input[type="email"],
+.form-table input[type="number"],
+.form-table input[type="url"],
+.form-table input[type="search"],
 .form-table select,
 .form-table textarea {
     color: #333 !important;

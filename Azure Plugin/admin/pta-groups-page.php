@@ -865,7 +865,12 @@ jQuery(document).ready(function($) {
 }
 
 .form-field select,
-.form-field input {
+.form-field input[type="text"],
+.form-field input[type="password"],
+.form-field input[type="email"],
+.form-field input[type="number"],
+.form-field input[type="url"],
+.form-field input[type="search"] {
     width: 100%;
     padding: 8px;
     border: 1px solid #ddd;

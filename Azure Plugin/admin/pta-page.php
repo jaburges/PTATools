@@ -3536,7 +3536,12 @@ jQuery(document).ready(function($) {
 }
 
 .form-field select,
-.form-field input {
+.form-field input[type="text"],
+.form-field input[type="password"],
+.form-field input[type="email"],
+.form-field input[type="number"],
+.form-field input[type="url"],
+.form-field input[type="search"] {
     width: 100%;
     padding: 8px;
     border: 1px solid #ddd;
@@ -3697,7 +3702,12 @@ jQuery(document).ready(function($) {
     background: #f9f9f9 !important;
 }
 
-.modal .form-table input,
+.modal .form-table input[type="text"],
+.modal .form-table input[type="password"],
+.modal .form-table input[type="email"],
+.modal .form-table input[type="number"],
+.modal .form-table input[type="url"],
+.modal .form-table input[type="search"],
 .modal .form-table select,
 .modal .form-table textarea {
     color: #333 !important;
