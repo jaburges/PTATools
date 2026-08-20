@@ -68,6 +68,17 @@ RUN set -eux; \
        /var/www/html/wp-content/object-cache.php; \
     test -f /var/www/html/wp-content/object-cache.php
 
+# Multiple Roles: checklist UI on the user edit screen. Same reason as
+# redis-cache — a wp-admin install lands on ephemeral disk and disappears
+# on the next revision.
+ARG MULTIPLE_ROLES_VERSION=1.3.8
+RUN set -eux; \
+    curl -fSL -o /tmp/multiple-roles.zip \
+      "https://downloads.wordpress.org/plugin/multiple-roles.${MULTIPLE_ROLES_VERSION}.zip"; \
+    unzip -q /tmp/multiple-roles.zip -d /var/www/html/wp-content/plugins/; \
+    rm -f /tmp/multiple-roles.zip; \
+    test -f /var/www/html/wp-content/plugins/multiple-roles/multiple-roles.php
+
 # Keep one core theme so WordPress has something to fall back to if the active
 # theme raises a fatal error. Without it a broken theme means a blank site with
 # no route back into wp-admin. Taken from the base image rather than the export,

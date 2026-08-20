@@ -647,6 +647,12 @@ class AzurePlugin {
                     $this->sync_azuread_role();
                     $this->migrate_sso_default_role();
 
+                    // v3.147.6: Multiple Roles is baked into the container
+                    // image. wp-admin installs vanish on the next revision,
+                    // and WordPress then drops a missing plugin from
+                    // active_plugins. Re-activate once the files are present.
+                    $this->ensure_multiple_roles_plugin();
+
                     update_option('azure_plugin_db_version', AZURE_PLUGIN_VERSION);
 
                     // Auction: schedule per-auction finalize events for any
@@ -2002,6 +2008,31 @@ class AzurePlugin {
         }
 
         update_option('azure_sso_default_role_migrated', 1);
+    }
+
+    /**
+     * Activate Multiple Roles once its files are in the image.
+     *
+     * A wp-admin install writes to ephemeral disk. The next revision drops
+     * those files and WordPress then removes the plugin from active_plugins.
+     * Baking the zip into the image is not enough if the option was already
+     * cleared; this puts it back.
+     */
+    private function ensure_multiple_roles_plugin() {
+        $plugin = 'multiple-roles/multiple-roles.php';
+        if (!file_exists(WP_PLUGIN_DIR . '/' . $plugin)) {
+            return;
+        }
+        if (!function_exists('activate_plugin')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        if (is_plugin_active($plugin)) {
+            return;
+        }
+        $result = activate_plugin($plugin, '', false, true);
+        if (is_wp_error($result) && class_exists('Azure_Logger')) {
+            Azure_Logger::warning('Could not activate Multiple Roles: ' . $result->get_error_message());
+        }
     }
 
     /**

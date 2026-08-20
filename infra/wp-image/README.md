@@ -148,6 +148,8 @@ theme changes go through `build.sh`.
 - `phpredis` plus the Redis Object Cache drop-in at
   `wp-content/object-cache.php`. The drop-in has to be baked in: anything the
   plugin writes at runtime would not survive a restart.
+- `multiple-roles` (WordPress.org) so the user-edit screen can assign more
+  than one role. Same reason: a dashboard install does not survive a revision.
 - Apache config at `/etc/apache2/conf-enabled/zz-wordpress.conf` carrying the
   permalink rewrite rules, long-lived caching headers for static assets, and a
   deny rule for PHP under `uploads` — that directory is writable at runtime, so
