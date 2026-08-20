@@ -2,6 +2,16 @@
  * Azure Plugin - PTA Roles Frontend Styles
  */
 
+/* ChromeNews's full-width page template is built for Elementor: it sets
+ * #primary.aft-pagebuilder-full-width-content and #main.site-main to
+ * padding: 0 so a page builder can go edge-to-edge. Classic headings then
+ * sit on the white container's left edge. Restore inset when the page is
+ * not an Elementor canvas. */
+body.page-template-full-width #primary.aft-pagebuilder-full-width-content > #main.site-main:not(:has(> .elementor)) {
+    padding: 28px 36px 40px;
+    box-sizing: border-box;
+}
+
 /* Leadership Structure Layout */
 .pta-leadership-structure {
     margin: 20px 0;

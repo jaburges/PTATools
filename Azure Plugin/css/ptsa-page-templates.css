@@ -1,0 +1,71 @@
+/**
+ * Layout for the plugin-registered PTSA page templates.
+ *
+ * ChromeNews caps .container-wrapper at 1280px. These templates use more of
+ * the viewport while leaving grey gutters (not header-width). Inner padding
+ * keeps classic headings off the white edge — the theme's own full-width
+ * template zeros that padding for Elementor.
+ */
+
+body.ptsa-template #content.container-wrapper {
+    max-width: min(1680px, calc(100vw - 96px));
+    padding-left: 24px;
+    padding-right: 24px;
+    box-sizing: border-box;
+}
+
+body.ptsa-template #main.site-main {
+    padding: 28px 12px 40px;
+    box-sizing: border-box;
+}
+
+body.ptsa-template-full-width #primary,
+body.full-width-content.ptsa-template-full-width #primary {
+    width: 100%;
+    float: none;
+    padding: 0;
+    margin-bottom: 20px;
+}
+
+body.ptsa-template-sidebar .ptsa-sidebar-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 32px;
+}
+
+body.ptsa-template-sidebar.full-width-content #primary,
+body.ptsa-template-sidebar #primary {
+    width: auto;
+    flex: 1 1 0;
+    float: none;
+    padding: 0;
+    margin-bottom: 0;
+    min-width: 0;
+}
+
+body.ptsa-template-sidebar #secondary {
+    flex: 0 0 300px;
+    width: 300px;
+    max-width: 32%;
+    float: none;
+    display: block;
+    padding-left: 0;
+}
+
+@media (max-width: 900px) {
+    body.ptsa-template #content.container-wrapper {
+        max-width: calc(100vw - 32px);
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    body.ptsa-template-sidebar .ptsa-sidebar-row {
+        flex-direction: column;
+    }
+
+    body.ptsa-template-sidebar #secondary {
+        width: 100%;
+        max-width: none;
+        flex-basis: auto;
+    }
+}

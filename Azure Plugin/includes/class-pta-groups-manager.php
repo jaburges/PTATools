@@ -927,13 +927,24 @@ class Azure_PTA_Groups_Manager {
         }
 
         $mappings = $this->get_group_mappings('role', $role_id);
-        $mapping = !empty($mappings) ? $mappings[0] : null;
+        $out = array();
+        foreach ($mappings as $mapping) {
+            $out[] = array(
+                'id'         => (int) $mapping->id,
+                'group_id'   => (string) $mapping->group_id,
+                'group_name' => (string) $mapping->group_name,
+                'mail'       => (string) ($mapping->mail ?? ''),
+                'label'      => (string) ($mapping->label ?? ''),
+                'is_required'=> !empty($mapping->is_required),
+            );
+        }
 
-        wp_send_json_success($mapping);
+        wp_send_json_success($out);
     }
 
     /**
-     * Set or replace the O365 group for a role (single group per role).
+     * Add an O365 group mapping for a role. Does not replace existing mappings;
+     * removal is per-mapping via pta_delete_group_mapping.
      */
     public function ajax_set_role_group() {
         if (!current_user_can('manage_options') || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
@@ -947,18 +958,14 @@ class Azure_PTA_Groups_Manager {
             wp_send_json_error('Role ID is required');
         }
 
-        try {
-            $existing_mappings = $this->get_group_mappings('role', $role_id);
-            foreach ($existing_mappings as $mapping) {
-                $this->delete_group_mapping($mapping->id);
-            }
+        if ($o365_group_id === '') {
+            wp_send_json_success(array('message' => 'No group selected'));
+            return;
+        }
 
-            if (!empty($o365_group_id)) {
-                $mapping_id = $this->create_group_mapping('role', $role_id, $o365_group_id, true);
-                wp_send_json_success(array('message' => 'Role group updated', 'mapping_id' => $mapping_id));
-            } else {
-                wp_send_json_success(array('message' => 'Role group cleared'));
-            }
+        try {
+            $mapping_id = $this->create_group_mapping('role', $role_id, $o365_group_id, true);
+            wp_send_json_success(array('message' => 'Role group mapping added', 'mapping_id' => $mapping_id));
         } catch (Exception $e) {
             wp_send_json_error($e->getMessage());
         }

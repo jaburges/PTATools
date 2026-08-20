@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.6
+ * Version: 3.147.7
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.6');
+define('AZURE_PLUGIN_VERSION', '3.147.7');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -653,6 +653,14 @@ class AzurePlugin {
                     // active_plugins. Re-activate once the files are present.
                     $this->ensure_multiple_roles_plugin();
 
+                    $ptsa_tpl = AZURE_PLUGIN_PATH . 'includes/class-ptsa-page-templates.php';
+                    if (!class_exists('Azure_PTSA_Page_Templates') && file_exists($ptsa_tpl)) {
+                        require_once $ptsa_tpl;
+                    }
+                    if (class_exists('Azure_PTSA_Page_Templates')) {
+                        Azure_PTSA_Page_Templates::maybe_assign_ptsa_preview_page();
+                    }
+
                     update_option('azure_plugin_db_version', AZURE_PLUGIN_VERSION);
 
                     // Auction: schedule per-auction finalize events for any
@@ -1225,6 +1233,7 @@ class AzurePlugin {
                 'class-pta-shortcode.php',
                 'class-pta-forminator.php',
                 'class-local-avatars.php',
+                'class-ptsa-page-templates.php',
             ));
 
             if (class_exists('Azure_PTA_Database')) {
@@ -1241,6 +1250,9 @@ class AzurePlugin {
             }
             if (class_exists('Azure_PTA_Forminator')) {
                 Azure_PTA_Forminator::get_instance();
+            }
+            if (class_exists('Azure_PTSA_Page_Templates')) {
+                Azure_PTSA_Page_Templates::init();
             }
 
             // Admin/cron only

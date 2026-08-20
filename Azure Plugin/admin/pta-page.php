@@ -422,7 +422,7 @@ if (class_exists('Azure_PTA_Database')) {
 
 <!-- People Management Modal -->
 <div id="people-modal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 800px;">
+    <div class="modal-content modal-wide">
         <div class="modal-header">
             <h2>Manage People & Role Assignments</h2>
             <button type="button" class="modal-close">&times;</button>
@@ -444,7 +444,7 @@ if (class_exists('Azure_PTA_Database')) {
 
 <!-- Roles Management Modal -->
 <div id="roles-modal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 800px;">
+    <div class="modal-content modal-wide">
         <div class="modal-header">
             <h2>Manage Roles & Assignments</h2>
             <button type="button" class="modal-close">&times;</button>
@@ -477,7 +477,7 @@ if (class_exists('Azure_PTA_Database')) {
 
 <!-- Departments Management Modal -->
 <div id="departments-modal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 900px;">
+    <div class="modal-content modal-wide">
         <div class="modal-header">
             <h2>Manage Departments & VPs</h2>
             <button type="button" class="modal-close">&times;</button>
@@ -1898,7 +1898,7 @@ jQuery(document).ready(function($) {
                     return String($(this).data('user-id')) === String(userId);
                 }).data('photo-url')) || '';
 
-                var detailsHtml = '<div id="user-details-modal" class="modal"><div class="modal-content"><div class="modal-header"><h3>User Details: ' + userName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
+                var detailsHtml = '<div id="user-details-modal" class="modal"><div class="modal-content modal-wide"><div class="modal-header"><h3>User Details: ' + userName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
                 detailsHtml += '<div class="pta-user-photo-block" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;">';
                 detailsHtml += '<div class="pta-user-photo-preview">';
                 if (photoUrl) {
@@ -1998,7 +1998,7 @@ jQuery(document).ready(function($) {
 
         var $modal = $(
             '<div id="role-assignments-modal" class="modal" style="z-index: 10002;">' +
-                '<div class="modal-content">' +
+                '<div class="modal-content modal-wide">' +
                     '<div class="modal-header">' +
                         '<h3 class="roster-title">Assignments</h3>' +
                         '<button type="button" class="modal-close">&times;</button>' +
@@ -2097,7 +2097,7 @@ jQuery(document).ready(function($) {
                 '<th style="width: 40px;">#</th>' +
                 '<th>Person</th>' +
                 '<th style="width: 90px;">Primary</th>' +
-                '<th style="width: 320px;">Actions</th>' +
+                '<th>Actions</th>' +
             '</tr></thead><tbody></tbody></table>');
 
         var $tbody = $table.find('tbody');
@@ -2194,7 +2194,7 @@ jQuery(document).ready(function($) {
      * handing a role over is one step instead of remove-then-find-then-add. */
     function showChangeHolderRow($row, assignment, position, roleId, $modal, userCache, holderIds) {
         var $cell = $('<td colspan="3">');
-        var $select = $('<select>').css('min-width', '320px');
+        var $select = $('<select>').css({ width: '100%', 'max-width': '420px', 'min-width': '200px' });
         var $primary = $('<label>').css({ 'margin-left': '10px', 'font-size': '12px' }).append(
             $('<input type="checkbox">').prop('checked', !!assignment.is_primary),
             ' Primary'
@@ -2258,7 +2258,7 @@ jQuery(document).ready(function($) {
 
         $row.append($('<td>').text(position));
 
-        var $select = $('<select>').css('min-width', '320px');
+        var $select = $('<select>').css({ width: '100%', 'max-width': '420px', 'min-width': '200px' });
         var $primary = $('<label>').css({ 'margin-left': '10px', 'font-size': '12px' }).append(
             $('<input type="checkbox">'),
             ' Primary'
@@ -2407,12 +2407,18 @@ jQuery(document).ready(function($) {
                                     <td><textarea name="description" class="large-text">${role.description || ''}</textarea></td>
                                 </tr>
                                 <tr>
-                                    <th>O365 Group</th>
+                                    <th>O365 Groups</th>
                                     <td>
-                                        <select name="o365_group_id" id="edit-role-o365-group" style="min-width: 250px;">
-                                            <option value="">-- Loading groups... --</option>
-                                        </select>
-                                        <p class="description">Assign an O365 group email to this role (for Treasurer, Secretary, etc.)</p>
+                                        <div class="pta-role-group-add">
+                                            <select id="edit-role-o365-group" style="min-width: 250px;">
+                                                <option value="">-- Loading groups... --</option>
+                                            </select>
+                                            <button type="button" class="button" id="edit-role-add-group">Add</button>
+                                        </div>
+                                        <ul id="edit-role-group-mappings" class="pta-role-group-mappings">
+                                            <li class="pta-mapping-empty">Loading mappings…</li>
+                                        </ul>
+                                        <p class="description">A role can map to more than one group. People in this role are synced into every mapped group. Adding or removing here saves immediately.</p>
                                     </td>
                                 </tr>
                             </table>
@@ -2431,41 +2437,150 @@ jQuery(document).ready(function($) {
         
         $('body').append(formHtml);
         
-        // Load O365 groups and current role mapping into dropdown
+        // O365 mappings are edited in place on this list. Save Changes does
+        // not touch them — the previous save path replaced every mapping with
+        // the one dropdown value, which hid existing mappings and could wipe
+        // extras.
         var $groupSelect = $('#edit-role-o365-group');
-        var currentGroupId = '';
+        var roleGroupMappings = [];
+        var allO365Groups = [];
 
-        $.post(azure_plugin_ajax.ajax_url, {
-            action: 'pta_get_role_group_mapping',
-            role_id: role.id,
-            nonce: azure_plugin_ajax.nonce
-        }, function(resp) {
-            if (resp.success && resp.data) {
-                currentGroupId = resp.data.group_id || '';
+        function mappingLabel(m) {
+            var name = m.group_name || 'Unnamed group';
+            if (m.mail) {
+                name += ' (' + m.mail + ')';
             }
-            loadO365GroupsForRole();
-        }).fail(function() {
-            loadO365GroupsForRole();
-        });
+            if (m.label) {
+                name += ' — ' + m.label;
+            }
+            return name;
+        }
 
-        function loadO365GroupsForRole() {
-            $.post(azure_plugin_ajax.ajax_url, {
-                action: 'pta_get_o365_groups',
-                nonce: azure_plugin_ajax.nonce
-            }, function(resp) {
-                var opts = '<option value="">-- None --</option>';
-                if (resp.success && resp.data) {
-                    resp.data.forEach(function(g) {
-                        var sel = (g.group_id === currentGroupId) ? 'selected' : '';
-                        var label = g.display_name + (g.mail ? ' (' + g.mail + ')' : '');
-                        opts += '<option value="' + g.group_id + '" ' + sel + '>' + label + '</option>';
-                    });
+        function mappedGroupIds() {
+            return roleGroupMappings.map(function(m) { return String(m.group_id); });
+        }
+
+        function fillGroupDropdown() {
+            var taken = mappedGroupIds();
+            var opts = '<option value="">-- Add an O365 group --</option>';
+            allO365Groups.forEach(function(g) {
+                if (taken.indexOf(String(g.group_id)) !== -1) {
+                    return;
                 }
-                $groupSelect.html(opts);
+                var label = g.display_name + (g.mail ? ' (' + g.mail + ')' : '');
+                opts += '<option value="' + $('<div>').text(g.group_id).html() + '">'
+                    + $('<div>').text(label).html() + '</option>';
+            });
+            $groupSelect.html(opts);
+        }
+
+        function renderRoleGroupMappings() {
+            var $list = $('#edit-role-group-mappings');
+            $list.empty();
+            if (!roleGroupMappings.length) {
+                $list.append($('<li class="pta-mapping-empty">').text('No O365 groups mapped to this role.'));
+                fillGroupDropdown();
+                return;
+            }
+            roleGroupMappings.forEach(function(m) {
+                var $li = $('<li class="pta-role-group-mapping">');
+                $li.append($('<span class="pta-mapping-badge">').text('Active'));
+                $li.append($('<span class="pta-mapping-name">').text(mappingLabel(m)));
+                var $x = $('<button type="button" class="pta-mapping-remove" aria-label="Remove mapping">&times;</button>');
+                $x.on('click', function() {
+                    if (!confirm('Remove the mapping to "' + (m.group_name || 'this group') + '"?\n\nPeople in this role will no longer be synced into that Office 365 group.')) {
+                        return;
+                    }
+                    $x.prop('disabled', true);
+                    $.post(azure_plugin_ajax.ajax_url, {
+                        action: 'pta_delete_group_mapping',
+                        mapping_id: m.id,
+                        nonce: azure_plugin_ajax.nonce
+                    }).done(function(res) {
+                        if (!res || !res.success) {
+                            $x.prop('disabled', false);
+                            alert('❌ Failed to remove mapping: ' + ((res && res.data) || 'unknown error'));
+                            return;
+                        }
+                        loadRoleGroupMappings();
+                    }).fail(function() {
+                        $x.prop('disabled', false);
+                        alert('❌ Network error removing mapping');
+                    });
+                });
+                $li.append($x);
+                $list.append($li);
+            });
+            fillGroupDropdown();
+        }
+
+        function loadRoleGroupMappings() {
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_get_role_group_mapping',
+                role_id: role.id,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(resp) {
+                roleGroupMappings = (resp && resp.success && Array.isArray(resp.data)) ? resp.data : [];
+                renderRoleGroupMappings();
             }).fail(function() {
-                $groupSelect.html('<option value="">-- Failed to load groups --</option>');
+                roleGroupMappings = [];
+                $('#edit-role-group-mappings').html(
+                    '<li class="pta-mapping-empty">Could not load group mappings.</li>'
+                );
             });
         }
+
+        function addRoleGroupMapping() {
+            var groupId = $groupSelect.val();
+            if (!groupId) {
+                alert('Choose an O365 group to add.');
+                return;
+            }
+            var $add = $('#edit-role-add-group');
+            $add.prop('disabled', true);
+            $groupSelect.prop('disabled', true);
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_create_group_mapping',
+                nonce: azure_plugin_ajax.nonce,
+                target_type: 'role',
+                target_id: role.id,
+                o365_group_id: groupId,
+                is_required: 1
+            }).done(function(res) {
+                $add.prop('disabled', false);
+                $groupSelect.prop('disabled', false);
+                if (!res || !res.success) {
+                    alert('❌ Failed to add mapping: ' + ((res && res.data) || 'unknown error'));
+                    return;
+                }
+                $groupSelect.val('');
+                loadRoleGroupMappings();
+            }).fail(function() {
+                $add.prop('disabled', false);
+                $groupSelect.prop('disabled', false);
+                alert('❌ Network error adding mapping');
+            });
+        }
+
+        $('#edit-role-add-group').on('click', addRoleGroupMapping);
+        $groupSelect.on('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addRoleGroupMapping();
+            }
+        });
+
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'pta_get_o365_groups',
+            nonce: azure_plugin_ajax.nonce
+        }).done(function(resp) {
+            allO365Groups = (resp && resp.success && resp.data) ? resp.data : [];
+            fillGroupDropdown();
+            loadRoleGroupMappings();
+        }).fail(function() {
+            $groupSelect.html('<option value="">-- Failed to load groups --</option>');
+            loadRoleGroupMappings();
+        });
 
         // Handle "Create New Department" option
         $('#edit-role-department').on('change', function() {
@@ -2580,21 +2695,9 @@ jQuery(document).ready(function($) {
                     return;
                 }
 
-                var selectedGroup = $form.find('[name="o365_group_id"]').val();
-                $.post(azure_plugin_ajax.ajax_url, {
-                    action: 'pta_set_role_group',
-                    nonce: azure_plugin_ajax.nonce,
-                    role_id: roleId,
-                    o365_group_id: selectedGroup || ''
-                }, function() {
-                    alert('✅ Role updated successfully!');
-                    $modal.remove();
-                    loadRolesList();
-                }).fail(function() {
-                    alert('✅ Role updated but O365 group mapping may not have saved.');
-                    $modal.remove();
-                    loadRolesList();
-                });
+                alert('✅ Role updated successfully!');
+                $modal.remove();
+                loadRolesList();
             }).fail(function(xhr, status, error) {
                 $btn.prop('disabled', false).text('Save Changes');
                 console.error('Edit role AJAX error:', xhr, status, error);
@@ -3099,7 +3202,7 @@ jQuery(document).ready(function($) {
             // Create modal
             var modalHtml = `
                 <div id="dept-details-modal" class="modal" style="z-index: 10000;">
-                    <div class="modal-content" style="max-width: 900px;">
+                    <div class="modal-content modal-wide">
                         <div class="modal-header">
                             <h3>Department: ${dept.name}</h3>
                             <button type="button" class="modal-close">&times;</button>
@@ -3483,10 +3586,97 @@ jQuery(document).ready(function($) {
     background: #fff !important;
     color: #333 !important;
     border-radius: 8px;
-    max-width: 500px;
-    width: 90%;
-    max-height: 80%;
-    overflow-y: auto;
+    box-sizing: border-box;
+    max-width: min(640px, calc(100vw - 48px));
+    width: min(640px, calc(100vw - 48px));
+    max-height: min(80vh, calc(100vh - 48px));
+    overflow: auto;
+}
+
+.modal-content.modal-wide {
+    max-width: min(1200px, calc(100vw - 48px));
+    width: min(1200px, calc(100vw - 48px));
+}
+
+#role-assignments-modal td:last-child,
+#role-assignments-modal th:last-child {
+    white-space: nowrap;
+    width: 1%;
+}
+
+.modal .form-actions,
+.modal p.submit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pta-role-group-add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pta-role-group-mappings {
+    list-style: none;
+    margin: 10px 0 6px;
+    padding: 0;
+}
+
+.pta-role-group-mapping {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.pta-mapping-badge {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #1e7e34;
+    background: #d4edda;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.pta-mapping-name {
+    flex: 1;
+    min-width: 0;
+    color: #1d2327;
+}
+
+.pta-mapping-remove {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #b32d2e;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.pta-mapping-remove:hover,
+.pta-mapping-remove:focus {
+    background: #b32d2e;
+    color: #fff;
+}
+
+.pta-mapping-empty {
+    color: #646970;
+    font-style: italic;
+    padding: 4px 0;
 }
 
 .modal-header {

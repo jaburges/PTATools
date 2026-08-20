@@ -14,6 +14,7 @@
 .modal .button,
 .modal .button-primary,
 .modal .button-secondary,
+.modal .button-small,
 .credentials-section .button,
 .module-card .button,
 .auth-actions-inline .button,
@@ -22,6 +23,8 @@
     align-items: center !important;
     gap: 5px;
     vertical-align: middle;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* All dashicons inside buttons - consistent sizing and alignment */
@@ -105,6 +108,23 @@ button .dashicons,
 /* =============================================
    END GLOBAL BUTTON ICON STYLES
    ============================================= */
+
+/* Admin modals: WordPress `.widefat.fixed` uses table-layout:fixed and
+   overflow:hidden on cells, which clips Assign / View Assignments when the
+   shell is narrower than the row. List modals opt into `.modal-wide`. */
+.modal .modal-content.modal-wide {
+    max-width: min(1200px, calc(100vw - 48px));
+    width: min(1200px, calc(100vw - 48px));
+}
+
+.modal .wp-list-table th,
+.modal .wp-list-table td {
+    overflow: visible;
+}
+
+.modal .wp-list-table.fixed {
+    table-layout: auto;
+}
 
 .azure-plugin-dashboard {
     display: grid;
