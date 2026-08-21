@@ -27,6 +27,33 @@ body.full-width-content.ptsa-template-full-width #primary {
     margin-bottom: 20px;
 }
 
+/* ChromeNews "boxed" content mode is for articles: it centers
+ * .entry-content at 670px. That leaves the exec board grid and org
+ * chart as a skinny island in the middle of this wider template. */
+body.ptsa-template.page.single-content-mode-boxed main.site-main :is(.entry-content, .entry-header, .entry-footer),
+body.ptsa-template.page.single-content-mode-boxed.full-width-content main.site-main :is(.entry-content, .entry-header, .entry-footer) {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* The /ptsa org-chart shortcode still carries width="1000px". Beat
+ * that inline max-width so the D3 chart can measure the real column. */
+body.ptsa-template .pta-org-chart-container {
+    max-width: none !important;
+    width: 100%;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+body.ptsa-template .pta-leadership-structure,
+body.ptsa-template .pta-roles-directory {
+    max-width: none;
+    width: 100%;
+}
+
 body.ptsa-template-sidebar .ptsa-sidebar-row {
     display: flex;
     align-items: flex-start;
