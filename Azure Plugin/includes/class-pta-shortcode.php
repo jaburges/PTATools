@@ -52,6 +52,17 @@
  * - show_description: true/false - show role description
  * - show_assignments: true/false - show assigned users
  * 
+ * ROLE DESCRIPTION SHORTCODE:
+ * [Role-description role="president"]
+ * [role-description department="volunteers"]
+ * [Role-description]
+ *
+ * Parameters:
+ * - role / slug: role name or slug (optional; omit to list roles that have copy)
+ * - department: limit a listing to one department
+ * - show_description / show_responsibilities / show_time /
+ *   show_point_of_contact / show_protip: true/false (default true)
+ *
  * TEAM MEMBERS INSPIRED LAYOUT:
  * [pta-roles-directory layout="team-cards" columns="4" show_avatars="true" show_contact="true"]
  * 
@@ -86,6 +97,8 @@ class Azure_PTA_Shortcode {
         add_shortcode('pta-department-vp', array($this, 'department_vp_shortcode'));
         add_shortcode('pta-open-positions', array($this, 'open_positions_shortcode'));
         add_shortcode('pta-user-roles', array($this, 'user_roles_shortcode'));
+        add_shortcode('role-description', array($this, 'role_description_shortcode'));
+        add_shortcode('Role-description', array($this, 'role_description_shortcode'));
         
         // Enqueue frontend styles
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
@@ -112,7 +125,7 @@ class Azure_PTA_Shortcode {
             return;
         }
 
-        $shortcodes = array('pta-roles-directory', 'pta-department-roles', 'pta-org-chart', 'pta-role-card', 'pta-department-vp', 'pta-open-positions', 'pta-user-roles');
+        $shortcodes = array('pta-roles-directory', 'pta-department-roles', 'pta-org-chart', 'pta-role-card', 'pta-department-vp', 'pta-open-positions', 'pta-user-roles', 'role-description', 'Role-description');
         $found = false;
         foreach ($shortcodes as $sc) {
             if (has_shortcode($post->post_content, $sc)) {
@@ -1122,5 +1135,153 @@ class Azure_PTA_Shortcode {
         }
 
         return $role_emails;
+    }
+
+    /**
+     * Full role description: description, key responsibilities, time
+     * commitment, point of contact, and pro tip.
+     *
+     * [Role-description role="president"]
+     * [role-description department="volunteers"]
+     * [Role-description]  — every role that has copy
+     */
+    public function role_description_shortcode($atts) {
+        $availability_check = $this->check_pta_manager_availability();
+        if ($availability_check !== false) {
+            return $availability_check;
+        }
+
+        $atts = shortcode_atts(array(
+            'role'                  => '',
+            'slug'                  => '',
+            'department'            => '',
+            'show_description'      => true,
+            'show_responsibilities' => true,
+            'show_time'             => true,
+            'show_point_of_contact' => true,
+            'show_protip'           => true,
+        ), $atts, 'role-description');
+
+        $atts['show_description'] = filter_var($atts['show_description'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_responsibilities'] = filter_var($atts['show_responsibilities'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_time'] = filter_var($atts['show_time'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_point_of_contact'] = filter_var($atts['show_point_of_contact'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_protip'] = filter_var($atts['show_protip'], FILTER_VALIDATE_BOOLEAN);
+
+        $needle = trim((string) ($atts['role'] !== '' ? $atts['role'] : $atts['slug']));
+        $roles = $this->pta_manager->get_roles(null, false);
+
+        if ($needle !== '') {
+            $match = $this->find_role_for_description($roles, $needle);
+            if (!$match) {
+                return '<p class="pta-error">Role not found: ' . esc_html($needle) . '</p>';
+            }
+            $roles = array($match);
+        } elseif ($atts['department'] !== '' && strtolower($atts['department']) !== 'all') {
+            $dept = strtolower(trim($atts['department']));
+            $roles = array_values(array_filter($roles, function ($role) use ($dept) {
+                $name = strtolower((string) ($role->department_name ?? ''));
+                $slug = sanitize_title((string) ($role->department_name ?? ''));
+                return $name === $dept || $slug === $dept || strpos($name, $dept) !== false;
+            }));
+        }
+
+        $roles = array_values(array_filter($roles, function ($role) {
+            return class_exists('Azure_PTA_Role_Descriptions')
+                ? Azure_PTA_Role_Descriptions::role_has_public_copy($role)
+                : !empty($role->description);
+        }));
+
+        if (empty($roles)) {
+            return '<p class="pta-role-description-empty">No role descriptions are available yet.</p>';
+        }
+
+        $output = '<div class="pta-role-descriptions">';
+        foreach ($roles as $role) {
+            $output .= $this->render_role_description($role, $atts);
+        }
+        $output .= '</div>';
+        return $output;
+    }
+
+    private function find_role_for_description($roles, $needle) {
+        $needle_l = strtolower(trim($needle));
+        $needle_n = class_exists('Azure_PTA_Role_Descriptions')
+            ? Azure_PTA_Role_Descriptions::normalize_key($needle)
+            : $needle_l;
+
+        foreach ($roles as $role) {
+            if (strtolower((string) $role->slug) === $needle_l || strtolower((string) $role->name) === $needle_l) {
+                return $role;
+            }
+            if (class_exists('Azure_PTA_Role_Descriptions')) {
+                foreach (Azure_PTA_Role_Descriptions::role_match_keys($role) as $key) {
+                    if ($key === $needle_l || $key === $needle_n) {
+                        return $role;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private function render_role_description($role, $atts) {
+        $slug = sanitize_title($role->slug ?: $role->name);
+        $output = '<article class="pta-role-description" id="role-' . esc_attr($slug) . '">';
+        $output .= '<h2 class="pta-role-description-title">' . esc_html($role->name) . '</h2>';
+        if (!empty($role->department_name)) {
+            $output .= '<p class="pta-role-description-dept">' . esc_html($role->department_name) . '</p>';
+        }
+
+        if ($atts['show_description'] && !empty($role->description)) {
+            $output .= '<section class="pta-role-description-block">';
+            $output .= '<h3>Description</h3>';
+            $output .= '<p>' . esc_html($role->description) . '</p>';
+            $output .= '</section>';
+        }
+
+        $responsibilities = isset($role->responsibilities) && is_array($role->responsibilities)
+            ? $role->responsibilities
+            : array();
+        if ($atts['show_responsibilities'] && !empty($responsibilities)) {
+            $output .= '<section class="pta-role-description-block">';
+            $output .= '<h3>Key Responsibilities</h3><ul class="pta-role-responsibilities">';
+            foreach ($responsibilities as $item) {
+                $heading = trim((string) ($item['heading'] ?? ''));
+                $body = trim((string) ($item['body'] ?? ''));
+                if ($heading === '' && $body === '') {
+                    continue;
+                }
+                $output .= '<li>';
+                if ($heading !== '') {
+                    $output .= '<strong>' . esc_html($heading) . ':</strong> ';
+                }
+                $output .= esc_html($body);
+                $output .= '</li>';
+            }
+            $output .= '</ul></section>';
+        }
+
+        $meta_bits = array();
+        if ($atts['show_time'] && !empty($role->time_commitment)) {
+            $meta_bits[] = array('Time Commitment', $role->time_commitment);
+        }
+        if ($atts['show_point_of_contact'] && !empty($role->point_of_contact)) {
+            $meta_bits[] = array('Main Point of Contact', $role->point_of_contact);
+        }
+        if (!empty($meta_bits)) {
+            $output .= '<dl class="pta-role-description-meta">';
+            foreach ($meta_bits as $pair) {
+                $output .= '<dt>' . esc_html($pair[0]) . '</dt><dd>' . esc_html($pair[1]) . '</dd>';
+            }
+            $output .= '</dl>';
+        }
+
+        if ($atts['show_protip'] && !empty($role->pro_tip)) {
+            $output .= '<aside class="pta-role-protip"><h3>Pro Tip</h3><p>' . esc_html($role->pro_tip) . '</p></aside>';
+        }
+
+        $output .= '</article>';
+        return $output;
     }
 }

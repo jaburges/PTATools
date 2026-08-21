@@ -69,6 +69,10 @@ class Azure_PTA_Database {
                 return $wpdb->prefix . 'pta_audit_logs';
             case 'sync_queue':
                 return $wpdb->prefix . 'pta_sync_queue';
+            case 'role_details':
+                return $wpdb->prefix . 'pta_role_details';
+            case 'role_responsibilities':
+                return $wpdb->prefix . 'pta_role_responsibilities';
             default:
                 return null;
         }
@@ -195,6 +199,28 @@ class Azure_PTA_Database {
         ) $charset_collate;";
         
         // Sync Queue table
+        $table_name_role_details = $wpdb->prefix . 'pta_role_details';
+        $sql_role_details = "CREATE TABLE $table_name_role_details (
+            role_id bigint(20) NOT NULL,
+            time_commitment text DEFAULT NULL,
+            point_of_contact varchar(500) DEFAULT NULL,
+            pro_tip text DEFAULT NULL,
+            updated_at timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (role_id)
+        ) $charset_collate;";
+
+        $table_name_role_responsibilities = $wpdb->prefix . 'pta_role_responsibilities';
+        $sql_role_responsibilities = "CREATE TABLE $table_name_role_responsibilities (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            role_id bigint(20) NOT NULL,
+            sort_order int(11) DEFAULT 0,
+            heading varchar(255) DEFAULT NULL,
+            body text DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY role_id (role_id),
+            KEY role_sort (role_id, sort_order)
+        ) $charset_collate;";
+
         $table_name_sync_queue = $wpdb->prefix . 'pta_sync_queue';
         $sql_sync_queue = "CREATE TABLE $table_name_sync_queue (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -255,6 +281,14 @@ class Azure_PTA_Database {
         Azure_Logger::debug('PTA: Creating sync_queue table...');
         $results['sync_queue'] = dbDelta($sql_sync_queue);
         if ($wpdb->last_error) Azure_Logger::error('PTA: Error creating sync_queue: ' . $wpdb->last_error);
+
+        Azure_Logger::debug('PTA: Creating role_details table...');
+        $results['role_details'] = dbDelta($sql_role_details);
+        if ($wpdb->last_error) Azure_Logger::error('PTA: Error creating role_details: ' . $wpdb->last_error);
+
+        Azure_Logger::debug('PTA: Creating role_responsibilities table...');
+        $results['role_responsibilities'] = dbDelta($sql_role_responsibilities);
+        if ($wpdb->last_error) Azure_Logger::error('PTA: Error creating role_responsibilities: ' . $wpdb->last_error);
         
         // Log dbDelta results for debugging
         foreach ($results as $table => $result) {
@@ -266,7 +300,7 @@ class Azure_PTA_Database {
         Azure_Logger::debug('PTA: Tables after creation: ' . json_encode($tables_after));
         
         // Verify each table exists
-        $expected_tables = ['departments', 'roles', 'role_assignments', 'o365_groups', 'group_mappings', 'audit_logs', 'sync_queue'];
+        $expected_tables = ['departments', 'roles', 'role_assignments', 'o365_groups', 'group_mappings', 'audit_logs', 'sync_queue', 'role_details', 'role_responsibilities'];
         $missing_tables = array();
         
         foreach ($expected_tables as $table_suffix) {

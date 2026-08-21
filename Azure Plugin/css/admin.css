@@ -918,3 +918,30 @@ body.admin-color-midnight .module-description p {
 .dashboard-widget-stats .stat-label {
     font-size: 11px;
 }
+
+.pta-role-resp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pta-role-resp-row {
+    display: grid;
+    grid-template-columns: minmax(160px, 220px) 1fr auto;
+    gap: 8px;
+    align-items: start;
+}
+
+.pta-role-resp-row .pta-resp-heading,
+.pta-role-resp-row .pta-resp-body {
+    width: 100%;
+}
+
+@media (max-width: 782px) {
+    .pta-role-resp-row {
+        grid-template-columns: 1fr auto;
+    }
+    .pta-role-resp-row .pta-resp-heading {
+        grid-column: 1 / -1;
+    }
+}

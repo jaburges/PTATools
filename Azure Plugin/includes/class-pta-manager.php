@@ -130,6 +130,10 @@ class Azure_PTA_Manager {
                 $role->status = $this->calculate_role_status($role);
             }
         }
+
+        if (class_exists('Azure_PTA_Role_Descriptions')) {
+            Azure_PTA_Role_Descriptions::attach_to_roles($roles);
+        }
         
         return $roles;
     }
@@ -162,6 +166,9 @@ class Azure_PTA_Manager {
             $role->assigned_count = count($assignments);
             $role->open_positions = max(0, $role->max_occupants - $role->assigned_count);
             $role->status = $this->calculate_role_status($role);
+            if (class_exists('Azure_PTA_Role_Descriptions')) {
+                Azure_PTA_Role_Descriptions::attach_to_roles(array($role));
+            }
         }
         
         return $role;
@@ -1265,6 +1272,14 @@ class Azure_PTA_Manager {
         try {
             $role_id = $this->create_role($name, $department_id, $max_occupants, $description);
             if ($role_id) {
+                if (class_exists('Azure_PTA_Role_Descriptions')) {
+                    Azure_PTA_Role_Descriptions::save_for_role($role_id, array(
+                        'time_commitment'  => $_POST['time_commitment'] ?? '',
+                        'point_of_contact' => $_POST['point_of_contact'] ?? '',
+                        'pro_tip'          => $_POST['pro_tip'] ?? '',
+                        'responsibilities' => Azure_PTA_Role_Descriptions::parse_responsibilities_from_request($_POST),
+                    ));
+                }
                 wp_send_json_success(array('role_id' => $role_id, 'message' => 'Role created successfully'));
             } else {
                 wp_send_json_error('Failed to create role');
@@ -1312,6 +1327,14 @@ class Azure_PTA_Manager {
             );
             
             if ($result !== false) {
+                if (class_exists('Azure_PTA_Role_Descriptions')) {
+                    Azure_PTA_Role_Descriptions::save_for_role($role_id, array(
+                        'time_commitment'  => $_POST['time_commitment'] ?? '',
+                        'point_of_contact' => $_POST['point_of_contact'] ?? '',
+                        'pro_tip'          => $_POST['pro_tip'] ?? '',
+                        'responsibilities' => Azure_PTA_Role_Descriptions::parse_responsibilities_from_request($_POST),
+                    ));
+                }
                 Azure_Logger::info("PTA: Role updated - ID: $role_id, Name: $name");
                 wp_send_json_success(array('message' => 'Role updated successfully'));
             } else {
@@ -1498,6 +1521,10 @@ class Azure_PTA_Manager {
         
         if ($assignment_count > 0) {
             throw new Exception('Cannot delete role: ' . $assignment_count . ' people are assigned to this role');
+        }
+
+        if (class_exists('Azure_PTA_Role_Descriptions')) {
+            Azure_PTA_Role_Descriptions::delete_for_role($role_id);
         }
         
         return $wpdb->delete($roles_table, array('id' => $role_id), array('%d'));

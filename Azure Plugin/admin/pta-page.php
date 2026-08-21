@@ -598,6 +598,18 @@ if (class_exists('Azure_PTA_Database')) {
         </div>
         
         <div class="shortcode-example">
+            <h4>Role Description</h4>
+            <code>[Role-description role="president"]</code>
+            <p>Full write-up for a role: description, key responsibilities, time commitment, main point of contact, and pro tip. Omit <code>role</code> to list every role that has copy.</p>
+            <p><strong>Parameters:</strong></p>
+            <ul>
+                <li><strong>role</strong> or <strong>slug:</strong> Role name or slug (optional — omit to list all)</li>
+                <li><strong>department:</strong> Limit a listing to one department</li>
+                <li><strong>show_description / show_responsibilities / show_time / show_point_of_contact / show_protip:</strong> true/false (all default true)</li>
+            </ul>
+        </div>
+        
+        <div class="shortcode-example">
             <h4>User Roles</h4>
             <code>[pta-user-roles user_id=123 show_department=true]</code>
             <p><strong>Parameters:</strong></p>
@@ -1528,6 +1540,69 @@ jQuery(document).ready(function($) {
             showUserDetails(userId);
         });
     }
+
+    function roleResponsibilityRowHtml(item) {
+        item = item || {};
+        var heading = item.heading || '';
+        var body = item.body || '';
+        return '<div class="pta-role-resp-row">' +
+            '<input type="text" class="regular-text pta-resp-heading" placeholder="Heading (optional)" value="">' +
+            '<textarea class="large-text pta-resp-body" rows="2" placeholder="Responsibility"></textarea>' +
+            '<button type="button" class="button-link-delete" data-remove-resp>&times;</button>' +
+            '</div>';
+    }
+
+    function fillRoleResponsibilityRow($row, item) {
+        $row.find('.pta-resp-heading').val((item && item.heading) || '');
+        $row.find('.pta-resp-body').val((item && item.body) || '');
+    }
+
+    function renderRoleResponsibilities($root, items) {
+        var $list = $root.find('[data-resp-list]');
+        $list.empty();
+        items = $.isArray(items) ? items : [];
+        if (!items.length) {
+            items = [{ heading: '', body: '' }];
+        }
+        items.forEach(function(item) {
+            var $row = $(roleResponsibilityRowHtml(item));
+            $list.append($row);
+            fillRoleResponsibilityRow($row, item);
+        });
+    }
+
+    function collectRoleResponsibilities($root) {
+        var items = [];
+        $root.find('.pta-role-resp-row').each(function() {
+            var heading = $.trim($(this).find('.pta-resp-heading').val() || '');
+            var body = $.trim($(this).find('.pta-resp-body').val() || '');
+            if (heading || body) {
+                items.push({ heading: heading, body: body });
+            }
+        });
+        return items;
+    }
+
+    function syncRoleResponsibilitiesField($form) {
+        $form.find('input[name="responsibilities"]').val(JSON.stringify(collectRoleResponsibilities($form)));
+    }
+
+    $(document).on('click', '[data-add-resp]', function() {
+        var $list = $(this).closest('td, .modal-body, form').find('[data-resp-list]').first();
+        var $row = $(roleResponsibilityRowHtml());
+        $list.append($row);
+        fillRoleResponsibilityRow($row, {});
+    });
+
+    $(document).on('click', '[data-remove-resp]', function() {
+        var $list = $(this).closest('[data-resp-list]');
+        $(this).closest('.pta-role-resp-row').remove();
+        if (!$list.find('.pta-role-resp-row').length) {
+            var $row = $(roleResponsibilityRowHtml());
+            $list.append($row);
+            fillRoleResponsibilityRow($row, {});
+        }
+    });
     
     /* Bind event handlers for Roles actions.
      *
@@ -1665,7 +1740,18 @@ jQuery(document).ready(function($) {
                                 <tr><th>Role Name</th><td><input type="text" name="name" required class="regular-text"></td></tr>
                                 <tr><th>Department</th><td><select name="department_id" required><option value="">Select Department</option></select></td></tr>
                                 <tr><th>Max Occupants</th><td><input type="number" name="max_occupants" value="1" min="1" class="small-text"></td></tr>
-                                <tr><th>Description</th><td><textarea name="description" class="large-text"></textarea></td></tr>
+                                <tr><th>Description</th><td><textarea name="description" class="large-text" rows="4"></textarea></td></tr>
+                                <tr><th>Time Commitment</th><td><textarea name="time_commitment" class="large-text" rows="2"></textarea></td></tr>
+                                <tr><th>Main Point of Contact</th><td><input type="text" name="point_of_contact" class="regular-text"></td></tr>
+                                <tr><th>Pro Tip</th><td><textarea name="pro_tip" class="large-text" rows="3"></textarea></td></tr>
+                                <tr>
+                                    <th>Key Responsibilities</th>
+                                    <td>
+                                        <div class="pta-role-resp-list" data-resp-list></div>
+                                        <p><button type="button" class="button" data-add-resp>Add responsibility</button></p>
+                                        <input type="hidden" name="responsibilities" value="[]">
+                                    </td>
+                                </tr>
                             </table>
                             <p class="submit">
                                 <button type="submit" class="button button-primary">Add Role</button>
@@ -1678,6 +1764,7 @@ jQuery(document).ready(function($) {
         `;
         
         $('body').append(formHtml);
+        renderRoleResponsibilities($('#add-role-form'), []);
         
         // Load departments for dropdown
         $.post(azure_plugin_ajax.ajax_url, {
@@ -1697,6 +1784,7 @@ jQuery(document).ready(function($) {
         // Handle form submission
         $('#add-role-form').submit(function(e) {
             e.preventDefault();
+            syncRoleResponsibilitiesField($(this));
             var formData = $(this).serialize();
             
             $.post(azure_plugin_ajax.ajax_url, formData + '&action=pta_create_role&nonce=' + azure_plugin_ajax.nonce, function(response) {
@@ -2373,7 +2461,7 @@ jQuery(document).ready(function($) {
         // Create edit form modal
         var formHtml = `
             <div id="edit-role-form-modal" class="modal" style="z-index: 10001;">
-                <div class="modal-content">
+                <div class="modal-content modal-wide">
                     <div class="modal-header">
                         <h3>Edit Role: ${role.name}</h3>
                         <button type="button" class="modal-close">&times;</button>
@@ -2404,7 +2492,27 @@ jQuery(document).ready(function($) {
                                 </tr>
                                 <tr>
                                     <th>Description</th>
-                                    <td><textarea name="description" class="large-text">${role.description || ''}</textarea></td>
+                                    <td><textarea name="description" class="large-text" rows="4"></textarea></td>
+                                </tr>
+                                <tr>
+                                    <th>Time Commitment</th>
+                                    <td><textarea name="time_commitment" class="large-text" rows="2"></textarea></td>
+                                </tr>
+                                <tr>
+                                    <th>Main Point of Contact</th>
+                                    <td><input type="text" name="point_of_contact" class="regular-text"></td>
+                                </tr>
+                                <tr>
+                                    <th>Pro Tip</th>
+                                    <td><textarea name="pro_tip" class="large-text" rows="3"></textarea></td>
+                                </tr>
+                                <tr>
+                                    <th>Key Responsibilities</th>
+                                    <td>
+                                        <div class="pta-role-resp-list" data-resp-list></div>
+                                        <p><button type="button" class="button" data-add-resp>Add responsibility</button></p>
+                                        <input type="hidden" name="responsibilities" value="[]">
+                                    </td>
                                 </tr>
                                 <tr>
                                     <th>O365 Groups</th>
@@ -2436,6 +2544,13 @@ jQuery(document).ready(function($) {
         $('#edit-role-form-modal').remove();
         
         $('body').append(formHtml);
+
+        var $editForm = $('#edit-role-form');
+        $editForm.find('[name="description"]').val(role.description || '');
+        $editForm.find('[name="time_commitment"]').val(role.time_commitment || '');
+        $editForm.find('[name="point_of_contact"]').val(role.point_of_contact || '');
+        $editForm.find('[name="pro_tip"]').val(role.pro_tip || '');
+        renderRoleResponsibilities($editForm, role.responsibilities || []);
         
         // O365 mappings are edited in place on this list. Save Changes does
         // not touch them — the previous save path replaced every mapping with
@@ -2672,6 +2787,7 @@ jQuery(document).ready(function($) {
                 return false;
             }
             
+            syncRoleResponsibilitiesField($form);
             var formData = {
                 action: 'pta_update_role',
                 nonce: azure_plugin_ajax.nonce,
@@ -2679,7 +2795,11 @@ jQuery(document).ready(function($) {
                 name: $form.find('[name="name"]').val(),
                 department_id: deptVal,
                 max_occupants: $form.find('[name="max_occupants"]').val(),
-                description: $form.find('[name="description"]').val()
+                description: $form.find('[name="description"]').val(),
+                time_commitment: $form.find('[name="time_commitment"]').val(),
+                point_of_contact: $form.find('[name="point_of_contact"]').val(),
+                pro_tip: $form.find('[name="pro_tip"]').val(),
+                responsibilities: $form.find('[name="responsibilities"]').val()
             };
             
             console.log('Saving role with data:', formData);

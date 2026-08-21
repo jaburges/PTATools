@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.7
+ * Version: 3.147.8
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.7');
+define('AZURE_PLUGIN_VERSION', '3.147.8');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -661,6 +661,14 @@ class AzurePlugin {
                         Azure_PTSA_Page_Templates::maybe_assign_ptsa_preview_page();
                     }
 
+                    $role_desc = AZURE_PLUGIN_PATH . 'includes/class-pta-role-descriptions.php';
+                    if (!class_exists('Azure_PTA_Role_Descriptions') && file_exists($role_desc)) {
+                        require_once $role_desc;
+                    }
+                    if (class_exists('Azure_PTA_Role_Descriptions')) {
+                        Azure_PTA_Role_Descriptions::maybe_seed_from_file();
+                    }
+
                     update_option('azure_plugin_db_version', AZURE_PLUGIN_VERSION);
 
                     // Auction: schedule per-auction finalize events for any
@@ -1229,6 +1237,7 @@ class AzurePlugin {
             // Always loaded (front-end shortcodes + Forminator integration + table accessors)
             $this->require_module_files(array(
                 'class-pta-database.php',
+                'class-pta-role-descriptions.php',
                 'class-pta-manager.php',
                 'class-pta-shortcode.php',
                 'class-pta-forminator.php',
@@ -1781,6 +1790,7 @@ class AzurePlugin {
             // needs to require the files explicitly so create_tables() etc. are callable.
             $activation_files = array(
                 'class-pta-database.php',
+                'class-pta-role-descriptions.php',
                 'class-newsletter-module.php',
             );
             foreach ($activation_files as $f) {
@@ -1802,6 +1812,9 @@ class AzurePlugin {
                     Azure_PTA_Database::seed_initial_data(false);
                     Azure_Logger::info('PTA initial data seeded successfully');
                     $write_log("✅ **[STEP 6b]** PTA data seeded from CSV");
+                    if (class_exists('Azure_PTA_Role_Descriptions')) {
+                        Azure_PTA_Role_Descriptions::maybe_seed_from_file();
+                    }
                 } catch (\Throwable $e) {
                     $write_log("❌ **[STEP 6 ERROR]** Failed to create/seed PTA tables: " . $e->getMessage());
                     Azure_Logger::error('Failed to create/seed PTA database tables: ' . $e->getMessage());

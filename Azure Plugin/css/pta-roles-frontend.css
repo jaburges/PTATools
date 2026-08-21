@@ -843,6 +843,87 @@ body.page-template-full-width #primary.aft-pagebuilder-full-width-content > #mai
     padding: 24px;
 }
 
+.pta-role-descriptions {
+    display: flex;
+    flex-direction: column;
+    gap: 36px;
+    margin: 24px 0;
+}
+
+.pta-role-description {
+    padding: 24px 0;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.pta-role-description:last-child {
+    border-bottom: none;
+}
+
+.pta-role-description-title {
+    margin: 0 0 4px;
+    font-size: 1.6rem;
+    line-height: 1.25;
+}
+
+.pta-role-description-dept {
+    margin: 0 0 16px;
+    color: #666;
+    font-size: 0.95rem;
+}
+
+.pta-role-description-block {
+    margin: 0 0 18px;
+}
+
+.pta-role-description-block h3,
+.pta-role-protip h3 {
+    margin: 0 0 8px;
+    font-size: 1.1rem;
+}
+
+.pta-role-description-block p,
+.pta-role-protip p {
+    margin: 0;
+}
+
+.pta-role-responsibilities {
+    margin: 0;
+    padding-left: 1.2em;
+}
+
+.pta-role-responsibilities li {
+    margin: 0 0 8px;
+}
+
+.pta-role-description-meta {
+    display: grid;
+    grid-template-columns: minmax(140px, 220px) 1fr;
+    gap: 8px 16px;
+    margin: 0 0 18px;
+}
+
+.pta-role-description-meta dt {
+    font-weight: 600;
+    margin: 0;
+}
+
+.pta-role-description-meta dd {
+    margin: 0;
+}
+
+.pta-role-protip {
+    background: #f7f4ee;
+    border-left: 4px solid #c4a35a;
+    padding: 14px 18px;
+    border-radius: 0 6px 6px 0;
+}
+
+@media (max-width: 640px) {
+    .pta-role-description-meta {
+        grid-template-columns: 1fr;
+    }
+}
+
 
 
 

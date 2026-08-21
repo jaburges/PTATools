@@ -1,0 +1,1379 @@
+{
+  "seed_version": "2026-27.1",
+  "source": "Board and Chair Role Descriptions (2026-27)",
+  "roles": [
+    {
+      "title": "President",
+      "aliases": [
+        "president"
+      ],
+      "description": "Provide strategic leadership and vision for the PTSA, ensuring the organization remains focused on its mission to support students, staff, and families.",
+      "responsibilities": [
+        {
+          "heading": "Strategic Oversight",
+          "body": "Lead the Board of Directors in making key organizational decisions and ensuring all PTSA activities align with the annual budget and school goals."
+        },
+        {
+          "heading": "Meeting Facilitation",
+          "body": "Prepare agendas for and preside over monthly Board meetings and four General Membership meetings, fostering a collaborative and productive environment."
+        },
+        {
+          "heading": "Relationship Management",
+          "body": "Serve as the primary liaison between the school administration, school staff, the parent community, and the PTSA leadership team."
+        },
+        {
+          "heading": "Organizational Support",
+          "body": "Act as a floater to provide guidance to VPs and Chairs, ensuring they have the resources needed to succeed while stepping in to help troubleshoot as needed."
+        }
+      ],
+      "time_commitment": "Approximately 1–10 hours per week; intensity fluctuates based on the event calendar, with higher demand at the beginning of the school year and during major school-wide events.",
+      "point_of_contact": "PTSA Board of Directors",
+      "pro_tip": "Protect your peace! Our community is incredibly generous and appreciative, but you will occasionally face criticism. Remember that you are a volunteer doing your best. Most importantly, don't feel obligated to save every program—if no one is willing to lead a project, it's okay to let it go. Focus on what is sustainable and essential."
+    },
+    {
+      "title": "Executive Vice President",
+      "aliases": [
+        "executive vice president",
+        "executive vp",
+        "exec vp",
+        "executive-vp"
+      ],
+      "description": "Assist the President with all responsibilities related to the Board. Oversee special projects as directed by the President or Board, such as the Awards Committee and Committee Chair Training.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Ensure equitable and accessible activities across the PTSA and communicate district-wide priorities at the school level so the school stays aligned with district goals and values."
+        },
+        {
+          "heading": "",
+          "body": "Attend monthly district Board meetings and communicate high-priority district action items and issues to the school Board or PTSA."
+        }
+      ],
+      "time_commitment": "6 hours per month, mostly meetings and occasional communications.",
+      "point_of_contact": "The President",
+      "pro_tip": "Attend district meetings and tease out the items that are most important for this school. Prepare notes, slides, or handouts to communicate district goals with the board."
+    },
+    {
+      "title": "Secretary",
+      "aliases": [
+        "secretary"
+      ],
+      "description": "Maintain the official historical and legal records of the PTSA while ensuring the Board remains in good standing through compliance and training.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Record and distribute accurate minutes for all Board and General Membership meetings to ensure transparency and documentation of all PTSA decisions."
+        },
+        {
+          "heading": "",
+          "body": "Monitor and track mandatory training requirements for all Board members to maintain the PTSA's Standards of Excellence and official status with the state."
+        },
+        {
+          "heading": "",
+          "body": "Serve as one of three authorized legal signatories for PTSA checks, providing critical financial oversight and support for the Treasurer."
+        },
+        {
+          "heading": "",
+          "body": "Manage the organization's digital archive by scanning and uploading legacy physical files to SharePoint to preserve the school's historical records for future leaders."
+        }
+      ],
+      "time_commitment": "Approximately 2–4 hours per month, including attendance at monthly Board and General Membership meetings.",
+      "point_of_contact": "President and Board",
+      "pro_tip": "Organization is the key to this role!"
+    },
+    {
+      "title": "Treasurer",
+      "aliases": [
+        "treasurer"
+      ],
+      "description": "Oversee revenue and expenses to ensure the PTSA maintains a positive cash flow for the year, while still meeting the needs of students, staff, and families.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Pay all authorized financial obligations of the PTSA in a timely manner."
+        },
+        {
+          "heading": "",
+          "body": "Recognize all revenue, purchases, donations, and matching funds in the correct revenue accounts."
+        },
+        {
+          "heading": "",
+          "body": "Reconcile the PTSA's bank account and financial records monthly."
+        },
+        {
+          "heading": "",
+          "body": "Compile and present monthly financial reports at each membership or board meeting, including developing the operating budget and any subsequent revisions."
+        },
+        {
+          "heading": "",
+          "body": "Prepare and file the appropriate IRS forms, state annual renewal filing, charitable organization registration/renewal, business license, reseller permit, and other required reports in a timely manner."
+        }
+      ],
+      "time_commitment": "It varies depending on the month, but it averages about 2–3 hours per week.",
+      "point_of_contact": "The President",
+      "pro_tip": "The person does not need to be an accountant to perform this job, but good organizational skills are key to success."
+    },
+    {
+      "title": "VP, Communications & Technology",
+      "aliases": [
+        "vp communications",
+        "vp communications and technology",
+        "vp, communications and technology",
+        "vp-communications"
+      ],
+      "description": "Empower the PTSA by building scalable communication systems and providing the technical tools necessary for every committee to reach its audience independently and effectively.",
+      "responsibilities": [
+        {
+          "heading": "Strategic Oversight",
+          "body": "Manage the PTSA's digital footprint, including the website and online store, ensuring content is accessible, professional, and reaches the intended audience."
+        },
+        {
+          "heading": "Tech Enablement",
+          "body": "Identify and implement tools that allow committee chairs to manage their own digital spaces, removing yourself as a bottleneck and fostering a culture of self-sufficiency."
+        },
+        {
+          "heading": "Systems Consolidation",
+          "body": "Audit and streamline the PTSA's various digital platforms (SharePoint, Teams, etc.) to reduce tech debt and ensure a seamless, user-friendly experience for all volunteers."
+        }
+      ],
+      "time_commitment": "2–10 hours per week (varies significantly; highest intensity in August and September during the new school year setup).",
+      "point_of_contact": "PTSA President and Executive Vice Presidents",
+      "pro_tip": "Focus on systems, not tasks. Your success isn't measured by how many website updates you perform, but by how many systems you build that allow others to do it themselves. When a chair asks, \"Can you update this?\" your goal is to reply, \"Here is the system I've built so you can update it whenever you need!\""
+    },
+    {
+      "title": "VP, Ways & Means",
+      "aliases": [
+        "vp ways and means",
+        "vp, ways and means",
+        "vp-ways-and-means"
+      ],
+      "description": "Oversee and execute the PTSA's fundraising strategy to ensure the annual budget is fully funded through the annual giving campaign and various seasonal events.",
+      "responsibilities": [
+        {
+          "heading": "Lead the Annual Giving Campaign",
+          "body": "Drive the high-priority annual giving program at the start of the year, which serves as the primary funding source for the entire school year's budget."
+        },
+        {
+          "heading": "Committee Management",
+          "body": "Oversee and support committee chairs for diverse fundraising initiatives, including Book Fairs, Parents' Night Out, and miscellaneous spirit events to ensure they meet their financial targets."
+        },
+        {
+          "heading": "Strategic Reporting",
+          "body": "Track progress against fundraising goals and provide regular updates to the Board President and the general board during monthly meetings."
+        }
+      ],
+      "time_commitment": "Approximately 2–4 hours per week on average; increases to 6 hours per week during full-speed periods (typically September and October).",
+      "point_of_contact": "President and Treasurer",
+      "pro_tip": "This role is heavily front-loaded! Start your planning and get a firm grasp on the calendar during the early summer. Setting your foundation before September hits ensures you can lead the giving campaign with confidence rather than playing catch-up once the school year starts."
+    },
+    {
+      "title": "VP, Community Events",
+      "aliases": [
+        "vp community events",
+        "vp events",
+        "vp, community events",
+        "vp-events"
+      ],
+      "description": "Foster a vibrant and inclusive school culture by overseeing the planning and execution of all major PTSA community-building events.",
+      "responsibilities": [
+        {
+          "heading": "Calendar & Logistics",
+          "body": "Collaborate with the Board and event chairs to establish the annual events calendar and secure all necessary facility dates through the school's online reservation system."
+        },
+        {
+          "heading": "Chair Support & Oversight",
+          "body": "Ensure event chairs follow established best practices and school procedures, providing the guidance and deadlines needed to execute plans smoothly and on time."
+        },
+        {
+          "heading": "On-Site Leadership",
+          "body": "Provide general day-of support at events, acting as a resource for chairs and helping to troubleshoot any last-minute needs."
+        }
+      ],
+      "time_commitment": "1–3 hours per month, depending on the event schedule.",
+      "point_of_contact": "President and Board",
+      "pro_tip": "Encourage your event chairs to form committees right away! Building a team rather than flying solo prevents chair burnout and ensures that how-to knowledge stays within the PTSA as families eventually move on from the school."
+    },
+    {
+      "title": "VP, Volunteers",
+      "aliases": [
+        "vp volunteers",
+        "vp, volunteers",
+        "vp-volunteers"
+      ],
+      "description": "Build and manage a robust, inclusive volunteer community by ensuring all helpers are cleared, supported, and matched with roles that fit their interests.",
+      "responsibilities": [
+        {
+          "heading": "Compliance & Safety",
+          "body": "Oversee the volunteer approval process by verifying district background checks and maintaining an up-to-date, secure database of cleared volunteers."
+        },
+        {
+          "heading": "Strategic Recruitment",
+          "body": "Partner with Event Chairs to identify volunteer needs and proactively recruit parents for specific slots using platforms like SignupGenius or the PTSA website."
+        },
+        {
+          "heading": "On-Site Coordination",
+          "body": "Act as a resource for volunteers during major events, ensuring they know where to go, what their task is, and that they feel supported throughout their shift."
+        },
+        {
+          "heading": "Volunteer Appreciation",
+          "body": "Lead efforts to recognize and thank our volunteers, fostering a culture of gratitude that encourages families to return and step into leadership roles."
+        }
+      ],
+      "time_commitment": "Approximately 2–3 hours per week; intensity increases slightly in the weeks leading up to large-scale events or the beginning of school.",
+      "point_of_contact": "President, School Office Manager, and Event Chairs",
+      "pro_tip": "Don't just ask for help—ask for 30 minutes! Many parents are intimidated by a chair role but will happily say yes to a specific, short-term task. Once you get them in the door for a 30-minute popcorn shift, they are much more likely to volunteer for a larger project later in the year."
+    },
+    {
+      "title": "VP, Enrichment – During School",
+      "aliases": [
+        "vp enrichment during school",
+        "vp enrichment - during school",
+        "vp-enrichment-during-school"
+      ],
+      "description": "Champion and sustain school-day enrichment by overseeing the high-impact programs — spanning arts, mathematics, and physical activity — that supplement the standard student curriculum.",
+      "responsibilities": [
+        {
+          "heading": "Program Advocacy",
+          "body": "Provide a consistent voice for during-school leads at Board meetings, ensuring that programs like Math Adventures, Reflections, and Run Club have the visibility and support they need."
+        },
+        {
+          "heading": "Lead Support",
+          "body": "Act as a central check-in point for independent program chairs to ensure they are stocked with supplies, have adequate volunteer coverage, and feel empowered to run their programs successfully."
+        },
+        {
+          "heading": "Administrative Bridge",
+          "body": "Serve as the strategic link between specialized leads and the PTSA Executive Board, helping to navigate budget requests or calendar updates as needed."
+        }
+      ],
+      "time_commitment": "Approximately 2–3 hours per month for check-ins and Board reporting.",
+      "point_of_contact": "Executive Board and relevant Chairs",
+      "pro_tip": "This is a low-lift, high-reward role! Because so much of the focus is on art initiatives, it is incredibly efficient for the Art Docent Lead to also hold this VP position. It allows you to oversee the big picture of school-day enrichment while focusing on the programs you already know best."
+    },
+    {
+      "title": "VP, Enrichment – Before & After School",
+      "aliases": [
+        "vp enrichment after school",
+        "vp enrichment - after school",
+        "vp enrichment before and after school",
+        "vp-enrichment-after-school"
+      ],
+      "description": "Cultivate a diverse catalog of before- and after-school programs by partnering with external vendors and school teachers to provide students with extracurricular learning and growth opportunities.",
+      "responsibilities": [
+        {
+          "heading": "Vendor Management",
+          "body": "Research, vet, and contract with high-quality enrichment providers (such as coding, drama, or chess) to build a balanced class schedule for the Fall, Winter, and Spring sessions."
+        },
+        {
+          "heading": "Logistical Coordination",
+          "body": "Partner with school administration to secure room assignments and ensure all class schedules align with building availability and safety protocols."
+        },
+        {
+          "heading": "Communication & Enrollment",
+          "body": "Manage the online registration process through the PTSA store and lead marketing efforts via WhatsApp, newsletters, and backpack fliers to ensure high participation."
+        },
+        {
+          "heading": "Onboarding & Safety",
+          "body": "Prepare class rosters for teachers and the front office, and coordinate parent chaperones to ensure student safety during the transition from the school day to after-school activities."
+        }
+      ],
+      "time_commitment": "Approximately 3 hours per month (entirely remote) for planning and vendor communication; increases by an additional 2–3 hours during the week before each new session starts to finalize rosters and onboard chaperones.",
+      "point_of_contact": "School Administration, Treasurer, and Web/Store Manager",
+      "pro_tip": "Don't feel like you have to find new vendors from scratch! Reach out to VPs at other neighboring schools to see which programs are currently hits and which vendors are the easiest to work with. Building a strong relationship with the front office is also key."
+    },
+    {
+      "title": "VP, Performing Arts",
+      "aliases": [
+        "vp performing arts",
+        "vp enrichment performing arts",
+        "vp enrichment - performing arts",
+        "vp-enrichment-performing-arts"
+      ],
+      "description": "Elevate the student experience through professional-grade performing arts opportunities that build student confidence and foster a creative culture, while generating sustainable revenue to reinvest in future programs.",
+      "responsibilities": [
+        {
+          "heading": "Creative Oversight",
+          "body": "Provide leadership for the annual production, ensuring the program's creative vision is met while maintaining high standards for student skill development and confidence-building."
+        },
+        {
+          "heading": "Strategic Liaison",
+          "body": "Act as the primary point of contact for directors, parents, and the Board, managing all program-wide communications to keep families informed and engaged."
+        },
+        {
+          "heading": "Financial Stewardship",
+          "body": "Oversee the production budget and financial tracking, ensuring the program meets revenue goals to support future arts initiatives."
+        },
+        {
+          "heading": "Production Logistics",
+          "body": "Manage front-of-house and backstage operations, from coordinating show-night ticketing and concessions to overseeing rehearsal schedules and performance-night execution."
+        },
+        {
+          "heading": "Team Leadership",
+          "body": "Recruit and manage a volunteer team, specifically identifying and training individuals for technical roles and performance-night duties."
+        }
+      ],
+      "time_commitment": "Seasonally intensive from September through November. Expect 5–10 hours per week during the planning phase, ramping up significantly (up to 12 hours a day) during tech week and performance weekend. This role is largely off for the remainder of the school year.",
+      "point_of_contact": "President, Treasurer, and VP Communications",
+      "pro_tip": "Lock in your volunteer crew the second registration closes! Performance nights live and die by the technical crew, and those roles require the most lead time for training. Publishing your training and show-night roster early allows volunteers to clear their calendars and take ownership of their specific parts of the magic."
+    },
+    {
+      "title": "5th Grade Farewell",
+      "aliases": [
+        "5th grade farewell",
+        "fifth grade farewell"
+      ],
+      "description": "Plan the annual 5th Grade Farewell celebration (always led by 4th grade parents).",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Lead overall planning and coordination; collaborate with school staff, the PTSA board, and parent volunteers to select and execute a unifying theme for the ceremony, ensuring the event aligns with school guidelines and creates a memorable farewell for graduating 5th graders."
+        },
+        {
+          "heading": "",
+          "body": "Manage decorations and memory elements; organize the design, sourcing, and setup of decorations to match the chosen theme, while overseeing the creation and display of memory boards."
+        },
+        {
+          "heading": "",
+          "body": "Handle refreshments and logistics; coordinate snacks and drinks for the ceremony and reception, including budgeting, shopping, volunteer sign-ups for setup/serving, and cleanup to provide a welcoming experience for students, families, and staff."
+        }
+      ],
+      "time_commitment": "10–12 hours",
+      "point_of_contact": "Front office staff",
+      "pro_tip": "Have fun with it!"
+    },
+    {
+      "title": "5th Grade Survivor",
+      "aliases": [
+        "5th grade survivor",
+        "fifth grade survivor"
+      ],
+      "description": "Manage the planning and execution of this long-running tradition, leading a team of parent volunteers to organize an all-day team-building event that celebrates the 5th-grade class and their journey.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Lead and support the planning committee, including chairing regular meetings from March through June."
+        },
+        {
+          "heading": "",
+          "body": "Secure necessary park shelter reservations and manage digital sign-up sheets for volunteers and event tasks."
+        },
+        {
+          "heading": "",
+          "body": "Liaise with coordinators to ensure all driver background checks and student rider waivers are processed correctly."
+        },
+        {
+          "heading": "",
+          "body": "Manage the event t-shirt ordering process and coordinate the collection of funds from participating families."
+        },
+        {
+          "heading": "",
+          "body": "Oversee team leads for event-day supplies, food management, decorations, and the master schedule for students and volunteers."
+        }
+      ],
+      "time_commitment": "Approximately 20 hours",
+      "point_of_contact": "Front office staff and 5th grade parents",
+      "pro_tip": "Delegate tasks to other parents!"
+    },
+    {
+      "title": "Art Docent Lead",
+      "aliases": [
+        "art docent lead",
+        "art docent"
+      ],
+      "description": "Match parent volunteers with teachers to ensure every student gets a hands-on, creative art experience throughout the year.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Recruit and train a team of art docents at the start of the year, connecting them with their assigned teachers to coordinate specific projects, lesson plans, and schedules."
+        },
+        {
+          "heading": "",
+          "body": "Oversee the logistics of the school's clay program and assist with major spring initiatives, including Art Night and the Traveling Art Museum."
+        },
+        {
+          "heading": "",
+          "body": "Serve as the main point of support for docents by answering questions, finding fill-in volunteers, and facilitating communication between the art team and school staff."
+        }
+      ],
+      "time_commitment": "Seasonally busy in the Fall (setup/training) and Spring (Art Night), with a light workload during the Winter.",
+      "point_of_contact": "Lead Art Docent for each classroom",
+      "pro_tip": "This role is super rewarding but much easier with a co-pilot, so grab a friend and tag-team the coordination!"
+    },
+    {
+      "title": "Art Night",
+      "aliases": [
+        "art night"
+      ],
+      "description": "Lead the planning and execution of Art Night to showcase student creativity and coordinate the annual Art Auction.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Collaborate with teachers and Class Leads to organize grade-level art projects and themed auction baskets."
+        },
+        {
+          "heading": "",
+          "body": "Manage event logistics, including the gym layout, table assignments, and the display of student artwork."
+        },
+        {
+          "heading": "",
+          "body": "Oversee all event-related communications and lead the day-of setup and execution of the program."
+        }
+      ],
+      "time_commitment": "20–30 hours",
+      "point_of_contact": "VP, Enrichment – During School",
+      "pro_tip": "Stay organized and recruit a committee to help with this big event!"
+    },
+    {
+      "title": "Art Supplies",
+      "aliases": [
+        "art supplies"
+      ],
+      "description": "Ensure the Art Docent program has the supplies it needs to be successful.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Order and restock art supplies for the art program and shared art storage."
+        }
+      ],
+      "time_commitment": "1–2 hours per month",
+      "point_of_contact": "VP, Enrichment – During School",
+      "pro_tip": "Have a good inventory system!"
+    },
+    {
+      "title": "Art Scheduling",
+      "aliases": [
+        "art scheduling"
+      ],
+      "description": "Manage the art portable calendar.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Ensure the Art Docent schedule runs smoothly and classes do not overlap in the portable."
+        },
+        {
+          "heading": "",
+          "body": "Maintain the online portable scheduling calendar."
+        }
+      ],
+      "time_commitment": "1 hour or less per month",
+      "point_of_contact": "VP, Enrichment – During School",
+      "pro_tip": "Ask the PTSA Web manager for help!"
+    },
+    {
+      "title": "Book Fair",
+      "aliases": [
+        "book fair"
+      ],
+      "description": "Foster a love of reading and support the school library by organizing the annual Book Fair, providing students with easy access to new books while raising funds for library resources.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Partner with the school librarian, administration, and book fair vendor to schedule the fair, oversee setup and strike (teardown) of the event, and manage inventory during the fair (reorders)."
+        },
+        {
+          "heading": "",
+          "body": "Recruit and lead a volunteer team to staff the fair during school hours and special evening events, ensuring a smooth and organized shopping experience for students and families."
+        },
+        {
+          "heading": "",
+          "body": "Market the fair to get the most engagement and sales by working with teachers, the librarian, and the PTSA."
+        },
+        {
+          "heading": "",
+          "body": "Provide final reports to the Treasurer to calculate fair profits."
+        }
+      ],
+      "time_commitment": "Approximately 4 hours/week one month prior to the fair; 40 hours the week of the fair (split between co-chairs).",
+      "point_of_contact": "Book Fair vendor and school librarian",
+      "pro_tip": "Use ethernet cords to connect to cash registers so there are no connection issues or a slow network. Have a volunteer help organize the kids while they wait in line to make checkout faster (for example, counting money to ensure they have enough for what they want to buy). Schedule a Teacher Preview on the very first morning so kids go home with a wish-list of books for the week."
+    },
+    {
+      "title": "Bulletin Board Team",
+      "aliases": [
+        "bulletin board team",
+        "bulletin board"
+      ],
+      "description": "Ensure a bulletin board is installed and removed for all school events and promotions.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Work with the VP, Volunteers to understand the calendar of events and promotions throughout the year and their publicity needs."
+        },
+        {
+          "heading": "",
+          "body": "Install and remove creative and catchy bulletin boards — using school-provided butcher paper and materials — as needed."
+        },
+        {
+          "heading": "",
+          "body": "Utilize the blinking marquee over the hallway entrance, as needed."
+        }
+      ],
+      "time_commitment": "2 hours per month",
+      "point_of_contact": "VP, Volunteers",
+      "pro_tip": "Pinterest is a great resource!"
+    },
+    {
+      "title": "Concessions Management",
+      "aliases": [
+        "concessions management",
+        "concessions"
+      ],
+      "description": "Streamline the procurement and inventory of food and beverage items to support PTSA events while maximizing existing resources.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Collaborate with event chairs to determine specific concessions needs and facilitate the efficient purchase or pickup of necessary supplies."
+        },
+        {
+          "heading": "",
+          "body": "Maintain a centralized inventory system to track stored supplies and ensure existing stock is fully utilized before placing new orders."
+        }
+      ],
+      "time_commitment": "Approximately 10–12 hours per school year.",
+      "point_of_contact": "Event chairs",
+      "pro_tip": "Spreadsheets are your friend! A shared Concessions Tracker on SharePoint allows event chairs to see exactly what's already in the pantry before they head to the store, saving the PTSA money and storage space."
+    },
+    {
+      "title": "ePrep/Health & Safety",
+      "aliases": [
+        "eprep",
+        "e-prep",
+        "health and safety",
+        "eprep/health and safety",
+        "emergency prep"
+      ],
+      "description": "Ensure the school is equipped and prepared for emergencies through proactive supply management and alignment with district safety standards.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Maintain and restock emergency bags and buckets in all classrooms and offices, ensuring every workspace has the necessary survival and medical supplies on hand."
+        },
+        {
+          "heading": "",
+          "body": "Manage the inventory of the on-site E-Prep shed, replacing expired food, water, or medical items and testing essential equipment like batteries and flashlights."
+        },
+        {
+          "heading": "",
+          "body": "Attend quarterly district-wide Emergency Prep meetings and communicate updated safety recommendations or protocol changes to the Vice Principal."
+        }
+      ],
+      "time_commitment": "Approximately 3–5 hours in late summer/early fall for the initial inventory and restock; 1 hour per quarter for district meetings; minimal work for the remainder of the year.",
+      "point_of_contact": "Vice Principal",
+      "pro_tip": "Bring a shed buddy! The annual inventory goes twice as fast with a helper to check dates while you log the data—plus, it makes moving the heavier supply buckets much easier."
+    },
+    {
+      "title": "Fall Carnival",
+      "aliases": [
+        "fall carnival"
+      ],
+      "description": "Produce the PTSA's beloved annual Fall Carnival to welcome students back to school.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Coordinate with the school and Board to schedule the event and secure high-demand vendors, such as bounce house companies, early in the summer planning phase."
+        },
+        {
+          "heading": "",
+          "body": "Recruit and lead a dedicated committee to manage specific event zones, including concessions, the dunk tank, game stations, and prizes."
+        },
+        {
+          "heading": "",
+          "body": "Oversee the procurement of necessary supplies and work with the VP of Volunteers to ensure every station is fully staffed for a safe and successful event."
+        }
+      ],
+      "time_commitment": "Approximately 20 hours total, primarily concentrated in late August and the first two weeks of September.",
+      "point_of_contact": "VP, Community Events and President",
+      "pro_tip": "Your committee is your greatest asset! Because this event has so many moving parts, delegating specific zones to reliable leads allows you to focus on the big picture rather than trying to be everywhere at once."
+    },
+    {
+      "title": "Family Game Night",
+      "aliases": [
+        "family game night",
+        "game night"
+      ],
+      "description": "Host the annual Family Game Night in coordination with the January PTSA General Meeting, providing a fun, interactive evening that brings families together through play.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Advertise the event to the school community and recruit middle school volunteers to help facilitate gameplay and assist younger students."
+        },
+        {
+          "heading": "",
+          "body": "Partner with the Math Adventures team to select and procure a variety of engaging games, and manage the full setup and breakdown of the event in the school gym or commons."
+        }
+      ],
+      "time_commitment": "Approximately 5–8 hours total, primarily concentrated in January.",
+      "point_of_contact": "President",
+      "pro_tip": "Secure your middle school volunteers before Winter Break! Trying to recruit student helpers in those first few days back in January is a major challenge, so having your roster set in December makes for a much less stressful event week."
+    },
+    {
+      "title": "Family Nights Out",
+      "aliases": [
+        "family nights out",
+        "family night outs",
+        "family night out"
+      ],
+      "description": "Build community spirit and raise easy funds by coordinating monthly dine-out events with local restaurant partners, or special events like a team sports day.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Identify and schedule monthly dates with local restaurants to host school fundraising days."
+        },
+        {
+          "heading": "",
+          "body": "Provide the Communications Team with event details and flyers to promote each date in the newsletter and on social media."
+        },
+        {
+          "heading": "",
+          "body": "Act as the liaison for the business partners to track the percentage of sales earned and ensure the PTSA receives the donation."
+        }
+      ],
+      "time_commitment": "1–2 hours per month",
+      "point_of_contact": "VP, Ways & Means",
+      "pro_tip": "Think about where school families eat and shop!"
+    },
+    {
+      "title": "Giving Tree/Season of Giving",
+      "aliases": [
+        "giving tree",
+        "season of giving",
+        "giving tree/season of giving"
+      ],
+      "description": "Direct the school's seasonal outreach programs to provide holiday meals and gifts for families within the school community and greater local community.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Partner with the school counselor to identify local needs and coordinate the distribution of Thanksgiving meal kits and holiday gift requests, usually monthly from October through February."
+        },
+        {
+          "heading": "",
+          "body": "Manage the Giving Tree logistics, including the creation of the online gift signup and tracking of items."
+        },
+        {
+          "heading": "",
+          "body": "Direct all event-related communications and sign-up forms to ensure the school community is informed of donation deadlines and specific item needs."
+        }
+      ],
+      "time_commitment": "High intensity from early November through mid-December (approximately 5–8 hours per week during peak donation windows); minimal time required for the remainder of the school year.",
+      "point_of_contact": "School Counselor and President",
+      "pro_tip": "Make sure asks are spaced out to avoid overwhelming the community!"
+    },
+    {
+      "title": "Heritage & Culture Night",
+      "aliases": [
+        "heritage and culture night",
+        "heritage & culture night"
+      ],
+      "description": "Organize a school-wide celebration of diversity where families share their unique traditions, foods, and history through interactive table displays.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Recruit and support Table Hosts to ensure a wide variety of cultures are represented while managing the one-table-per-country lunchroom layout."
+        },
+        {
+          "heading": "",
+          "body": "Oversee the logistics of the event night, including food service guidelines, music/activity coordination, and table setup."
+        },
+        {
+          "heading": "",
+          "body": "Partner with the communications lead to promote host sign-ups and coordinate a team of volunteers for set-up, concessions, and event-day support."
+        }
+      ],
+      "time_commitment": "Approximately 15–20 hours total, with the bulk of the work occurring in the two months leading up to the event and the night of the celebration.",
+      "point_of_contact": "VP, Community Events",
+      "pro_tip": "Create World Passports for students to get stamped or stickered at each table. It turns the night into a scavenger hunt, ensuring that every culture—even those with informational posters instead of food—gets plenty of visitors and engagement!"
+    },
+    {
+      "title": "Kinder Welcome Committee",
+      "aliases": [
+        "kinder welcome committee",
+        "kindergarten welcome"
+      ],
+      "description": "Build early community connections and provide a supportive transition for incoming Kindergarten families.",
+      "responsibilities": [
+        {
+          "heading": "Summer Playdates",
+          "body": "Plan and host two informal playdates before the school year begins, allowing incoming students and parents to meet and form friendships."
+        },
+        {
+          "heading": "Tears & Cheers",
+          "body": "Organize and host a social gathering on the morning of the first full day of kindergarten, providing a welcoming space for parents to connect after drop-off."
+        }
+      ],
+      "time_commitment": "4–6 hours",
+      "point_of_contact": "President",
+      "pro_tip": "Bring the tissues and the QR codes! Capturing parent contact info at the summer playdates is the best way to keep your new community connected all year long."
+    },
+    {
+      "title": "Library Liaison",
+      "aliases": [
+        "library liaison",
+        "celebration books",
+        "celebration books chair"
+      ],
+      "description": "Serve as the vital link between the school library and the PTSA, ensuring the librarian has the creative, logistical, and volunteer support needed to keep the library a vibrant hub for all students.",
+      "responsibilities": [
+        {
+          "heading": "Librarian Partnership",
+          "body": "Maintain a consistent connection with the librarian to identify upcoming library needs, from organizing seasonal decorations to coordinating support for special initiatives."
+        },
+        {
+          "heading": "Celebration Books Oversight",
+          "body": "Manage the monthly administration of the Celebration Books program."
+        },
+        {
+          "heading": "Creative Coordination",
+          "body": "Act as the bridge between the library and other PTSA teams. For larger seasonal projects, coordinate with the Bulletin Board committee to bring the librarian's vision to life."
+        },
+        {
+          "heading": "Promotion & Marketing",
+          "body": "Assist with the creation and distribution of promotional materials, such as backpack flyers or social media blurbs, for library-specific events or dine-out nights."
+        }
+      ],
+      "time_commitment": "1–2 hours per month, with occasional small spikes for seasonal decorating or special projects.",
+      "point_of_contact": "School librarian",
+      "pro_tip": "Don't feel like you have to be the sole decorator. If the librarian has a big vision for a seasonal change, reach out to the volunteer pool for a few helpers to assist for 30 minutes. It makes the work go faster and keeps the library looking fresh for the kids!"
+    },
+    {
+      "title": "Math Adventures",
+      "aliases": [
+        "math adventures"
+      ],
+      "description": "Lead the school's K-5 math enrichment program by coordinating parent volunteers to lead fun, curriculum-aligned games in the classroom.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Recruit and organize parent volunteers into rotating schedules to ensure every classroom has coverage for small-group math activities."
+        },
+        {
+          "heading": "",
+          "body": "Communicate regularly with K-5 teachers to align session times and confirm that game materials and directions are ready for volunteers."
+        },
+        {
+          "heading": "",
+          "body": "Maintain the program's visibility through newsletter updates and serve as the main resource for volunteer training and troubleshooting."
+        },
+        {
+          "heading": "",
+          "body": "Identify and recommend games to fill inventory and curriculum gaps."
+        }
+      ],
+      "time_commitment": "4–6 hours, mostly in Fall for recruitment and training volunteers.",
+      "point_of_contact": "VP, Enrichment – During School",
+      "pro_tip": "Work with the room parents to identify volunteers, and work with the teacher liaison to solicit teacher days/times for the sessions."
+    },
+    {
+      "title": "Math Challenge",
+      "aliases": [
+        "math challenge"
+      ],
+      "description": "Inspire a passion for mathematics and problem-solving through a fun, low-pressure bi-weekly challenge that encourages students to test their skills and think critically.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Manage the bi-weekly cycle of the Math Challenge program, including printing quizzes and grading student submissions to track and encourage participation."
+        },
+        {
+          "heading": "",
+          "body": "Coordinate the distribution of student recognition or rewards to keep participants motivated and engaged with each new challenge."
+        }
+      ],
+      "time_commitment": "Approximately 2–4 hours per month.",
+      "point_of_contact": "Front office staff",
+      "pro_tip": "Stay on top of the grading! Marking the quizzes as soon as they come in — rather than waiting for the next challenge cycle to start — prevents a backlog and keeps the momentum going for the students."
+    },
+    {
+      "title": "Membership",
+      "aliases": [
+        "membership"
+      ],
+      "description": "Grow PTSA membership by promoting the value of joining and managing the official roster of individual and family members.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Design and execute membership drives to encourage families and staff to join."
+        },
+        {
+          "heading": "",
+          "body": "Manage the online membership database, ensuring all member information is accurate and dues are processed correctly through the state system."
+        },
+        {
+          "heading": "",
+          "body": "Act as the primary advocate for the PTSA, explaining how membership fees directly support school programs and providing parents with their membership cards."
+        }
+      ],
+      "time_commitment": "4–6 hours",
+      "point_of_contact": "President",
+      "pro_tip": "Create a Membership Progress visual for the school lobby or newsletter to show how close the school is to its goal."
+    },
+    {
+      "title": "Movie Night",
+      "aliases": [
+        "movie night"
+      ],
+      "description": "Create a memorable, community-building experience by organizing a family movie night that brings students and their parents together for an evening of entertainment.",
+      "responsibilities": [
+        {
+          "heading": "Concessions & Logistics",
+          "body": "Manage the selection and purchase of concessions to provide a classic movie-theater experience for all attendees."
+        },
+        {
+          "heading": "Event Promotion",
+          "body": "Lead multi-channel advertising efforts, including the creation of paper flyers, WhatsApp announcements, and updating the school's bulletin and marquee boards."
+        },
+        {
+          "heading": "Event Oversight",
+          "body": "Coordinate the full setup and breakdown of the event space and facilitate the participation of 5th-grade student ushers to help the evening run smoothly."
+        }
+      ],
+      "time_commitment": "Approximately 10 hours of flexible planning during the month leading up to the event, plus on-site attendance from after school through the end of the event on movie night.",
+      "point_of_contact": "VP, Community Events",
+      "pro_tip": "This role is what you make of it! You can keep the event simple and classic or go more elaborate with themes—the flexibility is entirely up to your vision and available time. Regardless of the scale, students absolutely love the novelty of being at school after hours, so it's guaranteed to be a hit."
+    },
+    {
+      "title": "Newsletter",
+      "aliases": [
+        "newsletter"
+      ],
+      "description": "Inform and engage the school community by distilling school and PTSA news into a clear, bi-monthly digital publication.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Curate and format the bi-monthly digital newsletter, ensuring all critical announcements from the PTSA board and school administration are accurate, professional, and timely."
+        },
+        {
+          "heading": "",
+          "body": "Collaborate with committee chairs and board members to gather content, photos, and event details to maintain a consistent communication schedule."
+        }
+      ],
+      "time_commitment": "Approximately 2 hours per week.",
+      "point_of_contact": "President and Committee Chairs",
+      "pro_tip": "Budget more time than you think you need! Gathering content from multiple sources often takes longer than the actual formatting, so send out your call for content a few days early to ensure you hit your publishing deadlines stress-free."
+    },
+    {
+      "title": "Online Calendar Manager",
+      "aliases": [
+        "online calendar manager",
+        "calendar manager",
+        "online calendar"
+      ],
+      "description": "Maintain the master digital schedule for the PTSA to ensure families always have access to accurate event dates and times.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Input all PTSA-sponsored events, board meetings, and important school holidays into the website's central calendar."
+        },
+        {
+          "heading": "",
+          "body": "Regularly audit the calendar to update locations or adjust times as event details are finalized by committee chairs."
+        }
+      ],
+      "time_commitment": "Very low; approximately 30 minutes per month (all work-from-home).",
+      "point_of_contact": "President",
+      "pro_tip": "Keep in touch with the Board to stay up to date on changes!"
+    },
+    {
+      "title": "Popcorn Friday",
+      "aliases": [
+        "popcorn friday"
+      ],
+      "description": "Lead the monthly Popcorn Friday program by organizing volunteers and ensuring fresh popcorn is prepared and delivered to students.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Coordinate a team of volunteers for each event and monitor inventory to ensure kernels, oil, and bags are always stocked."
+        },
+        {
+          "heading": "",
+          "body": "Oversee the popping, bagging, and delivery process to ensure every student receives their treat efficiently by the last recess."
+        },
+        {
+          "heading": "",
+          "body": "Serve as the main point of contact for the volunteer team and maintain a consistent routine for students and school staff."
+        }
+      ],
+      "time_commitment": "Approximately 5 hours on one Friday per month, plus minimal time for supply ordering.",
+      "point_of_contact": "Front office staff",
+      "pro_tip": "Have a clean-up kit ready! Keeping the popcorn machine sparkling after every use is the best way to stay on the school staff's good side and ensures the equipment stays in great shape for years."
+    },
+    {
+      "title": "Reflections Chair",
+      "aliases": [
+        "reflections chair",
+        "reflections"
+      ],
+      "description": "Champion student creativity by managing the annual National PTA Reflections arts program and facilitating student entries into the district competition.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Promote the year's specific theme to students and families to encourage entries across categories like visual arts, photography, and literature."
+        },
+        {
+          "heading": "",
+          "body": "Collect student submissions and ensure all entries meet the specific National PTA and district eligibility and formatting requirements."
+        },
+        {
+          "heading": "",
+          "body": "Celebrate all participants before forwarding pieces to the district level."
+        }
+      ],
+      "time_commitment": "2–4 hours per week during the entry window; minimal for the rest of the year.",
+      "point_of_contact": "VP, Enrichment – During School",
+      "pro_tip": "Consider hosting a Reflections Workshop during a lunch break or right after school. Sometimes providing the paper, a quiet space, and a few art supplies is all a student needs to finally turn their idea into a finished entry!"
+    },
+    {
+      "title": "Room Parent Liaison",
+      "aliases": [
+        "room parent liaison"
+      ],
+      "description": "Serve as the central link between the PTSA Board and classroom Room Parents to ensure every teacher has the support they need for events, parties, and enrichment programs.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Recruit and assign 2–3 Room Parents for every classroom and lead an orientation to review their roles in planning parties, field trips, and silent auction baskets."
+        },
+        {
+          "heading": "",
+          "body": "Act as the primary communication hub, relaying important PTSA updates, deadlines, and volunteer requirements to the Room Parent teams throughout the school year."
+        },
+        {
+          "heading": "",
+          "body": "Provide ongoing support and resources, such as SignupGenius templates or guidance on coordinating teacher appreciation gifts and classroom supplies."
+        }
+      ],
+      "time_commitment": "Approximately 5–7 hours in September (recruitment and orientation); 1 hour per month thereafter for communication and check-ins.",
+      "point_of_contact": "President and VP, Volunteers",
+      "pro_tip": "Create a shared Room Parent Tool Kit in SharePoint containing sample emails for parents, a list of teacher favorites, and a checklist for class parties. Providing these templates upfront significantly reduces the back-and-forth questions and helps new volunteers feel confident right away!"
+    },
+    {
+      "title": "Running Club",
+      "aliases": [
+        "running club",
+        "run club"
+      ],
+      "description": "Promote physical fitness and school spirit by organizing a school-wide running club during recess, encouraging students to set goals and stay active.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Determine the club schedule and coordinate a volunteer rotation to support track sessions, ensuring all volunteers are cleared and ready to assist."
+        },
+        {
+          "heading": "",
+          "body": "Manage on-site logistics, including setup, cleanup, and motivating students while overseeing a consistent system for tracking laps and updating the Running Club bulletin board."
+        },
+        {
+          "heading": "",
+          "body": "Facilitate student recognition by determining milestone rewards and coordinating the distribution of prizes with school staff."
+        }
+      ],
+      "time_commitment": "Approximately 2–3 hours per week during active seasons (September–November and April–June), with additional prep time required in September and April for initial coordination.",
+      "point_of_contact": "VP, Volunteers and School Office Staff",
+      "pro_tip": "Communication is key! Always keep the office staff and playground supervisors in the loop on your plans. When the school staff knows exactly what to expect, the transition from class to Running Club is much smoother for everyone involved."
+    },
+    {
+      "title": "Salmon Program",
+      "aliases": [
+        "salmon program"
+      ],
+      "description": "Manage the school's salmon life-cycle program, from the initial aquarium setup and egg care to the final release of fry.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Oversee the technical setup of the fish tank and safely retrieve salmon eggs from the hatchery to launch the annual program."
+        },
+        {
+          "heading": "",
+          "body": "Perform regular monitoring of water chemical levels and tank maintenance to ensure a healthy habitat for the developing salmon."
+        },
+        {
+          "heading": "",
+          "body": "Coordinate classroom participation by managing the student feeding schedule and organizing the Kinder and 3rd-grade release field trips."
+        }
+      ],
+      "time_commitment": "Approximately 3–4 hours per week during the active season (typically winter through spring).",
+      "point_of_contact": "3rd grade teachers",
+      "pro_tip": "Market the feeding schedule as a micro-volunteer opportunity for parents. It's a low-pressure way for busy parents to get involved, and students take huge pride in training their parents on the proper feeding technique!"
+    },
+    {
+      "title": "School Beautification",
+      "aliases": [
+        "school beautification"
+      ],
+      "description": "Enhance the physical environment of the school through maintenance projects and aesthetic improvements that foster school pride and a welcoming atmosphere.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Plan and execute seasonal maintenance projects such as weeding, mulching, and planting to keep the school flower beds and entryways inviting."
+        },
+        {
+          "heading": "",
+          "body": "Coordinate larger improvement projects, like blacktop repainting or the installation of memory benches, by serving as the primary liaison between the PTSA and district facilities."
+        },
+        {
+          "heading": "",
+          "body": "Organize and lead work days to recruit families and students for hands-on projects that beautify the school grounds."
+        }
+      ],
+      "time_commitment": "Project-based; typically 10–15 hours per year, with the majority of the work focused during fall and spring outdoor windows.",
+      "point_of_contact": "Green Team and PTSA Board",
+      "pro_tip": "Schedule a walk-about with the school administration team in early September. They often have a wish list of small aesthetic fixes that can make a huge impact on the school's daily vibe with very little budget or effort!"
+    },
+    {
+      "title": "School Counselor Liaison",
+      "aliases": [
+        "school counselor liaison",
+        "counselor liaison"
+      ],
+      "description": "Act as the dedicated partner to the school counselor, providing the consistent logistical and creative support needed to promote student well-being, celebrate character traits, and ensure mental health initiatives are visible and celebrated throughout the school.",
+      "responsibilities": [
+        {
+          "heading": "Counselor Partnership",
+          "body": "Maintain regular contact with the counselor to turn brainstorms into actionable plans, ensuring they have a reliable partner to help execute new ideas and recurring programs."
+        },
+        {
+          "heading": "Visual Advocacy",
+          "body": "Take ownership of the visuals. This includes hanging student artwork and assignments around the halls and maintaining the dedicated School Counselor bulletin board by the front office."
+        },
+        {
+          "heading": "Awareness Event Lead",
+          "body": "Provide hands-on coordination for key calendar moments such as Unity Day, National School Counseling Week (February), and Mental Health Month (May)."
+        },
+        {
+          "heading": "Creative Execution",
+          "body": "Help with the heavy lifting of events—whether that's prepping materials for a classroom activity or organizing supplies for a school-wide kindness initiative—so the counselor can focus on student support."
+        }
+      ],
+      "time_commitment": "2–3 hours per month, with occasional spikes during specific awareness weeks (like Mental Health Month).",
+      "point_of_contact": "School Counselor",
+      "pro_tip": "Since Unity Week often coincides with National Bullying Prevention Month in October, start your communications early to remind parents to check their closets for orange. You can even set up a small orange-accessory station at the school entrance on the big day for students who might have forgotten!"
+    },
+    {
+      "title": "School Dance",
+      "aliases": [
+        "school dance",
+        "dance week/spring dance",
+        "dance week",
+        "spring dance"
+      ],
+      "description": "Host the highly anticipated end-of-year school dance, providing a high-energy celebration for students to wrap up the academic year with their friends.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Recruit and lead a planning committee to manage diverse workstreams, including theme selection, music/DJ booking, and decorations."
+        },
+        {
+          "heading": "",
+          "body": "Coordinate volunteer recruitment and manage Dance Week preparations to ensure all logistics — from ticket sales to concessions — are fully covered."
+        },
+        {
+          "heading": "",
+          "body": "Oversee day-of execution, including venue setup, event flow, and the final strike (teardown) to ensure a safe and successful event."
+        }
+      ],
+      "time_commitment": "Approximately 2 hours per week during the planning phase; intensity increases during the week of the event.",
+      "point_of_contact": "VP, Community Events",
+      "pro_tip": "Your committee is your greatest asset! To keep your plate from getting overloaded, appoint one specific person to be the lead for the Dance Week instructors. Having a dedicated point person for the talent allows you to focus on the overall event logistics."
+    },
+    {
+      "title": "School Pictures",
+      "aliases": [
+        "school pictures"
+      ],
+      "description": "Coordinate the annual school photo day and makeup day to ensure every student and staff member is captured.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Manage the annual contract and scheduling with the photography vendor to secure dates for both the primary photo day and the subsequent retake session."
+        },
+        {
+          "heading": "",
+          "body": "Collaborate with the school office manager to organize the gym schedule and recruit a team of volunteers to help students look their best and keep the lines moving."
+        },
+        {
+          "heading": "",
+          "body": "Act as the primary liaison between parents and the photography company to distribute order forms and help resolve any questions regarding photo packages."
+        }
+      ],
+      "time_commitment": "Approximately 2 hours of prep in the spring/summer; one full school day in the fall; and one half-day for retake morning.",
+      "point_of_contact": "Photography company and school office manager",
+      "pro_tip": "Reach out to the office staff in early spring to lock in your dates before the district calendar fills up—and whatever you do, never schedule Picture Day for the morning after Halloween!"
+    },
+    {
+      "title": "Social Media Coordinator",
+      "aliases": [
+        "social media coordinator",
+        "social media"
+      ],
+      "description": "Build community engagement and awareness by managing the PTSA's presence across social media platforms.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Create and schedule posts that highlight upcoming school events and volunteer opportunities."
+        },
+        {
+          "heading": "",
+          "body": "Monitor comments and direct messages to provide timely answers to parent questions or refer them to the right committee chair."
+        },
+        {
+          "heading": "",
+          "body": "Partner with the Communications Team to ensure all graphics and messaging align with the PTSA's voice and branding."
+        }
+      ],
+      "time_commitment": "1–2 hours per month",
+      "point_of_contact": "PTSA Committee",
+      "pro_tip": "Use a scheduling tool to plan your posts for the whole week in one sitting; it keeps the feed active without you having to remember to post during the busy school day!"
+    },
+    {
+      "title": "Staff Appreciation",
+      "aliases": [
+        "staff appreciation"
+      ],
+      "description": "Foster a culture of gratitude and support by organizing monthly staff appreciation events and a comprehensive celebration during Staff Appreciation Week in May.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Plan and execute monthly staff treats or luncheons, alternating between PTSA-funded catering and community-led donation drives to provide high-quality food and beverages for the staff."
+        },
+        {
+          "heading": "",
+          "body": "Manage all event logistics, including soliciting donations from families, picking up food, and handling the setup and cleanup in the staff lounge."
+        },
+        {
+          "heading": "",
+          "body": "Lead the coordination of Staff Appreciation Week, collaborating with the board and community to provide daily gestures of appreciation and special events for teachers and staff."
+        }
+      ],
+      "time_commitment": "Approximately 2–3 hours per month for monthly events; intensity increases during Staff Appreciation Week in May (approximately 5–8 hours).",
+      "point_of_contact": "Front office staff",
+      "pro_tip": "Prioritize edibles over items! The staff is deeply appreciative of high-quality meals and coffee but often has limited space for additional trinkets or desk items. A well-organized, community-supported lunch is always their favorite way to feel celebrated."
+    },
+    {
+      "title": "STEM Fair",
+      "aliases": [
+        "stem fair",
+        "stem night"
+      ],
+      "description": "Encourage enthusiasm for STEM through hands-on experiences by coordinating the science-center assembly and organizing the annual STEM Fair.",
+      "responsibilities": [
+        {
+          "heading": "Science Center Visit",
+          "body": "Act as the primary liaison for the assembly by selecting the theme, coordinating logistics with the front office, ensuring contracts and payments are finalized, and managing day-of volunteers."
+        },
+        {
+          "heading": "STEM Fair Coordination",
+          "body": "Publicize the event to the community, select 2–3 hands-on activities for fair night, and oversee the setup and teardown on the day of the event."
+        },
+        {
+          "heading": "Student Support",
+          "body": "Coordinate the distribution of trifold boards and manage volunteer support to ensure students have a successful platform to showcase their independent projects."
+        }
+      ],
+      "time_commitment": "Approximately 1 hour per month; intensity increases during the week of the assembly and the week of the STEM Fair.",
+      "point_of_contact": "Front office staff",
+      "pro_tip": "This is a fantastic entry-level PTSA role because the students lead the actual projects—your job is primarily to provide the platform and publicity! It is incredibly rewarding to see the kids learn while having fun, and the role works exceptionally well as a co-chair position if you want to tag-team it with a friend."
+    },
+    {
+      "title": "Store/Web Manager",
+      "aliases": [
+        "store/web manager",
+        "web manager",
+        "web master",
+        "webmaster",
+        "store manager"
+      ],
+      "description": "Serve as the technical lead for the PTSA digital platform, ensuring the website and online store are reliable, current, and responsive.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Oversee the administration of the website and its plugins, handling technical troubleshooting and regular updates to keep the platform running smoothly."
+        },
+        {
+          "heading": "",
+          "body": "Manage the online storefront by adding, updating, or removing items and registration forms promptly as requested by various committee chairs."
+        },
+        {
+          "heading": "",
+          "body": "Maintain the site's visual layout and navigation to ensure families can easily find information, purchase memberships, and register for events."
+        }
+      ],
+      "time_commitment": "Approximately 1–3 hours per week (entirely remote); requires flexibility to handle occasional time-sensitive store requests.",
+      "point_of_contact": "VP, Communications & Technology; PTSA chairs",
+      "pro_tip": "Check the online PTSA calendar to be aware of needs coming down the pipeline!"
+    },
+    {
+      "title": "Talent Show",
+      "aliases": [
+        "talent show"
+      ],
+      "description": "Design and launch the Talent Show, creating a supportive stage for students to showcase their unique skills and build school-wide confidence.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Collaborate with school administration to determine the best format (daytime assembly, evening showcase, or a hybrid) and secure dates on the school master calendar."
+        },
+        {
+          "heading": "",
+          "body": "Develop the audition and rehearsal process, including clear guidelines for student performances regarding safety, time limits, and content appropriateness."
+        },
+        {
+          "heading": "",
+          "body": "Coordinate all event-day logistics, including sound/lighting needs, volunteer recruitment, and student stage management."
+        }
+      ],
+      "time_commitment": "Moderate planning (1–2 hours/month) starting 4 months out, with a higher intensity (5–8 hours/week) in the 3 weeks leading up to the performance.",
+      "point_of_contact": "Front office staff and PTSA Board",
+      "pro_tip": "For the first year, frame it as a Showcase rather than a Competition. Removing the pressure of judging or first-place prizes keeps the focus on courage and participation, which makes it much easier to manage and far more welcoming for nervous performers!"
+    },
+    {
+      "title": "TEAMs/Microsoft Manager",
+      "aliases": [
+        "teams/microsoft manager",
+        "teams microsoft manager",
+        "teams manager"
+      ],
+      "description": "Manage the digital lifecycle of PTSA volunteers by overseeing secure access to Outlook, SharePoint, and website administrative tools.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Execute technical onboarding for new volunteers, including provisioning PTSA email accounts and granting appropriate need-to-know permissions for SharePoint folders."
+        },
+        {
+          "heading": "",
+          "body": "Coordinate with the Web Manager to grant specific editing access to website pages relevant to each volunteer's committee or role."
+        },
+        {
+          "heading": "",
+          "body": "Manage the offboarding process by deactivating accounts and revoking access for departing volunteers to maintain data security and storage integrity."
+        }
+      ],
+      "time_commitment": "High intensity in August and September (4–6 hours per week) during the leadership transition; drops to 1 hour per month for as-needed troubleshooting and security audits.",
+      "point_of_contact": "VP, Communications & Technology",
+      "pro_tip": "Create a Digital Access Checklist for each tier of leadership (for example Board, Committee Chair, Room Parent). It makes the onboarding process repeatable and ensures you never forget to revoke a specific permission when someone moves on to a new role!"
+    },
+    {
+      "title": "Theater Program",
+      "aliases": [
+        "theater program",
+        "theater"
+      ],
+      "description": "In partnership with the VP, Performing Arts, coordinate the annual school musical with the contracted theater partner, providing students with a professional-grade theater experience from auditions to the final curtain.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Serve as the primary liaison between the theater partner and the school, managing the contract, scheduling rehearsals in the gym/cafeteria, and securing performance dates."
+        },
+        {
+          "heading": "",
+          "body": "Oversee student registration and communications, ensuring families have all the details for auditions, rehearsal schedules, and ticket sales."
+        },
+        {
+          "heading": "",
+          "body": "Recruit and lead a team of parent volunteers to assist with backstage needs such as student supervision, simple costume help, and show-day concessions."
+        }
+      ],
+      "time_commitment": "Moderate planning in the months leading up to the season (1–2 hours per week); high intensity during the 6–8 weeks of rehearsals and the performance weekend (6–10 hours per week).",
+      "point_of_contact": "VP, Performing Arts and parent community",
+      "pro_tip": "Create a Theater Parent FAQ at the very start of the season. While the theater partner handles the acting and directing, parents often have a lot of questions about logistics—answering the where-do-I-drop-off and what-does-my-child-need-to-wear questions early saves you a mountain of emails later!"
+    },
+    {
+      "title": "Traveling Art Museum",
+      "aliases": [
+        "traveling art museum",
+        "traveling museum"
+      ],
+      "description": "Transform the school into a temporary art gallery by managing the arrival, display, and educational engagement of a visiting museum exhibit.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Coordinate the logistics of the exhibit's arrival, including the physical setup and teardown of display panels and artwork in a high-traffic area of the school."
+        },
+        {
+          "heading": "",
+          "body": "Create and manage a master schedule for all K–5 classes to ensure every student has a dedicated time slot to tour the museum and engage with the pieces."
+        },
+        {
+          "heading": "",
+          "body": "Design or provide simple, theme-appropriate art projects or reflection activities that teachers can use to help students connect more deeply with the visiting artwork."
+        }
+      ],
+      "time_commitment": "High intensity for one event week (approximately 10–15 hours including setup/teardown) plus 2–3 hours of prior scheduling and planning.",
+      "point_of_contact": "VP, Enrichment – During School",
+      "pro_tip": "Host a 15-minute Educator's Sneak Peek with coffee and treats the morning the exhibit opens. Giving the teachers a first look helps them get excited and allows them to pre-plan how they'll guide their specific students through the gallery!"
+    },
+    {
+      "title": "WatchDogs",
+      "aliases": [
+        "watchdogs",
+        "watch dogs",
+        "watchdogs"
+      ],
+      "description": "Increase the presence of positive male role models at school by managing the WatchDOGS (Dads Of Great Students) volunteer program.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Organize and host the annual WatchDOGS Kickoff (such as a Pizza Night or Breakfast) to recruit new volunteers and explain how a Day of DOGS works."
+        },
+        {
+          "heading": "",
+          "body": "Manage the digital sign-up calendar and serve as the main point of contact for dads, grandfathers, and father-figures looking to volunteer."
+        },
+        {
+          "heading": "",
+          "body": "Coordinate with the school office to ensure every volunteer has an updated daily itinerary and has completed the necessary district background checks."
+        }
+      ],
+      "time_commitment": "Approximately 2 hours in September (for the kickoff event); 30 minutes per month thereafter for calendar management and brief volunteer check-ins.",
+      "point_of_contact": "Vice Principal and VP, Volunteers",
+      "pro_tip": "Emphasize the one-day-a-year commitment. Many dads are hesitant to volunteer because they fear a recurring weekly obligation. Highlighting that just one full day makes a massive impact—and that they get to eat lunch with their kids—is your best recruiting tool!"
+    },
+    {
+      "title": "Wilder About Giving",
+      "aliases": [
+        "wilder about giving",
+        "annual giving campaign",
+        "wag"
+      ],
+      "description": "Lead the school's premier annual fundraising campaign to fully fund the PTSA's yearly budget through direct donations and corporate matching.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Design and execute a high-visibility marketing campaign during the first month of school using social media, banners, and the newsletter to keep the goal top-of-mind for families."
+        },
+        {
+          "heading": "",
+          "body": "Monitor the online donation portal to track progress and coordinate with the Treasurer to ensure all contributions are properly recorded."
+        },
+        {
+          "heading": "",
+          "body": "Manage the Classroom Competition, including tracking which rooms have the highest participation and coordinating the delivery of prizes to the winning students."
+        }
+      ],
+      "time_commitment": "High intensity in August and September (6–10 hours per week); minimal follow-up for the remainder of the year to remind families about corporate matching deadlines.",
+      "point_of_contact": "VP, Ways and Means and Treasurer",
+      "pro_tip": "Don't just ask for the donation—make the Corporate Match the star of the show! Many parents don't realize their gift can double with a few clicks in their HR portal."
+    },
+    {
+      "title": "Yearbook",
+      "aliases": [
+        "yearbook"
+      ],
+      "description": "Create a lasting keepsake of the school year by documenting student life, school events, and milestones through a high-quality, professionally designed yearbook.",
+      "responsibilities": [
+        {
+          "heading": "",
+          "body": "Lead a team of volunteer photographers (or capture images yourself) to document school-wide events and classroom moments, ensuring all photos used respect student privacy and photo release permissions."
+        },
+        {
+          "heading": "",
+          "body": "Use specialized yearbook design software to organize, edit, and layout pages, creating engaging spreads that highlight student achievements, staff, and memorable highlights."
+        },
+        {
+          "heading": "",
+          "body": "Oversee the end-to-end production process, including vendor management, monitoring sales and orders, and coordinating the final distribution of books to students and families."
+        }
+      ],
+      "time_commitment": "Ongoing throughout the year (approximately 1–2 hours per week for photo collection); high intensity in the spring during the final design and proofing window (5–10 hours per week).",
+      "point_of_contact": "PTSA Committee and teachers",
+      "pro_tip": ""
+    }
+  ]
+}
