@@ -105,4 +105,20 @@ foreach ($seed['roles'] as $row) {
 }
 $t->equals(0, $missing_fields, 'every seed role has description, responsibilities, time, and contact');
 
+$search_role = role_row('Book Fair', 'book-fair');
+$search_role->department_name = 'Ways and Means';
+$search_role->description = 'Foster a love of reading';
+$search_role->time_commitment = '4 hours per week';
+$search_role->point_of_contact = 'School librarian';
+$search_role->pro_tip = 'Use ethernet cords';
+$search_role->responsibilities = array(
+    array('heading' => 'Inventory', 'body' => 'Manage reorders during the fair'),
+);
+$hay = Azure_PTA_Role_Descriptions::search_haystack($search_role);
+$t->check(strpos($hay, 'book fair') !== false, 'haystack includes the role name');
+$t->check(strpos($hay, 'ways and means') !== false, 'haystack includes the department');
+$t->check(strpos($hay, 'ethernet') !== false, 'haystack includes the pro tip');
+$t->check(strpos($hay, 'reorders') !== false, 'haystack includes responsibilities');
+$t->check(strpos($hay, '4 hours') !== false, 'haystack includes time commitment');
+
 exit($t->finish() === 0 ? 0 : 1);

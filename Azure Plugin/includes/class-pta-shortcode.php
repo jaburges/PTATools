@@ -62,6 +62,8 @@
  * - department: limit a listing to one department
  * - show_description / show_responsibilities / show_time /
  *   show_point_of_contact / show_protip: true/false (default true)
+ * - show_filter: true/false — search, department chips, and jump list
+ *   when more than one role is shown (default true)
  *
  * TEAM MEMBERS INSPIRED LAYOUT:
  * [pta-roles-directory layout="team-cards" columns="4" show_avatars="true" show_contact="true"]
@@ -1160,6 +1162,7 @@ class Azure_PTA_Shortcode {
             'show_time'             => true,
             'show_point_of_contact' => true,
             'show_protip'           => true,
+            'show_filter'           => true,
         ), $atts, 'role-description');
 
         $atts['show_description'] = filter_var($atts['show_description'], FILTER_VALIDATE_BOOLEAN);
@@ -1167,6 +1170,7 @@ class Azure_PTA_Shortcode {
         $atts['show_time'] = filter_var($atts['show_time'], FILTER_VALIDATE_BOOLEAN);
         $atts['show_point_of_contact'] = filter_var($atts['show_point_of_contact'], FILTER_VALIDATE_BOOLEAN);
         $atts['show_protip'] = filter_var($atts['show_protip'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_filter'] = filter_var($atts['show_filter'], FILTER_VALIDATE_BOOLEAN);
 
         $needle = trim((string) ($atts['role'] !== '' ? $atts['role'] : $atts['slug']));
         $roles = $this->pta_manager->get_roles(null, false);
@@ -1197,6 +1201,9 @@ class Azure_PTA_Shortcode {
         }
 
         $output = '<div class="pta-role-descriptions">';
+        if ($atts['show_filter'] && count($roles) > 1) {
+            $output .= $this->render_role_description_toolbar($roles);
+        }
         foreach ($roles as $role) {
             $output .= $this->render_role_description($role, $atts);
         }
@@ -1225,9 +1232,66 @@ class Azure_PTA_Shortcode {
         return null;
     }
 
+    private function render_role_description_toolbar($roles) {
+        $departments = array();
+        $jump_groups = array();
+        foreach ($roles as $role) {
+            $dept_name = trim((string) ($role->department_name ?? ''));
+            $dept_slug = sanitize_title($dept_name);
+            if ($dept_name !== '' && $dept_slug !== '') {
+                $departments[$dept_slug] = $dept_name;
+            }
+            if (!isset($jump_groups[$dept_name])) {
+                $jump_groups[$dept_name] = array();
+            }
+            $jump_groups[$dept_name][] = $role;
+        }
+        ksort($departments, SORT_NATURAL | SORT_FLAG_CASE);
+        ksort($jump_groups, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $uid = wp_unique_id('pta-role-filter-');
+        $output = '<div class="pta-role-description-toolbar">';
+        $output .= '<div class="pta-role-filter-search">';
+        $output .= '<label class="screen-reader-text" for="' . esc_attr($uid) . '">Search roles</label>';
+        $output .= '<input type="search" id="' . esc_attr($uid) . '" class="pta-role-filter-q" placeholder="Search roles, time, or keywords">';
+        $output .= '</div>';
+
+        $output .= '<div class="pta-role-filter-chips" role="group" aria-label="Filter by department">';
+        $output .= '<button type="button" class="pta-role-filter-chip is-active" data-dept="">All</button>';
+        foreach ($departments as $slug => $name) {
+            $output .= '<button type="button" class="pta-role-filter-chip" data-dept="' . esc_attr($slug) . '">' . esc_html($name) . '</button>';
+        }
+        $output .= '</div>';
+
+        $output .= '<details class="pta-role-jump">';
+        $output .= '<summary>Jump to role</summary>';
+        $output .= '<nav class="pta-role-jump-nav" aria-label="Jump to role">';
+        foreach ($jump_groups as $dept_name => $group_roles) {
+            $dept_slug = sanitize_title($dept_name);
+            $output .= '<div class="pta-role-jump-group" data-dept="' . esc_attr($dept_slug) . '">';
+            if ($dept_name !== '') {
+                $output .= '<h3>' . esc_html($dept_name) . '</h3>';
+            }
+            $output .= '<ul>';
+            foreach ($group_roles as $role) {
+                $slug = sanitize_title($role->slug ?: $role->name);
+                $output .= '<li data-role-id="role-' . esc_attr($slug) . '"><a href="#role-' . esc_attr($slug) . '">' . esc_html($role->name) . '</a></li>';
+            }
+            $output .= '</ul></div>';
+        }
+        $output .= '</nav></details>';
+        $output .= '<p class="pta-role-filter-status" aria-live="polite"></p>';
+        $output .= '</div>';
+        return $output;
+    }
+
     private function render_role_description($role, $atts) {
         $slug = sanitize_title($role->slug ?: $role->name);
-        $output = '<article class="pta-role-description" id="role-' . esc_attr($slug) . '">';
+        $dept_slug = sanitize_title((string) ($role->department_name ?? ''));
+        $haystack = class_exists('Azure_PTA_Role_Descriptions')
+            ? Azure_PTA_Role_Descriptions::search_haystack($role)
+            : strtolower((string) ($role->name ?? ''));
+        $output = '<article class="pta-role-description" id="role-' . esc_attr($slug) . '" data-dept="' . esc_attr($dept_slug) . '" data-search="' . esc_attr($haystack) . '">';
         $output .= '<h2 class="pta-role-description-title">' . esc_html($role->name) . '</h2>';
         if (!empty($role->department_name)) {
             $output .= '<p class="pta-role-description-dept">' . esc_html($role->department_name) . '</p>';

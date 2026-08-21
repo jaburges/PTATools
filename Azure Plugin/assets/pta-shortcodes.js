@@ -14,6 +14,7 @@
         initRoleCards();
         initOrgCharts();
         initSignupModal();
+        initRoleDescriptionFilters();
     }
     
     function initRoleCards() {
@@ -91,6 +92,117 @@
             $('#pta-signup-modal .pta-modal-body').html(
                 '<p class="pta-error">Unable to load the signup form. Please try again later.</p>'
             );
+        });
+    }
+
+    function initRoleDescriptionFilters() {
+        $('.pta-role-descriptions').each(function() {
+            var $root = $(this);
+            var $toolbar = $root.find('.pta-role-description-toolbar').first();
+            if (!$toolbar.length) {
+                return;
+            }
+
+            var $input = $toolbar.find('.pta-role-filter-q');
+            var $chips = $toolbar.find('.pta-role-filter-chip');
+            var $status = $toolbar.find('.pta-role-filter-status');
+            var $cards = $root.find('article.pta-role-description');
+            var $jumpItems = $toolbar.find('.pta-role-jump-nav li');
+            var $jumpGroups = $toolbar.find('.pta-role-jump-group');
+            var total = $cards.length;
+            var activeDept = '';
+
+            var params = new URLSearchParams(window.location.search);
+            var urlDept = params.get('dept') || '';
+            if (urlDept && $chips.filter('[data-dept="' + urlDept + '"]').length) {
+                activeDept = urlDept;
+                $chips.removeClass('is-active');
+                $chips.filter('[data-dept="' + urlDept + '"]').addClass('is-active');
+            }
+
+            function wordsOf(value) {
+                return String(value || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+            }
+
+            function applyFilter() {
+                var words = wordsOf($input.val());
+                var visible = 0;
+                $cards.each(function() {
+                    var $card = $(this);
+                    var hay = String($card.attr('data-search') || '');
+                    var dept = String($card.attr('data-dept') || '');
+                    var deptOk = !activeDept || dept === activeDept;
+                    var searchOk = true;
+                    for (var i = 0; i < words.length; i++) {
+                        if (hay.indexOf(words[i]) === -1) {
+                            searchOk = false;
+                            break;
+                        }
+                    }
+                    var show = deptOk && searchOk;
+                    $card.toggleClass('is-filtered-out', !show);
+                    if (show) {
+                        visible++;
+                    }
+                    var id = $card.attr('id');
+                    $jumpItems.filter('[data-role-id="' + id + '"]').toggleClass('is-filtered-out', !show);
+                });
+                $jumpGroups.each(function() {
+                    var $group = $(this);
+                    var groupVisible = $group.find('li').not('.is-filtered-out').length > 0;
+                    $group.toggleClass('is-filtered-out', !groupVisible);
+                });
+                if (visible === total && !activeDept && !words.length) {
+                    $status.text('');
+                } else if (visible === 0) {
+                    $status.text('No roles match.');
+                } else {
+                    $status.text(visible + ' of ' + total + ' roles');
+                }
+            }
+
+            $input.on('input', applyFilter);
+            $chips.on('click', function() {
+                var next = String($(this).data('dept') || '');
+                activeDept = next;
+                $chips.removeClass('is-active');
+                $(this).addClass('is-active');
+                var url = new URL(window.location.href);
+                if (next) {
+                    url.searchParams.set('dept', next);
+                } else {
+                    url.searchParams.delete('dept');
+                }
+                window.history.replaceState({}, '', url);
+                applyFilter();
+            });
+
+            $toolbar.find('.pta-role-jump-nav a').on('click', function() {
+                var target = document.getElementById(this.hash.replace('#', ''));
+                if (!target) {
+                    return;
+                }
+                $cards.removeClass('is-target');
+                $(target).addClass('is-target');
+                window.setTimeout(function() {
+                    $(target).removeClass('is-target');
+                }, 2200);
+                if (window.matchMedia('(max-width: 781px)').matches) {
+                    $toolbar.find('.pta-role-jump').prop('open', false);
+                }
+            });
+
+            if (window.location.hash) {
+                var hashed = document.getElementById(window.location.hash.replace('#', ''));
+                if (hashed) {
+                    $(hashed).addClass('is-target');
+                    window.setTimeout(function() {
+                        $(hashed).removeClass('is-target');
+                    }, 2200);
+                }
+            }
+
+            applyFilter();
         });
     }
 

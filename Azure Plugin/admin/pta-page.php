@@ -606,6 +606,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>role</strong> or <strong>slug:</strong> Role name or slug (optional — omit to list all)</li>
                 <li><strong>department:</strong> Limit a listing to one department</li>
                 <li><strong>show_description / show_responsibilities / show_time / show_point_of_contact / show_protip:</strong> true/false (all default true)</li>
+                <li><strong>show_filter:</strong> true/false — search, department chips, and jump list when listing more than one role (default: true)</li>
             </ul>
         </div>
         

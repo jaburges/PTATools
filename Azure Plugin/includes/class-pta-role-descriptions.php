@@ -17,6 +17,31 @@ class Azure_PTA_Role_Descriptions {
     const SEED_VERSION = '2026-27.1';
 
     /**
+     * Normalized text a listing filter can match against.
+     */
+    public static function search_haystack($role) {
+        $parts = array(
+            isset($role->name) ? $role->name : '',
+            isset($role->slug) ? $role->slug : '',
+            isset($role->department_name) ? $role->department_name : '',
+            isset($role->description) ? $role->description : '',
+            isset($role->time_commitment) ? $role->time_commitment : '',
+            isset($role->point_of_contact) ? $role->point_of_contact : '',
+            isset($role->pro_tip) ? $role->pro_tip : '',
+        );
+        if (!empty($role->responsibilities) && is_array($role->responsibilities)) {
+            foreach ($role->responsibilities as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $parts[] = $item['heading'] ?? '';
+                $parts[] = $item['body'] ?? '';
+            }
+        }
+        return self::normalize_key(implode(' ', $parts));
+    }
+
+    /**
      * Collapse a role title or alias to a comparable key.
      */
     public static function normalize_key($value) {

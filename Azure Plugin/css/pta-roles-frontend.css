@@ -850,6 +850,121 @@ body.page-template-full-width #primary.aft-pagebuilder-full-width-content > #mai
     margin: 24px 0;
 }
 
+.pta-role-description-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0 0 8px;
+    padding: 16px 0 12px;
+    background: #fff;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+body.admin-bar .pta-role-description-toolbar {
+    top: 32px;
+}
+
+.pta-role-filter-q {
+    width: 100%;
+    max-width: 420px;
+    padding: 10px 12px;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    font-size: 16px;
+}
+
+.pta-role-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pta-role-filter-chip {
+    appearance: none;
+    border: 1px solid #d0d0d0;
+    background: #f6f7f7;
+    color: #1d2327;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.pta-role-filter-chip.is-active,
+.pta-role-filter-chip:hover {
+    background: #007cba;
+    border-color: #007cba;
+    color: #fff;
+}
+
+.pta-role-jump summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.pta-role-jump-nav {
+    display: grid;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+.pta-role-jump-group h3 {
+    margin: 0 0 6px;
+    font-size: 0.95rem;
+}
+
+.pta-role-jump-group ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pta-role-jump-group a {
+    text-decoration: none;
+}
+
+.pta-role-jump-group a:hover {
+    text-decoration: underline;
+}
+
+.pta-role-filter-status {
+    margin: 0;
+    min-height: 1.2em;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.pta-role-description.is-filtered-out,
+.pta-role-jump-group.is-filtered-out,
+.pta-role-jump-nav li.is-filtered-out {
+    display: none;
+}
+
+.pta-role-description.is-target,
+.pta-role-description:target {
+    outline: 2px solid #c4a35a;
+    outline-offset: 8px;
+    border-radius: 4px;
+}
+
+@media (min-width: 782px) {
+    .pta-role-jump-nav {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    }
+}
+
+@media (max-width: 782px) {
+    body.admin-bar .pta-role-description-toolbar {
+        top: 46px;
+    }
+}
+
 .pta-role-description {
     padding: 24px 0;
     border-bottom: 1px solid #e5e5e5;
