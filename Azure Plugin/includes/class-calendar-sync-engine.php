@@ -589,11 +589,28 @@ class Azure_Calendar_Sync_Engine {
             }
         }
 
-        // Category: write into pta_event_category (replace, don't append)
+        // Category: the Outlook mapping category is the primary term.
+        // Keep extra local tags (PTSA Meeting) and re-apply that tag when
+        // the title is a Board / General meeting so the next sync does not
+        // wipe the shortcode's discovery category.
+        $terms = array();
         if ($category_name !== '') {
             update_post_meta($post_id, '_pta_event_category_name', $category_name);
-            if (taxonomy_exists('pta_event_category')) {
-                wp_set_object_terms($post_id, array($category_name), 'pta_event_category', false);
+            $terms[] = $category_name;
+        }
+        if (taxonomy_exists('pta_event_category')) {
+            if (class_exists('Azure_PTSA_Meetings')) {
+                $existing = wp_get_object_terms($post_id, 'pta_event_category', array('fields' => 'names'));
+                if (!is_wp_error($existing)) {
+                    $terms = array_merge($terms, Azure_PTSA_Meetings::preserved_category_names($existing));
+                }
+                if (Azure_PTSA_Meetings::is_meeting_title($title)) {
+                    $terms[] = Azure_PTSA_Meetings::CATEGORY_NAME;
+                }
+            }
+            $terms = array_values(array_unique(array_filter($terms)));
+            if (!empty($terms)) {
+                wp_set_object_terms($post_id, $terms, 'pta_event_category', false);
             }
         }
 

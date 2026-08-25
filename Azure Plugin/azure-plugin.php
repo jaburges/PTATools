@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.13
+ * Version: 3.147.14
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.13');
+define('AZURE_PLUGIN_VERSION', '3.147.14');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -1163,10 +1163,16 @@ class AzurePlugin {
      */
     private function init_events_components($ctx) {
         try {
-            $this->require_module_files(array('class-event-cpt.php'));
+            $this->require_module_files(array(
+                'class-event-cpt.php',
+                'class-ptsa-meetings.php',
+            ));
 
             if (class_exists('Azure_Event_CPT')) {
                 Azure_Event_CPT::get_instance();
+            }
+            if (class_exists('Azure_PTSA_Meetings')) {
+                Azure_PTSA_Meetings::get_instance();
             }
         } catch (\Throwable $e) {
             if (class_exists('Azure_Logger')) {

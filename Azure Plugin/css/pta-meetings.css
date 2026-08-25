@@ -1,0 +1,95 @@
+/**
+ * [ptsa-meetings] list
+ */
+
+.ptsa-meetings {
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    margin: 1.25rem 0;
+}
+
+.ptsa-meetings-empty p {
+    margin: 0;
+    color: #555;
+}
+
+.ptsa-meetings-section + .ptsa-meetings-section {
+    margin-top: 1.75rem;
+}
+
+.ptsa-meetings-heading {
+    font-size: 1.1em;
+    font-weight: 700;
+    margin: 0 0 0.6rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 2px solid #0073aa;
+    color: #222;
+}
+
+.ptsa-meetings-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.ptsa-meetings-item {
+    padding: 0.7rem 0;
+    border-bottom: 1px solid #e2e4e7;
+}
+
+.ptsa-meetings-item:last-child {
+    border-bottom: 0;
+}
+
+.ptsa-meetings-main {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    align-items: baseline;
+}
+
+.ptsa-meetings-date {
+    color: #555;
+    font-weight: 600;
+    min-width: 11.5rem;
+}
+
+.ptsa-meetings-title {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+}
+
+.ptsa-meetings-title:hover,
+.ptsa-meetings-title:focus {
+    border-bottom-color: currentColor;
+}
+
+.ptsa-meetings-files {
+    list-style: none;
+    margin: 0.35rem 0 0;
+    padding: 0 0 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+}
+
+.ptsa-meetings-file {
+    font-size: 0.92em;
+    color: #0073aa;
+}
+
+.ptsa-meetings-file::before {
+    content: "📎 ";
+}
+
+@media (max-width: 640px) {
+    .ptsa-meetings-main {
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .ptsa-meetings-date {
+        min-width: 0;
+    }
+}

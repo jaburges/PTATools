@@ -91,6 +91,45 @@ $frequency_labels = array(
         </p>
     </div>
 
+    <div class="azure-card ptsa-meetings-shortcode">
+        <h2><?php esc_html_e('PTSA meetings shortcode', 'azure-plugin'); ?></h2>
+        <p>
+            <?php esc_html_e('List every event tagged with the PTSA Meeting category — Board meetings and General meetings — with a link to the event page and any media files attached to it.', 'azure-plugin'); ?>
+        </p>
+        <p>
+            <code id="ptsa-meetings-shortcode">[ptsa-meetings]</code>
+            <button type="button" class="button button-small" id="ptsa-meetings-copy"><?php esc_html_e('Copy', 'azure-plugin'); ?></button>
+        </p>
+        <p class="description">
+            <?php esc_html_e('Do not filter on the event title. Tag meetings as “PTSA Meeting” so the list stays accurate when names vary. The plugin creates that category, tags existing Board and General meetings on upgrade, and re-applies the tag on Outlook sync when the title matches. You can also add the category by hand on any other event.', 'azure-plugin'); ?>
+        </p>
+        <p><strong><?php esc_html_e('Optional attributes', 'azure-plugin'); ?></strong></p>
+        <ul>
+            <li><code>upcoming="true"</code> — <?php esc_html_e('hide past meetings', 'azure-plugin'); ?></li>
+            <li><code>limit="10"</code> — <?php esc_html_e('cap how many events are shown (default: all)', 'azure-plugin'); ?></li>
+            <li><code>show_attachments="false"</code> — <?php esc_html_e('hide agenda / minutes / other file links', 'azure-plugin'); ?></li>
+            <li><code>show_time="false"</code> — <?php esc_html_e('date only', 'azure-plugin'); ?></li>
+        </ul>
+        <p class="description">
+            <?php esc_html_e('Add agendas or minutes from the event editor (Add Media, or a File block). Those attachments appear under that meeting in the list.', 'azure-plugin'); ?>
+        </p>
+    </div>
+    <script>
+    (function () {
+        var btn = document.getElementById('ptsa-meetings-copy');
+        var code = document.getElementById('ptsa-meetings-shortcode');
+        if (!btn || !code) return;
+        btn.addEventListener('click', function () {
+            var text = code.textContent || '';
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text);
+            } else {
+                window.prompt('Copy this shortcode:', text);
+            }
+        });
+    })();
+    </script>
+
     <!-- Stats row -->
     <div class="azure-stat-row" style="display:flex; gap:16px; flex-wrap:wrap; margin:16px 0;">
         <div class="azure-stat-box" style="background:#fff;border:1px solid #ccd0d4;padding:16px;min-width:180px;">
@@ -382,4 +421,7 @@ $frequency_labels = array(
 .azure-status-success { color: #1f6e2a; font-weight: 600; }
 .azure-status-failed  { color: #b32d2e; font-weight: 600; }
 body.modal-open { overflow: hidden; }
+.ptsa-meetings-shortcode code { font-size: 14px; }
+.ptsa-meetings-shortcode ul { margin: 0 0 12px 1.2em; }
+.ptsa-meetings-shortcode li { margin: 4px 0; }
 </style>
