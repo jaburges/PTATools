@@ -428,6 +428,8 @@ class Azure_Settings {
             'newsletter_bounce_mailbox' => '',
             'newsletter_bounce_enabled' => false,
             'newsletter_default_category' => 'newsletter',
+            'newsletter_default_page_title' => '{subject}',
+            'newsletter_default_parent_page' => 0,
             
             // Organization settings (used across modules)
             'org_domain' => '',              // e.g., "yourptsa.net"

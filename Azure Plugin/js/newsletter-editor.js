@@ -2368,7 +2368,7 @@
         if (step === 1) {
             var name = $('#newsletter_name').val().trim();
             var subject = $('#newsletter_subject').val().trim();
-            var from = $('#newsletter_from').val();
+            var fromEmail = ($('#newsletter_from_email_input').val() || '').trim();
             var recipients = $('input[name="newsletter_lists[]"]:checked').length;
 
             if (!name) {
@@ -2378,8 +2378,8 @@
             if (!subject) {
                 errors.push('Please enter an email subject.');
             }
-            if (!from) {
-                errors.push('Please select a sender.');
+            if (!fromEmail) {
+                errors.push('Please enter a sender email.');
             }
             if (recipients === 0) {
                 errors.push('Please select at least one recipient list.');
@@ -2395,11 +2395,37 @@
     }
 
     /**
+     * Display text for the chosen sender. The From control used to be a
+     * <select id="newsletter_from">; it is now a hidden `email|name` field
+     * plus visible name/email inputs (and an optional saved-sender picker).
+     * Reading option:selected on the hidden input is always empty, which is
+     * why Schedule & Send showed "Not selected".
+     */
+    function getFromDisplayText() {
+        var name = ($('#newsletter_from_name_input').val() || '').trim();
+        var email = ($('#newsletter_from_email_input').val() || '').trim();
+
+        if (!name && !email) {
+            var hidden = ($('#newsletter_from').val() || '').trim();
+            if (hidden) {
+                var parts = hidden.split('|');
+                email = (parts[0] || '').trim();
+                name = (parts[1] || '').trim();
+            }
+        }
+
+        if (name && email) {
+            return name + ' <' + email + '>';
+        }
+        return email || name || 'Not selected';
+    }
+
+    /**
      * Update review summary (Step 3)
      */
     function updateReviewSummary() {
         $('#summary-subject').text($('#newsletter_subject').val());
-        $('#summary-from').text($('#newsletter_from option:selected').text() || 'Not selected');
+        $('#summary-from').text(getFromDisplayText());
         
         var selectedLists = [];
         $('input[name="newsletter_lists[]"]:checked').each(function() {
@@ -2419,8 +2445,7 @@
         $('#summary-subject-final').text($('#newsletter_subject').val() || '-');
         
         // From
-        var fromText = $('#newsletter_from option:selected').text();
-        $('#summary-from-final').text(fromText || 'Not selected');
+        $('#summary-from-final').text(getFromDisplayText());
         
         // Recipients - show lists and count
         var selectedLists = [];
@@ -2606,12 +2631,69 @@
     }
 
     /**
-     * Page options toggle
+     * Page options toggle plus live title preview / token insert.
      */
     function initPageOptions() {
         $('#create_wp_page').on('change', function() {
             $('#page-settings').toggle($(this).is(':checked'));
+            if ($(this).is(':checked')) {
+                updatePageTitlePreview();
+            }
         });
+
+        $(document).on('click', '.insert-page-title-token', function() {
+            var token = $(this).data('token');
+            var $input = $('#page_title');
+            if (!$input.length) {
+                return;
+            }
+            var el = $input[0];
+            var start = el.selectionStart || $input.val().length;
+            var end = el.selectionEnd || start;
+            var value = $input.val() || '';
+            $input.val(value.slice(0, start) + token + value.slice(end));
+            $input.trigger('input');
+            $input.focus();
+        });
+
+        $('#page_title, #newsletter_subject, #newsletter_name').on('input', updatePageTitlePreview);
+        updatePageTitlePreview();
+    }
+
+    function resolvePageTitlePreview(template) {
+        var now = new Date();
+        var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        var month = months[now.getMonth()];
+        var year = String(now.getFullYear());
+        var date = month + ' ' + now.getDate() + ', ' + year;
+        var subject = ($('#newsletter_subject').val() || '').trim() || 'Subject';
+        var name = ($('#newsletter_name').val() || '').trim() || 'Campaign name';
+        return String(template || '{subject}')
+            .replace(/\{subject\}/gi, subject)
+            .replace(/\{name\}/gi, name)
+            .replace(/\{month_year\}/gi, month + ' ' + year)
+            .replace(/\{month\}/gi, month)
+            .replace(/\{year\}/gi, year)
+            .replace(/\{date\}/gi, date)
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function updatePageTitlePreview() {
+        var $preview = $('#page-title-preview');
+        if (!$preview.length) {
+            return;
+        }
+        var tpl = ($('#page_title').val() || '').trim() || '{subject}';
+        $preview.text(resolvePageTitlePreview(tpl) || 'Newsletter');
+    }
+
+    function appendArchivePageFields(formData) {
+        formData.create_wp_page = $('#create_wp_page').is(':checked') ? 1 : 0;
+        formData.page_category = $('#page_category').val() || 'newsletter';
+        formData.page_title = $('#page_title').val() || '{subject}';
+        formData.page_parent = $('#page_parent').val() || '0';
+        return formData;
     }
 
     /**
@@ -3035,6 +3117,7 @@
             schedule_date: $('#schedule_date').val(),
             schedule_time: $('#schedule_time').val()
         };
+        appendArchivePageFields(formData);
         
         // Debug logging
         console.log('[Newsletter] Sending AJAX request:', {
@@ -3146,6 +3229,7 @@
             newsletter_lists: JSON.stringify(selectedLists),
             send_option: 'draft' // Always save as draft
         };
+        appendArchivePageFields(formData);
         
         $.post(newsletterEditorConfig.ajaxUrl, formData, function(response) {
             btn.prop('disabled', false);

@@ -14,6 +14,8 @@ if (isset($_POST['save_newsletter_settings']) && wp_verify_nonce($_POST['_wpnonc
         'newsletter_batch_size' => intval($_POST['newsletter_batch_size'] ?? 100),
         'newsletter_rate_limit_per_hour' => intval($_POST['newsletter_rate_limit_per_hour'] ?? 1000),
         'newsletter_default_category' => sanitize_text_field($_POST['newsletter_default_category'] ?? 'newsletter'),
+        'newsletter_default_page_title' => sanitize_text_field($_POST['newsletter_default_page_title'] ?? '{subject}'),
+        'newsletter_default_parent_page' => intval($_POST['newsletter_default_parent_page'] ?? 0),
         'newsletter_reply_to' => sanitize_email($_POST['newsletter_reply_to'] ?? ''),
         'newsletter_bounce_enabled' => isset($_POST['newsletter_bounce_enabled']),
         'newsletter_bounce_mailbox' => sanitize_email($_POST['newsletter_bounce_mailbox'] ?? ''),
@@ -335,6 +337,36 @@ $from_addresses = $settings['newsletter_from_addresses'] ?? array();
         <div class="settings-section">
             <h3><?php _e('Newsletter Archive Pages', 'azure-plugin'); ?></h3>
             <table class="form-table">
+                <tr>
+                    <th><label><?php _e('Default page name', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <input type="text" name="newsletter_default_page_title"
+                               value="<?php echo esc_attr($settings['newsletter_default_page_title'] ?? '{subject}'); ?>" class="regular-text">
+                        <p class="description"><?php _e('Used when creating a WordPress page. Tokens: {subject} {name} {month} {year} {month_year} {date}. Or type a fixed title.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label><?php _e('Default parent page', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <?php
+                        wp_dropdown_pages(array(
+                            'name'              => 'newsletter_default_parent_page',
+                            'id'                => 'newsletter_default_parent_page',
+                            'show_option_none'  => __('— None (create “Newsletters” on first send) —', 'azure-plugin'),
+                            'option_none_value' => '0',
+                            'selected'          => intval($settings['newsletter_default_parent_page'] ?? 0),
+                            'sort_column'       => 'menu_order,post_title',
+                            'post_status'       => array('publish', 'private', 'draft'),
+                        ));
+                        ?>
+                        <p class="description">
+                            <?php _e('Child pages nest under this parent, e.g. Newsletters → Welcome, September 26.', 'azure-plugin'); ?>
+                            <?php _e('Put', 'azure-plugin'); ?>
+                            <code>[newsletter-archive]</code>
+                            <?php _e('on that parent page to show a live list of issues.', 'azure-plugin'); ?>
+                        </p>
+                    </td>
+                </tr>
                 <tr>
                     <th><label><?php _e('Default Category/Tag', 'azure-plugin'); ?></label></th>
                     <td>

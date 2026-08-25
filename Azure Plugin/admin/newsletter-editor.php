@@ -755,17 +755,80 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                 </div>
                 
                 <!-- Create WordPress Page Option -->
+                <?php
+                $existing_archive_page = null;
+                if ($newsletter && !empty($newsletter->wp_page_id)) {
+                    $existing_archive_page = get_post((int) $newsletter->wp_page_id);
+                }
+                $page_title_value = $settings['newsletter_default_page_title'] ?? '{subject}';
+                $newsletters_parent_id = class_exists('Azure_Newsletter_Module')
+                    ? Azure_Newsletter_Module::find_newsletters_parent_page_id()
+                    : 0;
+                $selected_parent = intval($settings['newsletter_default_parent_page'] ?? 0);
+                if ($existing_archive_page) {
+                    $page_title_value = $existing_archive_page->post_title;
+                    $selected_parent = (int) $existing_archive_page->post_parent;
+                } elseif (!$selected_parent && $newsletters_parent_id) {
+                    $selected_parent = $newsletters_parent_id;
+                }
+                $has_archive_page = (bool) $existing_archive_page;
+                $offer_create_newsletters = !$newsletters_parent_id && !$has_archive_page;
+                ?>
                 <div class="page-options">
                     <h4><?php _e('Archive Page Options', 'azure-plugin'); ?></h4>
                     <label>
-                        <input type="checkbox" name="create_wp_page" id="create_wp_page" value="1">
+                        <input type="checkbox" name="create_wp_page" id="create_wp_page" value="1" <?php checked($has_archive_page); ?>>
                         <?php _e('Create a WordPress page for this newsletter (view in browser)', 'azure-plugin'); ?>
                     </label>
                     
-                    <div class="page-settings" id="page-settings" style="display:none;">
+                    <div class="page-settings" id="page-settings" style="<?php echo $has_archive_page ? '' : 'display:none;'; ?>">
                         <table class="form-table">
                             <tr>
-                                <th><label><?php _e('Page Category/Tag', 'azure-plugin'); ?></label></th>
+                                <th><label for="page_title"><?php _e('Page name', 'azure-plugin'); ?></label></th>
+                                <td>
+                                    <input type="text" name="page_title" id="page_title" class="regular-text"
+                                           value="<?php echo esc_attr($page_title_value); ?>"
+                                           placeholder="{subject}">
+                                    <div class="page-title-tokens">
+                                        <button type="button" class="button button-small insert-page-title-token" data-token="{subject}"><?php _e('Subject', 'azure-plugin'); ?></button>
+                                        <button type="button" class="button button-small insert-page-title-token" data-token="{name}"><?php _e('Campaign name', 'azure-plugin'); ?></button>
+                                        <button type="button" class="button button-small insert-page-title-token" data-token="{month_year}"><?php _e('Month year', 'azure-plugin'); ?></button>
+                                        <button type="button" class="button button-small insert-page-title-token" data-token="{date}"><?php _e('Date', 'azure-plugin'); ?></button>
+                                    </div>
+                                    <p class="description">
+                                        <?php _e('Use tokens or type a title. Preview:', 'azure-plugin'); ?>
+                                        <strong id="page-title-preview"></strong>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label for="page_parent"><?php _e('Parent page', 'azure-plugin'); ?></label></th>
+                                <td>
+                                    <select name="page_parent" id="page_parent" class="regular-text">
+                                        <option value="0"><?php esc_html_e('— No parent (top-level page) —', 'azure-plugin'); ?></option>
+                                        <?php if ($offer_create_newsletters): ?>
+                                        <option value="create_newsletters" selected>
+                                            <?php esc_html_e('Newsletters (will be created)', 'azure-plugin'); ?>
+                                        </option>
+                                        <?php endif; ?>
+                                        <?php
+                                        $site_pages = get_pages(array(
+                                            'sort_column'  => 'menu_order,post_title',
+                                            'post_status'  => array('publish', 'private', 'draft'),
+                                            'hierarchical' => true,
+                                        ));
+                                        if (!empty($site_pages)) {
+                                            echo walk_page_dropdown_tree($site_pages, 0, array(
+                                                'selected' => $selected_parent,
+                                            ));
+                                        }
+                                        ?>
+                                    </select>
+                                    <p class="description"><?php _e('Nest this issue under a parent so visitors see Newsletters → Welcome, September 26, …', 'azure-plugin'); ?></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label for="page_category"><?php _e('Page Category/Tag', 'azure-plugin'); ?></label></th>
                                 <td>
                                     <input type="text" name="page_category" id="page_category" class="regular-text"
                                            value="<?php echo esc_attr($settings['newsletter_default_category'] ?? 'newsletter'); ?>">

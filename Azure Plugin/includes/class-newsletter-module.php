@@ -1340,6 +1340,78 @@ class Azure_Newsletter_Module {
     }
     
     /**
+     * Resolve an archive page title template.
+     *
+     * Tokens: {subject} {name} {month} {year} {month_year} {date}
+     * Empty / unknown templates fall back to subject, then campaign name.
+     *
+     * @param string     $template  e.g. '{subject}' or 'September 26'
+     * @param array      $data      keys: subject, name
+     * @param int|null   $timestamp Unix time for date tokens (defaults to now)
+     * @return string
+     */
+    public static function resolve_archive_page_title($template, $data, $timestamp = null) {
+        $ts = $timestamp ? (int) $timestamp : time();
+        $subject = trim((string) ($data['subject'] ?? ''));
+        $name    = trim((string) ($data['name'] ?? ''));
+
+        $month = function_exists('date_i18n') ? date_i18n('F', $ts) : date('F', $ts);
+        $year  = function_exists('date_i18n') ? date_i18n('Y', $ts) : date('Y', $ts);
+        $day   = function_exists('date_i18n') ? date_i18n('F j, Y', $ts) : date('F j, Y', $ts);
+
+        $replacements = array(
+            '{subject}'    => $subject,
+            '{name}'       => $name,
+            '{month}'      => $month,
+            '{year}'       => $year,
+            '{month_year}' => trim($month . ' ' . $year),
+            '{date}'       => $day,
+        );
+
+        $title = str_ireplace(array_keys($replacements), array_values($replacements), (string) $template);
+        $title = trim(preg_replace('/\s+/', ' ', $title));
+
+        if ($title === '') {
+            $title = $subject !== '' ? $subject : ($name !== '' ? $name : 'Newsletter');
+        }
+
+        return $title;
+    }
+
+    /**
+     * Page ID of the default Newsletters parent, if one already exists.
+     */
+    public static function find_newsletters_parent_page_id() {
+        if (class_exists('Azure_Settings')) {
+            $saved = (int) Azure_Settings::get_setting('newsletter_default_parent_page', 0);
+            if ($saved > 0 && function_exists('get_post_type') && get_post_type($saved) === 'page') {
+                return $saved;
+            }
+        }
+
+        if (function_exists('get_page_by_path')) {
+            $by_path = get_page_by_path('newsletters');
+            if ($by_path) {
+                return (int) $by_path->ID;
+            }
+        }
+
+        if (function_exists('get_posts')) {
+            $matches = get_posts(array(
+                'post_type'   => 'page',
+                'title'       => 'Newsletters',
+                'post_status' => array('publish', 'private', 'draft'),
+                'numberposts' => 1,
+            ));
+            if (!empty($matches)) {
+                return (int) $matches[0]->ID;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * Cleanup on deactivation
      */
     public static function deactivate() {

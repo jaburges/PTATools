@@ -1963,6 +1963,17 @@ div.gjs-block[style] {
     border-top: 1px solid #ddd;
 }
 
+.page-title-tokens {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+#page-title-preview {
+    color: #1d2327;
+}
+
 #final-send-btn {
     display: flex;
     align-items: center;

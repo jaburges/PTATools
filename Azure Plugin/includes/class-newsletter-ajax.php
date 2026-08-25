@@ -1705,6 +1705,12 @@ class Azure_Newsletter_Ajax {
         $table = $wpdb->prefix . 'azure_newsletters';
         
         $category = sanitize_text_field($_POST['page_category'] ?? 'newsletter');
+        $title_template = sanitize_text_field($_POST['page_title'] ?? '{subject}');
+        if ($title_template === '') {
+            $title_template = '{subject}';
+        }
+        $page_title = Azure_Newsletter_Module::resolve_archive_page_title($title_template, $data);
+        $parent_id = $this->resolve_archive_parent_page_id($_POST['page_parent'] ?? '');
         
         // Create or get the category/tag
         $term = get_term_by('slug', $category, 'category');
@@ -1721,10 +1727,11 @@ class Azure_Newsletter_Ajax {
         
         // Create the page
         $page_data = array(
-            'post_title' => $data['name'],
+            'post_title' => $page_title,
             'post_content' => $data['content_html'],
             'post_status' => 'publish',
             'post_type' => 'page',
+            'post_parent' => $parent_id,
             'post_author' => get_current_user_id()
         );
         
@@ -1758,9 +1765,62 @@ class Azure_Newsletter_Ajax {
             }
             
             Azure_Logger::info("Newsletter #{$newsletter_id} page created: {$page_id}");
+
+            if ($parent_id > 0 && class_exists('Azure_Settings')) {
+                Azure_Settings::update_setting('newsletter_default_parent_page', $parent_id);
+            }
         }
         
         return $page_id;
+    }
+
+    /**
+     * @param string|int $raw  Page ID, 0, or 'create_newsletters'
+     * @return int
+     */
+    private function resolve_archive_parent_page_id($raw) {
+        $raw = is_string($raw) ? trim($raw) : (string) $raw;
+        if ($raw === 'create_newsletters' || $raw === '-1') {
+            return $this->ensure_newsletters_parent_page();
+        }
+
+        $id = intval($raw);
+        if ($id > 0 && get_post_type($id) === 'page') {
+            return $id;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Find or create the published Newsletters parent page.
+     */
+    private function ensure_newsletters_parent_page() {
+        $existing = Azure_Newsletter_Module::find_newsletters_parent_page_id();
+        if ($existing > 0) {
+            return $existing;
+        }
+
+        $page_id = wp_insert_post(array(
+            'post_title'   => 'Newsletters',
+            'post_name'    => 'newsletters',
+            'post_status'  => 'publish',
+            'post_type'    => 'page',
+            'post_author'  => get_current_user_id(),
+            'post_content' => "<!-- wp:paragraph -->\n<p>Past PTSA newsletters.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:shortcode -->\n[newsletter-archive]\n<!-- /wp:shortcode -->",
+        ), true);
+
+        if (is_wp_error($page_id) || !$page_id) {
+            Azure_Logger::error('Could not create Newsletters parent page: ' . (is_wp_error($page_id) ? $page_id->get_error_message() : 'unknown'));
+            return 0;
+        }
+
+        if (class_exists('Azure_Settings')) {
+            Azure_Settings::update_setting('newsletter_default_parent_page', (int) $page_id);
+        }
+
+        Azure_Logger::info('Created Newsletters parent page #' . $page_id);
+        return (int) $page_id;
     }
     
     /**
