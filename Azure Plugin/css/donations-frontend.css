@@ -56,14 +56,15 @@
 
 .pta-donations-buttons {
     display: flex;
-    gap: 6px;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
 }
 
 button.pta-donate-quick {
-    flex: 1;
-    padding: 6px 10px;
-    text-align: center;
+    width: 100%;
+    padding: 10px 12px;
+    text-align: left;
     border: 1px solid #8c8f94;
     border-radius: 4px;
     background: #fff;
@@ -94,6 +95,11 @@ button.pta-donate-quick.active {
     border-radius: 4px;
     padding: 0 8px;
     background: #fff;
+    max-width: 200px;
+}
+
+.pta-donate-custom-wrap[hidden] {
+    display: none;
 }
 
 .pta-donate-custom-wrap span {
@@ -163,13 +169,14 @@ button.pta-donate-quick.active {
 
 .pta-donate-amounts {
     display: flex;
+    flex-direction: column;
     gap: 8px;
     margin-bottom: 14px;
 }
 
 .pta-donate-amount-btn {
-    flex: 1;
-    padding: 8px 10px;
+    width: 100%;
+    padding: 10px 12px;
     border: 2px solid #dcdcde;
     border-radius: 6px;
     background: #fff;
@@ -178,7 +185,7 @@ button.pta-donate-quick.active {
     font-weight: 600;
     cursor: pointer;
     transition: all .15s ease;
-    text-align: center;
+    text-align: left;
 }
 
 .pta-donate-amount-btn:hover {
@@ -195,6 +202,10 @@ button.pta-donate-quick.active {
 
 .pta-donate-custom-input-wrap {
     margin-bottom: 14px;
+}
+
+.pta-donate-custom-input-wrap[hidden] {
+    display: none;
 }
 
 .pta-donate-custom-input-wrap label {

@@ -48,9 +48,10 @@
  * - show_image: true/false - show WordPress profile photos (default: false)
  * - include_photo: true/false - alias for show_image (default: false)
  * - photo_size: number - photo size in pixels (default: 80)
- * - show_contact: true/false - show email links
+ * - show_contact: true/false - show each holder's email
  * - show_description: true/false - show role description
- * - show_assignments: true/false - show assigned users
+ * - show_assignments: true/false - show fill count and "Current Assignments" heading
+ *   (photos, names, and contacts still render when show_image / show_contact are on)
  * 
  * ROLE DESCRIPTION SHORTCODE:
  * [Role-description role="president"]
@@ -829,44 +830,51 @@ class Azure_PTA_Shortcode {
     private function render_role_card($role, $atts) {
         $status = $this->get_role_status($role);
         $include_photo = filter_var($atts['include_photo'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $show_contact = filter_var($atts['show_contact'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $show_assignments = filter_var($atts['show_assignments'] ?? true, FILTER_VALIDATE_BOOLEAN);
         $photo_size = intval($atts['photo_size'] ?? 80);
-        
+
         $output = '<div class="pta-role-card pta-status-' . esc_attr($status) . '">';
 
         $output .= '<h3 class="pta-role-title">' . esc_html($role->name) . '</h3>';
         $output .= '<div class="pta-role-department">' . esc_html($role->department_name) . '</div>';
-        
+
         if ($atts['show_description'] && $role->description) {
             $output .= '<div class="pta-role-description">' . esc_html($role->description) . '</div>';
         }
-        
-        $output .= '<div class="pta-role-count">' . $role->assigned_count . ' of ' . $role->max_occupants . ' positions filled</div>';
-        
-        if ($atts['show_assignments'] && !empty($role->assignments)) {
-            $output .= '<div class="pta-role-assignments">';
-            $output .= '<h5>Current Assignments:</h5>';
-            $output .= '<ul class="pta-assignments-list' . ($include_photo ? ' with-photos' : '') . '">';
+
+        if ($show_assignments) {
+            $output .= '<div class="pta-role-count">' . $role->assigned_count . ' of ' . $role->max_occupants . ' positions filled</div>';
+        }
+
+        $show_people = !empty($role->assignments) && ($show_assignments || $include_photo || $show_contact);
+        if ($show_people) {
+            $output .= '<div class="pta-role-people">';
+            if ($show_assignments) {
+                $output .= '<h5 class="pta-role-people-heading">Current Assignments:</h5>';
+            }
             foreach ($role->assignments as $assignment) {
                 $user = get_user_by('ID', $assignment->user_id);
-                if ($user) {
-                    $output .= '<li class="pta-assignment-item">';
-                    if ($include_photo) {
-                        $photo = $this->render_user_photo_inline($user, 32);
-                        if ($photo !== '') {
-                            $output .= '<span class="pta-assignment-photo">' . $photo . '</span>';
-                        }
-                    }
-                    $output .= '<span class="pta-assignment-name">' . esc_html($user->display_name) . '</span>';
-                    if ($atts['show_contact'] && $user->user_email) {
-                        $output .= ' <span class="pta-assignment-email">- <a href="mailto:' . esc_attr($user->user_email) . '">' . esc_html($user->user_email) . '</a></span>';
-                    }
-                    $output .= '</li>';
+                if (!$user) {
+                    continue;
                 }
+                $output .= '<div class="pta-person">';
+                if ($include_photo) {
+                    $url = $this->local_avatar_url($user->ID, $photo_size);
+                    if ($url) {
+                        $size = max(24, $photo_size);
+                        $output .= '<img class="pta-person-photo" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
+                    }
+                }
+                $output .= '<span class="pta-person-name">' . esc_html($user->display_name) . '</span>';
+                if ($show_contact && $user->user_email) {
+                    $output .= '<span class="pta-person-email"><a href="mailto:' . esc_attr($user->user_email) . '">' . esc_html($user->user_email) . '</a></span>';
+                }
+                $output .= '</div>';
             }
-            $output .= '</ul>';
             $output .= '</div>';
         }
-        
+
         $output .= '</div>';
         return $output;
     }

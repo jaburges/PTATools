@@ -11,8 +11,9 @@ $module_enabled = !empty($settings['enable_donations']);
 $campaigns = Azure_Donations_Module::get_all_campaigns();
 $default_campaign = intval($settings['donations_default_campaign'] ?? 0);
 $enable_roundup = !empty($settings['donations_enable_roundup']);
-$enable_custom = !empty($settings['donations_enable_custom']);
-$quick_amounts = $settings['donations_quick_amounts'] ?? '1,5,10';
+$enable_amounts = Azure_Donations_Module::amounts_enabled();
+$enable_gifts = Azure_Donations_Module::gift_products_enabled();
+$quick_entries = Azure_Donations_Module::get_quick_amount_entries();
 $gift_products = Azure_Donations_Module::get_gift_products();
 $wc_products = array();
 if (function_exists('wc_get_products')) {
@@ -50,16 +51,20 @@ if (function_exists('wc_get_products')) {
                 </td>
             </tr>
             <tr>
-                <th>Enable Custom Amount</th>
+                <th>Donation amounts</th>
                 <td>
-                    <label><input type="checkbox" id="donations_enable_custom" <?php checked($enable_custom); ?> /> Show quick-pick donation buttons at checkout</label>
-                </td>
-            </tr>
-            <tr>
-                <th>Quick Amounts</th>
-                <td>
-                    <input type="text" id="donations_quick_amounts" value="<?php echo esc_attr($quick_amounts); ?>" class="regular-text" />
-                    <p class="description">Comma-separated dollar amounts (e.g. 1,5,10,25)</p>
+                    <label><input type="checkbox" id="donations_enable_custom" <?php checked($enable_amounts); ?> /> Show named donation options at checkout and on <code>[pta-donate]</code></label>
+                    <p class="description" style="margin-top:8px;">Check Custom on a row so the donor can type their own amount. Turn this off to hide the amount buttons without deleting the list.</p>
+                    <div id="donation-amount-rows"></div>
+                    <p><button type="button" class="button add-quick-amount"><?php esc_html_e('Add amount', 'azure-plugin'); ?></button></p>
+                    <template id="donation-amount-row-tpl">
+                        <div class="donation-amount-row" style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+                            <input type="text" class="amount-label regular-text" placeholder="Wolf Pack - $150 Per student" />
+                            <input type="number" class="amount-value small-text" min="0" step="0.01" placeholder="150" style="width:90px;" />
+                            <label style="white-space:nowrap;"><input type="checkbox" class="amount-custom" /> <?php esc_html_e('Custom', 'azure-plugin'); ?></label>
+                            <button type="button" class="button-link-delete remove-amount-row"><?php esc_html_e('Remove', 'azure-plugin'); ?></button>
+                        </div>
+                    </template>
                 </td>
             </tr>
             <tr>
@@ -76,7 +81,8 @@ if (function_exists('wc_get_products')) {
             <tr>
                 <th>Gift products</th>
                 <td>
-                    <p class="description" style="margin-top:0;">Buttons on <code>[pta-donate]</code> that add a WooCommerce product to the cart and skip product fields (for donated memberships). Site admin is emailed on every donation.</p>
+                    <label><input type="checkbox" id="donations_enable_gift_products" <?php checked($enable_gifts); ?> /> Show gift-product buttons on <code>[pta-donate]</code></label>
+                    <p class="description" style="margin-top:8px;">Adds a WooCommerce product to the cart and skips product fields (for donated memberships). Site admin is emailed on every donation. Turn this off to hide the buttons without deleting the list.</p>
                     <div id="donation-gift-rows">
                         <?php if (empty($gift_products)): ?>
                             <p class="description donation-gift-empty">No gift products yet. Add Individual and Staff membership here.</p>
@@ -101,7 +107,7 @@ if (function_exists('wc_get_products')) {
                 <th>Shortcodes</th>
                 <td>
                     <code>[pta-donate]</code>
-                    <p class="description">Donation form. Attributes: <code>campaign_id</code>, <code>amounts="5,10,25,50"</code>, <code>show_custom="yes"</code>, <code>button_text="Donate Now"</code></p>
+                    <p class="description">Donation form. Uses Quick Amounts by default. Optional: <code>campaign_id</code>, <code>amounts="5,10,25,50"</code> (numeric override), <code>show_custom="yes"</code>, <code>button_text="Donate Now"</code></p>
                     <code>[donations-list]</code>
                     <p class="description">Public table: date, role (Parent / Staff / Guest), and product or amount. Never includes names or emails. Optional: <code>limit="25"</code></p>
                 </td>
@@ -224,6 +230,45 @@ jQuery(function($) {
 
     // ── Settings ──
     var existingGifts = <?php echo wp_json_encode($gift_products); ?>;
+    var existingAmounts = <?php echo wp_json_encode($quick_entries); ?>;
+
+    function addAmountRow(label, amount, isCustom) {
+        var $tpl = $($('#donation-amount-row-tpl').html());
+        $tpl.find('.amount-label').val(label || '');
+        $tpl.find('.amount-value').val(isCustom ? '' : (amount || ''));
+        $tpl.find('.amount-custom').prop('checked', !!isCustom);
+        $tpl.find('.amount-value').prop('disabled', !!isCustom);
+        $('#donation-amount-rows').append($tpl);
+    }
+
+    (existingAmounts || []).forEach(function(row) {
+        addAmountRow(row.label, row.amount, row.custom);
+    });
+
+    $('.add-quick-amount').on('click', function() {
+        addAmountRow('', '', false);
+    });
+
+    $('#donation-amount-rows').on('click', '.remove-amount-row', function() {
+        $(this).closest('.donation-amount-row').remove();
+    });
+
+    $('#donation-amount-rows').on('change', '.amount-custom', function() {
+        var $row = $(this).closest('.donation-amount-row');
+        $row.find('.amount-value').prop('disabled', $(this).is(':checked')).val($(this).is(':checked') ? '' : $row.find('.amount-value').val());
+    });
+
+    function collectQuickAmounts() {
+        var rows = [];
+        $('#donation-amount-rows .donation-amount-row').each(function() {
+            rows.push({
+                label: $(this).find('.amount-label').val(),
+                amount: parseFloat($(this).find('.amount-value').val()) || 0,
+                custom: $(this).find('.amount-custom').is(':checked')
+            });
+        });
+        return rows;
+    }
 
     function addGiftRow(label, productId) {
         var $tpl = $($('#donation-gift-row-tpl').html());
@@ -268,7 +313,8 @@ jQuery(function($) {
             nonce: nonce,
             donations_enable_roundup: $('#donations_enable_roundup').is(':checked') ? '1' : '0',
             donations_enable_custom: $('#donations_enable_custom').is(':checked') ? '1' : '0',
-            donations_quick_amounts: $('#donations_quick_amounts').val(),
+            donations_enable_gift_products: $('#donations_enable_gift_products').is(':checked') ? '1' : '0',
+            donations_quick_amounts: JSON.stringify(collectQuickAmounts()),
             donations_default_campaign: $('#donations_default_campaign').val(),
             donations_gift_products: JSON.stringify(collectGiftProducts())
         }, function(r) {

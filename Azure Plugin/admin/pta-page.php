@@ -562,7 +562,7 @@ if (class_exists('Azure_PTA_Database')) {
         
         <div class="shortcode-example">
             <h4>Role Card</h4>
-            <code>[pta-role-card role="president" show_image="true" photo_size="100" show_contact="true"]</code>
+            <code>[pta-role-card role="president" show_image="true" photo_size="100" show_contact="true" show_assignments="false"]</code>
             <p><strong>Parameters:</strong></p>
             <ul>
                 <li><strong>role:</strong> Required - Role slug or name</li>

@@ -181,10 +181,21 @@ class Azure_Donations_Module {
 
         if ($custom && floatval($custom) > 0) {
             $amount = round(floatval($custom), 2);
-            $campaign = self::get_default_campaign();
-            $label = $campaign ? 'Donation - ' . $campaign->name : 'Donation';
-            $cart->add_fee($label, $amount, false);
+            $cart->add_fee($this->get_custom_donation_fee_label(), $amount, false);
         }
+    }
+
+    /**
+     * Cart fee name for a selected quick-amount entry (or campaign fallback).
+     */
+    private function get_custom_donation_fee_label() {
+        $session = WC()->session;
+        $entry_label = $session ? trim((string) $session->get('pta_donation_label', '')) : '';
+        if ($entry_label !== '') {
+            return $entry_label;
+        }
+        $campaign = self::get_default_campaign();
+        return $campaign ? 'Donation - ' . $campaign->name : 'Donation';
     }
 
     public function ajax_update_fee() {
@@ -193,6 +204,10 @@ class Azure_Donations_Module {
         $type   = sanitize_text_field($_POST['type'] ?? '');
         $amount = floatval($_POST['amount'] ?? 0);
         $active = !empty($_POST['active']);
+        $label  = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
+        if (strlen($label) > 200) {
+            $label = substr($label, 0, 200);
+        }
 
         $session = WC()->session;
         if (!$session) {
@@ -204,15 +219,18 @@ class Azure_Donations_Module {
             $session->set('pta_donation_roundup', $active);
             if ($active) {
                 $session->set('pta_donation_custom', 0);
+                $session->set('pta_donation_label', '');
             }
         } elseif ($type === 'custom') {
             $session->set('pta_donation_custom', $active ? $amount : 0);
+            $session->set('pta_donation_label', ($active && $amount > 0) ? $label : '');
             if ($active && $amount > 0) {
                 $session->set('pta_donation_roundup', false);
             }
         } elseif ($type === 'clear') {
             $session->set('pta_donation_roundup', false);
             $session->set('pta_donation_custom', 0);
+            $session->set('pta_donation_label', '');
         }
 
         wp_send_json_success(array('message' => 'Updated'));
@@ -236,14 +254,35 @@ class Azure_Donations_Module {
         if (!$campaign) return;
 
         $enable_roundup = !empty($settings['donations_enable_roundup']);
-        $enable_custom  = !empty($settings['donations_enable_custom']);
-        $quick_amounts  = array_filter(array_map('floatval', explode(',', $settings['donations_quick_amounts'] ?? '1,5,10')));
+        $enable_custom  = self::amounts_enabled();
+        $quick_entries  = self::get_quick_amount_entries();
 
         if (!$enable_roundup && !$enable_custom) return;
 
         $session = WC()->session;
         $roundup_active = $session ? $session->get('pta_donation_roundup', false) : false;
         $custom_active  = $session ? floatval($session->get('pta_donation_custom', 0)) : 0;
+        $session_label  = $session ? trim((string) $session->get('pta_donation_label', '')) : '';
+
+        $named_amounts = array();
+        $has_custom_entry = false;
+        foreach ($quick_entries as $entry) {
+            if (!empty($entry['custom'])) {
+                $has_custom_entry = true;
+            } else {
+                $named_amounts[] = floatval($entry['amount']);
+            }
+        }
+        $custom_amount_is_other = $custom_active > 0 && !in_array($custom_active, $named_amounts, true);
+        $custom_wrap_open = false;
+        foreach ($quick_entries as $entry) {
+            if (empty($entry['custom'])) {
+                continue;
+            }
+            if ($session_label === $entry['label'] || ($session_label === '' && $custom_amount_is_other)) {
+                $custom_wrap_open = true;
+            }
+        }
 
         $widget_id = 'pta-donations-widget-' . $context;
         $nonce = wp_create_nonce('pta_donations_nonce');
@@ -270,17 +309,30 @@ class Azure_Donations_Module {
             <div class="pta-donations-row pta-donations-custom-row">
                 <span class="pta-donations-label"><?php _e('Or add a donation:', 'azure-plugin'); ?></span>
                 <div class="pta-donations-buttons">
-                    <?php foreach ($quick_amounts as $amt): ?>
-                        <button type="button" class="pta-donate-quick button <?php echo ($custom_active == $amt) ? 'active' : ''; ?>"
-                                data-amount="<?php echo esc_attr($amt); ?>">
-                            $<?php echo number_format($amt, 0); ?>
+                    <?php foreach ($quick_entries as $entry):
+                        $is_custom_entry = !empty($entry['custom']);
+                        if ($session_label !== '') {
+                            $is_active = ($session_label === $entry['label']);
+                        } else {
+                            $is_active = $is_custom_entry
+                                ? $custom_amount_is_other
+                                : ($custom_active > 0 && abs($custom_active - floatval($entry['amount'])) < 0.001);
+                        }
+                        ?>
+                        <button type="button" class="pta-donate-quick button<?php echo $is_active ? ' active' : ''; ?>"
+                                data-amount="<?php echo esc_attr($is_custom_entry ? '' : $entry['amount']); ?>"
+                                data-label="<?php echo esc_attr($entry['label']); ?>"
+                                data-custom="<?php echo $is_custom_entry ? '1' : '0'; ?>">
+                            <?php echo esc_html($entry['label']); ?>
                         </button>
                     <?php endforeach; ?>
-                    <div class="pta-donate-custom-wrap">
+                    <?php if ($has_custom_entry): ?>
+                    <div class="pta-donate-custom-wrap"<?php echo $custom_wrap_open ? '' : ' hidden'; ?>>
                         <span>$</span>
-                        <input type="number" class="pta-donate-custom-input" min="0" step="0.01" placeholder="Other"
-                               value="<?php echo ($custom_active && !in_array($custom_active, $quick_amounts)) ? esc_attr($custom_active) : ''; ?>" />
+                        <input type="number" class="pta-donate-custom-input" min="0" step="0.01" placeholder="<?php esc_attr_e('Amount', 'azure-plugin'); ?>"
+                               value="<?php echo $custom_wrap_open && $custom_active > 0 ? esc_attr($custom_active) : ''; ?>" />
                     </div>
+                    <?php endif; ?>
                 </div>
                 <?php if ($custom_active > 0): ?>
                     <button type="button" class="pta-donate-clear button-link" style="margin-top:4px; font-size:12px;">Remove donation</button>
@@ -314,16 +366,22 @@ class Azure_Donations_Module {
                 }
             }
 
-            function updateDonation(type, amount, active) {
+            function updateDonation(type, amount, active, label) {
                 $.post(ajaxUrl, {
                     action: 'azure_donations_update_fee',
                     nonce: nonce,
                     type: type,
                     amount: amount,
-                    active: active ? 1 : 0
+                    active: active ? 1 : 0,
+                    label: label || ''
                 }, function() {
                     refreshTotals();
                 });
+            }
+
+            function customLabel() {
+                var $customBtn = $w.find('.pta-donate-quick[data-custom="1"]').first();
+                return $customBtn.length ? String($customBtn.data('label') || 'Custom') : 'Custom';
             }
 
             $w.find('.pta-roundup-toggle').on('change', function() {
@@ -331,22 +389,39 @@ class Azure_Donations_Module {
                 if (on) {
                     $w.find('.pta-donate-quick').removeClass('active');
                     $w.find('.pta-donate-custom-input').val('');
+                    $w.find('.pta-donate-custom-wrap').prop('hidden', true);
                 }
                 updateDonation('roundup', 0, on);
             });
 
             $w.find('.pta-donate-quick').on('click', function() {
-                var amt = parseFloat($(this).data('amount'));
-                var wasActive = $(this).hasClass('active');
+                var $btn = $(this);
+                var isCustom = String($btn.data('custom')) === '1';
+                var amt = parseFloat($btn.data('amount')) || 0;
+                var label = String($btn.data('label') || '');
+                var wasActive = $btn.hasClass('active');
                 $w.find('.pta-donate-quick').removeClass('active');
-                $w.find('.pta-donate-custom-input').val('');
                 $w.find('.pta-roundup-toggle').prop('checked', false);
 
                 if (wasActive) {
+                    $w.find('.pta-donate-custom-wrap').prop('hidden', true);
+                    $w.find('.pta-donate-custom-input').val('');
                     updateDonation('clear', 0, false);
+                    return;
+                }
+
+                $btn.addClass('active');
+                if (isCustom) {
+                    $w.find('.pta-donate-custom-wrap').prop('hidden', false);
+                    $w.find('.pta-donate-custom-input').focus();
+                    var existing = parseFloat($w.find('.pta-donate-custom-input').val());
+                    if (existing > 0) {
+                        updateDonation('custom', existing, true, label);
+                    }
                 } else {
-                    $(this).addClass('active');
-                    updateDonation('custom', amt, true);
+                    $w.find('.pta-donate-custom-wrap').prop('hidden', true);
+                    $w.find('.pta-donate-custom-input').val('');
+                    updateDonation('custom', amt, true, label);
                 }
             });
 
@@ -354,11 +429,13 @@ class Azure_Donations_Module {
             $w.find('.pta-donate-custom-input').on('input', function() {
                 clearTimeout(customTimer);
                 var val = parseFloat($(this).val());
+                var label = customLabel();
                 customTimer = setTimeout(function() {
                     $w.find('.pta-donate-quick').removeClass('active');
+                    $w.find('.pta-donate-quick[data-custom="1"]').addClass('active');
                     $w.find('.pta-roundup-toggle').prop('checked', false);
                     if (val > 0) {
-                        updateDonation('custom', val, true);
+                        updateDonation('custom', val, true, label);
                     } else {
                         updateDonation('clear', 0, false);
                     }
@@ -368,6 +445,7 @@ class Azure_Donations_Module {
             $w.find('.pta-donate-clear').on('click', function() {
                 $w.find('.pta-donate-quick').removeClass('active');
                 $w.find('.pta-donate-custom-input').val('');
+                $w.find('.pta-donate-custom-wrap').prop('hidden', true);
                 $w.find('.pta-roundup-toggle').prop('checked', false);
                 updateDonation('clear', 0, false);
             });
@@ -391,7 +469,7 @@ class Azure_Donations_Module {
         if (!$campaign) return;
 
         $enable_roundup = !empty($settings['donations_enable_roundup']);
-        $enable_custom  = !empty($settings['donations_enable_custom']);
+        $enable_custom  = self::amounts_enabled();
         if (!$enable_roundup && !$enable_custom) return;
 
         echo '<div id="pta-donations-blocks-staging" style="display:none;">';
@@ -527,6 +605,7 @@ class Azure_Donations_Module {
         if (WC()->session) {
             WC()->session->set('pta_donation_roundup', false);
             WC()->session->set('pta_donation_custom', 0);
+            WC()->session->set('pta_donation_label', '');
         }
     }
 
@@ -646,6 +725,109 @@ class Azure_Donations_Module {
         return $item_data;
     }
 
+    public static function amounts_enabled() {
+        return !empty(Azure_Settings::get_setting('donations_enable_custom', ''));
+    }
+
+    public static function gift_products_enabled() {
+        $settings = Azure_Settings::get_all_settings();
+        if (!array_key_exists('donations_enable_gift_products', $settings)) {
+            return true;
+        }
+        return !empty($settings['donations_enable_gift_products']);
+    }
+
+    public static function default_quick_amount_entries() {
+        return array(
+            array(
+                'label'  => 'Wolf Pack - $150 Per student',
+                'amount' => 150,
+                'custom' => false,
+            ),
+            array(
+                'label'  => 'Helpful Howler - $250 per student',
+                'amount' => 250,
+                'custom' => false,
+            ),
+            array(
+                'label'  => 'Positive Paw - $500 per student',
+                'amount' => 500,
+                'custom' => false,
+            ),
+            array(
+                'label'  => 'Custom',
+                'amount' => 0,
+                'custom' => true,
+            ),
+        );
+    }
+
+    public static function sanitize_quick_amount_entries($raw) {
+        $out = array();
+        if (!is_array($raw)) {
+            return $out;
+        }
+        foreach ($raw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $label = isset($row['label']) ? sanitize_text_field($row['label']) : '';
+            if ($label === '') {
+                continue;
+            }
+            $custom = !empty($row['custom']);
+            $amount = isset($row['amount']) ? round(floatval($row['amount']), 2) : 0;
+            if (!$custom && $amount <= 0) {
+                continue;
+            }
+            $out[] = array(
+                'label'  => $label,
+                'amount' => $custom ? 0 : $amount,
+                'custom' => $custom,
+            );
+        }
+        return $out;
+    }
+
+    /**
+     * Named checkout / shortcode donation options.
+     * Accepts the new [{label, amount, custom}] array, JSON, or legacy "10,50,100".
+     */
+    public static function get_quick_amount_entries() {
+        $raw = Azure_Settings::get_setting('donations_quick_amounts', null);
+
+        if ($raw === null || $raw === '' || $raw === '1,5,10') {
+            return self::default_quick_amount_entries();
+        }
+
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $raw = $decoded;
+            }
+        }
+
+        if (is_array($raw)) {
+            $entries = self::sanitize_quick_amount_entries($raw);
+            return !empty($entries) ? $entries : self::default_quick_amount_entries();
+        }
+
+        if (is_string($raw) && preg_match('/^[0-9.,\s]+$/', $raw)) {
+            $entries = array();
+            foreach (array_filter(array_map('floatval', explode(',', $raw))) as $amt) {
+                $decimals = (fmod($amt, 1) === 0.0) ? 0 : 2;
+                $entries[] = array(
+                    'label'  => '$' . number_format($amt, $decimals),
+                    'amount' => $amt,
+                    'custom' => false,
+                );
+            }
+            return !empty($entries) ? $entries : self::default_quick_amount_entries();
+        }
+
+        return self::default_quick_amount_entries();
+    }
+
     public static function get_gift_products() {
         $raw = Azure_Settings::get_setting('donations_gift_products', array());
         if (!is_array($raw)) {
@@ -666,6 +848,10 @@ class Azure_Donations_Module {
         check_ajax_referer('pta_donations_nonce', 'nonce');
         if (!class_exists('WooCommerce')) {
             wp_send_json_error(array('message' => __('WooCommerce is required.', 'azure-plugin')));
+        }
+
+        if (!self::gift_products_enabled()) {
+            wp_send_json_error(array('message' => __('Gift products are not available.', 'azure-plugin')));
         }
 
         $product_id = isset($_POST['product_id']) ? (int) $_POST['product_id'] : 0;
@@ -705,7 +891,7 @@ class Azure_Donations_Module {
     public function shortcode_donate($atts) {
         $atts = shortcode_atts(array(
             'campaign_id' => 0,
-            'amounts'     => '5,10,25,50',
+            'amounts'     => '',
             'show_custom' => 'yes',
             'button_text' => 'Donate Now',
         ), $atts, 'pta-donate');
@@ -724,8 +910,37 @@ class Azure_Donations_Module {
             $campaign = self::get_default_campaign();
         }
 
-        $amounts = array_filter(array_map('floatval', explode(',', $atts['amounts'])));
+        $amounts_enabled = self::amounts_enabled();
+        $gifts_enabled = self::gift_products_enabled();
         $show_custom = ($atts['show_custom'] === 'yes');
+        $override_amounts = trim((string) $atts['amounts']);
+        $entries = array();
+        if ($amounts_enabled && $override_amounts !== '') {
+            foreach (array_filter(array_map('floatval', explode(',', $override_amounts))) as $amt) {
+                $entries[] = array(
+                    'label'  => '$' . number_format($amt, (fmod($amt, 1) === 0.0) ? 0 : 2),
+                    'amount' => $amt,
+                    'custom' => false,
+                );
+            }
+            if ($show_custom) {
+                $entries[] = array('label' => 'Custom', 'amount' => 0, 'custom' => true);
+            }
+        } elseif ($amounts_enabled) {
+            $entries = self::get_quick_amount_entries();
+            if (!$show_custom) {
+                $entries = array_values(array_filter($entries, function ($entry) {
+                    return empty($entry['custom']);
+                }));
+            }
+        }
+        $has_custom_entry = false;
+        foreach ($entries as $entry) {
+            if (!empty($entry['custom'])) {
+                $has_custom_entry = true;
+                break;
+            }
+        }
         $nonce = wp_create_nonce('pta_donations_nonce');
 
         ob_start();
@@ -751,17 +966,23 @@ class Azure_Donations_Module {
                 <?php endif; ?>
             <?php endif; ?>
 
+            <?php if ($amounts_enabled && !empty($entries)): ?>
             <div class="pta-donate-amounts">
-                <?php foreach ($amounts as $amt): ?>
-                    <button type="button" class="pta-donate-amount-btn" data-amount="<?php echo esc_attr($amt); ?>">
-                        $<?php echo number_format($amt, 0); ?>
+                <?php foreach ($entries as $entry):
+                    $is_custom_entry = !empty($entry['custom']);
+                    ?>
+                    <button type="button" class="pta-donate-amount-btn"
+                            data-amount="<?php echo esc_attr($is_custom_entry ? '' : $entry['amount']); ?>"
+                            data-label="<?php echo esc_attr($entry['label']); ?>"
+                            data-custom="<?php echo $is_custom_entry ? '1' : '0'; ?>">
+                        <?php echo esc_html($entry['label']); ?>
                     </button>
                 <?php endforeach; ?>
             </div>
 
-            <?php if ($show_custom): ?>
-            <div class="pta-donate-custom-input-wrap">
-                <label for="pta-donate-other-<?php echo $campaign ? $campaign->id : 0; ?>">Custom amount:</label>
+            <?php if ($has_custom_entry): ?>
+            <div class="pta-donate-custom-input-wrap" hidden>
+                <label for="pta-donate-other-<?php echo $campaign ? $campaign->id : 0; ?>"><?php esc_html_e('Custom amount:', 'azure-plugin'); ?></label>
                 <div class="pta-donate-input-group">
                     <span>$</span>
                     <input type="number" class="pta-donate-other" id="pta-donate-other-<?php echo $campaign ? $campaign->id : 0; ?>"
@@ -771,8 +992,9 @@ class Azure_Donations_Module {
             <?php endif; ?>
 
             <button type="button" class="pta-donate-submit button"><?php echo esc_html($atts['button_text']); ?></button>
+            <?php endif; ?>
             <?php
-            $gifts = self::get_gift_products();
+            $gifts = $gifts_enabled ? self::get_gift_products() : array();
             if (!empty($gifts)):
             ?>
             <div class="pta-donate-gifts">
@@ -791,17 +1013,29 @@ class Azure_Donations_Module {
         jQuery(function($) {
             var $form = $('.pta-donate-form[data-campaign="<?php echo $campaign ? $campaign->id : 0; ?>"]');
             var selectedAmount = 0;
+            var selectedLabel = '';
 
             $form.find('.pta-donate-amount-btn').on('click', function() {
+                var $btn = $(this);
                 $form.find('.pta-donate-amount-btn').removeClass('active');
-                $(this).addClass('active');
-                selectedAmount = parseFloat($(this).data('amount'));
-                $form.find('.pta-donate-other').val('');
+                $btn.addClass('active');
+                selectedLabel = String($btn.data('label') || '');
+                if (String($btn.data('custom')) === '1') {
+                    selectedAmount = 0;
+                    $form.find('.pta-donate-custom-input-wrap').prop('hidden', false);
+                    $form.find('.pta-donate-other').focus();
+                } else {
+                    selectedAmount = parseFloat($btn.data('amount')) || 0;
+                    $form.find('.pta-donate-other').val('');
+                    $form.find('.pta-donate-custom-input-wrap').prop('hidden', true);
+                }
             });
 
             $form.find('.pta-donate-other').on('input', function() {
                 $form.find('.pta-donate-amount-btn').removeClass('active');
+                $form.find('.pta-donate-amount-btn[data-custom="1"]').addClass('active');
                 selectedAmount = parseFloat($(this).val()) || 0;
+                selectedLabel = String($form.find('.pta-donate-amount-btn[data-custom="1"]').first().data('label') || 'Custom');
             });
 
             $form.find('.pta-donate-submit').on('click', function() {
@@ -809,6 +1043,9 @@ class Azure_Donations_Module {
                 var $msg = $form.find('.pta-donate-message');
                 var otherVal = parseFloat($form.find('.pta-donate-other').val());
                 var amount = otherVal > 0 ? otherVal : selectedAmount;
+                var label = otherVal > 0
+                    ? (String($form.find('.pta-donate-amount-btn[data-custom="1"]').first().data('label') || 'Custom'))
+                    : selectedLabel;
 
                 if (!amount || amount <= 0) {
                     $msg.text('Please select or enter a donation amount.').css('color', '#d63638').show();
@@ -823,7 +1060,8 @@ class Azure_Donations_Module {
                     nonce: '<?php echo esc_js($nonce); ?>',
                     type: 'custom',
                     amount: amount,
-                    active: 1
+                    active: 1,
+                    label: label
                 }, function(resp) {
                     $btn.prop('disabled', false).text('<?php echo esc_js($atts['button_text']); ?>');
                     if (resp.success) {
@@ -1073,14 +1311,19 @@ class Azure_Donations_Module {
         $fields = array(
             'donations_enable_roundup',
             'donations_enable_custom',
+            'donations_enable_gift_products',
             'donations_default_campaign',
-            'donations_quick_amounts',
         );
 
         foreach ($fields as $field) {
             if (isset($_POST[$field])) {
                 Azure_Settings::update_setting($field, sanitize_text_field($_POST[$field]));
             }
+        }
+
+        if (isset($_POST['donations_quick_amounts'])) {
+            $raw = json_decode(wp_unslash($_POST['donations_quick_amounts']), true);
+            Azure_Settings::update_setting('donations_quick_amounts', self::sanitize_quick_amount_entries($raw));
         }
 
         if (isset($_POST['donations_gift_products'])) {

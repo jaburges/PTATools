@@ -360,6 +360,22 @@ body.page-template-full-width #primary.aft-pagebuilder-full-width-content > #mai
     color: #333;
 }
 
+.pta-person-email {
+    font-size: 13px;
+    color: #666;
+    word-break: break-word;
+    text-align: center;
+}
+
+.pta-person-email a {
+    color: #007cba;
+    text-decoration: none;
+}
+
+.pta-person-email a:hover {
+    text-decoration: underline;
+}
+
 .pta-layout-list .pta-person {
     flex-direction: row;
     justify-content: flex-start;
@@ -411,6 +427,28 @@ body.page-template-full-width #primary.aft-pagebuilder-full-width-content > #mai
     padding: 25px;
     max-width: 400px;
     margin: 20px 0;
+}
+
+.pta-role-card:has(.pta-role-people) {
+    max-width: 720px;
+}
+
+.pta-role-card .pta-role-people {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 16px 20px;
+    margin-top: 16px;
+}
+
+.pta-role-card .pta-role-people-heading {
+    flex: 0 0 100%;
+    margin: 0 0 4px;
+}
+
+.pta-role-card .pta-person {
+    flex: 0 1 160px;
+    text-align: center;
 }
 
 .pta-role-card .pta-role-photo {
