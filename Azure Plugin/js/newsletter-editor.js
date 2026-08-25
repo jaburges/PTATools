@@ -1076,7 +1076,7 @@
 
     /**
      * Customize the Rich Text Editor toolbar that appears when the user
-     * double-clicks editable text. We replace the default link action
+     * clicks editable text. We replace the default link action
      * with one that:
      *   - Prompts for a URL (preserving the current href if editing)
      *   - Auto-prepends https:// when the user types a bare domain
@@ -1607,7 +1607,7 @@
             return true;
         }
         var tag = String(component.get('tagName') || '').toLowerCase();
-        return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'strong', 'em', 'li'].indexOf(tag) !== -1;
+        return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'strong', 'em', 'li', 'a'].indexOf(tag) !== -1;
     }
 
     function componentInnerHtml(component) {
@@ -1617,6 +1617,118 @@
         }
         var content = component.get('content');
         return typeof content === 'string' ? content : '';
+    }
+
+    function collectTextTargets(component, acc, depth) {
+        acc = acc || [];
+        depth = depth || 0;
+        if (!component || depth > 8) {
+            return acc;
+        }
+        if (isEditableTextComponent(component)) {
+            acc.push(component);
+            return acc;
+        }
+        var type = component.get && component.get('type');
+        if (type === 'image' || type === 'email-image') {
+            return acc;
+        }
+        var children = component.components && component.components();
+        if (!children || !children.forEach) {
+            return acc;
+        }
+        children.forEach(function(child) {
+            collectTextTargets(child, acc, depth + 1);
+        });
+        return acc;
+    }
+
+    /**
+     * Heading / text blocks are tables. Clicking the block selects the
+     * table; the words live on the inner h1/p. Drill in when there is
+     * exactly one text target so a click starts live edit.
+     */
+    function findTextEditTarget(component) {
+        if (!component) {
+            return null;
+        }
+        if (isEditableTextComponent(component)) {
+            return component;
+        }
+        var targets = collectTextTargets(component, [], 0);
+        return targets.length === 1 ? targets[0] : null;
+    }
+
+    function traitNames(component) {
+        var traits = component.getTraits ? component.getTraits() : [];
+        var names = [];
+        if (traits && traits.forEach) {
+            traits.forEach(function(trait) {
+                names.push(trait.get('name'));
+            });
+        } else if (traits && traits.length) {
+            for (var i = 0; i < traits.length; i++) {
+                names.push(traits[i].get ? traits[i].get('name') : '');
+            }
+        }
+        return names;
+    }
+
+    function settingsTextarea() {
+        var $panel = $('#traits-container');
+        var $byLabel = $panel.find('.gjs-trt-trait').filter(function() {
+            return $.trim($(this).find('.gjs-label').first().text()) === 'Text';
+        }).find('textarea').first();
+        if ($byLabel.length) {
+            return $byLabel;
+        }
+        return $panel.find('textarea').first();
+    }
+
+    /**
+     * Copy canvas HTML into the Settings → Text box without re-rendering
+     * the trait panel (a re-render steals the RTE caret).
+     */
+    function syncSettingsTextFromCanvas(component) {
+        if (!component || !isEditableTextComponent(component)) {
+            return;
+        }
+        var html = componentInnerHtml(component);
+        if (component.get('content') !== html) {
+            component.set('content', html, { silent: true });
+        }
+        var $field = settingsTextarea();
+        if ($field.length && $field.val() !== html) {
+            $field.val(html);
+        }
+    }
+
+    function applyTextToCanvas(component, val) {
+        if (!component || typeof val !== 'string' || component._ptaApplyingText) {
+            return;
+        }
+        component._ptaApplyingText = true;
+        try {
+            component.components(val);
+        } finally {
+            component._ptaApplyingText = false;
+        }
+    }
+
+    function enableCanvasTextEdit(textComp) {
+        if (!textComp) {
+            return;
+        }
+        var view = textComp.getView && textComp.getView();
+        if (view && typeof view.onActive === 'function') {
+            view.onActive();
+            return;
+        }
+        if (editor.RichTextEditor && view && view.el && typeof editor.RichTextEditor.enable === 'function') {
+            try {
+                editor.RichTextEditor.enable(view.el, textComp);
+            } catch (e) { /* RTE optional */ }
+        }
     }
 
     /**
@@ -1629,17 +1741,7 @@
             return;
         }
 
-        var traits = component.getTraits ? component.getTraits() : [];
-        var names = [];
-        if (traits && traits.forEach) {
-            traits.forEach(function(trait) {
-                names.push(trait.get('name'));
-            });
-        } else if (traits && traits.length) {
-            for (var i = 0; i < traits.length; i++) {
-                names.push(traits[i].get ? traits[i].get('name') : '');
-            }
-        }
+        var names = traitNames(component);
 
         if (names.indexOf('title') !== -1 && component.removeTrait) {
             component.removeTrait('title');
@@ -1666,15 +1768,7 @@
                     return;
                 }
                 var val = component.get('content');
-                if (typeof val !== 'string') {
-                    return;
-                }
-                component._ptaApplyingText = true;
-                try {
-                    component.components(val);
-                } finally {
-                    component._ptaApplyingText = false;
-                }
+                applyTextToCanvas(component, val);
             });
         }
     }
@@ -1684,63 +1778,135 @@
      */
     function setupComponentSelection() {
         if (!editor) return;
-        
-        // Listen for component selection
+
+        var rteInputCleanup = null;
+        var rteActive = false;
+
         editor.on('component:selected', function(component) {
-            // Show settings placeholder or traits
             var traitsContainer = $('#traits-container');
             var placeholder = $('.settings-placeholder');
-            
-            if (component) {
-                ensureTextContentTrait(component);
-                if (editor.TraitManager && typeof editor.TraitManager.render === 'function') {
-                    editor.TraitManager.render();
-                }
-                var traits = component.get('traits');
-                if (traits && traits.length > 0) {
-                    placeholder.hide();
-                    traitsContainer.show();
-                } else {
-                    placeholder.show();
-                    traitsContainer.hide();
-                }
-                
-                // Update element indicator in Styles panel
-                updateElementIndicator(component);
-            } else {
+
+            if (!component) {
                 placeholder.show();
                 traitsContainer.hide();
                 $('#selected-element-name .element-name').text('No element selected');
+                return;
+            }
+
+            var textTarget = findTextEditTarget(component);
+            if (textTarget && textTarget !== component && !component._ptaSkipDrill) {
+                textTarget._ptaSkipDrill = true;
+                editor.select(textTarget);
+                return;
+            }
+
+            if (textTarget) {
+                ensureTextContentTrait(textTarget);
+            } else {
+                ensureTextContentTrait(component);
+            }
+
+            if (editor.TraitManager && typeof editor.TraitManager.render === 'function') {
+                editor.TraitManager.render();
+            }
+            var traits = component.get('traits');
+            if (traits && traits.length > 0) {
+                placeholder.hide();
+                traitsContainer.show();
+            } else {
+                placeholder.show();
+                traitsContainer.hide();
+            }
+
+            updateElementIndicator(component);
+
+            if (textTarget) {
+                window.setTimeout(function() {
+                    enableCanvasTextEdit(textTarget);
+                    syncSettingsTextFromCanvas(textTarget);
+                }, 0);
             }
         });
 
-        editor.on('rte:disable', function() {
+        editor.on('rte:enable', function() {
+            rteActive = true;
             var selected = editor.getSelected();
             if (!selected || !isEditableTextComponent(selected)) {
                 return;
             }
-            var html = componentInnerHtml(selected);
-            selected.set('content', html, { silent: true });
+            var el = selected.getEl && selected.getEl();
+            if (!el) {
+                return;
+            }
+            if (rteInputCleanup) {
+                rteInputCleanup();
+            }
+            var onInput = function() {
+                if (selected._ptaApplyingText) {
+                    return;
+                }
+                syncSettingsTextFromCanvas(selected);
+            };
+            el.addEventListener('input', onInput);
+            el.addEventListener('keyup', onInput);
+            rteInputCleanup = function() {
+                el.removeEventListener('input', onInput);
+                el.removeEventListener('keyup', onInput);
+                rteInputCleanup = null;
+            };
+        });
+
+        editor.on('rte:disable', function() {
+            rteActive = false;
+            if (rteInputCleanup) {
+                rteInputCleanup();
+            }
+            var selected = editor.getSelected();
+            if (!selected || !isEditableTextComponent(selected)) {
+                return;
+            }
+            syncSettingsTextFromCanvas(selected);
             if (editor.TraitManager && typeof editor.TraitManager.render === 'function') {
                 editor.TraitManager.render();
             }
         });
-        
-        // Listen for component deselection
+
+        $(document).on('input.ptaNewsletterText', '#traits-container textarea', function() {
+            var selected = editor.getSelected();
+            if (!selected || !isEditableTextComponent(selected)) {
+                return;
+            }
+            if (rteActive) {
+                return;
+            }
+            applyTextToCanvas(selected, this.value);
+            selected.set('content', this.value, { silent: true });
+        });
+
         editor.on('component:deselected', function() {
+            if (rteInputCleanup) {
+                rteInputCleanup();
+            }
             $('.settings-placeholder').show();
             $('#traits-container').hide();
             $('#selected-element-name .element-name').text('No element selected');
         });
-        
-        // Double-click on image components opens the media library
+
         editor.on('component:dblclick', function(component) {
             if (!component) return;
             var el = component.view && component.view.el;
             if (!el) return;
-            
+
             if (el.tagName === 'IMG') {
                 openMediaLibrary({ target: component });
+                return;
+            }
+            var textTarget = findTextEditTarget(component);
+            if (textTarget) {
+                if (textTarget !== component) {
+                    editor.select(textTarget);
+                }
+                enableCanvasTextEdit(textTarget);
             }
         });
     }

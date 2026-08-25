@@ -466,7 +466,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                     <div class="editor-help-bar" id="editor-help-bar">
                         <span class="dashicons dashicons-info-outline" aria-hidden="true"></span>
                         <span class="editor-help-text">
-                            <?php _e('Tip: drag blocks from the left. Select text and edit it in Settings → Text, or <strong>double-click</strong> to bold, italicize, and add <strong>links</strong>.', 'azure-plugin'); ?>
+                            <?php _e('Tip: click a text block to type on the canvas. Settings → Text stays in sync. Use the floating toolbar for bold, italic, and <strong>links</strong>.', 'azure-plugin'); ?>
                         </span>
                         <button type="button" class="editor-help-dismiss" aria-label="<?php esc_attr_e('Dismiss tip', 'azure-plugin'); ?>">&times;</button>
                     </div>
