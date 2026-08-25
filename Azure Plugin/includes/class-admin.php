@@ -485,6 +485,15 @@ class Azure_Admin {
         $settings['backup_types'] = isset($_POST['azure_plugin_settings']['backup_types']) 
             ? array_map('sanitize_text_field', $_POST['azure_plugin_settings']['backup_types']) 
             : array();
+
+        // Explicit list (including empty) — do not treat a missing POST key
+        // as "all plugins/themes". Unchecked boxes are omitted from POST.
+        $settings['backup_selected_plugins'] = isset($_POST['azure_plugin_settings']['backup_selected_plugins'])
+            ? array_map('sanitize_text_field', (array) $_POST['azure_plugin_settings']['backup_selected_plugins'])
+            : array();
+        $settings['backup_selected_themes'] = isset($_POST['azure_plugin_settings']['backup_selected_themes'])
+            ? array_map('sanitize_text_field', (array) $_POST['azure_plugin_settings']['backup_selected_themes'])
+            : array();
         
         $settings['backup_schedule_enabled'] = isset($_POST['azure_plugin_settings']['backup_schedule_enabled']);
         
@@ -518,6 +527,14 @@ class Azure_Admin {
         $settings['backup_schedule_time'] = sanitize_text_field($_POST['backup_schedule_time'] ?? '02:00');
         $settings['backup_email_notifications'] = isset($_POST['backup_email_notifications']);
         $settings['backup_notification_email'] = sanitize_email($_POST['backup_notification_email'] ?? get_option('admin_email'));
+
+        $hosting = isset($_POST['azure_plugin_settings']['backup_hosting_mode'])
+            ? sanitize_key($_POST['azure_plugin_settings']['backup_hosting_mode'])
+            : 'auto';
+        if (!in_array($hosting, array('auto', 'app_service', 'container'), true)) {
+            $hosting = 'auto';
+        }
+        $settings['backup_hosting_mode'] = $hosting;
     }
     
     private function save_calendar_settings(&$settings) {
@@ -628,20 +645,23 @@ class Azure_Admin {
         // Sync settings
         $settings['onedrive_media_auto_sync'] = isset($_POST['onedrive_media_auto_sync']);
         $settings['onedrive_media_sync_frequency'] = sanitize_text_field($_POST['onedrive_media_sync_frequency'] ?? 'hourly');
-        $settings['onedrive_media_sync_direction'] = sanitize_text_field($_POST['onedrive_media_sync_direction'] ?? 'two_way');
-        
-        // Public access settings
-        $settings['onedrive_media_sharing_link_type'] = sanitize_text_field($_POST['onedrive_media_sharing_link_type'] ?? 'anonymous');
-        $settings['onedrive_media_link_expiration'] = sanitize_text_field($_POST['onedrive_media_link_expiration'] ?? 'never');
-        $settings['onedrive_media_cdn_optimization'] = isset($_POST['onedrive_media_cdn_optimization']);
-        
+
+        $direction = sanitize_text_field($_POST['onedrive_media_sync_direction'] ?? 'wp_to_onedrive');
+        if (!in_array($direction, array('wp_to_onedrive', 'onedrive_to_wp', 'two_way'), true)) {
+            $direction = 'wp_to_onedrive';
+        }
+        $settings['onedrive_media_sync_direction'] = $direction;
+
         // Media library options
-        $settings['onedrive_media_show_badge'] = isset($_POST['onedrive_media_show_badge']);
         $settings['onedrive_media_keep_local_copies'] = true;
-        
+        $settings['onedrive_media_delete_propagation'] = isset($_POST['onedrive_media_delete_propagation']);
+
         // Advanced options
         $settings['onedrive_media_max_file_size'] = intval($_POST['onedrive_media_max_file_size'] ?? 4294967296);
         $settings['onedrive_media_chunk_size'] = intval($_POST['onedrive_media_chunk_size'] ?? 10485760);
+
+        $min_year = intval($_POST['onedrive_media_import_min_year'] ?? 2026);
+        $settings['onedrive_media_import_min_year'] = ($min_year >= 1970 && $min_year <= 2100) ? $min_year : 0;
     }
     
     public function admin_page() {
@@ -2754,7 +2774,6 @@ class Azure_Admin {
                 $deps = array(
                     array('WooCommerce', class_exists('WooCommerce'), 'woocommerce'),
                     array('Forminator', class_exists('Forminator'), 'forminator'),
-                    array('Beaver Builder', class_exists('FLBuilder'), 'beaver-builder-lite-version'),
                 );
                 foreach ($deps as $dep):
                     $color = $dep[1] ? '#46b450' : '#dc3232';
@@ -2906,7 +2925,7 @@ class Azure_Admin {
             $active_assignments = $wpdb->get_var("SELECT COUNT(*) FROM {$assignments_table} WHERE status = 'active'") ?: 0;
             
             // Calculate total capacity and open positions
-            $total_capacity = $wpdb->get_var("SELECT COALESCE(SUM(max_assignees), 0) FROM {$roles_table}") ?: 0;
+            $total_capacity = $wpdb->get_var("SELECT COALESCE(SUM(max_occupants), 0) FROM {$roles_table}") ?: 0;
             $stats['open_positions'] = max(0, $total_capacity - $active_assignments);
             
             // Count roles that have at least one filled position
@@ -3156,30 +3175,31 @@ class Azure_Admin {
         global $wpdb;
         
         $stats = array(
-            'total_files' => 0,
-            'synced_today' => 0,
+            'backed_up' => 0,
+            'library_total' => 0,
+            'awaiting' => 0,
             'last_sync' => null,
             'total_size' => 0
         );
-        
+
+        $stats['library_total'] = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment'"
+        );
+
         $files_table = Azure_Database::get_table_name('onedrive_files');
         if ($files_table && $wpdb->get_var("SHOW TABLES LIKE '{$files_table}'") === $files_table) {
-            $stats['total_files'] = $wpdb->get_var("SELECT COUNT(*) FROM {$files_table}") ?: 0;
-            
-            // Get files synced today
-            $today = date('Y-m-d 00:00:00');
-            $stats['synced_today'] = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$files_table} WHERE created_at >= %s",
-                $today
-            )) ?: 0;
-            
-            // Get last sync (most recent file)
-            $stats['last_sync'] = $wpdb->get_var("SELECT MAX(created_at) FROM {$files_table}");
-            
-            // Get total size
+            $stats['backed_up'] = (int) $wpdb->get_var(
+                "SELECT COUNT(DISTINCT attachment_id) FROM {$files_table}
+                  WHERE attachment_id IS NOT NULL AND sync_status = 'synced'"
+            );
+
+            $stats['last_sync'] = $wpdb->get_var("SELECT MAX(updated_at) FROM {$files_table}");
+
             $total_bytes = $wpdb->get_var("SELECT SUM(file_size) FROM {$files_table}") ?: 0;
             $stats['total_size'] = size_format($total_bytes);
         }
+
+        $stats['awaiting'] = max(0, $stats['library_total'] - $stats['backed_up']);
         ?>
         <style>
             .azure-onedrive-media-widget .dashboard-widget-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 15px; }
@@ -3191,19 +3211,19 @@ class Azure_Admin {
         </style>
         <div class="azure-onedrive-media-widget">
             <div class="dashboard-widget-stats">
-                <div class="stat-card">
-                    <div class="stat-number"><?php echo number_format($stats['total_files']); ?></div>
-                    <div class="stat-label"><?php _e('Total Files', 'azure-plugin'); ?></div>
-                </div>
                 <div class="stat-card success">
-                    <div class="stat-number"><?php echo number_format($stats['synced_today']); ?></div>
-                    <div class="stat-label"><?php _e('Synced Today', 'azure-plugin'); ?></div>
+                    <div class="stat-number"><?php echo number_format($stats['backed_up']); ?> / <?php echo number_format($stats['library_total']); ?></div>
+                    <div class="stat-label"><?php _e('Backed Up', 'azure-plugin'); ?></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number"><?php echo number_format($stats['awaiting']); ?></div>
+                    <div class="stat-label"><?php _e('Awaiting Backup', 'azure-plugin'); ?></div>
                 </div>
             </div>
             
             <?php if ($stats['last_sync']): ?>
             <p class="last-sync">
-                <?php _e('Last Sync:', 'azure-plugin'); ?> 
+                <?php _e('Last Backup:', 'azure-plugin'); ?> 
                 <?php echo date('M j, Y g:i A', strtotime($stats['last_sync'])); ?>
                 <?php if ($stats['total_size']): ?>
                 <br><?php _e('Total Size:', 'azure-plugin'); ?> <?php echo $stats['total_size']; ?>

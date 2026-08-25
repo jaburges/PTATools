@@ -265,6 +265,13 @@ class Azure_Volunteer_Signup {
 
     public function ajax_get_sheet() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
+
+        // Admin sheet editor only. Without this any logged-in user could walk
+        // sheet_id and read every sheet's activities and spot counts.
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Permission denied.');
+        }
+
         $id = absint($_GET['sheet_id'] ?? $_POST['sheet_id'] ?? 0);
         $sheet = self::get_sheet($id);
         if (!$sheet) {

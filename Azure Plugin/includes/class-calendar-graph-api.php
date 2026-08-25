@@ -11,6 +11,9 @@ class Azure_Calendar_GraphAPI {
     
     private $auth;
     private $cache_duration;
+
+    /** @var string|null Reason the last get_calendar_events() call failed. */
+    private $last_fetch_error = null;
     
     public function __construct() {
         if (class_exists('Azure_Calendar_Auth')) {
@@ -198,7 +201,10 @@ class Azure_Calendar_GraphAPI {
      * @param string $mailbox_email Optional shared mailbox email (if different from user)
      */
     public function get_calendar_events($calendar_id, $start_date = null, $end_date = null, $max_events = null, $force_refresh = false, $user_email = null, $mailbox_email = null) {
+        $this->last_fetch_error = null;
+
         if (!$this->auth) {
+            $this->last_fetch_error = 'No calendar auth available';
             return array();
         }
         
@@ -232,6 +238,7 @@ class Azure_Calendar_GraphAPI {
         if (!$access_token) {
             $user_context = $user_email ? " for user {$user_email}" : '';
             Azure_Logger::error("Calendar API: No access token available for events{$user_context}");
+            $this->last_fetch_error = 'No access token available' . $user_context;
             return array();
         }
         
@@ -261,18 +268,14 @@ class Azure_Calendar_GraphAPI {
             
             Azure_Logger::debug("Calendar API: Full URL: " . substr($api_url, 0, 200) . "...", 'Calendar');
             
-            // Get the preferred timezone for this calendar from settings
+            // Ask Graph for wall-clock times in the site timezone so the
+            // dateTime + timeZone pair is an unambiguous instant. The plugin
+            // used to default this to America/New_York, which turned a
+            // 11 AM Pacific Outlook event into 6 PM on a UTC WordPress site.
             $settings = Azure_Settings::get_all_settings();
-            $preferred_timezone = '';
-            
-            // Check for per-calendar timezone setting first
+            $preferred_timezone = azure_wp_timezone_string();
             if (!empty($settings['calendar_timezone_' . $calendar_id])) {
                 $preferred_timezone = $settings['calendar_timezone_' . $calendar_id];
-            } elseif (!empty($settings['calendar_default_timezone'])) {
-                $preferred_timezone = $settings['calendar_default_timezone'];
-            } else {
-                // Fall back to WordPress timezone
-                $preferred_timezone = wp_timezone_string();
             }
             
             // Convert IANA timezone to Windows format for Graph API if needed
@@ -307,6 +310,7 @@ class Azure_Calendar_GraphAPI {
                 if ($response_code === 404) {
                     Azure_Logger::error("Calendar API: 404 error typically means the calendar ID doesn't exist in the target mailbox. You may need to delete and re-create calendar mappings after changing mailbox settings.");
                 }
+                $this->last_fetch_error = 'Graph returned HTTP ' . (int) $response_code;
                 return array();
             }
             
@@ -330,10 +334,26 @@ class Azure_Calendar_GraphAPI {
             
         } catch (Exception $e) {
             Azure_Logger::error('Calendar API: Exception getting events - ' . $e->getMessage());
+            $this->last_fetch_error = $e->getMessage();
             return array();
         }
     }
-    
+
+    /**
+     * Why the last get_calendar_events() call came back empty, if it failed.
+     *
+     * An empty result is ambiguous — it means either "this calendar genuinely
+     * has no events in the window" or "the request failed". Callers that act
+     * destructively on absence (the sync engine prunes local events Outlook no
+     * longer lists) must be able to tell the two apart, or a transient 401/429
+     * looks exactly like the calendar being emptied.
+     *
+     * @return string|null Null when the last fetch succeeded.
+     */
+    public function get_last_fetch_error() {
+        return $this->last_fetch_error;
+    }
+
     /**
      * Create a new event
      */
@@ -543,24 +563,27 @@ class Azure_Calendar_GraphAPI {
             return '';
         }
         
+        $raw = $datetime_obj['dateTime'];
+        // Graph emits 7 fractional digits; PHP DateTime accepts at most 6.
+        $raw = preg_replace('/\.\d+/', '', $raw);
+
         $timezone = $datetime_obj['timeZone'] ?? 'UTC';
-        
-        // Convert Windows timezone names to IANA format that PHP understands
         $timezone = $this->convert_windows_timezone($timezone);
-        
+
         try {
-            $dt = new DateTime($datetime_obj['dateTime'], new DateTimeZone($timezone));
-            // Return ISO 8601 format WITH timezone offset so FullCalendar knows the correct time
-            // Example: 2025-12-04T09:00:00-08:00 (Pacific Time)
-            return $dt->format('c'); // 'c' = ISO 8601 with timezone offset
+            if (preg_match('/Z$|[+-]\d{2}:\d{2}$/', $raw)) {
+                $dt = new DateTime($raw);
+            } else {
+                $dt = new DateTime($raw, new DateTimeZone($timezone));
+            }
+            return $dt->format('c');
         } catch (Exception $e) {
             Azure_Logger::warning("Calendar: Failed to parse datetime with timezone '{$timezone}': " . $e->getMessage(), 'Calendar');
-            // Fall back to treating the datetime as UTC
             try {
-                $dt = new DateTime($datetime_obj['dateTime'], new DateTimeZone('UTC'));
+                $dt = new DateTime($raw, new DateTimeZone('UTC'));
                 return $dt->format('c');
             } catch (Exception $e2) {
-                return $datetime_obj['dateTime'];
+                return $raw;
             }
         }
     }
@@ -850,7 +873,10 @@ class Azure_Calendar_GraphAPI {
         }
         
         $force_refresh = isset($_POST['force_refresh']) && $_POST['force_refresh'];
-        $calendars = $this->get_calendars($force_refresh);
+        // Signature is get_calendars($user_email, $force_refresh) — passing the
+        // flag first made it the user email ("1"), so a forced refresh looked up
+        // a token for a nonexistent user instead of refreshing the cache.
+        $calendars = $this->get_calendars(null, $force_refresh);
         
         wp_send_json_success($calendars);
     }

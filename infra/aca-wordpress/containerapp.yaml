@@ -1,0 +1,72 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 80
+      transport: auto
+      allowInsecure: false
+      # The copy database carries production secrets and real member email
+      # addresses, so ingress is allow-listed rather than open to the internet.
+      ipSecurityRestrictions:
+        - name: admin-home
+          description: Operator home IP
+          ipAddressRange: 50.46.238.194/32
+          action: Allow
+    secrets:
+      - name: db-password
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+  template:
+    containers:
+      - name: wordpress
+        image: "docker.io/library/wordpress:6.9.4-php8.3-apache"
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: WORDPRESS_DB_HOST
+            value: wilderptsa-wpdb-small.mysql.database.azure.com
+          - name: WORDPRESS_DB_NAME
+            value: wilderptsa_c20b298090_database
+          - name: WORDPRESS_DB_USER
+            value: ptsadbadmin
+          - name: WORDPRESS_DB_PASSWORD
+            secretRef: db-password
+          - name: WORDPRESS_TABLE_PREFIX
+            value: wp_
+          - name: WORDPRESS_CONFIG_EXTRA
+            value: |
+              /* Azure MySQL Flexible Server runs require_secure_transport=ON. */
+              define( 'MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL );
+
+              /* Container Apps terminates TLS at ingress, so PHP sees plain
+                 HTTP. Without this WordPress emits http:// URLs and loops. */
+              if ( ! empty( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ) {
+                  $_SERVER['HTTPS'] = 'on';
+              }
+
+              /* Derive the address from the request so this file stays valid
+                 whatever hostname the revision is served under. The database
+                 is a copy of production and its stored siteurl would otherwise
+                 redirect every request to the live site. */
+              if ( ! empty( $_SERVER['HTTP_HOST'] ) ) {
+                  define( 'WP_HOME', 'https://' . $_SERVER['HTTP_HOST'] );
+                  define( 'WP_SITEURL', 'https://' . $_SERVER['HTTP_HOST'] );
+              }
+
+              /* The copy database holds live Mailgun, Graph and storage
+                 credentials. Scheduled work must never fire from here. */
+              define( 'DISABLE_WP_CRON', true );
+              define( 'WP_ENVIRONMENT_TYPE', 'staging' );
+              define( 'AUTOMATIC_UPDATER_DISABLED', true );
+    scale:
+      minReplicas: 1
+      maxReplicas: 1

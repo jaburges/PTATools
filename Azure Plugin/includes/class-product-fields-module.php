@@ -194,6 +194,75 @@ class Azure_Product_Fields_Module {
         return false;
     }
 
+    /**
+     * Field types that legacy rows accidentally stored in `field_key`. Such
+     * rows are unusable for key resolution and must be skipped.
+     */
+    private static function get_field_type_slugs() {
+        return array('text', 'select', 'email', 'textarea', 'checkbox', 'radio', 'number', 'date', 'tel', 'url');
+    }
+
+    /**
+     * Resolve the storage keys for the Grade and Teacher child fields.
+     * The slug differs per install (`childsgrade` on this site, but seeded
+     * as `child_grade` in class-database.php), so match the registry rather
+     * than hardcoding, and keep the in-use keys as the fallback so existing
+     * saved values keep hydrating.
+     */
+    public static function get_child_profile_field_keys() {
+        global $wpdb;
+
+        $keys = array('grade' => 'childsgrade', 'teacher' => 'child_teacher');
+        $fld_table = Azure_Database::get_table_name('product_fields');
+        if (!$fld_table) {
+            return $keys;
+        }
+
+        $rows = $wpdb->get_results("SELECT field_key, label FROM {$fld_table} WHERE field_key <> ''");
+        $types = self::get_field_type_slugs();
+        foreach ($rows as $r) {
+            if (in_array(strtolower($r->field_key), $types, true)) {
+                continue;
+            }
+            $haystack = strtolower($r->field_key . ' ' . $r->label);
+            if (strpos($haystack, 'grade') !== false) {
+                $keys['grade'] = $r->field_key;
+            } elseif (strpos($haystack, 'teacher') !== false) {
+                $keys['teacher'] = $r->field_key;
+            }
+        }
+
+        return apply_filters('azure_pf_child_profile_field_keys', $keys);
+    }
+
+    /**
+     * Grade choices for the quick-add modal, preferring whatever the Grade
+     * field is configured with so the modal can't drift from the product form.
+     */
+    public static function get_grade_options() {
+        global $wpdb;
+
+        $options = array();
+        $fld_table = Azure_Database::get_table_name('product_fields');
+        if ($fld_table) {
+            $keys = self::get_child_profile_field_keys();
+            $json = $wpdb->get_var($wpdb->prepare(
+                "SELECT options_json FROM {$fld_table} WHERE field_key = %s LIMIT 1",
+                $keys['grade']
+            ));
+            $decoded = $json ? json_decode($json, true) : null;
+            if (is_array($decoded)) {
+                $options = array_values(array_filter(array_map('strval', $decoded), 'strlen'));
+            }
+        }
+
+        if (empty($options)) {
+            $options = array('K', '1', '2', '3', '4', '5');
+        }
+
+        return apply_filters('azure_pf_grade_options', $options);
+    }
+
     // ─── Frontend: render fields ───────────────────────────────────────
 
     public function render_product_fields() {
@@ -284,7 +353,20 @@ class Azure_Product_Fields_Module {
                     <h3 id="azure-pf-add-child-title"><?php esc_html_e('Add a child', 'azure-plugin'); ?></h3>
                     <p>
                         <label for="azure-pf-new-child-name"><?php esc_html_e("Child's name", 'azure-plugin'); ?></label>
-                        <input type="text" id="azure-pf-new-child-name" placeholder="<?php esc_attr_e('e.g. Greyson Burgess', 'azure-plugin'); ?>" autocomplete="off" />
+                        <input type="text" id="azure-pf-new-child-name" placeholder="<?php esc_attr_e('Child\'s name', 'azure-plugin'); ?>" autocomplete="off" />
+                    </p>
+                    <p>
+                        <label for="azure-pf-new-child-grade"><?php esc_html_e('Grade', 'azure-plugin'); ?></label>
+                        <select id="azure-pf-new-child-grade">
+                            <option value=""><?php esc_html_e('-- Select grade --', 'azure-plugin'); ?></option>
+                            <?php foreach (self::get_grade_options() as $grade) : ?>
+                                <option value="<?php echo esc_attr($grade); ?>"><?php echo esc_html($grade); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </p>
+                    <p>
+                        <label for="azure-pf-new-child-teacher"><?php esc_html_e('Teacher', 'azure-plugin'); ?></label>
+                        <input type="text" id="azure-pf-new-child-teacher" placeholder="<?php esc_attr_e('e.g. Congdon', 'azure-plugin'); ?>" autocomplete="off" />
                     </p>
                     <p class="azure-pf-modal-actions">
                         <button type="button" class="button azure-pf-cancel-child"><?php esc_html_e('Cancel', 'azure-plugin'); ?></button>
@@ -465,7 +547,12 @@ class Azure_Product_Fields_Module {
             return;
         }
 
-        global $product;
+        // The `$product` global is not populated until `the_post` fires
+        // inside the loop, which is *after* `wp_enqueue_scripts`. Reading it
+        // here always yielded null, so the assets were never enqueued and
+        // the "+ Child" button had no click handler bound. Resolve from the
+        // queried object instead, which is available this early.
+        $product = wc_get_product(get_queried_object_id());
         if (!$product instanceof WC_Product) {
             return;
         }
@@ -494,6 +581,10 @@ class Azure_Product_Fields_Module {
     // ─── Validation ────────────────────────────────────────────────────
 
     public function validate_fields($passed, $product_id, $quantity) {
+        if (!empty($_POST['pta_donated_product'])) {
+            return $passed;
+        }
+
         $groups = self::get_groups_for_product($product_id);
 
         // For logged-in parents the "Child's Name" field is collected via
@@ -537,6 +628,10 @@ class Azure_Product_Fields_Module {
     // ─── Cart ──────────────────────────────────────────────────────────
 
     public function add_cart_item_data($cart_item_data, $product_id, $variation_id) {
+        if (!empty($cart_item_data['_pta_donated_product']) || !empty($_POST['pta_donated_product'])) {
+            return $cart_item_data;
+        }
+
         $groups = self::get_groups_for_product($product_id);
         $field_values = array();
 
@@ -724,14 +819,51 @@ class Azure_Product_Fields_Module {
             wp_send_json_error(array('message' => __('Children module not available.', 'azure-plugin')), 500);
         }
 
-        $id = Azure_User_Children::save_child($user_id, array('child_name' => $name));
+        // Grade is constrained to the configured choices so a tampered POST
+        // can't write an arbitrary value into the child profile.
+        $grade = isset($_POST['child_grade']) ? sanitize_text_field(wp_unslash($_POST['child_grade'])) : '';
+        $grade = trim($grade);
+        if ($grade !== '' && !in_array($grade, self::get_grade_options(), true)) {
+            wp_send_json_error(array('message' => __('Please choose a valid grade.', 'azure-plugin')), 400);
+        }
+
+        $teacher = isset($_POST['child_teacher']) ? sanitize_text_field(wp_unslash($_POST['child_teacher'])) : '';
+        $teacher = trim($teacher);
+        if (function_exists('mb_strlen') ? mb_strlen($teacher) > 80 : strlen($teacher) > 80) {
+            wp_send_json_error(array('message' => __('Teacher name is too long (max 80 characters).', 'azure-plugin')), 400);
+        }
+
+        $keys = self::get_child_profile_field_keys();
+        $meta = array();
+        if ($grade !== '') {
+            $meta['pta_pf_' . $keys['grade']] = $grade;
+        }
+        if ($teacher !== '') {
+            $meta['pta_pf_' . $keys['teacher']] = $teacher;
+        }
+
+        $id = Azure_User_Children::save_child($user_id, array(
+            'child_name' => $name,
+            'meta'       => $meta,
+        ));
         if (!$id) {
             wp_send_json_error(array('message' => __('Could not save child. Please try again.', 'azure-plugin')), 500);
         }
 
+        // Return the saved values keyed by field_key so the product form can
+        // hydrate the matching inputs without a page reload.
+        $fields = array();
+        if ($grade !== '') {
+            $fields[$keys['grade']] = $grade;
+        }
+        if ($teacher !== '') {
+            $fields[$keys['teacher']] = $teacher;
+        }
+
         wp_send_json_success(array(
-            'id'   => (int) $id,
-            'name' => $name,
+            'id'     => (int) $id,
+            'name'   => $name,
+            'fields' => $fields,
         ));
     }
 }

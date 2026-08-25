@@ -2,7 +2,7 @@
 /**
  * PTSA REST API — /wp-json/ptsa/v1/*
  *
- * First-party mobile / SSO REST surface for the Wilder PTSA Board iOS app.
+ * First-party mobile / SSO REST surface for the PTSA Board iOS app.
  * Every route is gated by Azure_PTSA_JWT validating an Entra ID id_token
  * whose audience is our iOS app's client_id. The caller is mapped to a
  * local WP user by email and `wp_set_current_user()`'d so downstream
@@ -38,7 +38,16 @@ class Azure_PTSA_REST_API {
     private function load_config() {
         $tenant = defined('PTSA_REST_TENANT_ID') ? PTSA_REST_TENANT_ID : '';
         $client = defined('PTSA_REST_CLIENT_ID') ? PTSA_REST_CLIENT_ID : '';
-        $domain = 'wilderptsa.net';
+
+        // Default the permitted sign-in domain to the site's own host rather
+        // than a specific organization's, so a fresh install restricts to
+        // itself instead of rejecting everyone (or admitting everyone).
+        // Overridable by constant, env, or the ptsa_rest_allowed_domain option.
+        $domain = defined('PTSA_REST_ALLOWED_DOMAIN') ? (string) PTSA_REST_ALLOWED_DOMAIN : '';
+        if ($domain === '') {
+            $host = parse_url(home_url(), PHP_URL_HOST);
+            $domain = is_string($host) ? preg_replace('/^www\./', '', strtolower($host)) : '';
+        }
 
         if (empty($tenant)) {
             $env_tenant = getenv('PTSA_REST_TENANT_ID');
@@ -397,7 +406,7 @@ class Azure_PTSA_REST_API {
      * ================================================================= */
 
     public function list_orders(WP_REST_Request $req) {
-        if (!$err = $this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_shop_orders')) return $denied;
         $args = array(
             'limit'   => max(1, min(100, (int) ($req->get_param('per_page') ?: 25))),
             'paged'   => max(1, (int) ($req->get_param('page') ?: 1)),
@@ -420,7 +429,7 @@ class Azure_PTSA_REST_API {
     }
 
     public function get_order(WP_REST_Request $req) {
-        if (!$this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_shop_orders')) return $denied;
         $id = (int) $req['id'];
         $o = wc_get_order($id);
         if (!$o) return new WP_Error('ptsa_order_not_found', "Order $id not found", array('status' => 404));
@@ -428,7 +437,7 @@ class Azure_PTSA_REST_API {
     }
 
     public function update_order(WP_REST_Request $req) {
-        if (!$this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_shop_orders')) return $denied;
         $id = (int) $req['id'];
         $o = wc_get_order($id);
         if (!$o) return new WP_Error('ptsa_order_not_found', "Order $id not found", array('status' => 404));
@@ -443,7 +452,7 @@ class Azure_PTSA_REST_API {
     }
 
     public function refund_order(WP_REST_Request $req) {
-        if (!$this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_shop_orders')) return $denied;
         $id = (int) $req['id'];
         $o = wc_get_order($id);
         if (!$o) return new WP_Error('ptsa_order_not_found', "Order $id not found", array('status' => 404));
@@ -470,7 +479,7 @@ class Azure_PTSA_REST_API {
     }
 
     public function add_order_note(WP_REST_Request $req) {
-        if (!$this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_shop_orders')) return $denied;
         $id = (int) $req['id'];
         $o = wc_get_order($id);
         if (!$o) return new WP_Error('ptsa_order_not_found', "Order $id not found", array('status' => 404));
@@ -528,7 +537,7 @@ class Azure_PTSA_REST_API {
      * ================================================================= */
 
     public function list_products(WP_REST_Request $req) {
-        if (!$this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_products')) return $denied;
         $args = array(
             'limit'   => max(1, min(100, (int) ($req->get_param('per_page') ?: 50))),
             'page'    => max(1, (int) ($req->get_param('page') ?: 1)),
@@ -549,7 +558,7 @@ class Azure_PTSA_REST_API {
     }
 
     public function create_product(WP_REST_Request $req) {
-        if (!$this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_products')) return $denied;
         $body = $req->get_json_params() ?: array();
         $type = isset($body['type']) ? sanitize_text_field((string) $body['type']) : 'simple';
         $class = 'WC_Product_' . ucfirst($type);
@@ -566,7 +575,7 @@ class Azure_PTSA_REST_API {
     }
 
     public function update_product(WP_REST_Request $req) {
-        if (!$this->require_wc()) return $this->forbidden();
+        if ($denied = $this->require_shop_cap('edit_products')) return $denied;
         $id = (int) $req['id'];
         $p = wc_get_product($id);
         if (!$p) return new WP_Error('ptsa_product_not_found', "Product $id not found", array('status' => 404));
@@ -1234,7 +1243,9 @@ class Azure_PTSA_REST_API {
         $body = $req->get_json_params() ?: array();
         $to = isset($body['to']) && is_array($body['to']) ? array_values(array_filter(array_map('sanitize_email', $body['to']))) : array();
         if (empty($to)) return new WP_Error('ptsa_email_no_recipients', 'to[] required', array('status' => 400));
-        $subject = isset($body['subject']) && is_string($body['subject']) ? sanitize_text_field($body['subject']) : 'Wilder PTSA Auction — items list';
+        $subject = isset($body['subject']) && is_string($body['subject'])
+            ? sanitize_text_field($body['subject'])
+            : sprintf('%s Auction — items list', wp_specialchars_decode((string) get_bloginfo('name'), ENT_QUOTES));
 
         $html = '<p>Latest auction items list.</p>';
         // Defer to the auction emails module if it exposes a renderer.
@@ -1258,5 +1269,37 @@ class Azure_PTSA_REST_API {
 
     private function forbidden() {
         return new WP_Error('ptsa_rest_forbidden', 'Forbidden for current user.', array('status' => 403));
+    }
+
+    /**
+     * Gate for the WooCommerce routes.
+     *
+     * authorize() only proves the bearer token is a valid tenant sign-in — it
+     * establishes identity, not authority. Every route that exposes shop data
+     * needs its own capability check on top, otherwise any account that can
+     * sign in through SSO can read customer orders (names, addresses, purchase
+     * history) and issue refunds. The user routes already do this; the shop
+     * routes did not.
+     *
+     * `manage_woocommerce` is accepted alongside the post-type capability
+     * because the two are spelled differently across this codebase — the
+     * reports routes below and the auction module gate on `manage_woocommerce`,
+     * while WooCommerce's own REST API uses the post-type caps. On a stock
+     * install both belong to administrator and shop_manager alike, but this
+     * plugin ships a role editor, so a hand-built role may hold one and not the
+     * other. Accepting either keeps a legitimately privileged user working
+     * without admitting anyone who isn't a shop administrator.
+     *
+     * @param string $capability WooCommerce post-type capability for the route.
+     * @return WP_Error|null Error to return, or null when the caller may proceed.
+     */
+    private function require_shop_cap($capability) {
+        if (!$this->require_wc()) {
+            return $this->forbidden();
+        }
+        if (!current_user_can($capability) && !current_user_can('manage_woocommerce')) {
+            return $this->forbidden();
+        }
+        return null;
     }
 }

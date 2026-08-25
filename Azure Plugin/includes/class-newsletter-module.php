@@ -471,28 +471,28 @@ class Azure_Newsletter_Module {
         ));
         
         // View in browser
-        register_rest_route('azure-plugin/v1', '/newsletter/view/(?P<token>[a-zA-Z0-9]+)', array(
+        register_rest_route('azure-plugin/v1', '/newsletter/view/(?P<token>[a-zA-Z0-9_-]+)', array(
             'methods' => 'GET',
             'callback' => array($this, 'handle_view_in_browser'),
             'permission_callback' => '__return_true'
         ));
         
         // Tracking pixel
-        register_rest_route('azure-plugin/v1', '/newsletter/track/open/(?P<token>[a-zA-Z0-9]+)', array(
+        register_rest_route('azure-plugin/v1', '/newsletter/track/open/(?P<token>[a-zA-Z0-9_-]+)', array(
             'methods' => 'GET',
             'callback' => array($this, 'handle_track_open'),
             'permission_callback' => '__return_true'
         ));
         
         // Click tracking redirect
-        register_rest_route('azure-plugin/v1', '/newsletter/track/click/(?P<token>[a-zA-Z0-9]+)', array(
+        register_rest_route('azure-plugin/v1', '/newsletter/track/click/(?P<token>[a-zA-Z0-9_-]+)', array(
             'methods' => 'GET',
             'callback' => array($this, 'handle_track_click'),
             'permission_callback' => '__return_true'
         ));
         
         // Unsubscribe
-        register_rest_route('azure-plugin/v1', '/newsletter/unsubscribe/(?P<token>[a-zA-Z0-9]+)', array(
+        register_rest_route('azure-plugin/v1', '/newsletter/unsubscribe/(?P<token>[a-zA-Z0-9_-]+)', array(
             'methods' => array('GET', 'POST'),
             'callback' => array($this, 'handle_unsubscribe'),
             'permission_callback' => '__return_true'
@@ -573,24 +573,41 @@ class Azure_Newsletter_Module {
     }
     
     /**
+     * Signature proving a click-tracking destination came from one of our sends.
+     *
+     * Click tracking has to be able to redirect off-site — that's the point —
+     * so the destination can't be restricted by host. Instead the sender signs
+     * each URL and this route refuses anything unsigned, which stops the
+     * endpoint from being used as a general-purpose redirector for phishing
+     * under this domain's name.
+     */
+    public static function click_signature($url) {
+        return hash_hmac('sha256', (string) $url, wp_salt('nonce'));
+    }
+
+    /**
      * Handle click tracking
      */
     public function handle_track_click($request) {
         $token = $request->get_param('token');
-        $url = $request->get_param('url');
-        
+        $url   = (string) $request->get_param('url');
+        $sig   = (string) $request->get_param('sig');
+
+        if ($url === '') {
+            return new WP_REST_Response('Invalid URL', 400);
+        }
+
+        if ($sig === '' || !hash_equals(self::click_signature($url), $sig)) {
+            return new WP_REST_Response('Refusing to redirect: missing or invalid signature', 400);
+        }
+
         if (class_exists('Azure_Newsletter_Tracking')) {
             $tracking = new Azure_Newsletter_Tracking();
             $tracking->record_click($token, $url);
         }
-        
-        // Redirect to actual URL
-        if (!empty($url)) {
-            wp_redirect(esc_url($url));
-            exit;
-        }
-        
-        return new WP_REST_Response('Invalid URL', 400);
+
+        wp_redirect(esc_url_raw($url));
+        exit;
     }
     
     /**

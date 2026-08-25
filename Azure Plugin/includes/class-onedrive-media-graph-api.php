@@ -71,7 +71,7 @@ class Azure_OneDrive_Media_GraphAPI {
     private function simple_upload($local_path, $remote_path, $file_name, $access_token) {
         $base_url = $this->get_base_api_url();
         $full_path = $this->combine_paths($remote_path, $file_name);
-        $api_url = "{$base_url}/root:/{$full_path}:/content";
+        $api_url = "{$base_url}/root:/" . $this->encode_path($full_path) . ":/content";
         
         $file_content = file_get_contents($local_path);
         
@@ -111,7 +111,7 @@ class Azure_OneDrive_Media_GraphAPI {
         $full_path = $this->combine_paths($remote_path, $file_name);
         
         // Create upload session
-        $session_url = "{$base_url}/root:/{$full_path}:/createUploadSession";
+        $session_url = "{$base_url}/root:/" . $this->encode_path($full_path) . ":/createUploadSession";
         
         $response = wp_remote_post($session_url, array(
             'headers' => array(
@@ -139,8 +139,11 @@ class Azure_OneDrive_Media_GraphAPI {
             return false;
         }
         
-        // Upload file in chunks
-        $chunk_size = 10 * 1024 * 1024; // 10MB chunks
+        // Upload file in chunks. Graph requires every chunk except the last to be
+        // a multiple of 320KiB, so the configured value is rounded down to one.
+        $chunk_size = (int) Azure_Settings::get_setting('onedrive_media_chunk_size', 10485760);
+        $graph_block = 320 * 1024;
+        $chunk_size = intdiv(max($graph_block, $chunk_size), $graph_block) * $graph_block;
         $file_handle = fopen($local_path, 'rb');
         $byte_position = 0;
         
@@ -169,15 +172,38 @@ class Azure_OneDrive_Media_GraphAPI {
                 Azure_Logger::error('OneDrive Media API: Chunk upload failed - ' . $response->get_error_message());
                 return false;
             }
-            
+
+            // Graph answers 202 for an accepted intermediate chunk and 200/201
+            // for the one that completes the file. Anything else means this
+            // chunk was rejected; carrying on would upload the remaining
+            // chunks at offsets Graph never acknowledged and leave a corrupt
+            // or truncated file behind.
+            $chunk_code = wp_remote_retrieve_response_code($response);
+            if (!in_array($chunk_code, array(200, 201, 202), true)) {
+                fclose($file_handle);
+                Azure_Logger::error(
+                    'OneDrive Media API: Chunk at byte ' . $byte_position . ' rejected with status '
+                    . $chunk_code . ': ' . wp_remote_retrieve_body($response)
+                );
+                return false;
+            }
+
             $byte_position += $chunk_length;
         }
-        
+
         fclose($file_handle);
-        
+
+        if ($byte_position !== (int) $file_size) {
+            Azure_Logger::error(
+                'OneDrive Media API: Uploaded ' . $byte_position . ' of ' . $file_size
+                . ' bytes for ' . $file_name . ' — treating the upload as failed'
+            );
+            return false;
+        }
+
         // Get final response
         $response_code = wp_remote_retrieve_response_code($response);
-        
+
         if ($response_code === 200 || $response_code === 201) {
             $file_data = json_decode(wp_remote_retrieve_body($response), true);
             Azure_Logger::info('OneDrive Media API: Large file uploaded successfully - ' . $file_name);
@@ -248,7 +274,7 @@ class Azure_OneDrive_Media_GraphAPI {
         if (empty($folder_path)) {
             $api_url = "{$base_url}/root/children";
         } else {
-            $api_url = "{$base_url}/root:/{$folder_path}:/children";
+            $api_url = "{$base_url}/root:/" . $this->encode_path($folder_path) . ":/children";
         }
         
         $response = wp_remote_get($api_url, array(
@@ -318,7 +344,7 @@ class Azure_OneDrive_Media_GraphAPI {
         if (empty($parent_path)) {
             $api_url = "{$base_url}/root/children";
         } else {
-            $api_url = "{$base_url}/root:/{$parent_path}:/children";
+            $api_url = "{$base_url}/root:/" . $this->encode_path($parent_path) . ":/children";
         }
         
         $response = wp_remote_post($api_url, array(
@@ -546,6 +572,26 @@ class Azure_OneDrive_Media_GraphAPI {
     }
     
     /**
+     * Percent-encode a drive-relative path for use in a Graph `root:/…:/` address.
+     *
+     * Each segment is encoded individually so the slashes stay structural.
+     * Sending the raw path meant a file or folder containing '#', '?', '&' or
+     * '+' silently addressed the wrong item — '#' truncates the path and '?'
+     * starts a query string.
+     */
+    private function encode_path($path) {
+        $segments = explode('/', trim((string) $path, '/'));
+        $encoded = array();
+        foreach ($segments as $segment) {
+            if ($segment === '') {
+                continue;
+            }
+            $encoded[] = rawurlencode($segment);
+        }
+        return implode('/', $encoded);
+    }
+
+    /**
      * Combine paths safely
      */
     private function combine_paths($base, $path) {
@@ -693,7 +739,7 @@ class Azure_OneDrive_Media_GraphAPI {
             $api_url = "https://graph.microsoft.com/v1.0/drives/{$drive_id}/root/children";
         } else {
             $folder_path = ltrim($folder_path, '/');
-            $api_url = "https://graph.microsoft.com/v1.0/drives/{$drive_id}/root:/{$folder_path}:/children";
+            $api_url = "https://graph.microsoft.com/v1.0/drives/{$drive_id}/root:/" . $this->encode_path($folder_path) . ":/children";
         }
         
         $response = wp_remote_get($api_url, array(
@@ -715,10 +761,14 @@ class Azure_OneDrive_Media_GraphAPI {
         $folders = array();
         foreach ($items as $item) {
             if (isset($item['folder'])) {
+                // '??' binds looser than '.', so the original expression parsed
+                // as `path ?? ('' . '/' . name)` and dropped the item name from
+                // the path whenever parentReference.path was present.
+                $parent = $item['parentReference']['path'] ?? '';
                 $folders[] = array(
                     'id' => $item['id'],
                     'name' => $item['name'],
-                    'path' => $item['parentReference']['path'] ?? '' . '/' . $item['name'],
+                    'path' => rtrim($parent, '/') . '/' . $item['name'],
                     'is_folder' => true
                 );
             }

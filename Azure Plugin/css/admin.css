@@ -14,6 +14,7 @@
 .modal .button,
 .modal .button-primary,
 .modal .button-secondary,
+.modal .button-small,
 .credentials-section .button,
 .module-card .button,
 .auth-actions-inline .button,
@@ -22,6 +23,8 @@
     align-items: center !important;
     gap: 5px;
     vertical-align: middle;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* All dashicons inside buttons - consistent sizing and alignment */
@@ -105,6 +108,23 @@ button .dashicons,
 /* =============================================
    END GLOBAL BUTTON ICON STYLES
    ============================================= */
+
+/* Admin modals: WordPress `.widefat.fixed` uses table-layout:fixed and
+   overflow:hidden on cells, which clips Assign / View Assignments when the
+   shell is narrower than the row. List modals opt into `.modal-wide`. */
+.modal .modal-content.modal-wide {
+    max-width: min(1200px, calc(100vw - 48px));
+    width: min(1200px, calc(100vw - 48px));
+}
+
+.modal .wp-list-table th,
+.modal .wp-list-table td {
+    overflow: visible;
+}
+
+.modal .wp-list-table.fixed {
+    table-layout: auto;
+}
 
 .azure-plugin-dashboard {
     display: grid;
@@ -344,6 +364,42 @@ input:checked + .slider:before {
 .form-table select {
     width: 100%;
     max-width: 400px;
+}
+
+/* Catch-all `input { background/border }` rules (on SSO, Email, Calendar,
+   PTA, and similar pages) paint a box over native checkboxes and hide
+   the checked state. Restore the browser control everywhere except the
+   module on/off switch. */
+.wrap input[type="checkbox"],
+.wrap input[type="radio"],
+.modal input[type="checkbox"],
+.modal input[type="radio"] {
+    appearance: auto;
+    -webkit-appearance: auto;
+    background: initial !important;
+    background-color: initial !important;
+    border: initial !important;
+    box-shadow: none !important;
+    color: initial !important;
+    width: 1rem !important;
+    height: 1rem !important;
+    max-width: none !important;
+    margin-right: 6px;
+    vertical-align: middle;
+    accent-color: #2271b1;
+    color-scheme: light;
+}
+
+.wrap .switch input[type="checkbox"],
+.wrap .switch-mini input[type="checkbox"],
+.modal .switch input[type="checkbox"] {
+    appearance: none;
+    opacity: 0;
+    width: 0 !important;
+    height: 0 !important;
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 
 /* Status Indicators */
@@ -611,25 +667,30 @@ input:checked + .slider:before {
 
 /* Dark mode support - WordPress admin specific */
 @media (prefers-color-scheme: dark) {
+    /* Keep WordPress admin cards light. Darkening .credentials-section
+       here left black cells around the backup storage fields. */
     .wp-core-ui .module-card,
     .wp-core-ui .credentials-section,
-    .wp-core-ui .info-box {
-        background: #1e1e1e !important;
-        border-color: #444 !important;
-        color: #fff !important;
-    }
-    
-    /* Force light background for backup page specifically */
-    body.toplevel_page_azure-plugin-backup .credentials-section,
-    body.azure-plugin_page_azure-plugin-backup .credentials-section {
+    .wp-core-ui .info-box,
+    .azure-backup-page .credentials-section,
+    .azure-backup-page .backup-configuration {
         background: #fff !important;
-        color: #333 !important;
+        border-color: #ccd0d4 !important;
+        color: #1d2327 !important;
+    }
+
+    body.toplevel_page_azure-plugin-backup .credentials-section,
+    body.azure-plugin_page_azure-plugin-backup .credentials-section,
+    .azure-backup-page .credentials-section {
+        background: #fff !important;
+        color: #1d2327 !important;
         border-color: #ccd0d4 !important;
     }
     
     body.toplevel_page_azure-plugin-backup .credentials-section h2,
-    body.azure-plugin_page_azure-plugin-backup .credentials-section h2 {
-        color: #333 !important;
+    body.azure-plugin_page_azure-plugin-backup .credentials-section h2,
+    .azure-backup-page .credentials-section h2 {
+        color: #1d2327 !important;
     }
     
     .wp-core-ui .module-header h3 {
@@ -671,6 +732,29 @@ body.admin-color-midnight .module-description p {
     background: #fff !important;
     color: #333 !important;
     border: 1px solid #ccd0d4 !important;
+}
+
+/* The dark-mode block above turns headings white to sit on a dark card, but the
+   rule immediately above forces this screen's cards back to white in every mode.
+   Without these the module titles were white on white and invisible. The colour
+   has to be set on the heading itself: the dark-mode rule uses !important, so it
+   is not overridden by inheriting a colour from the card. */
+.azure-plugin-dashboard .module-header h3,
+.azure-plugin-dashboard .module-card h3 {
+    color: #1d2327 !important;
+}
+
+.azure-plugin-dashboard .module-header h3 .dashicons {
+    color: #0078d4 !important;
+}
+
+.azure-plugin-dashboard .module-description p,
+.azure-plugin-dashboard .module-card p {
+    color: #50575e !important;
+}
+
+.azure-plugin-dashboard h2 {
+    color: #1d2327 !important;
 }
 
 /* Setup Wizard Progress Banner */
@@ -833,4 +917,31 @@ body.admin-color-midnight .module-description p {
 
 .dashboard-widget-stats .stat-label {
     font-size: 11px;
+}
+
+.pta-role-resp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pta-role-resp-row {
+    display: grid;
+    grid-template-columns: minmax(160px, 220px) 1fr auto;
+    gap: 8px;
+    align-items: start;
+}
+
+.pta-role-resp-row .pta-resp-heading,
+.pta-role-resp-row .pta-resp-body {
+    width: 100%;
+}
+
+@media (max-width: 782px) {
+    .pta-role-resp-row {
+        grid-template-columns: 1fr auto;
+    }
+    .pta-role-resp-row .pta-resp-heading {
+        grid-column: 1 / -1;
+    }
 }

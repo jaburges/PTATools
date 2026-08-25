@@ -45,9 +45,14 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
 
 // Handle bulk actions
 if (isset($_POST['action']) && isset($_POST['newsletter_ids'])) {
-    if (wp_verify_nonce($_POST['_wpnonce'], 'bulk_newsletters')) {
-        $ids = array_map('intval', $_POST['newsletter_ids']);
-        switch ($_POST['action']) {
+    if (wp_verify_nonce($_POST['_wpnonce'] ?? '', 'bulk_newsletters')) {
+        // array_map() on a non-array is a TypeError on PHP 8, and an empty id
+        // list would render `IN ()`, which is a SQL syntax error.
+        $ids = array_values(array_filter(
+            array_map('intval', (array) $_POST['newsletter_ids']),
+            function ($id) { return $id > 0; }
+        ));
+        switch ($ids ? $_POST['action'] : '') {
             case 'delete':
                 $wpdb->query("DELETE FROM {$newsletters_table} WHERE id IN (" . implode(',', $ids) . ")");
                 echo '<div class="notice notice-success"><p>' . __('Selected campaigns deleted.', 'azure-plugin') . '</p></div>';

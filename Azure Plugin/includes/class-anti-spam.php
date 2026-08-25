@@ -18,7 +18,7 @@
  *      email providers, and (as of 3.141.12) three additional
  *      patterns added after the June 2026 spam wave: usernames/email
  *      locals containing "test", name-like usernames with a
- *      suspicious trailing digit run (`elizabeth.roberts6386`), and
+ *      suspicious trailing digit run (`firstname.lastname6386`), and
  *      hard-blocked throwaway TLDs (`.site`, `.online`, `.xyz`, etc.)
  *      plus random hex-identifier usernames (`v-c39fb607cfa4eb39...`).
  *      Hooks `registration_errors` so it catches anything that does
@@ -28,14 +28,14 @@
  *      parents need to be able to register but bots should be
  *      filtered.
  *
- * Typical configuration on wilderptsa: both toggles ON. The
- * registration form stays blocked (parents sign up via the
- * `[pta_newsletter_signup]` shortcode + Microsoft SSO), and the
- * pattern filter protects the shortcode endpoint from bots.
+ * Typical configuration: both toggles ON. The registration form stays
+ * blocked (parents sign up via the `[pta_newsletter_signup]` shortcode
+ * + Microsoft SSO), and the pattern filter protects the shortcode
+ * endpoint from bots.
  *
  * The intent is "WP-native registration is OFF", with the only
  * supported account-creation paths being:
- *   - SSO (Microsoft sign-in) for @wilderptsa.net + @lwsd.org
+ *   - SSO (Microsoft sign-in) for the configured org / school domains
  *   - [pta_newsletter_signup] shortcode → creates `parent` role
  *   - WooCommerce checkout (creates `customer` via wc_create_new_customer)
  *
@@ -282,8 +282,8 @@ class Azure_Anti_Spam {
      *
      * Added 2026-07 (v3.141.12) in response to a spam wave that evaded
      * the original gibberish-only heuristic by using real name-like
-     * words with a numeric suffix (e.g. `elizabeth.roberts6386`,
-     * `benjamin.scott108447`) or literal "test" accounts — see
+     * words with a numeric suffix (e.g. `firstname.lastname6386`,
+     * `othername.example108447`) or literal "test" accounts — see
      * `docs/runbooks/spam-registration-hardening-2026-07.md`.
      */
     private static function run_classifier($username, $email, $name) {
@@ -353,7 +353,7 @@ class Azure_Anti_Spam {
      * rejected outright — no gibberish check on the second-level label
      * required. These specific TLDs (`.site`, `.online`, `.xyz`, `.top`,
      * `.click`, `.info`) are heavily favored by disposable-email/bot
-     * registrars and see essentially zero legitimate use among wilderptsa
+     * registrars and see essentially zero legitimate use among member
      * families (confirmed against the June 2026 spam wave, which included
      * `falderewonek.site` and `cutemails.online`). Filterable so an
      * operator can extend or trim the list without a plugin deploy if a
@@ -400,7 +400,7 @@ class Azure_Anti_Spam {
      * Returns true if $s (a username or email local-part) contains the
      * literal substring "test" (case-insensitive). Deliberately blunt —
      * the June 2026 wave included plain `test206847` / `test266967`
-     * accounts, and no legitimate wilderptsa parent registers with
+     * accounts, and no legitimate parent registers with
      * "test" in their username or email handle. Kept as its own small
      * function (rather than folded into looks_like_random_string) so it
      * can be independently disabled via the
@@ -423,7 +423,7 @@ class Azure_Anti_Spam {
 
     /**
      * Detects the "name(s) + long trailing digit run" pattern seen across
-     * the June 2026 wave (`elizabeth.roberts6386`, `benjamin.scott108447`,
+     * the June 2026 wave (`firstname.lastname6386`, `othername.example108447`,
      * `charles.taylor104982`, `eric.brown17559`). These are real
      * dictionary words — they sail past looks_like_random_string() — but
      * the digit suffix is the tell.

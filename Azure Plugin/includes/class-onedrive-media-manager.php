@@ -14,6 +14,12 @@ class Azure_OneDrive_Media_Manager {
     private $auth;
     private $graph_api;
     private $enabled;
+
+    /**
+     * Set while importing from OneDrive so the `add_attachment` backup hook does
+     * not immediately queue the imported file for upload back to its source.
+     */
+    private $suppress_backup_queue = false;
     
     public static function get_instance() {
         if (self::$instance == null) {
@@ -39,9 +45,13 @@ class Azure_OneDrive_Media_Manager {
             $this->graph_api = new Azure_OneDrive_Media_GraphAPI();
         }
         
-        // Hook into WordPress media upload
+        // Hook into WordPress media upload.
         add_filter('wp_handle_upload_prefilter', array($this, 'intercept_upload'), 10, 1);
-        add_filter('wp_handle_upload', array($this, 'handle_upload_to_onedrive'), 10, 2);
+        // The Graph upload is NOT performed in the upload request. A 4GB ceiling
+        // against a remote API cannot be held open inside wp-admin without
+        // timing out the editor, and an inline failure had nowhere to be retried.
+        // The attachment is queued instead and drained by the backup worker.
+        add_action('add_attachment', array($this, 'queue_attachment_backup'), 10, 1);
         add_action('delete_attachment', array($this, 'handle_delete_attachment'), 10, 1);
         
         // Add custom fields to attachment
@@ -60,13 +70,28 @@ class Azure_OneDrive_Media_Manager {
         add_action('wp_ajax_onedrive_media_create_year_folders', array($this, 'ajax_create_year_folders'));
         add_action('wp_ajax_onedrive_media_import_from_onedrive', array($this, 'ajax_import_from_onedrive'));
         add_action('wp_ajax_onedrive_media_repair_diagnose', array($this, 'ajax_repair_diagnose'));
+        add_action('wp_ajax_onedrive_media_backup_library', array($this, 'ajax_backup_library'));
         
-        // Schedule WordPress Cron for auto-sync
+        // Schedule WordPress Cron for auto-sync. wp_schedule_event() rejects a
+        // recurrence with no cron_schedules entry and returns false, which
+        // would leave auto-sync permanently off with nothing in the log to say
+        // why — so fall back to hourly rather than skip the schedule.
         if (!wp_next_scheduled('onedrive_media_auto_sync')) {
-            $frequency = Azure_Settings::get_setting('onedrive_media_sync_frequency', 'hourly');
+            $frequency = (string) Azure_Settings::get_setting('onedrive_media_sync_frequency', 'hourly');
+            if (!array_key_exists($frequency, wp_get_schedules())) {
+                Azure_Logger::warning('OneDrive Media: Unknown sync frequency "' . $frequency . '", falling back to hourly');
+                $frequency = 'hourly';
+            }
             wp_schedule_event(time(), $frequency, 'onedrive_media_auto_sync');
         }
         add_action('onedrive_media_auto_sync', array($this, 'run_auto_sync'));
+
+        // The backup queue drains on its own schedule so a backlog is not held
+        // hostage by the auto-sync toggle, which governs the import direction.
+        if (!wp_next_scheduled('onedrive_media_backup_queue')) {
+            wp_schedule_event(time() + 300, 'hourly', 'onedrive_media_backup_queue');
+        }
+        add_action('onedrive_media_backup_queue', array($this, 'run_backup_queue'));
 
         add_action('wp_ajax_onedrive_media_repair_guids', array($this, 'ajax_repair_sharepoint_guids'));
     }
@@ -75,14 +100,21 @@ class Azure_OneDrive_Media_Manager {
      * Intercept file upload before processing
      */
     public function intercept_upload($file) {
-        // Validate file before upload
-        $max_size = Azure_Settings::get_setting('onedrive_media_max_file_size', 4294967296); // 4GB default
-        
-        if ($file['size'] > $max_size) {
-            $file['error'] = 'File size exceeds OneDrive limit';
-            return $file;
+        // The media library is the primary copy, so a file too large for the
+        // backup target is still a legitimate WordPress upload. This used to set
+        // $file['error'], which rejected the upload outright; now it only warns,
+        // and the backup worker records the file as unbackable.
+        $max_size = (int) Azure_Settings::get_setting('onedrive_media_max_file_size', 4294967296);
+
+        if ($max_size > 0 && isset($file['size']) && $file['size'] > $max_size) {
+            Azure_Logger::warning(sprintf(
+                'OneDrive Media: "%s" (%s) exceeds the OneDrive backup limit (%s); accepting the upload but it will not be backed up',
+                $file['name'] ?? 'unknown',
+                size_format((int) $file['size']),
+                size_format($max_size)
+            ));
         }
-        
+
         return $file;
     }
     
@@ -161,75 +193,521 @@ class Azure_OneDrive_Media_Manager {
     }
 
     /**
-     * Handle file upload to OneDrive after WordPress processes it
+     * Queue a newly added attachment for backup to OneDrive.
+     *
+     * Fires on `add_attachment`, which also runs for the sideloads performed by
+     * the OneDrive importer. Backing those up would push a file straight back to
+     * the folder it was just read from, so imports set $suppress_backup_queue
+     * and anything that already carries a mapping row is skipped.
      */
-    public function handle_upload_to_onedrive($upload, $context) {
-        if (!$this->graph_api) {
-            return $upload;
+    public function queue_attachment_backup($attachment_id) {
+        if ($this->suppress_backup_queue) {
+            return;
         }
 
-        // Only upload on genuine user uploads, not sideloads from OneDrive
-        // sync, repair, or other programmatic imports
-        if ($context === 'sideload') {
-            return $upload;
+        if (!$this->is_backup_enabled()) {
+            return;
         }
 
-        $local_file = $upload['file'];
-        $file_name = basename($local_file);
+        $attached_file = get_post_meta($attachment_id, '_wp_attached_file', true);
+        if (empty($attached_file) || $this->is_wp_thumbnail(basename($attached_file))) {
+            return;
+        }
 
-        // Don't upload WP-generated thumbnails to OneDrive
-        if ($this->is_wp_thumbnail($file_name)) {
-            return $upload;
+        if ($this->get_mapping_for_attachment($attachment_id)) {
+            return;
         }
-        
-        // Determine folder based on year setting
-        $use_year_folders = Azure_Settings::get_setting('onedrive_media_use_year_folders', true);
-        $base_folder = Azure_Settings::get_setting('onedrive_media_base_folder', 'WordPress Media');
-        
-        if ($use_year_folders) {
-            $year = date('Y');
-            $remote_path = $base_folder . '/' . $year;
-        } else {
-            $remote_path = $base_folder;
-        }
-        
-        // Upload to OneDrive
-        $file_data = $this->graph_api->upload_file($local_file, $remote_path, $file_name);
-        
-        if ($file_data) {
-            $this->store_file_mapping(null, $file_data, $local_file);
-            Azure_Logger::info('OneDrive Media: File uploaded successfully - ' . $file_name);
-        } else {
-            Azure_Logger::error('OneDrive Media: Failed to upload file - ' . $file_name);
-        }
-        
-        return $upload;
+
+        $this->enqueue_backup($attachment_id);
     }
-    
+
     /**
-     * Handle attachment deletion
+     * Add an attachment to the backup queue, or reset an existing row to pending.
+     *
+     * Relies on the unique key over (operation, attachment_id) so re-running the
+     * library backfill is idempotent rather than additive.
+     */
+    public function enqueue_backup($attachment_id) {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('onedrive_sync_queue');
+        if (!$table) {
+            return false;
+        }
+
+        $attachment_id = (int) $attachment_id;
+        $local_path = get_attached_file($attachment_id);
+
+        $result = $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$table} (operation, attachment_id, local_path, status, retry_count, error_message, next_attempt_at)
+             VALUES ('backup', %d, %s, 'pending', 0, NULL, NULL)
+             ON DUPLICATE KEY UPDATE
+                local_path = VALUES(local_path),
+                status = 'pending',
+                retry_count = 0,
+                error_message = NULL,
+                next_attempt_at = NULL",
+            $attachment_id,
+            (string) $local_path
+        ));
+
+        return $result !== false;
+    }
+
+    /**
+     * Queue every media library item that has no OneDrive backup yet.
+     *
+     * Driven strictly from the attachment table, so files sitting in uploads that
+     * were never registered as attachments are left alone by design.
+     *
+     * @return array{queued:int,already:int,total:int}
+     */
+    public function backfill_library_queue() {
+        global $wpdb;
+
+        $files_table = Azure_Database::get_table_name('onedrive_files');
+        $summary = array('queued' => 0, 'already' => 0, 'total' => 0);
+
+        if (!$files_table) {
+            return $summary;
+        }
+
+        $attachment_ids = $wpdb->get_col(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'attachment' ORDER BY ID ASC"
+        );
+
+        $summary['total'] = count($attachment_ids);
+
+        if (empty($attachment_ids)) {
+            return $summary;
+        }
+
+        $mapped = $wpdb->get_col(
+            "SELECT attachment_id FROM {$files_table}
+              WHERE attachment_id IS NOT NULL AND sync_status = 'synced'"
+        );
+        $mapped = array_flip(array_map('intval', $mapped));
+
+        foreach ($attachment_ids as $attachment_id) {
+            $attachment_id = (int) $attachment_id;
+
+            if (isset($mapped[$attachment_id])) {
+                $summary['already']++;
+                continue;
+            }
+
+            if ($this->enqueue_backup($attachment_id)) {
+                $summary['queued']++;
+            }
+        }
+
+        Azure_Logger::info(sprintf(
+            'OneDrive Media Backup: Backfill queued %d of %d library items (%d already backed up)',
+            $summary['queued'],
+            $summary['total'],
+            $summary['already']
+        ));
+
+        return $summary;
+    }
+
+    /**
+     * AJAX driver for the library backup panel.
+     *
+     * Split into scan/batch so the browser can walk a backlog without any single
+     * request having to outlive the PHP time limit.
+     */
+    public function ajax_backup_library() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+            return;
+        }
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+            return;
+        }
+        if (!$this->graph_api) {
+            wp_send_json_error('Graph API not initialized');
+            return;
+        }
+        if (!$this->is_backup_enabled()) {
+            wp_send_json_error('Sync direction is set to "OneDrive → WordPress only", so backups are disabled. Change it in Sync Settings.');
+            return;
+        }
+
+        $mode = sanitize_text_field($_POST['mode'] ?? 'scan');
+
+        if ($mode === 'scan') {
+            $summary = $this->backfill_library_queue();
+            $stats = $this->get_sync_stats();
+
+            wp_send_json_success(array(
+                'queued'  => $summary['queued'],
+                'already' => $summary['already'],
+                'total'   => $summary['total'],
+                'pending' => (int) $stats['queued_files'],
+                'stats'   => $stats,
+            ));
+            return;
+        }
+
+        if ($mode === 'batch') {
+            @set_time_limit(150);
+            $result = $this->process_backup_queue(10, 60);
+            $result['stats'] = $this->get_sync_stats();
+
+            wp_send_json_success($result);
+            return;
+        }
+
+        if ($mode === 'retry_failed') {
+            global $wpdb;
+            $queue = Azure_Database::get_table_name('onedrive_sync_queue');
+            $reset = 0;
+            if ($queue) {
+                $reset = (int) $wpdb->query(
+                    "UPDATE {$queue}
+                        SET status = 'pending', retry_count = 0, error_message = NULL, next_attempt_at = NULL
+                      WHERE operation = 'backup' AND status = 'failed'"
+                );
+            }
+            wp_send_json_success(array('reset' => $reset, 'stats' => $this->get_sync_stats()));
+            return;
+        }
+
+        wp_send_json_error('Invalid mode');
+    }
+
+    /**
+     * Scheduled entry point for draining the backup queue.
+     */
+    public function run_backup_queue() {
+        if (!$this->is_backup_enabled()) {
+            return;
+        }
+
+        $result = $this->process_backup_queue();
+
+        if ($result['attempted'] > 0) {
+            Azure_Logger::info(sprintf(
+                'OneDrive Media Backup: %d attempted, %d succeeded, %d failed, %d remaining',
+                $result['attempted'],
+                $result['succeeded'],
+                $result['failed'],
+                $result['remaining']
+            ));
+        }
+    }
+
+    /**
+     * Drain pending backup rows until the batch limit or time budget is spent.
+     *
+     * WP-Cron is disabled in the container and the external pinger only fires
+     * once a day, so a single tick has to move as much as it safely can rather
+     * than one fixed-size batch.
+     */
+    public function process_backup_queue($max_items = null, $time_budget = null) {
+        global $wpdb;
+
+        $summary = array('attempted' => 0, 'succeeded' => 0, 'failed' => 0, 'remaining' => 0);
+
+        $table = Azure_Database::get_table_name('onedrive_sync_queue');
+        if (!$table || !$this->graph_api) {
+            return $summary;
+        }
+
+        if ($max_items === null) {
+            $max_items = (int) Azure_Settings::get_setting('onedrive_media_backup_batch_size', 25);
+        }
+        if ($time_budget === null) {
+            $time_budget = (int) Azure_Settings::get_setting('onedrive_media_backup_time_budget', 90);
+        }
+
+        $max_retries = 4;
+        $started = time();
+
+        // Reclaim rows abandoned mid-upload. A worker killed by a PHP timeout
+        // leaves its row in 'processing', where nothing would ever pick it up
+        // again while it still counted towards the outstanding total.
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$table}
+                SET status = 'pending'
+              WHERE operation = 'backup'
+                AND status = 'processing'
+                AND updated_at < %s",
+            gmdate('Y-m-d H:i:s', time() - 1800)
+        ));
+
+        for ($i = 0; $i < $max_items; $i++) {
+            if ((time() - $started) >= $time_budget) {
+                break;
+            }
+
+            $row = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$table}
+                  WHERE operation = 'backup'
+                    AND status = 'pending'
+                    AND (next_attempt_at IS NULL OR next_attempt_at <= %s)
+                  ORDER BY id ASC
+                  LIMIT 1",
+                current_time('mysql', true)
+            ));
+
+            if (!$row) {
+                break;
+            }
+
+            // Claim the row before the upload so a concurrent worker (an admin
+            // clicking Back Up Now while cron fires) cannot pick up the same file.
+            $claimed = $wpdb->query($wpdb->prepare(
+                "UPDATE {$table} SET status = 'processing', updated_at = %s
+                  WHERE id = %d AND status = 'pending'",
+                current_time('mysql', true),
+                $row->id
+            ));
+
+            if (!$claimed) {
+                continue;
+            }
+
+            $summary['attempted']++;
+            $outcome = $this->backup_attachment((int) $row->attachment_id);
+
+            if ($outcome['success']) {
+                $wpdb->delete($table, array('id' => $row->id), array('%d'));
+                $summary['succeeded']++;
+                continue;
+            }
+
+            $summary['failed']++;
+            $retry_count = (int) $row->retry_count + 1;
+
+            if ($outcome['permanent'] || $retry_count >= $max_retries) {
+                $wpdb->update(
+                    $table,
+                    array('status' => 'failed', 'retry_count' => $retry_count, 'error_message' => $outcome['message']),
+                    array('id' => $row->id),
+                    array('%s', '%d', '%s'),
+                    array('%d')
+                );
+                Azure_Logger::error('OneDrive Media Backup: Giving up on attachment #' . $row->attachment_id . ' - ' . $outcome['message']);
+                continue;
+            }
+
+            // Exponential backoff so a transient Graph outage does not burn
+            // through the retry budget inside a single cron tick.
+            $delay_minutes = pow(2, $retry_count) * 5;
+            $wpdb->update(
+                $table,
+                array(
+                    'status' => 'pending',
+                    'retry_count' => $retry_count,
+                    'error_message' => $outcome['message'],
+                    'next_attempt_at' => gmdate('Y-m-d H:i:s', time() + ($delay_minutes * 60)),
+                ),
+                array('id' => $row->id),
+                array('%s', '%d', '%s', '%s'),
+                array('%d')
+            );
+        }
+
+        $summary['remaining'] = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$table} WHERE operation = 'backup' AND status IN ('pending', 'processing')"
+        );
+
+        return $summary;
+    }
+
+    /**
+     * Upload one attachment's original file to OneDrive and record the mapping.
+     *
+     * Only the original is backed up; WordPress regenerates the intermediate
+     * sizes from it, so shipping them would multiply the transfer for no
+     * recovery benefit.
+     *
+     * @return array{success:bool,permanent:bool,message:string}
+     */
+    public function backup_attachment($attachment_id) {
+        $fail = function ($message, $permanent = false) {
+            return array('success' => false, 'permanent' => $permanent, 'message' => $message);
+        };
+
+        if (!$this->graph_api) {
+            return $fail('Graph API not initialized');
+        }
+
+        if (get_post_type($attachment_id) !== 'attachment') {
+            return $fail('Attachment no longer exists', true);
+        }
+
+        $local_file = get_attached_file($attachment_id);
+        if (empty($local_file) || !file_exists($local_file)) {
+            return $fail('Local file missing: ' . (string) $local_file, true);
+        }
+
+        $file_name = basename($local_file);
+        $max_size = (int) Azure_Settings::get_setting('onedrive_media_max_file_size', 4294967296);
+        $size = (int) @filesize($local_file);
+        if ($max_size > 0 && $size > $max_size) {
+            return $fail('File exceeds configured maximum size', true);
+        }
+
+        $existing = $this->get_mapping_for_attachment($attachment_id);
+        if ($existing && $existing->sync_status === 'synced') {
+            return array('success' => true, 'permanent' => false, 'message' => 'Already backed up');
+        }
+
+        $remote_path = $this->get_backup_folder_for_attachment($attachment_id);
+
+        $file_data = $this->graph_api->upload_file($local_file, $remote_path, $file_name);
+        if (!$file_data) {
+            return $fail('Graph upload failed for ' . $file_name);
+        }
+
+        $this->store_file_mapping($attachment_id, $file_data, $local_file);
+        Azure_Logger::debug('OneDrive Media Backup: Uploaded ' . $file_name . ' to ' . $remote_path);
+
+        return array('success' => true, 'permanent' => false, 'message' => 'Backed up');
+    }
+
+    /**
+     * Resolve the OneDrive folder for an attachment's backup.
+     *
+     * Uses the year the file was actually filed under in uploads rather than the
+     * current year, so a backfill of older items does not collapse the whole
+     * library into the current year's folder.
+     */
+    private function get_backup_folder_for_attachment($attachment_id) {
+        $base_folder = Azure_Settings::get_setting('onedrive_media_base_folder', 'WordPress Media');
+
+        if (!Azure_Settings::get_setting('onedrive_media_use_year_folders', true)) {
+            return $base_folder;
+        }
+
+        $year = '';
+        $attached_file = (string) get_post_meta($attachment_id, '_wp_attached_file', true);
+        if (preg_match('#^(\d{4})/#', $attached_file, $m)) {
+            $year = $m[1];
+        }
+
+        if ($year === '') {
+            $uploaded = get_post_field('post_date', $attachment_id);
+            $year = $uploaded ? date('Y', strtotime($uploaded)) : date('Y');
+        }
+
+        return $base_folder . '/' . $year;
+    }
+
+    /**
+     * Fetch the mapping row for an attachment, if any.
+     */
+    private function get_mapping_for_attachment($attachment_id) {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('onedrive_files');
+        if (!$table) {
+            return null;
+        }
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE attachment_id = %d LIMIT 1",
+            (int) $attachment_id
+        ));
+    }
+
+    /**
+     * Earliest year the importer is allowed to pull into the media library.
+     *
+     * The OneDrive folder holds the previous site's full back catalogue. Pulling
+     * that in would fill uploads with media the current site never references, so
+     * imports are bounded and backups are driven from the library instead.
+     */
+    private function get_import_min_year() {
+        $configured = (int) Azure_Settings::get_setting('onedrive_media_import_min_year', 2026);
+
+        return $configured > 0 ? $configured : 0;
+    }
+
+    /**
+     * Whether a folder name is a year folder older than the import cutoff.
+     *
+     * Only names that are entirely a 4-digit year are treated as year folders, so
+     * a real folder such as "2026 Auction Photos" is never silently skipped.
+     */
+    private function is_year_folder_below_cutoff($folder_name) {
+        $min_year = $this->get_import_min_year();
+        if ($min_year <= 0) {
+            return false;
+        }
+
+        if (!preg_match('/^\d{4}$/', trim((string) $folder_name))) {
+            return false;
+        }
+
+        return (int) $folder_name < $min_year;
+    }
+
+    /**
+     * Whether backups to OneDrive should run at all.
+     */
+    private function is_backup_enabled() {
+        if (!$this->graph_api) {
+            return false;
+        }
+
+        $direction = (string) Azure_Settings::get_setting('onedrive_media_sync_direction', 'wp_to_onedrive');
+
+        return in_array($direction, array('wp_to_onedrive', 'two_way'), true);
+    }
+
+    /**
+     * Handle attachment deletion.
+     *
+     * The OneDrive copy is deliberately retained: a backup that deletes itself
+     * the moment the original is deleted cannot recover from an accidental
+     * deletion, which is the main thing it exists to protect against. The
+     * mapping is marked orphaned so the copy can still be found, and mirroring
+     * remains available for anyone who explicitly opts in.
      */
     public function handle_delete_attachment($attachment_id) {
         global $wpdb;
         $table = Azure_Database::get_table_name('onedrive_files');
-        
-        // Get OneDrive file info
+        $queue = Azure_Database::get_table_name('onedrive_sync_queue');
+
+        if ($queue) {
+            $wpdb->delete($queue, array('operation' => 'backup', 'attachment_id' => (int) $attachment_id), array('%s', '%d'));
+        }
+
+        if (!$table) {
+            return;
+        }
+
         $file_row = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$table} WHERE attachment_id = %d",
             $attachment_id
         ));
-        
-        if ($file_row && $this->graph_api) {
-            // Delete from OneDrive
-            $result = $this->graph_api->delete_file($file_row->onedrive_id);
-            
-            if ($result) {
-                // Remove from database
-                $wpdb->delete($table, array('attachment_id' => $attachment_id), array('%d'));
-                Azure_Logger::info('OneDrive Media: File deleted from OneDrive - ' . $file_row->file_name);
-            } else {
-                Azure_Logger::error('OneDrive Media: Failed to delete file from OneDrive - ' . $file_row->file_name);
-            }
+
+        if (!$file_row) {
+            return;
+        }
+
+        $propagate = (bool) Azure_Settings::get_setting('onedrive_media_delete_propagation', false);
+
+        if (!$propagate) {
+            $wpdb->update(
+                $table,
+                array('sync_status' => 'orphaned', 'attachment_id' => null),
+                array('id' => $file_row->id),
+                array('%s', '%s'),
+                array('%d')
+            );
+            Azure_Logger::info('OneDrive Media: Attachment #' . $attachment_id . ' deleted in WordPress; OneDrive backup retained - ' . $file_row->file_name);
+            return;
+        }
+
+        if ($this->graph_api && $this->graph_api->delete_file($file_row->onedrive_id)) {
+            $wpdb->delete($table, array('id' => $file_row->id), array('%d'));
+            Azure_Logger::info('OneDrive Media: File deleted from OneDrive - ' . $file_row->file_name);
+        } else {
+            Azure_Logger::error('OneDrive Media: Failed to delete file from OneDrive - ' . $file_row->file_name);
         }
     }
     
@@ -254,21 +732,66 @@ class Azure_OneDrive_Media_Manager {
             }
         }
         
-        $data = array(
-            'attachment_id' => $attachment_id,
-            'onedrive_id' => $file_data['id'],
-            'onedrive_path' => $file_data['parent_path'],
-            'file_name' => $file_data['name'],
-            'file_size' => $file_data['size'],
-            'mime_type' => $file_data['mime_type'],
-            'folder_year' => $folder_year,
-            'last_modified' => $file_data['modified'],
-            'download_url' => $file_data['download_url'],
-            'sync_status' => 'synced'
+        if (empty($file_data['id'])) {
+            Azure_Logger::warning('OneDrive Media: Refusing to store a mapping with no OneDrive file id');
+            return false;
+        }
+
+        // Column => placeholder, so $data and its format list stay aligned even
+        // when an optional column is dropped below.
+        $columns = array(
+            'attachment_id' => '%d',
+            'onedrive_id'   => '%s',
+            'onedrive_path' => '%s',
+            'file_name'     => '%s',
+            'file_size'     => '%d',
+            'mime_type'     => '%s',
+            'public_url'    => '%s',
+            'folder_year'   => '%s',
+            'last_modified' => '%s',
+            'download_url'  => '%s',
+            'sync_status'   => '%s',
         );
-        
-        $wpdb->insert($table, $data, array('%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s'));
-        
+
+        $data = array(
+            'attachment_id' => $attachment_id !== null ? (int) $attachment_id : null,
+            'onedrive_id'   => $file_data['id'],
+            'onedrive_path' => $file_data['parent_path'] ?? '',
+            'file_name'     => $file_data['name'] ?? '',
+            'file_size'     => (int) ($file_data['size'] ?? 0),
+            'mime_type'     => $file_data['mime_type'] ?? '',
+            'public_url'    => $file_data['web_url'] ?? '',
+            'folder_year'   => $folder_year,
+            'last_modified' => $file_data['modified'] ?? '',
+            'download_url'  => $file_data['download_url'] ?? '',
+            'sync_status'   => 'synced',
+        );
+
+        // An empty string is not a valid datetime; leave the column alone rather
+        // than letting MySQL coerce it (or reject the row in strict mode).
+        if (empty($data['last_modified'])) {
+            unset($data['last_modified']);
+        }
+
+        // onedrive_id carries a UNIQUE key, so a plain insert for a file that is
+        // already mapped fails silently and the row keeps its stale download URL
+        // (and stays unlinked from its attachment).
+        $existing_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$table} WHERE onedrive_id = %s",
+            $file_data['id']
+        ));
+
+        if ($existing_id) {
+            // Don't clear an existing link just because this pass has no ID.
+            if ($data['attachment_id'] === null) {
+                unset($data['attachment_id']);
+            }
+            $wpdb->update($table, $data, array('id' => $existing_id), array_values(array_intersect_key($columns, $data)), array('%d'));
+            return (int) $existing_id;
+        }
+
+        $wpdb->insert($table, $data, array_values(array_intersect_key($columns, $data)));
+
         return $wpdb->insert_id;
     }
     
@@ -366,6 +889,10 @@ class Azure_OneDrive_Media_Manager {
 
         foreach ($items as $item) {
             if ($item['is_folder']) {
+                if ($this->is_year_folder_below_cutoff($item['name'])) {
+                    Azure_Logger::debug('OneDrive Media: Skipping pre-cutoff year folder ' . $item['name']);
+                    continue;
+                }
                 $subfolder = ltrim($folder_path . '/' . $item['name'], '/');
                 $this->sync_folder_recursive($subfolder, $synced, $errors, $skipped, $depth + 1);
                 continue;
@@ -534,11 +1061,25 @@ class Azure_OneDrive_Media_Manager {
         $base_folder = Azure_Settings::get_setting('onedrive_media_base_folder', 'WordPress Media');
 
         // parent_path looks like: /drives/{id}/root:/WordPress Media/2019/02
-        $pos = strpos($parent_path, ':/' . $base_folder);
+        // Graph percent-encodes it, so "WordPress Media" arrives as
+        // "WordPress%20Media" and a raw comparison never matches — which sent
+        // every imported file to today's YYYY/MM instead of its real date.
+        $parent_path = rawurldecode((string) $parent_path);
+
+        $marker = ':/' . trim($base_folder, '/');
+        $pos = strpos($parent_path, $marker);
         if ($pos === false) {
             return '';
         }
-        $after_base = substr($parent_path, $pos + strlen(':/' . $base_folder));
+
+        $after_base = substr($parent_path, $pos + strlen($marker));
+
+        // The match must land on a path boundary. Otherwise a base folder of
+        // "Media" matches "Media Archive/2019/02" and yields " Archive/2019/02".
+        if ($after_base !== '' && $after_base[0] !== '/') {
+            return '';
+        }
+
         return trim($after_base, '/');
     }
 
@@ -556,7 +1097,7 @@ class Azure_OneDrive_Media_Manager {
             return false;
         }
 
-        $temp_file = download_url($file_data['download_url']);
+        $temp_file = $this->download_onedrive_item($file_data);
 
         if (is_wp_error($temp_file)) {
             Azure_Logger::error('OneDrive Media: Failed to download - ' . $file_data['name'] . ': ' . $temp_file->get_error_message());
@@ -618,7 +1159,12 @@ class Azure_OneDrive_Media_Manager {
             'guid'           => $baseurl . '/' . $relative_path,
         );
 
+        // This file came from OneDrive, so it is already backed up by definition.
+        // Without this guard the `add_attachment` hook would queue it to be
+        // uploaded straight back to the folder it was just read from.
+        $this->suppress_backup_queue = true;
         $attachment_id = wp_insert_attachment($attachment, $target_path, 0, true);
+        $this->suppress_backup_queue = false;
 
         if (is_wp_error($attachment_id)) {
             Azure_Logger::error('OneDrive Media: Failed to create attachment - ' . $file_data['name'] . ': ' . $attachment_id->get_error_message());
@@ -644,15 +1190,64 @@ class Azure_OneDrive_Media_Manager {
     }
     
     /**
+     * Download a OneDrive item, re-minting its URL if the cached one has died.
+     *
+     * `@microsoft.graph.downloadUrl` is pre-signed and short-lived (about an
+     * hour). Batched imports cache the folder listing and work through it 20
+     * files per request, so a large folder routinely outlives the URLs it
+     * started with — asking Graph for a fresh one turns a hard failure into a
+     * retry.
+     *
+     * @return string|WP_Error Temp file path, or the download error.
+     */
+    private function download_onedrive_item($item) {
+        $url = $item['download_url'] ?? '';
+
+        if ($url !== '') {
+            $temp_file = download_url($url);
+            if (!is_wp_error($temp_file)) {
+                return $temp_file;
+            }
+            $first_error = $temp_file;
+        } else {
+            $first_error = new WP_Error('onedrive_no_download_url', 'No download URL for ' . ($item['name'] ?? 'file'));
+        }
+
+        if (!$this->graph_api || empty($item['id'])) {
+            return $first_error;
+        }
+
+        $fresh_url = $this->graph_api->get_download_url($item['id']);
+        if (!$fresh_url) {
+            return $first_error;
+        }
+
+        Azure_Logger::debug('OneDrive Media: Refreshed expired download URL for ' . ($item['name'] ?? $item['id']));
+        return download_url($fresh_url);
+    }
+
+    /**
      * Run auto-sync (scheduled via WordPress Cron)
      */
     public function run_auto_sync() {
         if (!Azure_Settings::get_setting('onedrive_media_auto_sync', false)) {
             return;
         }
-        
-        Azure_Logger::info('OneDrive Media: Starting auto-sync');
-        $this->sync_from_onedrive();
+
+        // The direction setting used to be collected and then ignored: this always
+        // ran the import, so a site set to "WordPress → OneDrive" silently pulled
+        // files in instead of backing them up.
+        $direction = (string) Azure_Settings::get_setting('onedrive_media_sync_direction', 'wp_to_onedrive');
+
+        Azure_Logger::info('OneDrive Media: Starting auto-sync (direction: ' . $direction . ')');
+
+        if (in_array($direction, array('wp_to_onedrive', 'two_way'), true)) {
+            $this->run_backup_queue();
+        }
+
+        if (in_array($direction, array('onedrive_to_wp', 'two_way'), true)) {
+            $this->sync_from_onedrive();
+        }
     }
     
     /**
@@ -701,8 +1296,17 @@ class Azure_OneDrive_Media_Manager {
         $batches = array();
         $root_files = 0;
 
+        $excluded_years = array();
+
         foreach ($items as $item) {
             if ($item['is_folder']) {
+                // A new school year means the old site's back catalogue should stay
+                // out of the library; importing it would only inflate the uploads
+                // volume with media nothing on the site references.
+                if ($this->is_year_folder_below_cutoff($item['name'])) {
+                    $excluded_years[] = $item['name'];
+                    continue;
+                }
                 $folder_path = $base_folder . '/' . $item['name'];
                 $files = array();
                 $this->collect_onedrive_files($folder_path, $item['name'], $files);
@@ -725,16 +1329,26 @@ class Azure_OneDrive_Media_Manager {
             ));
         }
 
-        $total_files = $root_files;
+        // $batches already includes the __root__ entry, so seeding the total with
+        // $root_files as well counted the loose root files twice and made the
+        // import progress bar stall short of 100%.
+        $total_files = 0;
         foreach ($batches as $b) {
             $total_files += $b['file_count'];
         }
 
         Azure_Logger::info('OneDrive Media Import: Scan found ' . count($batches) . ' batches, ' . $total_files . ' total files');
 
+        if (!empty($excluded_years)) {
+            sort($excluded_years);
+            Azure_Logger::info('OneDrive Media Import: Excluded pre-cutoff year folders - ' . implode(', ', $excluded_years));
+        }
+
         wp_send_json_success(array(
-            'batches'     => $batches,
-            'total_files' => $total_files,
+            'batches'         => $batches,
+            'total_files'     => $total_files,
+            'excluded_years'  => $excluded_years,
+            'import_min_year' => $this->get_import_min_year(),
         ));
     }
 
@@ -838,7 +1452,7 @@ class Azure_OneDrive_Media_Manager {
                 continue;
             }
 
-            $temp_file = download_url($item['download_url']);
+            $temp_file = $this->download_onedrive_item($item);
             if (is_wp_error($temp_file)) {
                 Azure_Logger::error('OneDrive Media Import: Download failed — ' . $item['name'] . ': ' . $temp_file->get_error_message());
                 $errors++;
@@ -1394,53 +2008,56 @@ class Azure_OneDrive_Media_Manager {
      * @return array|null  The file_data from the index, or null if no match.
      */
     private function find_in_index($filename, $onedrive_index) {
-        $lower = strtolower($filename);
-        if (isset($onedrive_index[$lower])) {
-            return $onedrive_index[$lower];
-        }
-
-        $ext  = pathinfo($lower, PATHINFO_EXTENSION);
-        $stem = pathinfo($lower, PATHINFO_FILENAME);
-
-        // Strip "-scaled" suffix  (e.g. image-scaled.png → image.png)
-        $variants = array();
-        $clean = preg_replace('/-scaled$/i', '', $stem);
-        if ($clean !== $stem) {
-            $variants[] = $clean . '.' . $ext;
-        }
-
-        // Strip WP image-edit suffix  "-e{10-13 digit timestamp}" (e.g. img-e1764958349687.png → img.png)
-        $clean2 = preg_replace('/-e\d{10,14}$/i', '', $stem);
-        if ($clean2 !== $stem) {
-            $variants[] = $clean2 . '.' . $ext;
-        }
-
-        // Strip both combined
-        $clean3 = preg_replace('/-scaled$/i', '', $clean2);
-        if ($clean3 !== $stem && $clean3 !== $clean && $clean3 !== $clean2) {
-            $variants[] = $clean3 . '.' . $ext;
-        }
-
-        // Strip "-rotated" suffix (e.g. IMG_2697-rotated.jpeg → IMG_2697.jpeg)
-        $clean4 = preg_replace('/-rotated$/i', '', $stem);
-        if ($clean4 !== $stem) {
-            $variants[] = $clean4 . '.' . $ext;
-        }
-
-        // Strip WP dimension suffix "-{W}x{H}" (e.g. image-300x200.png → image.png)
-        $clean5 = preg_replace('/-\d+x\d+$/i', '', $stem);
-        if ($clean5 !== $stem) {
-            $variants[] = $clean5 . '.' . $ext;
-        }
-
-        foreach ($variants as $v) {
-            $vl = strtolower($v);
-            if (isset($onedrive_index[$vl])) {
-                return $onedrive_index[$vl];
+        foreach ($this->wp_filename_variants($filename) as $variant) {
+            if (isset($onedrive_index[$variant])) {
+                return $onedrive_index[$variant];
             }
         }
 
         return null;
+    }
+
+    /**
+     * Every lower-cased name a WordPress copy of an original might have.
+     *
+     * WP appends suffixes the OneDrive original won't carry: "-scaled" from
+     * big-image downsizing, "-e{timestamp}" from an in-editor edit, "-rotated",
+     * and "-{W}x{H}" for intermediate sizes. They stack — editing an already
+     * downsized image gives "name-e1764958349687-scaled.jpg" — so strip
+     * repeatedly instead of testing each suffix once against the full stem.
+     *
+     * @return array Lower-cased filename candidates, most specific first.
+     */
+    private function wp_filename_variants($filename) {
+        $lower = strtolower($filename);
+        $ext   = pathinfo($lower, PATHINFO_EXTENSION);
+        $stem  = pathinfo($lower, PATHINFO_FILENAME);
+
+        $suffixes = array(
+            '/-scaled$/',
+            '/-rotated$/',
+            '/-e\d{10,14}$/',
+            '/-\d+x\d+$/',
+        );
+
+        $variants = array($lower);
+        $seen     = array($stem => true);
+        $queue    = array($stem);
+
+        while ($queue) {
+            $current = array_shift($queue);
+            foreach ($suffixes as $pattern) {
+                $stripped = preg_replace($pattern, '', $current);
+                if ($stripped === $current || $stripped === '' || isset($seen[$stripped])) {
+                    continue;
+                }
+                $seen[$stripped] = true;
+                $queue[] = $stripped;
+                $variants[] = $ext !== '' ? $stripped . '.' . $ext : $stripped;
+            }
+        }
+
+        return $variants;
     }
 
     /**
@@ -1490,18 +2107,62 @@ class Azure_OneDrive_Media_Manager {
     /**
      * Get sync statistics
      */
+    /**
+     * Backup coverage for the media library.
+     *
+     * Counting only the mapping table meant the dashboard could report a healthy
+     * "12 synced" while staying silent about the other 83 library items that had
+     * never been attempted, so the library total is the denominator here.
+     */
     public function get_sync_stats() {
         global $wpdb;
         $table = Azure_Database::get_table_name('onedrive_files');
-        
-        $stats = array(
-            'total_files' => $wpdb->get_var("SELECT COUNT(*) FROM {$table}"),
-            'synced_files' => $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE sync_status = 'synced'"),
-            'pending_files' => $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE sync_status = 'pending'"),
-            'error_files' => $wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE sync_status = 'error'"),
-            'total_size' => $wpdb->get_var("SELECT SUM(file_size) FROM {$table}")
+        $queue = Azure_Database::get_table_name('onedrive_sync_queue');
+
+        $library_total = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment'"
         );
-        
-        return $stats;
+
+        $backed_up = 0;
+        $orphaned = 0;
+        $total_size = 0;
+
+        if ($table) {
+            $backed_up = (int) $wpdb->get_var(
+                "SELECT COUNT(DISTINCT attachment_id) FROM {$table}
+                  WHERE attachment_id IS NOT NULL AND sync_status = 'synced'"
+            );
+            $orphaned = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$table} WHERE sync_status = 'orphaned'"
+            );
+            $total_size = (int) $wpdb->get_var("SELECT SUM(file_size) FROM {$table}");
+        }
+
+        $queued = 0;
+        $failed = 0;
+
+        if ($queue) {
+            $queued = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$queue}
+                  WHERE operation = 'backup' AND status IN ('pending', 'processing')"
+            );
+            $failed = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$queue} WHERE operation = 'backup' AND status = 'failed'"
+            );
+        }
+
+        $not_queued = max(0, $library_total - $backed_up - $queued - $failed);
+        $coverage = $library_total > 0 ? round(($backed_up / $library_total) * 100) : 0;
+
+        return array(
+            'library_total'   => $library_total,
+            'backed_up_files' => $backed_up,
+            'queued_files'    => $queued,
+            'failed_files'    => $failed,
+            'not_queued'      => $not_queued,
+            'orphaned_files'  => $orphaned,
+            'coverage_pct'    => $coverage,
+            'total_size'      => $total_size,
+        );
     }
 }

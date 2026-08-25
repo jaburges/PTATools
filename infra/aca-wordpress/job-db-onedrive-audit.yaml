@@ -1,0 +1,76 @@
+# Read-only audit of the OneDrive backup schema and coverage on the live site.
+# Re-usable: edit the SQL below and re-run `az containerapp job create/start`.
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    ? /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+    : {}
+properties:
+  environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 1800
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+    - name: db-password
+      keyVaultUrl: https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password
+      identity: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+  template:
+    containers:
+    - name: sql
+      image: docker.io/library/mysql:8
+      resources:
+        cpu: 0.5
+        memory: 1.0Gi
+      env:
+      - name: MYSQL_PWD
+        secretRef: db-password
+      command:
+      - /bin/sh
+      args:
+      - -c
+      - |
+        set -e
+        mysql --host=wilderptsa-wpdb-small.mysql.database.azure.com \
+          --user=ptsadbadmin --ssl-mode=REQUIRED --default-character-set=utf8mb4 \
+          -t wilderptsa_wp <<'SQL'
+        SELECT 'plugin db_version (expect 3.143.0)' AS check_name;
+        SELECT option_value AS db_version FROM wp_options
+         WHERE option_name = 'azure_plugin_db_version';
+
+        SELECT 'sync_queue columns (expect attachment_id + next_attempt_at)' AS check_name;
+        SELECT column_name, column_type, is_nullable
+          FROM information_schema.columns
+         WHERE table_schema = 'wilderptsa_wp'
+           AND table_name = 'wp_azure_onedrive_sync_queue'
+         ORDER BY ordinal_position;
+
+        SELECT 'sync_queue indexes (expect unique op_attachment)' AS check_name;
+        SELECT index_name, GROUP_CONCAT(column_name ORDER BY seq_in_index) AS cols,
+               IF(non_unique = 0, 'UNIQUE', 'index') AS kind
+          FROM information_schema.statistics
+         WHERE table_schema = 'wilderptsa_wp'
+           AND table_name = 'wp_azure_onedrive_sync_queue'
+         GROUP BY index_name, non_unique;
+
+        SELECT 'backup coverage' AS check_name;
+        SELECT
+          (SELECT COUNT(*) FROM wp_posts WHERE post_type = 'attachment') AS library_total,
+          (SELECT COUNT(DISTINCT attachment_id) FROM wp_azure_onedrive_files
+            WHERE attachment_id IS NOT NULL AND sync_status = 'synced') AS backed_up,
+          (SELECT COUNT(*) FROM wp_azure_onedrive_sync_queue
+            WHERE operation = 'backup' AND status IN ('pending','processing')) AS queued,
+          (SELECT COUNT(*) FROM wp_azure_onedrive_sync_queue
+            WHERE operation = 'backup' AND status = 'failed') AS failed;
+
+        SELECT 'onedrive settings after migration' AS check_name;
+        SELECT SUBSTRING(option_value,
+                 GREATEST(1, LOCATE('onedrive_media_sync_direction', option_value) - 10), 320) AS direction_region
+          FROM wp_options WHERE option_name = 'azure_plugin_settings';
+        SQL
+        echo QUERY_OK

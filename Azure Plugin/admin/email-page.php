@@ -10,7 +10,9 @@ $email_queue_table = Azure_Database::get_table_name('email_queue');
 
 if ($email_queue_table) {
     $email_stats['pending_count'] = $wpdb->get_var("SELECT COUNT(*) FROM {$email_queue_table} WHERE status = 'pending'");
-    $email_stats['sent_count'] = $wpdb->get_var("SELECT COUNT(*) FROM {$email_queue_table} WHERE status = 'sent' AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAYS)");
+    // INTERVAL takes the singular unit — "7 DAYS" is a MySQL syntax error, so
+    // this count came back null and the dashboard always showed zero sent.
+    $email_stats['sent_count'] = $wpdb->get_var("SELECT COUNT(*) FROM {$email_queue_table} WHERE status = 'sent' AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)");
     $email_stats['failed_count'] = $wpdb->get_var("SELECT COUNT(*) FROM {$email_queue_table} WHERE status = 'failed'");
     $email_stats['total_count'] = $wpdb->get_var("SELECT COUNT(*) FROM {$email_queue_table}");
 }
@@ -887,7 +889,12 @@ input:checked + .slider:before {
     color: #333 !important;
 }
 
-.form-table input,
+.form-table input[type="text"],
+.form-table input[type="password"],
+.form-table input[type="email"],
+.form-table input[type="number"],
+.form-table input[type="url"],
+.form-table input[type="search"],
 .form-table select,
 .form-table textarea {
     color: #333 !important;

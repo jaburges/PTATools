@@ -31,19 +31,62 @@ if (!defined('ABSPATH')) {
         foreach ($parent_meta as $f) {
             $by_key[$f['key']] = $f;
         }
-        $sub_keys = array('name', 'email', 'cell');
-        foreach ($sub_keys as $sub) {
-            $k1 = 'pta_pf_parent_1_' . $sub;
-            $k2 = 'pta_pf_parent_2_' . $sub;
-            if (isset($by_key[$k1]) || isset($by_key[$k2])) {
-                $parent_pairs[] = array(
-                    'left'  => isset($by_key[$k1]) ? $by_key[$k1] : null,
-                    'right' => isset($by_key[$k2]) ? $by_key[$k2] : null,
-                );
-                unset($by_key[$k1], $by_key[$k2]);
+
+        $take_parent_field = function ($slot, $sub) use (&$by_key) {
+            $suffix = 'parent_' . $slot . '_' . $sub;
+            $canonical = 'pta_pf_' . $suffix;
+            if (isset($by_key[$canonical])) {
+                $field = $by_key[$canonical];
+                unset($by_key[$canonical]);
+                return $field;
             }
+            foreach ($by_key as $key => $field) {
+                if (substr($key, -strlen($suffix)) === $suffix) {
+                    unset($by_key[$key]);
+                    return $field;
+                }
+            }
+            if ($sub !== 'opt_in') {
+                return null;
+            }
+            foreach ($by_key as $key => $field) {
+                $label = strtolower(isset($field['label']) ? $field['label'] : '');
+                $is_directory = (strpos($label, 'directory') !== false || strpos($label, 'opt in') !== false || strpos($label, 'opt-in') !== false);
+                if (!$is_directory) {
+                    continue;
+                }
+                $is_p2 = (strpos($label, 'parent 2') !== false || strpos($key, 'parent_2') !== false);
+                if (($slot === '2' && $is_p2) || ($slot === '1' && !$is_p2)) {
+                    unset($by_key[$key]);
+                    return $field;
+                }
+            }
+            return null;
+        };
+
+        foreach (array('name', 'email', 'cell', 'opt_in') as $sub) {
+            $left  = $take_parent_field('1', $sub);
+            $right = $take_parent_field('2', $sub);
+            if (!$left && !$right) {
+                continue;
+            }
+            if ($sub === 'opt_in' && $right) {
+                $right['label'] = __('Opt Parent 2 in to directory', 'azure-plugin');
+            }
+            $parent_pairs[] = array(
+                'left'  => $left,
+                'right' => $right,
+            );
         }
-        $parent_tail = array_values($by_key);
+
+        foreach ($by_key as $field) {
+            $label = strtolower(isset($field['label']) ? $field['label'] : '');
+            $key   = isset($field['key']) ? $field['key'] : '';
+            if (strpos($key, 'opt_in') !== false || strpos($label, 'directory') !== false) {
+                continue;
+            }
+            $parent_tail[] = $field;
+        }
     ?>
     <div class="azure-uc-section">
         <h3 style="margin: 0 0 15px;"><?php _e('My Profile', 'azure-plugin'); ?></h3>
@@ -306,6 +349,13 @@ jQuery(function($) {
             var formData = $form.serializeArray();
             var postData = { action: action, nonce: nonce };
             $.each(formData, function(i, field) { postData[field.name] = field.value; });
+            // Unchecked boxes are omitted by serializeArray. Send an empty
+            // value so directory opt-in can be cleared from My Account.
+            $form.find('input[type="checkbox"]').each(function() {
+                if (!this.checked && this.name) {
+                    postData[this.name] = '';
+                }
+            });
 
             $.post(ajaxUrl, postData, function(res) {
                 $btn.prop('disabled', false);

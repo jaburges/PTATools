@@ -250,11 +250,25 @@ class Azure_Tickets_Module {
      * Generate tickets when order is completed
      */
     public function generate_tickets_for_order($order_id) {
+        global $wpdb;
+
         $order = wc_get_order($order_id);
         if (!$order) {
             return;
         }
-        
+
+        // This fires on both `processing` and `completed`, and most orders pass
+        // through both — without a guard the same order got a second full set of
+        // tickets, so QR codes were duplicated and "tickets sold" double-counted.
+        $tickets_table = $wpdb->prefix . 'azure_tickets';
+        $existing = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$tickets_table} WHERE order_id = %d",
+            $order_id
+        ));
+        if ($existing > 0) {
+            return;
+        }
+
         foreach ($order->get_items() as $item) {
             $product = $item->get_product();
             if ($product && $product->get_type() === 'ticket') {
@@ -376,7 +390,9 @@ class Azure_Tickets_Module {
         // Reservations expire after 15 minutes
         $expiry_time = date('Y-m-d H:i:s', strtotime('-15 minutes'));
         
-        $wpdb->delete($table, array('status' => 'reserved'), array('%s'));
+        // Only the expired ones. An unconditional delete used to run first,
+        // which released every held seat once an hour — including seats a
+        // shopper was in the middle of checking out with.
         $wpdb->query($wpdb->prepare(
             "DELETE FROM {$table} WHERE status = 'reserved' AND updated_at < %s",
             $expiry_time
@@ -477,6 +493,11 @@ class Azure_Tickets_Module {
      */
     public function ajax_get_venue() {
         check_ajax_referer('azure_tickets_nonce', 'nonce');
+
+        // Only reached from the admin venue editor; matches ajax_save_venue.
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Permission denied'));
+        }
 
         $venue_id = intval($_POST['venue_id'] ?? 0);
         $venue = get_post($venue_id);
@@ -706,7 +727,14 @@ class Azure_Tickets_Module {
      */
     public function ajax_validate_ticket() {
         check_ajax_referer('azure_tickets_nonce', 'nonce');
-        
+
+        // Same gate as check-in: the response carries attendee name, event and
+        // seat, so a nonce alone would let any logged-in user look up any
+        // ticket by code.
+        if (!current_user_can('scan_tickets')) {
+            wp_send_json_error(array('message' => 'Permission denied'));
+        }
+
         $ticket_code = sanitize_text_field($_POST['ticket_code'] ?? '');
         
         global $wpdb;

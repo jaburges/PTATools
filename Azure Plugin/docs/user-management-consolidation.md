@@ -11,15 +11,15 @@
 1. Make WordPress users (`wp_users` + `wp_usermeta`) the single source of truth for **identity** and for **bulk-email audience membership**. Eliminate the parallel AcyMailing subscriber list (`wp_acym_user`) once verified clean — but **only when the site admin manually disables AcyMailing**, never automatically.
 2. Reuse existing roles. Centralize the parent population on the existing `parent` role and reuse the **already-configured SSO role** for `@{org_domain}` users. No new WP role types are introduced.
 3. Onboard ~650 imported parents to live WordPress accounts via a **passwordless magic-link activation** flow — no plaintext passwords ever travel by email. Activation tokens persist plugin upgrades and restarts until they're 7 days expired; cleanup runs on plugin upgrade and only deletes already-expired rows.
-4. Centralize bulk email through the existing PTA Tools **Newsletter** module, sending from a branded `noreply@{org_domain}` Mailgun sender (already configured for `wilderptsa.net` per site admin). Keep ACS for transactional 1-to-1 mail.
+4. Centralize bulk email through the existing PTA Tools **Newsletter** module, sending from a branded `noreply@{org_domain}` Mailgun sender (already configured for the org domain per site admin). Keep ACS for transactional 1-to-1 mail.
 
 ## 2. Non-goals
 
 - Replacing transactional ACS sending — ACS stays.
 - Migrating to a new auth provider — Azure AD SSO continues to be the primary path for `@{org_domain}` users; native WP login + magic-link is the path for everyone else.
 - Building a custom CRM. Newsletter audience targeting reuses existing `wp_azure_newsletter_lists` with role-based criteria.
-- Hardcoding the org domain. The plugin is multi-tenant by design (`wilderptsa.net`, `ltptsa.net`, future PTSAs); the `org_domain` setting from the setup wizard drives every domain check.
-- Auto-creating WP user accounts for school staff in this scope. School-staff emails (`@lwsd.org` for the Wilder install) live as a custom newsletter list only. To be revisited in a follow-up.
+- Hardcoding the org domain. The plugin is multi-tenant by design (each PTA runs its own domain); the `org_domain` setting from the setup wizard drives every domain check.
+- Auto-creating WP user accounts for school staff in this scope. School-staff emails (the school district domain for a given install) live as a custom newsletter list only. To be revisited in a follow-up.
 
 ## 3. Current state
 
@@ -34,7 +34,7 @@
 | Connected family + children | `wp_azure_user_children`, `wp_azure_connected_family`, `wp_azure_connected_family_meta` (via `Azure_User_Children`) | Family-aware lookups; supports primary + secondary parent on a single family. |
 | AcyMailing subscribers | `wp_acym_user` (3rd-party plugin) | ~650 rows. Read-only access via `Azure_Diagnostics_API` (which already has a missing-from-acymailing diff). |
 | Newsletter lists | `wp_azure_newsletter_lists`, `wp_azure_newsletter_list_members` | Three list types: `all_users`, `role`, `custom`. Role-based lists query WP directly — no sync layer. |
-| Newsletter sender | `Azure_Newsletter_Sender` | Pluggable backends: Mailgun, SendGrid, SES, SMTP, Office365. **Mailgun already configured for `wilderptsa.net`.** |
+| Newsletter sender | `Azure_Newsletter_Sender` | Pluggable backends: Mailgun, SendGrid, SES, SMTP, Office365. **Mailgun already configured for the org domain.** |
 | Newsletter queue | `Azure_Newsletter_Queue`, `Azure_Newsletter_Sender` + `Azure_Newsletter_Tracking` | Throttling, retries, open/click pixels, unsubscribe tokens, bounce handling — all already implemented. |
 | Transactional mail | `Azure_Email_Mailer` (Graph / HVE / **ACS**) | ACS configured with verified DKIM/DKIM2/SPF/DMARC on Azure-managed sender domain. Sender hostname is a 36-char GUID — fine for txn but ugly for branded mass mail. |
 
@@ -72,8 +72,8 @@ Bucketing rule applied by both the AcyMailing migrator and the parent CSV import
 let org_domain = Azure_Settings::get_setting('org_domain')
 let sso_role   = Azure_SSO_Sync::resolve_configured_role_slug()
 let school_staff_domains = Azure_Settings::get_setting('school_staff_domains', [])
-                           // Wilder install: ['lwsd.org']
-                           // ltptsa install: e.g. ['lwsd.org'] — same district
+                           // e.g. ['exampleschools.org']
+                           // a sibling PTA in the same district: the same domain
 
 email = lowercase(trim(email))
 

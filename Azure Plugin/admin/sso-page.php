@@ -391,7 +391,7 @@ sso_debug_log('last_sync_results: ' . json_encode($last_sync_results));
                                         <strong>Login page — organization heading (above SSO button):</strong><br />
                                         <input type="text" name="sso_login_org_heading" id="sso_login_org_heading" value="<?php echo esc_attr($settings['sso_login_org_heading'] ?? ''); ?>" class="regular-text" placeholder="<?php echo esc_attr(get_bloginfo('name')); ?>" />
                                     </label>
-                                    <p class="description">Shown in the Microsoft sign-in section after the Parents username/password form (e.g. <code>WilderPTSA</code>). Leave blank to use the site title.</p>
+                                    <p class="description">Shown in the Microsoft sign-in section after the Parents username/password form. Leave blank to use the site title.</p>
                                 </div>
                             </td>
                         </tr>
@@ -1429,7 +1429,12 @@ input:checked + .slider:before {
     color: #333 !important;
 }
 
-.form-table input,
+.form-table input[type="text"],
+.form-table input[type="password"],
+.form-table input[type="email"],
+.form-table input[type="number"],
+.form-table input[type="url"],
+.form-table input[type="search"],
 .form-table select,
 .form-table textarea {
     color: #333 !important;

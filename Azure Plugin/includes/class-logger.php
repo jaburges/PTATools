@@ -292,7 +292,9 @@ class Azure_Logger {
             }
             
             global $wpdb;
-            $activity_table = Azure_Database::get_table_name('activity');
+            // Registry key is 'activity_log'; 'activity' resolved to null, so
+            // the 90-day cleanup silently returned without ever pruning.
+            $activity_table = Azure_Database::get_table_name('activity_log');
             
             if (!$activity_table) {
                 return;

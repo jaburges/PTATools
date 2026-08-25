@@ -1,0 +1,181 @@
+# Links the existing "VP <Department>" roles to the departments they lead, and
+# seeds a role assignment from each department's current vp_user_id, so the two
+# representations of "who is the VP" agree from the moment the link exists.
+#
+# Reports and writes nothing unless DRY_RUN is "0".
+#
+# Background: departments.vp_user_id and the VP-named roles were independent.
+# The column drives the org chart, the public shortcodes, the REST API and the
+# Azure AD manager field; the roles drive staffing counts and job titles. From
+# plugin 3.143.10 the role assignment is the record and the column is derived
+# from it, but the eight roles that already existed have no link and no
+# assignments, so without this they would read as unfilled while the departments
+# all had VPs.
+#
+# Matching is by name — "VP Communications" -> "Communications", and the
+# special case "Executive VP" -> "Exec Board". Shown for review rather than
+# applied blindly because that is a guess about intent, not a fact.
+#
+# Not handled here: job_title user meta for the eight people. The plugin
+# recomputes it on the next assignment change; it is cosmetic until then.
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 900
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: db-password
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+  template:
+    containers:
+      - name: sql
+        image: docker.io/library/mysql:8
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: MYSQL_PWD
+            secretRef: db-password
+          # "1" reports what would change and writes nothing. Set to "0" to apply.
+          - name: DRY_RUN
+            value: "1"
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            set -e
+            MYSQL="mysql --host=wilderptsa-wpdb-small.mysql.database.azure.com \
+              --user=ptsadbadmin --ssl-mode=REQUIRED --default-character-set=utf8mb4 \
+              -t wilderptsa_wp"
+
+            echo "=== proposed links (role -> department it leads) ==="
+            $MYSQL <<'SQL'
+            SELECT r.id AS role_id, r.name AS role_name,
+                   d.id AS dept_id, d.name AS department,
+                   COALESCE(u.display_name, '(no VP set)') AS dept_vp,
+                   CASE WHEN r.vp_for_department_id IS NOT NULL
+                        THEN 'already linked' ELSE 'would link' END AS state
+              FROM wp_pta_roles r
+              JOIN wp_pta_departments d
+                ON d.name = CASE WHEN r.name = 'Executive VP'
+                                 THEN 'Exec Board'
+                                 ELSE TRIM(SUBSTRING(r.name, 4))
+                            END
+              LEFT JOIN wp_users u ON u.ID = d.vp_user_id
+             WHERE r.name LIKE 'VP %' OR r.name = 'Executive VP'
+             ORDER BY d.name;
+            SQL
+
+            echo
+            echo "=== VP-looking roles that match no department (left alone) ==="
+            $MYSQL <<'SQL'
+            SELECT r.id, r.name
+              FROM wp_pta_roles r
+             WHERE (r.name LIKE '%VP%' OR r.name LIKE '%Vice President%')
+               AND NOT EXISTS (
+                     SELECT 1 FROM wp_pta_departments d
+                      WHERE d.name = CASE WHEN r.name = 'Executive VP'
+                                          THEN 'Exec Board'
+                                          ELSE TRIM(SUBSTRING(r.name, 4))
+                                     END
+                   );
+            SQL
+
+            echo
+            echo "=== conflicts: role already held by someone other than the department VP ==="
+            $MYSQL <<'SQL'
+            SELECT r.id AS role_id, r.name AS role_name,
+                   hu.display_name AS currently_holds_role,
+                   du.display_name AS vp_on_department
+              FROM wp_pta_roles r
+              JOIN wp_pta_departments d
+                ON d.name = CASE WHEN r.name = 'Executive VP'
+                                 THEN 'Exec Board'
+                                 ELSE TRIM(SUBSTRING(r.name, 4))
+                            END
+              JOIN wp_pta_role_assignments a
+                ON a.role_id = r.id AND a.status = 'active'
+              JOIN wp_users hu ON hu.ID = a.user_id
+              LEFT JOIN wp_users du ON du.ID = d.vp_user_id
+             WHERE (r.name LIKE 'VP %' OR r.name = 'Executive VP')
+               AND (d.vp_user_id IS NULL OR a.user_id <> d.vp_user_id);
+            SQL
+
+            # Written out at the base indentation on purpose: YAML strips the
+            # block's common indent, and a heredoc terminator only counts at
+            # column 0. Indenting these to sit inside the "if" below leaves
+            # leading spaces on the terminator, which swallows the rest of the
+            # script and fails with "unexpected end of file".
+            cat > /tmp/vp-link-apply.sql <<'SQL'
+            /* 1. Link each VP role to the department it leads. */
+            UPDATE wp_pta_roles r
+              JOIN wp_pta_departments d
+                ON d.name = CASE WHEN r.name = 'Executive VP'
+                                 THEN 'Exec Board'
+                                 ELSE TRIM(SUBSTRING(r.name, 4))
+                            END
+               SET r.vp_for_department_id = d.id
+             WHERE (r.name LIKE 'VP %' OR r.name = 'Executive VP')
+               AND r.vp_for_department_id IS NULL;
+
+            /* 2. Seed an assignment from the department's current VP, but only
+                  where the seat is empty — an existing holder is a decision
+                  someone made in the UI, reported as a conflict above rather
+                  than overwritten. */
+            INSERT INTO wp_pta_role_assignments
+                   (user_id, role_id, is_primary, assigned_by, status, metadata)
+            SELECT d.vp_user_id, r.id, 0, 0, 'active',
+                   JSON_OBJECT('assigned_via', 'vp_link_backfill')
+              FROM wp_pta_roles r
+              JOIN wp_pta_departments d ON d.id = r.vp_for_department_id
+             WHERE d.vp_user_id IS NOT NULL
+               AND d.vp_user_id > 0
+               AND NOT EXISTS (
+                     SELECT 1 FROM wp_pta_role_assignments a
+                      WHERE a.role_id = r.id AND a.status = 'active'
+                   );
+            SQL
+
+            if [ "$DRY_RUN" = "0" ]; then
+              echo
+              echo "=== APPLYING ==="
+              $MYSQL < /tmp/vp-link-apply.sql
+              echo "  applied"
+            else
+              echo
+              echo "=== DRY RUN, nothing written ==="
+            fi
+
+            echo
+            echo "=== resulting state ==="
+            $MYSQL <<'SQL'
+            SELECT d.id, d.name AS department,
+                   COALESCE(du.display_name, '(none)') AS vp_column,
+                   COALESCE(r.name, '(no VP role)') AS vp_role,
+                   COALESCE(hu.display_name, '(vacant)') AS holds_vp_role,
+                   CASE
+                     WHEN r.id IS NULL THEN 'no role'
+                     WHEN d.vp_user_id IS NULL AND a.user_id IS NULL THEN 'agree (both empty)'
+                     WHEN d.vp_user_id = a.user_id THEN 'agree'
+                     ELSE 'MISMATCH'
+                   END AS agreement
+              FROM wp_pta_departments d
+              LEFT JOIN wp_pta_roles r ON r.vp_for_department_id = d.id
+              LEFT JOIN wp_pta_role_assignments a
+                     ON a.role_id = r.id AND a.status = 'active'
+              LEFT JOIN wp_users du ON du.ID = d.vp_user_id
+              LEFT JOIN wp_users hu ON hu.ID = a.user_id
+             ORDER BY d.name;
+            SQL
+            echo VP_LINK_OK

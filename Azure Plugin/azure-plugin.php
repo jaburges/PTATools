@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.141.12
+ * Version: 3.147.10
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.141.12');
+define('AZURE_PLUGIN_VERSION', '3.147.10');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -36,6 +36,100 @@ if (!function_exists('azure_user_can')) {
         }
         return user_can($user_id, 'manage_options');
     }
+}
+
+if (!function_exists('azure_wp_timezone_string')) {
+    /**
+     * IANA name or UTC offset for the site timezone.
+     * Prefer this over `timezone_string ?: 'UTC'`, which ignores gmt_offset.
+     */
+    function azure_wp_timezone_string() {
+        if (function_exists('wp_timezone')) {
+            $name = wp_timezone()->getName();
+            if (is_string($name) && $name !== '') {
+                return $name;
+            }
+        }
+        $named = (string) get_option('timezone_string', '');
+        return $named !== '' ? $named : 'UTC';
+    }
+}
+
+if (!function_exists('azure_maybe_fix_utc_calendar_timezone')) {
+    /**
+     * One-shot v3.147.2: UTC WordPress stored Outlook instants as 18:00
+     * and displayed 11 AM Pacific as 6 PM. Switch the site to Pacific
+     * and rewrite timed pta_event wall clocks.
+     */
+    function azure_maybe_fix_utc_calendar_timezone() {
+        if (get_option('azure_calendar_tz_fix_31472')) {
+            return;
+        }
+        if (!wp_cache_add('azure_calendar_tz_fix_31472_lock', 1, '', 120)) {
+            return;
+        }
+
+        $named  = (string) get_option('timezone_string', '');
+        $offset = (float) get_option('gmt_offset', 0);
+        $is_utc = ($named === '' || strcasecmp($named, 'UTC') === 0) && abs($offset) < 0.01;
+        if (!$is_utc) {
+            update_option('azure_calendar_tz_fix_31472', 'skipped-not-utc:' . $named . ':' . $offset, false);
+            return;
+        }
+
+        update_option('timezone_string', 'America/Los_Angeles');
+        update_option('gmt_offset', -7);
+
+        $from = new DateTimeZone('UTC');
+        $to   = new DateTimeZone('America/Los_Angeles');
+        $converted = 0;
+
+        $q = new WP_Query(array(
+            'post_type'      => 'pta_event',
+            'post_status'    => 'any',
+            'posts_per_page' => 500,
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
+        ));
+
+        foreach ((array) $q->posts as $post_id) {
+            $all_day = strtolower((string) get_post_meta($post_id, '_EventAllDay', true));
+            if (in_array($all_day, array('yes', '1', 'true'), true)) {
+                update_post_meta($post_id, '_EventTimezone', 'America/Los_Angeles');
+                continue;
+            }
+            foreach (array('_EventStartDate', '_EventEndDate') as $key) {
+                $local = (string) get_post_meta($post_id, $key, true);
+                if ($local === '' || !preg_match('/^\d{4}-\d{2}-\d{2} /', $local)) {
+                    continue;
+                }
+                $utc_key = ($key === '_EventStartDate') ? '_EventStartDateUTC' : '_EventEndDateUTC';
+                if ((string) get_post_meta($post_id, $utc_key, true) === '') {
+                    update_post_meta($post_id, $utc_key, $local);
+                }
+                try {
+                    $dt = new DateTime($local, $from);
+                    $dt->setTimezone($to);
+                    update_post_meta($post_id, $key, $dt->format('Y-m-d H:i:s'));
+                } catch (Throwable $e) {
+                    continue;
+                }
+            }
+            update_post_meta($post_id, '_EventTimezone', 'America/Los_Angeles');
+            try {
+                update_post_meta($post_id, '_EventTimezoneAbbr', (new DateTime('now', $to))->format('T'));
+            } catch (Throwable $e) {
+                update_post_meta($post_id, '_EventTimezoneAbbr', 'PDT');
+            }
+            $converted++;
+        }
+
+        update_option('azure_calendar_tz_fix_31472', 'applied:' . $converted, false);
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info("Calendar TZ fix: set America/Los_Angeles and converted {$converted} timed events", 'Calendar');
+        }
+    }
+    add_action('init', 'azure_maybe_fix_utc_calendar_timezone', 5);
 }
 
 if (!function_exists('azure_auction_admin_can')) {
@@ -510,6 +604,21 @@ class AzurePlugin {
                     if (class_exists('Azure_Database')) {
                         Azure_Database::create_tables();
                     }
+
+                    /* The PTA tables were only ever built on activation, so any
+                     * schema change to them never reached an already-installed
+                     * site. The roles table gains vp_for_department_id in
+                     * 3.143.10, which would have been silently absent and made
+                     * every query touching it fail. create_pta_tables() is pure
+                     * dbDelta — no seeding, nothing destructive — so it is safe
+                     * to re-run. Seeding stays where it is, on activation. */
+                    $pta_db_file = AZURE_PLUGIN_PATH . 'includes/class-pta-database.php';
+                    if (!class_exists('Azure_PTA_Database') && file_exists($pta_db_file)) {
+                        require_once $pta_db_file;
+                    }
+                    if (class_exists('Azure_PTA_Database')) {
+                        Azure_PTA_Database::create_pta_tables();
+                    }
                     // Defer the rewrite flush to wp_loaded so every module's
                     // `add_rewrite_endpoint` hook on init has fired first.
                     // Calling flush_rewrite_rules() inline (during init priority
@@ -528,6 +637,36 @@ class AzurePlugin {
                     }
                     if (class_exists('Azure_Upcoming_Module')) {
                         Azure_Upcoming_Module::invalidate_cache();
+                    }
+
+                    // v3.143.4: the Azure AD User role gained editor-equivalent
+                    // capabilities, and v3.143.5 pointed SSO provisioning at it.
+                    // Activation alone will not apply either: the role already
+                    // exists on every installed site and the create path returns
+                    // early when it does.
+                    $this->sync_azuread_role();
+                    $this->migrate_sso_default_role();
+
+                    // v3.147.6: Multiple Roles is baked into the container
+                    // image. wp-admin installs vanish on the next revision,
+                    // and WordPress then drops a missing plugin from
+                    // active_plugins. Re-activate once the files are present.
+                    $this->ensure_multiple_roles_plugin();
+
+                    $ptsa_tpl = AZURE_PLUGIN_PATH . 'includes/class-ptsa-page-templates.php';
+                    if (!class_exists('Azure_PTSA_Page_Templates') && file_exists($ptsa_tpl)) {
+                        require_once $ptsa_tpl;
+                    }
+                    if (class_exists('Azure_PTSA_Page_Templates')) {
+                        Azure_PTSA_Page_Templates::maybe_assign_ptsa_preview_page();
+                    }
+
+                    $role_desc = AZURE_PLUGIN_PATH . 'includes/class-pta-role-descriptions.php';
+                    if (!class_exists('Azure_PTA_Role_Descriptions') && file_exists($role_desc)) {
+                        require_once $role_desc;
+                    }
+                    if (class_exists('Azure_PTA_Role_Descriptions')) {
+                        Azure_PTA_Role_Descriptions::maybe_seed_from_file();
                     }
 
                     update_option('azure_plugin_db_version', AZURE_PLUGIN_VERSION);
@@ -631,6 +770,27 @@ class AzurePlugin {
                 }
             }
 
+            // ChromeNews Exclusive News: Homepage category on posts, pages,
+            // and events. Cheap on every request (term lookup is cached).
+            if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-homepage-ticker.php')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-homepage-ticker.php';
+                if (class_exists('Azure_Homepage_Ticker')) {
+                    Azure_Homepage_Ticker::get_instance();
+                }
+            }
+
+            // Edge cache coordination for Front Door. Loaded on every request
+            // because the signed-in `no-store` guarantee has to apply to every
+            // response that could carry personal markup — a module that only
+            // loaded sometimes would be a cache-poisoning hole. Cost is a few
+            // header calls plus one already-cached session check.
+            if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-edge-cache.php')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-edge-cache.php';
+                if (class_exists('Azure_Edge_Cache')) {
+                    Azure_Edge_Cache::get_instance();
+                }
+            }
+
             // User Management module: registers the [pta_user_dropdown]
             // shortcode + the pta-account-menu theme location on every
             // request so themes can use them. Admin AJAX handlers are
@@ -640,6 +800,16 @@ class AzurePlugin {
                 require_once AZURE_PLUGIN_PATH . 'includes/class-user-management-module.php';
                 if (class_exists('Azure_User_Management_Module')) {
                     Azure_User_Management_Module::get_instance();
+                }
+            }
+
+            // Membership: [Parent-directory] shortcode + admin roster. Loaded
+            // on every request so the login gate and shortcode exist on the
+            // front end. Admin menu and CSV export self-gate inside the class.
+            if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-membership-module.php')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-membership-module.php';
+                if (class_exists('Azure_Membership_Module')) {
+                    Azure_Membership_Module::get_instance();
                 }
             }
 
@@ -892,6 +1062,7 @@ class AzurePlugin {
         }
         try {
             $this->require_module_files(array(
+                'class-backup-host.php',
                 'class-backup-engine.php',
                 'class-backup.php',
                 'class-backup-restore.php',
@@ -1058,22 +1229,27 @@ class AzurePlugin {
 
     /**
      * PTA module
-     *   - Database, Manager, Shortcode, Forminator, BeaverBuilder: front-end + admin
+     *   - Database, Manager, Shortcode, Forminator: front-end + admin
      *   - Sync Engine, Groups Manager: admin/cron only (Graph API user provisioning)
      */
     private function init_pta_components($ctx) {
         try {
-            // Always loaded (front-end shortcodes + Forminator/BB integrations + table accessors)
+            // Always loaded (front-end shortcodes + Forminator integration + table accessors)
             $this->require_module_files(array(
                 'class-pta-database.php',
+                'class-pta-role-descriptions.php',
                 'class-pta-manager.php',
                 'class-pta-shortcode.php',
                 'class-pta-forminator.php',
-                'class-pta-beaver-builder.php',
+                'class-local-avatars.php',
+                'class-ptsa-page-templates.php',
             ));
 
             if (class_exists('Azure_PTA_Database')) {
                 Azure_PTA_Database::init();
+            }
+            if (class_exists('Azure_Local_Avatars')) {
+                Azure_Local_Avatars::init();
             }
             if (class_exists('Azure_PTA_Manager')) {
                 Azure_PTA_Manager::get_instance();
@@ -1081,11 +1257,11 @@ class AzurePlugin {
             if (class_exists('Azure_PTA_Shortcode')) {
                 new Azure_PTA_Shortcode();
             }
-            if (class_exists('Azure_PTA_BeaverBuilder')) {
-                new Azure_PTA_BeaverBuilder();
-            }
             if (class_exists('Azure_PTA_Forminator')) {
                 Azure_PTA_Forminator::get_instance();
+            }
+            if (class_exists('Azure_PTSA_Page_Templates')) {
+                Azure_PTSA_Page_Templates::init();
             }
 
             // Admin/cron only
@@ -1614,6 +1790,7 @@ class AzurePlugin {
             // needs to require the files explicitly so create_tables() etc. are callable.
             $activation_files = array(
                 'class-pta-database.php',
+                'class-pta-role-descriptions.php',
                 'class-newsletter-module.php',
             );
             foreach ($activation_files as $f) {
@@ -1635,6 +1812,9 @@ class AzurePlugin {
                     Azure_PTA_Database::seed_initial_data(false);
                     Azure_Logger::info('PTA initial data seeded successfully');
                     $write_log("✅ **[STEP 6b]** PTA data seeded from CSV");
+                    if (class_exists('Azure_PTA_Role_Descriptions')) {
+                        Azure_PTA_Role_Descriptions::maybe_seed_from_file();
+                    }
                 } catch (\Throwable $e) {
                     $write_log("❌ **[STEP 6 ERROR]** Failed to create/seed PTA tables: " . $e->getMessage());
                     Azure_Logger::error('Failed to create/seed PTA database tables: ' . $e->getMessage());
@@ -1709,7 +1889,7 @@ class AzurePlugin {
                     'calendar_client_id' => '',
                     'calendar_client_secret' => '',
                     'calendar_tenant_id' => '',
-                    'calendar_default_timezone' => 'America/New_York',
+                    'calendar_default_timezone' => 'America/Los_Angeles',
                     'calendar_default_view' => 'month',
                     'calendar_default_color_theme' => 'blue',
                     'calendar_cache_duration' => 3600,
@@ -1821,36 +2001,158 @@ class AzurePlugin {
      * Create AzureAD WordPress role for SSO users
      */
     private function create_azuread_role() {
-        // Check if role already exists
-        if (get_role('azuread')) {
-            Azure_Logger::info('AzureAD role already exists');
+        $this->sync_azuread_role();
+    }
+
+    /**
+     * Point SSO provisioning at the azuread role instead of subscriber.
+     *
+     * Changing the default in Azure_Settings only covers sites that never saved
+     * the value. Where it was saved as subscriber, new SSO accounts would keep
+     * arriving unable to edit anything, and would keep being promoted to editor
+     * by hand — the drift this is meant to stop.
+     *
+     * Only the old default is rewritten, so a deliberate choice of some other
+     * role is left alone, and the one-shot flag means an admin who sets it back
+     * to subscriber on purpose does not get overridden on the next upgrade.
+     */
+    private function migrate_sso_default_role() {
+        if (get_option('azure_sso_default_role_migrated')) {
             return;
         }
-        
-        // Add AzureAD role with basic capabilities
-        add_role('azuread', 'Azure AD User', array(
+
+        if (!class_exists('Azure_Settings')) {
+            return;
+        }
+
+        $current = Azure_Settings::get_setting('sso_default_role', '');
+
+        if ($current === 'subscriber' || $current === '') {
+            Azure_Settings::update_setting('sso_default_role', 'azuread');
+            Azure_Logger::info("SSO default role moved from '{$current}' to 'azuread'");
+        }
+
+        update_option('azure_sso_default_role_migrated', 1);
+    }
+
+    /**
+     * Activate Multiple Roles once its files are in the image.
+     *
+     * A wp-admin install writes to ephemeral disk. The next revision drops
+     * those files and WordPress then removes the plugin from active_plugins.
+     * Baking the zip into the image is not enough if the option was already
+     * cleared; this puts it back.
+     */
+    private function ensure_multiple_roles_plugin() {
+        $plugin = 'multiple-roles/multiple-roles.php';
+        if (!file_exists(WP_PLUGIN_DIR . '/' . $plugin)) {
+            return;
+        }
+        if (!function_exists('activate_plugin')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+        if (is_plugin_active($plugin)) {
+            return;
+        }
+        $result = activate_plugin($plugin, '', false, true);
+        if (is_wp_error($result) && class_exists('Azure_Logger')) {
+            Azure_Logger::warning('Could not activate Multiple Roles: ' . $result->get_error_message());
+        }
+    }
+
+    /**
+     * Create or update the "Azure AD User" role.
+     *
+     * The role exists to make SSO-provisioned accounts recognisable at a glance,
+     * which is why it stays a separate role rather than just using editor. It
+     * originally granted only `read`, which meant board members provisioned
+     * through SSO could not edit anything and had to be put on editor instead —
+     * defeating the point, and leaving the roles as a poor signal of where an
+     * account came from. It now carries the same capabilities as editor.
+     *
+     * Safe to call repeatedly; it converges an existing role rather than
+     * replacing it.
+     */
+    private function sync_azuread_role() {
+        $target = $this->get_azuread_capabilities();
+        $role = get_role('azuread');
+
+        if (!$role) {
+            add_role('azuread', 'Azure AD User', $target);
+            Azure_Logger::info('Created AzureAD role for SSO users (editor-equivalent capabilities)');
+            return;
+        }
+
+        /* Converged in place. remove_role() followed by add_role() would be
+         * simpler but leaves every account on this role with no capabilities in
+         * between, and the role name stored against each user would briefly
+         * resolve to nothing. */
+        $changed = 0;
+
+        foreach ($target as $cap => $grant) {
+            $current = isset($role->capabilities[$cap]) ? $role->capabilities[$cap] : null;
+            if ($current !== $grant) {
+                $role->add_cap($cap, $grant);
+                $changed++;
+            }
+        }
+
+        /* The read-only version recorded explicit false entries for things like
+         * edit_posts. Those have all been reassigned above, but drop anything
+         * else left over so a stale denial cannot shadow an editor capability. */
+        foreach (array_keys($role->capabilities) as $cap) {
+            if (!array_key_exists($cap, $target)) {
+                $role->remove_cap($cap);
+                $changed++;
+            }
+        }
+
+        if ($changed > 0) {
+            Azure_Logger::info("Updated AzureAD role capabilities ({$changed} change(s)) to match editor");
+        }
+    }
+
+    /**
+     * Capabilities for the Azure AD User role: whatever editor currently has.
+     *
+     * Read from the live editor role so the two cannot drift, and so any
+     * capability another plugin grants editor is picked up here too. The literal
+     * list is only a fallback for the case where editor has been removed.
+     */
+    private function get_azuread_capabilities() {
+        $editor = get_role('editor');
+        if ($editor && !empty($editor->capabilities)) {
+            return $editor->capabilities;
+        }
+
+        return array(
             'read' => true,
-            'edit_posts' => false,
-            'delete_posts' => false,
-            'publish_posts' => false,
-            'upload_files' => false,
-            'edit_pages' => false,
-            'edit_others_posts' => false,
-            'edit_published_posts' => false,
-            'delete_others_posts' => false,
-            'delete_published_posts' => false,
-            'delete_pages' => false,
-            'manage_categories' => false,
-            'manage_links' => false,
-            'moderate_comments' => false,
-            'unfiltered_html' => false,
-            'edit_others_pages' => false,
-            'edit_published_pages' => false,
-            'delete_others_pages' => false,
-            'delete_published_pages' => false
-        ));
-        
-        Azure_Logger::info('Created AzureAD role for SSO users');
+            'upload_files' => true,
+            'edit_posts' => true,
+            'edit_others_posts' => true,
+            'edit_published_posts' => true,
+            'edit_private_posts' => true,
+            'publish_posts' => true,
+            'delete_posts' => true,
+            'delete_others_posts' => true,
+            'delete_published_posts' => true,
+            'delete_private_posts' => true,
+            'read_private_posts' => true,
+            'edit_pages' => true,
+            'edit_others_pages' => true,
+            'edit_published_pages' => true,
+            'edit_private_pages' => true,
+            'publish_pages' => true,
+            'delete_pages' => true,
+            'delete_others_pages' => true,
+            'delete_published_pages' => true,
+            'delete_private_pages' => true,
+            'read_private_pages' => true,
+            'manage_categories' => true,
+            'manage_links' => true,
+            'moderate_comments' => true,
+            'unfiltered_html' => true,
+        );
     }
 }
 

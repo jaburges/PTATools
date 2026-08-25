@@ -12,7 +12,7 @@
  * - status: all, open, filled, partial (default: all)
  * - description: true/false - show role description
  * - show_count: true/false - show filled/total count
- * - show_image: true/false - show WordPress profile photos (default: false)
+ * - show_image: true/false - show each person's photo when they have one (default: false)
  * - include_photo: true/false - alias for show_image (default: false)
  * - photo_size: number - photo size in pixels (default: 80)
  * - show_avatars: true/false (for team-cards layout)
@@ -52,6 +52,19 @@
  * - show_description: true/false - show role description
  * - show_assignments: true/false - show assigned users
  * 
+ * ROLE DESCRIPTION SHORTCODE:
+ * [Role-description role="president"]
+ * [role-description department="volunteers"]
+ * [Role-description]
+ *
+ * Parameters:
+ * - role / slug: role name or slug (optional; omit to list roles that have copy)
+ * - department: limit a listing to one department
+ * - show_description / show_responsibilities / show_time /
+ *   show_point_of_contact / show_protip: true/false (default true)
+ * - show_filter: true/false — search, department chips, and jump list
+ *   when more than one role is shown (default true)
+ *
  * TEAM MEMBERS INSPIRED LAYOUT:
  * [pta-roles-directory layout="team-cards" columns="4" show_avatars="true" show_contact="true"]
  * 
@@ -86,6 +99,8 @@ class Azure_PTA_Shortcode {
         add_shortcode('pta-department-vp', array($this, 'department_vp_shortcode'));
         add_shortcode('pta-open-positions', array($this, 'open_positions_shortcode'));
         add_shortcode('pta-user-roles', array($this, 'user_roles_shortcode'));
+        add_shortcode('role-description', array($this, 'role_description_shortcode'));
+        add_shortcode('Role-description', array($this, 'role_description_shortcode'));
         
         // Enqueue frontend styles
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
@@ -112,7 +127,7 @@ class Azure_PTA_Shortcode {
             return;
         }
 
-        $shortcodes = array('pta-roles-directory', 'pta-department-roles', 'pta-org-chart', 'pta-role-card', 'pta-department-vp', 'pta-open-positions', 'pta-user-roles');
+        $shortcodes = array('pta-roles-directory', 'pta-department-roles', 'pta-org-chart', 'pta-role-card', 'pta-department-vp', 'pta-open-positions', 'pta-user-roles', 'role-description', 'Role-description');
         $found = false;
         foreach ($shortcodes as $sc) {
             if (has_shortcode($post->post_content, $sc)) {
@@ -148,6 +163,7 @@ class Azure_PTA_Shortcode {
             'description' => false,
             'status' => 'all', // all, open, filled, partial
             'columns' => 3,
+            'width' => '', // Max width of the whole block, e.g. "1100px" or "80%"; empty fills the container
             'show_count' => true,
             'show_vp' => false,
             'layout' => 'grid', // grid, list, cards, team-cards
@@ -283,7 +299,11 @@ class Azure_PTA_Shortcode {
     
     /**
      * Org Chart shortcode
-     * Usage: [pta-org-chart department="all" interactive=true]
+     * Usage: [pta-org-chart department="all" interactive=true height="500px" width="1600px"]
+     *
+     * "height" is a minimum; the chart grows taller when a department has more
+     * roles than that allows. Straight quotes are required — a smart-quoted
+     * width="1600px" fails validation and is ignored.
      */
     public function org_chart_shortcode($atts) {
         // Check if PTA Manager is available
@@ -295,7 +315,8 @@ class Azure_PTA_Shortcode {
         $atts = shortcode_atts(array(
             'department' => 'all',
             'interactive' => false,
-            'height' => '400px'
+            'height' => '400px',
+            'width' => '' // Max width of the chart, e.g. "1600px"; empty fills the container
         ), $atts);
         
         // Convert string boolean values to actual booleans
@@ -307,16 +328,20 @@ class Azure_PTA_Shortcode {
         
         $chart_id = 'pta-org-chart-' . uniqid();
         
-        $output = '<div class="pta-org-chart-container">';
-        $output .= '<div id="' . $chart_id . '" class="pta-org-chart" style="height: ' . esc_attr($atts['height']) . ';"></div>';
+        // The width lands on the container rather than the chart div because
+        // the D3 renderer sizes the SVG from the chart div's measured width.
+        // "height" is a floor, not a fixed size: a department with many roles
+        // needs a taller canvas, and the container clips whatever overflows.
+        $output = '<div class="pta-org-chart-container"' . $this->build_width_style($atts['width']) . '>';
+        $output .= '<div id="' . $chart_id . '" class="pta-org-chart" style="min-height: ' . esc_attr($atts['height']) . ';"></div>';
         $output .= '</div>';
         
         // Add inline JavaScript for the chart
         $output .= '<script>
         jQuery(document).ready(function($) {
-            var orgData = ' . json_encode($org_data) . ';
+            var orgData = ' . wp_json_encode($org_data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ';
             if (typeof renderPTAOrgChart === "function") {
-                renderPTAOrgChart("' . $chart_id . '", orgData, ' . json_encode($atts) . ');
+                renderPTAOrgChart("' . esc_js($chart_id) . '", orgData, ' . wp_json_encode($atts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) . ');
             }
         });
         </script>';
@@ -542,7 +567,8 @@ class Azure_PTA_Shortcode {
         $leadership_structure = filter_var($atts['leadership_structure'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $leader_role_name = strtolower($atts['leader_role'] ?? 'president');
         $leader_photo_size = intval($atts['leader_photo_size'] ?? 120);
-        
+        $width_style = $this->build_width_style($atts['width'] ?? '');
+
         $output = '';
         $leader_role = null;
         $other_roles = array();
@@ -559,7 +585,7 @@ class Azure_PTA_Shortcode {
             
             // Render the leader section if found
             if ($leader_role) {
-                $output .= '<div class="pta-leadership-structure">';
+                $output .= '<div class="pta-leadership-structure"' . $width_style . '>';
                 $output .= '<div class="pta-leader-section">';
                 $output .= $this->render_single_role_card($leader_role, $atts, $leader_photo_size, true);
                 $output .= '</div>';
@@ -579,8 +605,8 @@ class Azure_PTA_Shortcode {
         }
         
         // Normal rendering (no leadership structure or leader not found)
-        $output .= '<div class="pta-roles-directory pta-layout-' . esc_attr($layout) . '" data-columns="' . $columns . '">';
-        
+        $output .= '<div class="pta-roles-directory pta-layout-' . esc_attr($layout) . '" data-columns="' . $columns . '"' . $width_style . '>';
+
         foreach ($roles as $role) {
             $output .= $this->render_single_role_card($role, $atts, $photo_size, false);
         }
@@ -589,6 +615,25 @@ class Azure_PTA_Shortcode {
         return $output;
     }
     
+    /**
+     * Turn a shortcode `width` value into an inline max-width style.
+     *
+     * Accepts a bare number, treated as pixels, or a number carrying a CSS
+     * length unit. Anything else returns an empty string, so a malformed
+     * attribute cannot inject extra declarations into the style attribute.
+     */
+    private function build_width_style($width) {
+        $width = trim((string) $width);
+
+        if ($width === '' || !preg_match('/^(\d+(?:\.\d+)?)(px|%|em|rem|vw)?$/', $width, $matches)) {
+            return '';
+        }
+
+        $value = $matches[1] . (empty($matches[2]) ? 'px' : $matches[2]);
+
+        return ' style="max-width:' . esc_attr($value) . ';margin-left:auto;margin-right:auto;"';
+    }
+
     /**
      * Render a single role card (used by render_roles_directory)
      */
@@ -607,38 +652,9 @@ class Azure_PTA_Shortcode {
             . ' data-role-name="' . esc_attr($role->name) . '"'
             . ' data-department-name="' . esc_attr($role->department_name) . '"';
         $output = '<div class="pta-role-item pta-status-' . esc_attr($status) . $leader_class . '"' . $data_attrs . '>';
-        
-        // Show photo if include_photo is true and role has assignments
-        if ($include_photo && !empty($role->assignments)) {
-            $first_user = get_user_by('ID', $role->assignments[0]->user_id);
-            if ($first_user) {
-                $output .= '<div class="pta-role-photo">';
-                $output .= get_avatar($first_user->ID, $photo_size, '', $first_user->display_name, array('class' => 'pta-user-avatar'));
-                $output .= '</div>';
-            }
-        } elseif ($include_photo) {
-            // Show placeholder for unfilled roles
-            $initials = $this->get_role_initials($role->name);
-            $output .= '<div class="pta-role-photo pta-photo-placeholder" style="width: ' . $photo_size . 'px; height: ' . $photo_size . 'px;">';
-            $output .= '<span class="pta-initials">' . esc_html($initials) . '</span>';
-            $output .= '</div>';
-        }
-        
+
         $output .= '<h4 class="pta-role-name">' . esc_html($role->name) . '</h4>';
-        
-        // Show assigned user names if include_photo is true
-        if ($include_photo && !empty($role->assignments)) {
-            $user_names = array();
-            foreach ($role->assignments as $assignment) {
-                $user = get_user_by('ID', $assignment->user_id);
-                if ($user) {
-                    $user_names[] = esc_html($user->display_name);
-                }
-            }
-            if (!empty($user_names)) {
-                $output .= '<div class="pta-role-assigned-names">' . implode(', ', $user_names) . '</div>';
-            }
-        }
+        $output .= $this->render_assigned_people($role, $photo_size, $include_photo);
 
         // Show O365 group email for leadership structure roles
         $role_emails = $atts['_role_emails'] ?? array();
@@ -681,22 +697,21 @@ class Azure_PTA_Shortcode {
             $assigned_user = get_user_by('ID', $role->assignments[0]->user_id);
         }
         
-        // Avatar/Photo section
+        // Person photo only — roles have no image of their own
         if ($atts['show_avatars'] && $assigned_user) {
-            $avatar_url = get_avatar_url($assigned_user->ID, array('size' => intval($atts['avatar_size'])));
-            $output .= '<div class="pta-role-avatar" style="background-image: url(' . esc_url($avatar_url) . ');"></div>';
-        } else {
-            // Placeholder avatar with initials or icon
-            $initials = $this->get_role_initials($role->name);
-            $output .= '<div class="pta-role-avatar">' . esc_html($initials) . '</div>';
+            $avatar_url = $this->local_avatar_url($assigned_user->ID, intval($atts['avatar_size']));
+            if ($avatar_url) {
+                $output .= '<div class="pta-role-avatar" style="background-image: url(' . esc_url($avatar_url) . ');"></div>';
+            }
         }
         
         // Text content section
         $output .= '<div class="pta-role-textblock">';
         
-        // Role name
+        // Role name, then the people (photo belongs to the person)
         $output .= '<h4 class="pta-role-name">' . esc_html($role->name) . '</h4>';
-        
+        $output .= $this->render_assigned_people($role, intval($atts['avatar_size'] ?? 80), false);
+
         // Department
         $output .= '<div class="pta-role-department">' . esc_html($role->department_name) . '</div>';
         
@@ -765,16 +780,50 @@ class Azure_PTA_Shortcode {
             . '</button>';
     }
     
-    /**
-     * Generate initials from role name for placeholder avatars
-     */
-    private function get_role_initials($name) {
-        $words = explode(' ', trim($name));
-        if (count($words) >= 2) {
-            return strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1));
-        } else {
-            return strtoupper(substr($name, 0, 2));
+    private function local_avatar_url($user_id, $size) {
+        if (!class_exists('Azure_Local_Avatars')) {
+            return '';
         }
+        return Azure_Local_Avatars::url((int) $user_id, (int) $size);
+    }
+
+    /**
+     * The people holding a role. Photos belong to the person, never the role.
+     * A photo is rendered only when that user has a local upload.
+     */
+    private function render_assigned_people($role, $photo_size, $show_photos) {
+        if (empty($role->assignments)) {
+            return '';
+        }
+
+        $html = '<div class="pta-role-people">';
+        foreach ($role->assignments as $assignment) {
+            $user = get_user_by('ID', $assignment->user_id);
+            if (!$user) {
+                continue;
+            }
+            $html .= '<div class="pta-person">';
+            if ($show_photos) {
+                $url = $this->local_avatar_url($user->ID, $photo_size);
+                if ($url) {
+                    $size = max(24, (int) $photo_size);
+                    $html .= '<img class="pta-person-photo" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
+                }
+            }
+            $html .= '<span class="pta-person-name">' . esc_html($user->display_name) . '</span>';
+            $html .= '</div>';
+        }
+        $html .= '</div>';
+        return $html;
+    }
+
+    private function render_user_photo_inline($user, $size) {
+        $size = max(24, (int) $size);
+        $url = $this->local_avatar_url($user->ID, $size);
+        if (!$url) {
+            return '';
+        }
+        return '<img class="avatar pta-user-avatar" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
     }
     
     private function render_role_card($role, $atts) {
@@ -783,17 +832,7 @@ class Azure_PTA_Shortcode {
         $photo_size = intval($atts['photo_size'] ?? 80);
         
         $output = '<div class="pta-role-card pta-status-' . esc_attr($status) . '">';
-        
-        // Show photo of first assigned user if include_photo is true
-        if ($include_photo && !empty($role->assignments)) {
-            $first_user = get_user_by('ID', $role->assignments[0]->user_id);
-            if ($first_user) {
-                $output .= '<div class="pta-role-photo">';
-                $output .= get_avatar($first_user->ID, $photo_size, '', $first_user->display_name, array('class' => 'pta-user-avatar'));
-                $output .= '</div>';
-            }
-        }
-        
+
         $output .= '<h3 class="pta-role-title">' . esc_html($role->name) . '</h3>';
         $output .= '<div class="pta-role-department">' . esc_html($role->department_name) . '</div>';
         
@@ -812,7 +851,10 @@ class Azure_PTA_Shortcode {
                 if ($user) {
                     $output .= '<li class="pta-assignment-item">';
                     if ($include_photo) {
-                        $output .= '<span class="pta-assignment-photo">' . get_avatar($user->ID, 32, '', $user->display_name) . '</span>';
+                        $photo = $this->render_user_photo_inline($user, 32);
+                        if ($photo !== '') {
+                            $output .= '<span class="pta-assignment-photo">' . $photo . '</span>';
+                        }
                     }
                     $output .= '<span class="pta-assignment-name">' . esc_html($user->display_name) . '</span>';
                     if ($atts['show_contact'] && $user->user_email) {
@@ -1095,5 +1137,215 @@ class Azure_PTA_Shortcode {
         }
 
         return $role_emails;
+    }
+
+    /**
+     * Full role description: description, key responsibilities, time
+     * commitment, point of contact, and pro tip.
+     *
+     * [Role-description role="president"]
+     * [role-description department="volunteers"]
+     * [Role-description]  — every role that has copy
+     */
+    public function role_description_shortcode($atts) {
+        $availability_check = $this->check_pta_manager_availability();
+        if ($availability_check !== false) {
+            return $availability_check;
+        }
+
+        $atts = shortcode_atts(array(
+            'role'                  => '',
+            'slug'                  => '',
+            'department'            => '',
+            'show_description'      => true,
+            'show_responsibilities' => true,
+            'show_time'             => true,
+            'show_point_of_contact' => true,
+            'show_protip'           => true,
+            'show_filter'           => true,
+        ), $atts, 'role-description');
+
+        $atts['show_description'] = filter_var($atts['show_description'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_responsibilities'] = filter_var($atts['show_responsibilities'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_time'] = filter_var($atts['show_time'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_point_of_contact'] = filter_var($atts['show_point_of_contact'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_protip'] = filter_var($atts['show_protip'], FILTER_VALIDATE_BOOLEAN);
+        $atts['show_filter'] = filter_var($atts['show_filter'], FILTER_VALIDATE_BOOLEAN);
+
+        $needle = trim((string) ($atts['role'] !== '' ? $atts['role'] : $atts['slug']));
+        $roles = $this->pta_manager->get_roles(null, false);
+
+        if ($needle !== '') {
+            $match = $this->find_role_for_description($roles, $needle);
+            if (!$match) {
+                return '<p class="pta-error">Role not found: ' . esc_html($needle) . '</p>';
+            }
+            $roles = array($match);
+        } elseif ($atts['department'] !== '' && strtolower($atts['department']) !== 'all') {
+            $dept = strtolower(trim($atts['department']));
+            $roles = array_values(array_filter($roles, function ($role) use ($dept) {
+                $name = strtolower((string) ($role->department_name ?? ''));
+                $slug = sanitize_title((string) ($role->department_name ?? ''));
+                return $name === $dept || $slug === $dept || strpos($name, $dept) !== false;
+            }));
+        }
+
+        $roles = array_values(array_filter($roles, function ($role) {
+            return class_exists('Azure_PTA_Role_Descriptions')
+                ? Azure_PTA_Role_Descriptions::role_has_public_copy($role)
+                : !empty($role->description);
+        }));
+
+        if (empty($roles)) {
+            return '<p class="pta-role-description-empty">No role descriptions are available yet.</p>';
+        }
+
+        $output = '<div class="pta-role-descriptions">';
+        if ($atts['show_filter'] && count($roles) > 1) {
+            $output .= $this->render_role_description_toolbar($roles);
+        }
+        foreach ($roles as $role) {
+            $output .= $this->render_role_description($role, $atts);
+        }
+        $output .= '</div>';
+        return $output;
+    }
+
+    private function find_role_for_description($roles, $needle) {
+        $needle_l = strtolower(trim($needle));
+        $needle_n = class_exists('Azure_PTA_Role_Descriptions')
+            ? Azure_PTA_Role_Descriptions::normalize_key($needle)
+            : $needle_l;
+
+        foreach ($roles as $role) {
+            if (strtolower((string) $role->slug) === $needle_l || strtolower((string) $role->name) === $needle_l) {
+                return $role;
+            }
+            if (class_exists('Azure_PTA_Role_Descriptions')) {
+                foreach (Azure_PTA_Role_Descriptions::role_match_keys($role) as $key) {
+                    if ($key === $needle_l || $key === $needle_n) {
+                        return $role;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private function render_role_description_toolbar($roles) {
+        $departments = array();
+        $jump_groups = array();
+        foreach ($roles as $role) {
+            $dept_name = trim((string) ($role->department_name ?? ''));
+            $dept_slug = sanitize_title($dept_name);
+            if ($dept_name !== '' && $dept_slug !== '') {
+                $departments[$dept_slug] = $dept_name;
+            }
+            if (!isset($jump_groups[$dept_name])) {
+                $jump_groups[$dept_name] = array();
+            }
+            $jump_groups[$dept_name][] = $role;
+        }
+        ksort($departments, SORT_NATURAL | SORT_FLAG_CASE);
+        ksort($jump_groups, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $uid = wp_unique_id('pta-role-filter-');
+        $output = '<div class="pta-role-description-toolbar">';
+        $output .= '<div class="pta-role-filter-search">';
+        $output .= '<label class="screen-reader-text" for="' . esc_attr($uid) . '">Search roles</label>';
+        $output .= '<input type="search" id="' . esc_attr($uid) . '" class="pta-role-filter-q" placeholder="Search roles, time, or keywords">';
+        $output .= '</div>';
+
+        $output .= '<div class="pta-role-filter-chips" role="group" aria-label="Filter by department">';
+        $output .= '<button type="button" class="pta-role-filter-chip is-active" data-dept="">All</button>';
+        foreach ($departments as $slug => $name) {
+            $output .= '<button type="button" class="pta-role-filter-chip" data-dept="' . esc_attr($slug) . '">' . esc_html($name) . '</button>';
+        }
+        $output .= '</div>';
+
+        $output .= '<details class="pta-role-jump">';
+        $output .= '<summary>Jump to role</summary>';
+        $output .= '<nav class="pta-role-jump-nav" aria-label="Jump to role">';
+        foreach ($jump_groups as $dept_name => $group_roles) {
+            $dept_slug = sanitize_title($dept_name);
+            $output .= '<div class="pta-role-jump-group" data-dept="' . esc_attr($dept_slug) . '">';
+            if ($dept_name !== '') {
+                $output .= '<h3>' . esc_html($dept_name) . '</h3>';
+            }
+            $output .= '<ul>';
+            foreach ($group_roles as $role) {
+                $slug = sanitize_title($role->slug ?: $role->name);
+                $output .= '<li data-role-id="role-' . esc_attr($slug) . '"><a href="#role-' . esc_attr($slug) . '">' . esc_html($role->name) . '</a></li>';
+            }
+            $output .= '</ul></div>';
+        }
+        $output .= '</nav></details>';
+        $output .= '<p class="pta-role-filter-status" aria-live="polite"></p>';
+        $output .= '</div>';
+        return $output;
+    }
+
+    private function render_role_description($role, $atts) {
+        $slug = sanitize_title($role->slug ?: $role->name);
+        $dept_slug = sanitize_title((string) ($role->department_name ?? ''));
+        $haystack = class_exists('Azure_PTA_Role_Descriptions')
+            ? Azure_PTA_Role_Descriptions::search_haystack($role)
+            : strtolower((string) ($role->name ?? ''));
+        $output = '<article class="pta-role-description" id="role-' . esc_attr($slug) . '" data-dept="' . esc_attr($dept_slug) . '" data-search="' . esc_attr($haystack) . '">';
+        $output .= '<h2 class="pta-role-description-title">' . esc_html($role->name) . '</h2>';
+        if (!empty($role->department_name)) {
+            $output .= '<p class="pta-role-description-dept">' . esc_html($role->department_name) . '</p>';
+        }
+
+        if ($atts['show_description'] && !empty($role->description)) {
+            $output .= '<section class="pta-role-description-block">';
+            $output .= '<h3>Description</h3>';
+            $output .= '<p>' . esc_html($role->description) . '</p>';
+            $output .= '</section>';
+        }
+
+        $responsibilities = isset($role->responsibilities) && is_array($role->responsibilities)
+            ? $role->responsibilities
+            : array();
+        if ($atts['show_responsibilities'] && !empty($responsibilities)) {
+            $output .= '<section class="pta-role-description-block">';
+            $output .= '<h3>Key Responsibilities</h3><ul class="pta-role-responsibilities">';
+            foreach ($responsibilities as $item) {
+                $heading = trim((string) ($item['heading'] ?? ''));
+                $body = trim((string) ($item['body'] ?? ''));
+                if ($heading === '' && $body === '') {
+                    continue;
+                }
+                $output .= '<li>';
+                if ($heading !== '') {
+                    $output .= '<strong>' . esc_html($heading) . ':</strong> ';
+                }
+                $output .= esc_html($body);
+                $output .= '</li>';
+            }
+            $output .= '</ul></section>';
+        }
+
+        $meta_bits = array();
+        if ($atts['show_time'] && !empty($role->time_commitment)) {
+            $meta_bits[] = array('Time Commitment', $role->time_commitment);
+        }
+        if ($atts['show_point_of_contact'] && !empty($role->point_of_contact)) {
+            $meta_bits[] = array('Main Point of Contact', $role->point_of_contact);
+        }
+        if (!empty($meta_bits)) {
+            $output .= '<dl class="pta-role-description-meta">';
+            foreach ($meta_bits as $pair) {
+                $output .= '<dt>' . esc_html($pair[0]) . '</dt><dd>' . esc_html($pair[1]) . '</dd>';
+            }
+            $output .= '</dl>';
+        }
+
+        if ($atts['show_protip'] && !empty($role->pro_tip)) {
+            $output .= '<aside class="pta-role-protip"><h3>Pro Tip</h3><p>' . esc_html($role->pro_tip) . '</p></aside>';
+        }
+
+        $output .= '</article>';
+        return $output;
     }
 }

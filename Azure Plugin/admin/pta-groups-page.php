@@ -357,7 +357,7 @@ foreach ($group_mappings as $mapping) {
 
 <!-- Group Members Modal -->
 <div id="group-members-modal" class="modal" style="display: none;">
-    <div class="modal-content">
+    <div class="modal-content modal-wide">
         <div class="modal-header">
             <h2>Group Members</h2>
             <button type="button" class="modal-close">&times;</button>
@@ -570,7 +570,7 @@ jQuery(document).ready(function($) {
         
         if (modal.length === 0) {
             // Create modal if it doesn't exist
-            var modalHtml = '<div id="unmapped-groups-modal" class="modal" style="display: none;"><div class="modal-content"><div class="modal-header"><h2>Unmapped Office 365 Groups (' + unmappedGroups.length + ')</h2><button type="button" class="modal-close">&times;</button></div><div class="modal-body"><p>These groups exist in your Office 365 tenant but have no PTA role or department mappings:</p><div id="unmapped-groups-list"></div></div></div></div>';
+            var modalHtml = '<div id="unmapped-groups-modal" class="modal" style="display: none;"><div class="modal-content modal-wide"><div class="modal-header"><h2>Unmapped Office 365 Groups (' + unmappedGroups.length + ')</h2><button type="button" class="modal-close">&times;</button></div><div class="modal-body"><p>These groups exist in your Office 365 tenant but have no PTA role or department mappings:</p><div id="unmapped-groups-list"></div></div></div></div>';
             $('body').append(modalHtml);
             modal = $('#unmapped-groups-modal');
             container = $('#unmapped-groups-list');
@@ -812,10 +812,16 @@ jQuery(document).ready(function($) {
     background: #fff !important;
     color: #333 !important;
     border-radius: 8px;
-    max-width: 600px;
-    width: 90%;
-    max-height: 80%;
-    overflow-y: auto;
+    box-sizing: border-box;
+    max-width: min(640px, calc(100vw - 48px));
+    width: min(640px, calc(100vw - 48px));
+    max-height: min(80vh, calc(100vh - 48px));
+    overflow: auto;
+}
+
+.modal-content.modal-wide {
+    max-width: min(1200px, calc(100vw - 48px));
+    width: min(1200px, calc(100vw - 48px));
 }
 
 .modal-header {
@@ -865,7 +871,12 @@ jQuery(document).ready(function($) {
 }
 
 .form-field select,
-.form-field input {
+.form-field input[type="text"],
+.form-field input[type="password"],
+.form-field input[type="email"],
+.form-field input[type="number"],
+.form-field input[type="url"],
+.form-field input[type="search"] {
     width: 100%;
     padding: 8px;
     border: 1px solid #ddd;

@@ -263,3 +263,57 @@ button.pta-donate-quick.active {
 .pta-donate-message a {
     font-weight: 600;
 }
+
+.pta-donate-gifts {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #dcdcde;
+}
+
+.pta-donate-gifts-label {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: #50575e;
+}
+
+.pta-donate-gift-btn {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 2px solid #2271b1;
+    border-radius: 6px;
+    color: #2271b1;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pta-donate-gift-btn:hover,
+.pta-donate-gift-btn:focus {
+    background: #f0f6fc;
+    color: #135e96;
+}
+
+.pta-donations-list {
+    margin: 20px 0;
+}
+
+.pta-donations-list-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+}
+
+.pta-donations-list-table th,
+.pta-donations-list-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid #dcdcde;
+}
+
+.pta-donations-list-table th {
+    font-size: 13px;
+    color: #50575e;
+}

@@ -229,7 +229,7 @@ class Azure_Calendar_Shortcode {
      * [azure_calendar_events id="calendar_id" user_email="user@domain.com" mailbox_email="shared@domain.com"]
      *
      * As of v3.91.11, when `pta_calendar_data_source = pta` (the
-     * post-cutover state on lwptsa/wilder), this shortcode reads from
+     * usual post-cutover state), this shortcode reads from
      * the local `pta_event` CPT instead of hitting Microsoft Graph live.
      * `id` is then optional — when omitted, all pta_event posts are
      * surfaced. `id` can still be passed to scope to events that synced
@@ -805,23 +805,21 @@ class Azure_Calendar_Shortcode {
      * Generate calendar JavaScript
      */
     private function get_calendar_script($container_id, $events, $atts) {
-        $events_json = json_encode($events);
+        // JSON_HEX_TAG stops an event subject containing "</script>" from
+        // closing this inline block and executing as markup. Event titles come
+        // from Outlook, so they are not trusted output.
+        $events_json = wp_json_encode($events, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         
-        // Determine timezone: shortcode attr > per-calendar setting > plugin default > WordPress default
-        $timezone = '';
+        // Display TZ must match how pta_event times are stored (WP local).
+        // A stale plugin default of America/New_York used to win over the
+        // site timezone and shift Outlook-synced events by several hours.
+        $timezone = azure_wp_timezone_string();
         if (!empty($atts['timezone'])) {
             $timezone = $atts['timezone'];
         } else {
             $settings = Azure_Settings::get_all_settings();
-            // Check for per-calendar timezone setting
             if (!empty($atts['id']) && !empty($settings['calendar_timezone_' . $atts['id']])) {
                 $timezone = $settings['calendar_timezone_' . $atts['id']];
-            } elseif (!empty($settings['calendar_default_timezone'])) {
-                // Fall back to plugin default timezone
-                $timezone = $settings['calendar_default_timezone'];
-            } else {
-                // Fall back to WordPress timezone
-                $timezone = wp_timezone_string();
             }
         }
         

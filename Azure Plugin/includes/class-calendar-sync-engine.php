@@ -291,10 +291,31 @@ class Azure_Calendar_Sync_Engine {
             );
         }
 
-        // Normalize to array even if Graph returned null / empty so the
-        // prune step still runs — if Outlook now has zero events for
-        // this calendar in this window, every local pta_event that
-        // pointed at it is an orphan and should be trashed.
+        // A failed request also comes back as an empty list, and pruning treats
+        // absence as deletion — so a transient 401/429/timeout would trash every
+        // local pta_event in the window. Bail out before the prune step unless
+        // we know the fetch actually succeeded.
+        $fetch_error = method_exists($this->graph_api, 'get_last_fetch_error')
+            ? $this->graph_api->get_last_fetch_error()
+            : null;
+        if ($fetch_error !== null) {
+            Azure_Logger::error(
+                "Calendar Sync Engine: skipping {$calendar_id} — Graph fetch failed ({$fetch_error}); not pruning local events",
+                'Calendar'
+            );
+            return array(
+                'success'        => false,
+                'calendar_id'    => $calendar_id,
+                'events_synced'  => 0,
+                'events_deleted' => 0,
+                'errors'         => 1,
+                'error_message'  => $fetch_error,
+            );
+        }
+
+        // Normalize to array even if Graph returned null so the prune step
+        // still runs — a genuine empty response means every local pta_event
+        // that pointed at this calendar is an orphan and should be trashed.
         if (!is_array($events)) {
             $events = array();
         }
@@ -372,7 +393,7 @@ class Azure_Calendar_Sync_Engine {
         // Convert ISO-Z to WP-local 'Y-m-d H:i:s' to compare against
         // `_EventStartDate` (which is WP-local in TEC's schema, see
         // upsert_event() above).
-        $wp_tz       = (string) (get_option('timezone_string') ?: 'UTC');
+        $wp_tz       = azure_wp_timezone_string();
         $window_start = $this->iso_to_wp_local($start_date_iso, $wp_tz);
         $window_end   = $this->iso_to_wp_local($end_date_iso,   $wp_tz);
         if ($window_start === false || $window_end === false) {
@@ -473,7 +494,7 @@ class Azure_Calendar_Sync_Engine {
         $existing_id      = $this->find_pta_event_by_outlook_id($outlook_event_id);
 
         // Resolve TZ + dates in WP-local form
-        $wp_timezone = (string) (get_option('timezone_string') ?: 'UTC');
+        $wp_timezone = azure_wp_timezone_string();
         $start_local = $this->to_wp_local_datetime($event['start'] ?? '', $wp_timezone);
         $end_local   = $this->to_wp_local_datetime($event['end'] ?? '',   $wp_timezone);
 
@@ -690,7 +711,7 @@ class Azure_Calendar_Sync_Engine {
             return array('repaired' => 0, 'errors' => 0, 'message' => 'No synced events found to repair.');
         }
 
-        $wp_timezone = (string) (get_option('timezone_string') ?: 'UTC');
+        $wp_timezone = azure_wp_timezone_string();
         $repaired = 0;
         $errors   = 0;
 

@@ -5,6 +5,16 @@
 **Type:** Read-only investigation. No Azure resource, App Service setting, or plugin config was modified.
 **Question:** Why are there TWO ACS setups? Which one does the WordPress plugin / site actually use? Which to keep vs decommission?
 
+> **⚠️ SUPERSEDED 2026-08-05 — the keep/delete decision in §4 was REVERSED.**
+> This audit recommended keeping **Setup A** solely because it was wired into the
+> App Service (`WP_EMAIL_CONNECTION_STRING` + a managed-identity role assignment).
+> **That App Service was retired on 2026-08-05**, which removed the only reason to
+> prefer Setup A. **Setup A has been deleted; Setup B (`WilderPTSA*`, RG
+> `PTSA-Communications`) is the survivor** because it holds the *verified* custom
+> domain `wilderptsa.net` and four branded sender addresses. See
+> [§5 Resolution](#5-resolution--2026-08-05-setup-a-deleted-setup-b-kept) at the
+> end of this document for what was actually done. Read §4 as history only.
+
 ---
 
 ## TL;DR
@@ -97,6 +107,10 @@ In short: **B = early manual custom-domain experiment that was never adopted; A 
 
 ## 4. Recommendation
 
+> **⚠️ HISTORICAL — REVERSED on 2026-08-05.** The premise below ("it is referenced
+> by App Service settings") no longer holds: the App Service was retired. Setup A
+> was deleted and Setup B kept. See [§5](#5-resolution--2026-08-05-setup-a-deleted-setup-b-kept).
+
 ### Keep (for now): Setup A — `wilderptsa-c20b298090-*` (RG `PTSAWebsite`)
 - It is **referenced by App Service settings** (`WP_EMAIL_CONNECTION_STRING`) and a **managed-identity role assignment**, and was **recently active**.
 - Deleting it could break the App Service email integration / the permissive-mode fallback path for WordPress transactional mail.
@@ -163,3 +177,102 @@ az monitor metrics list --resource <acs> --metrics ApiRequests DeliveryStatusUpd
 
 ### Stale DNS cleanup note (optional, do later)
 After the orphan is deleted, the live TXT `ms-domain-verification=4501263c-aa0c-4429-a525-b5b9dfe50a8b` becomes stale and can be removed. Leave the DKIM/DKIM2 CNAMEs — the kept service depends on them.
+
+> **⚠️ Do NOT action this note.** It assumed Setup A would be the survivor. The
+> opposite happened — `4501263c-…` belongs to **Setup B, the service that was
+> kept**, so that TXT record is load-bearing and **must stay in Cloudflare**. The
+> record that became irrelevant is `ms-domain-verification=1183d665-c65b-4304-a0d4-1769269dbfd8`,
+> which was never added to DNS in the first place, so there is nothing to clean up.
+
+---
+
+## 5. Resolution — 2026-08-05: Setup A deleted, Setup B kept
+
+**Decision reversed.** The 2026-06-29 plan (migrate the custom domain onto Setup A,
+then delete Setup B) was **abandoned**. Setup B is now the single ACS setup.
+
+### Why the reversal
+
+1. **The App Service is gone.** Setup A's entire justification was that the
+   WordPress-on-App-Service email integration referenced it via
+   `WP_EMAIL_CONNECTION_STRING` and a managed-identity role assignment. The App
+   Service, its staging slot and its P1v3 plan were deleted on 2026-08-05 as part
+   of the move to Azure Container Apps. The replacement container app
+   (`wilderptsa-wp`) has **no ACS env var or secret at all** — only `db-password`
+   and `redis-password`.
+2. **The migration onto Setup A was permanently blocked.** It needed the TXT record
+   `ms-domain-verification=1183d665-…` published in Cloudflare, which never
+   happened, so Setup A's copy of `wilderptsa.net` sat at `Domain: NotStarted`
+   indefinitely. Keeping Setup A meant *still* owing that manual DNS step.
+3. **Setup B was the deliberately-configured one.** Verified custom domain
+   (`Domain`/`SPF`/`DKIM`/`DKIM2` all `Verified`), correctly linked into its
+   Communication Service, and four real sender addresses:
+   `DoNotReply@`, `shop@`, `info@`, `news@wilderptsa.net`. Setup A only ever had
+   the throwaway `…azurecomm.net` managed domain.
+4. **Zero risk to live mail.** Both services showed **0 ApiRequests over the
+   preceding 30 days** — Setup A's last traffic was ~June 10, consistent with the
+   pivot to Graph + AcyMailing. No route in the Email Router uses `acs`.
+5. **Keeping Setup B requires no DNS work**, because the verification token already
+   live in Cloudflare is Setup B's.
+
+### What was deleted (RG `PTSAWebsite`)
+
+Deleted in dependency order — Communication Service first to release its
+`linkedDomains` reference, then both domains, then the Email Communication Service:
+
+| Order | Resource | Type |
+|---|---|---|
+| 1 | `wilderptsa-c20b298090-acsendpoint` | `communicationServices` |
+| 2 | `wilderptsa-c20b298090-emailacsendpoint/domains/AzureManagedDomain` | domain (AzureManaged) |
+| 3 | `wilderptsa-c20b298090-emailacsendpoint/domains/wilderptsa.net` | domain (CustomerManaged, unverified) |
+| 4 | `wilderptsa-c20b298090-emailacsendpoint` | `emailServices` |
+
+Both parent resources confirmed returning **404** on a direct ARM `GET`. Note that
+`az resource list` kept showing them for several minutes afterwards — that is ARM
+cache lag, the per-resource `GET` is authoritative.
+
+### RBAC cleanup
+
+Deleting the ACS resource left a **dangling role assignment** on a non-existent
+scope, so both it and its auto-generated custom role definition were removed:
+
+- Deleted role assignment `56895e08-a305-5843-92a8-4367ea90e518`
+  (`Custom Email Contributor Role - wilderptsa-c20b298090-acsendpoint` →
+  identity `wilderptsa-c20b298090-wpidentity`).
+- Deleted the now-orphaned custom role definition
+  `934415ac-08e6-5ae8-b06b-5de5956cbb1e`. The subscription now has **no custom
+  role definitions**.
+- **Deliberately left in place** on `wilderptsa-c20b298090-wpidentity`:
+  `Storage Blob Data Contributor` (→ `wilderptsac20b298091`, media uploads) and
+  `CDN Profile Contributor` (→ `WilderPTSAAFD`, cache purge). Both are still used.
+
+### Surviving configuration
+
+| Item | Value |
+|---|---|
+| Communication Service | `WilderPTSAcommsservice` (RG `PTSA-Communications`) |
+| Endpoint host | `wilderptsacommsservice.unitedstates.communication.azure.com` |
+| Email Communication Service | `WilderPTSAemailservice` |
+| Linked domain | `WilderPTSAemailservice/domains/wilderptsa.net` |
+| Verification | `Domain` / `SPF` / `DKIM` / `DKIM2` = **Verified** (`DMARC` NotStarted, not required to send) |
+| Senders | `DoNotReply@`, `shop@`, `info@`, `news@wilderptsa.net` |
+
+### Consequences / follow-ups
+
+- **No action needed for current mail flow.** Transactional mail goes via Microsoft
+  Graph and newsletters via AcyMailing; neither touches ACS. Nothing broke.
+- **The ACS resource group was intentionally NOT consolidated.** The original
+  request was to collapse everything into the ACA resource group `PTSAWebsite`, but
+  the verified domain lives in `PTSA-Communications` and an ACS custom domain's
+  verification **cannot be moved between resources without redoing the Cloudflare
+  TXT step** — the exact thing that blocked this in June. `PTSA-Communications` is
+  therefore kept as-is. Do not "tidy" it away.
+- **If ACS sending is ever enabled**, the stored `email_acs_*` WP options still
+  point at the deleted Setup A endpoint and must be repointed at
+  `wilderptsacommsservice.unitedstates.communication.azure.com` with a sender of
+  `DoNotReply@wilderptsa.net` (set under **PTA Tools → Emails → Sending**). Auth
+  must use a connection string / access key, or a fresh role assignment for the
+  container app's identity — the old managed-identity wiring did not survive.
+- **Cloudflare DNS: change nothing.** The `ms-domain-verification=4501263c-…` TXT
+  and both `selector[12]-azurecomm-prod-net._domainkey` CNAMEs all belong to the
+  surviving service.

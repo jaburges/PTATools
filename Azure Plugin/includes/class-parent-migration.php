@@ -1298,12 +1298,17 @@ class Azure_Parent_Migration {
 
         // Domains that should NEVER receive the parent welcome email even
         // if the account somehow ended up with the parent role (legacy
-        // imports, manual signups, etc.). @lwsd.org accounts belong on
-        // the school_staff role; @wilderptsa.net accounts are PTSA
-        // volunteers managed via SSO. We stamp them as
-        // "skipped:domain_block" in META_WELCOME_SENT_AT so they fall
-        // out of the unsent pool and we never look at them again.
-        $blocked_domains = array('lwsd.org', 'wilderptsa.net');
+        // imports, manual signups, etc.). School-district accounts belong
+        // on the school_staff role, and org-domain accounts are volunteers
+        // managed via SSO. Both come from the same configured settings the
+        // rest of this class buckets on, so an install that hasn't set them
+        // blocks nothing. We stamp matches as "skipped:domain_block" in
+        // META_WELCOME_SENT_AT so they fall out of the unsent pool and we
+        // never look at them again.
+        $blocked_domains = array_values(array_unique(array_filter(array(
+            self::get_school_staff_domain(),
+            self::get_sso_org_domain(),
+        ))));
 
         foreach ($ids as $uid) {
             $user = get_user_by('id', $uid);

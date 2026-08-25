@@ -1,0 +1,63 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    ? /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+    : {}
+properties:
+  environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 900
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: db-password
+        keyVaultUrl: https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password
+        identity: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca
+  template:
+    containers:
+      - name: sql
+        image: docker.io/library/mysql:8
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: MYSQL_PWD
+            secretRef: db-password
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            set -e
+            mysql --host=wilderptsa-wpdb-small.mysql.database.azure.com \
+              --user=ptsadbadmin --ssl-mode=REQUIRED --default-character-set=utf8mb4 \
+              -t wilderptsa_wp <<'SQL'
+            /* One-off: point WooCommerce at the cart and checkout pages that
+               actually exist.
+
+               woocommerce_cart_page_id and woocommerce_checkout_page_id still
+               referenced pages 9 and 10, which the redesign deleted. The live
+               pages are 23140 (cart) and 23141 (checkout), both block-based.
+               While the options were wrong, is_cart() and is_checkout() were
+               false everywhere, so WooCommerce never sent its own no-cache
+               headers on those pages and wc_get_cart_url() could not resolve.
+               woocommerce_myaccount_page_id was already correct at 11. */
+
+            UPDATE wp_options SET option_value = '23140'
+             WHERE option_name = 'woocommerce_cart_page_id'
+               AND option_value = '9';
+
+            UPDATE wp_options SET option_value = '23141'
+             WHERE option_name = 'woocommerce_checkout_page_id'
+               AND option_value = '10';
+
+            SELECT option_name, option_value FROM wp_options
+             WHERE option_name IN ('woocommerce_cart_page_id',
+                                   'woocommerce_checkout_page_id',
+                                   'woocommerce_myaccount_page_id');
+            SQL
+            echo QUERY_OK

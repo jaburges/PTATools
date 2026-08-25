@@ -1170,7 +1170,7 @@ Product Fields are managed through the admin UI and appear automatically on WooC
 
 ### **Overview**
 
-Accept donations at checkout with round-up and custom amount options. Create fundraising campaigns with goals and progress tracking. Place standalone donation forms on any page with the `[pta-donate]` shortcode.
+Accept donations at checkout with round-up and custom amount options. Create fundraising campaigns with goals and progress tracking. Place standalone donation forms on any page with the `[pta-donate]` shortcode. Gift products (for example a donated Individual or Staff membership) can be added from that form without product fields. Every donation emails the site admin. `[donations-list]` publishes a public table of date, role type, and gift — never a name or email.
 
 ### **Configuration Steps**
 
@@ -1192,6 +1192,7 @@ Accept donations at checkout with round-up and custom amount options. Create fun
 - **Enable Custom Amount**: Show quick-pick donation buttons at checkout
 - **Quick Amounts**: Comma-separated dollar amounts (e.g. `1,5,10,25`)
 - **Default Campaign**: Which campaign receives donations
+- **Gift products**: Label + WooCommerce product shown as extra buttons on `[pta-donate]`. Adding one skips product fields and does not credit the donor as a paid member.
 
 ### **Checkout Widget**
 
@@ -1207,9 +1208,11 @@ When enabled, a donation widget appears before the Place Order button:
 ```
 [pta-donate]
 [pta-donate campaign_id="1" amounts="5,10,25,50" button_text="Support Us"]
+[donations-list]
+[donations-list limit="25"]
 ```
 
-**Parameters:**
+**`[pta-donate]` parameters:**
 - `campaign_id` - Campaign to donate to (default: the default campaign)
 - `amounts` - Comma-separated dollar amounts (default: `5,10,25,50`)
 - `show_custom` - Show custom amount input: `yes` or `no` (default: `yes`)
@@ -1219,7 +1222,12 @@ Displays a standalone donation form with:
 - Campaign name, description, and progress bar (if goal is set)
 - Amount selection buttons
 - Optional custom amount input
-- Adds donation to WooCommerce cart as a fee
+- Gift-product buttons (if configured) that add a real product and skip product fields
+- Adds cash donations to WooCommerce cart as a fee
+
+After checkout the site admin (`admin_email`) is emailed: *Congrats on the donation* — Parent 1 name if the buyer is logged in, otherwise the order/Stripe email — *has kindly donated* the product name or the dollar amount.
+
+**`[donations-list]`** is a public three-column table: date, role (Parent / Staff / Guest), and product name or amount. It never outputs a donor name or email.
 
 ---
 

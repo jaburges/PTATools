@@ -352,8 +352,8 @@ class Azure_UpNext_Themes {
                 'is_builtin' => true,
             ),
 
-            // v3.128 — Newsletter style. Modeled on the LWPTSA
-            // weekly newsletter image: dark navy outer container
+            // v3.128 — Newsletter style. Modeled on a printed
+            // weekly newsletter: dark navy outer container
             // with an orange border, top header "Week of {date}",
             // each event a white card with an orange day/number
             // pill on the left and an IN PERSON badge on the
@@ -362,7 +362,7 @@ class Azure_UpNext_Themes {
             // copy / sizing without losing the built-in source.
             array(
                 'slug'  => 'newsletter',
-                'label' => 'Newsletter (LWPTSA style)',
+                'label' => 'Newsletter',
                 'layout' => 'rows', 'columns' => 1,
                 'show_image' => false, 'image_position' => 'left', 'image_size' => 'medium',
                 'show_time' => true, 'show_location' => false, 'show_category' => false,
@@ -380,7 +380,7 @@ class Azure_UpNext_Themes {
                 'header_text' => 'Week of {date}',
                 'header_color' => '#dbeaff', 'header_size' => 36, 'header_align' => 'center',
                 'header_underline' => true, 'header_font' => 'display',
-                'footer_html' => 'Find out more on our website:<br><strong>LWPTSA.net/calendar</strong>',
+                'footer_html' => 'Find out more on our website:<br><strong>' . self::site_calendar_label() . '</strong>',
                 'footer_color' => '#ffffff', 'footer_align' => 'center', 'footer_size' => 16,
                 'date_pill' => 'left',
                 'pill_bg_color' => '#f4a623', 'pill_text_color' => '#0a2d57',
@@ -391,6 +391,21 @@ class Azure_UpNext_Themes {
                 'is_builtin' => true,
             ),
         );
+    }
+
+    /**
+     * "example.net/calendar" for the built-in newsletter footer.
+     *
+     * Derived from the site's own host so the preset doesn't advertise
+     * whichever site these defaults were authored against. Admins can edit
+     * the footer freely once they clone the theme.
+     */
+    private static function site_calendar_label() {
+        $host = parse_url(home_url(), PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            return 'our calendar';
+        }
+        return preg_replace('/^www\./', '', $host) . '/calendar';
     }
 
     // -----------------------------------------------------------------

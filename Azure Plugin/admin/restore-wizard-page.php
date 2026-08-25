@@ -247,6 +247,7 @@ $settings     = Azure_Settings::get_all_settings();
                             <li><strong>Plugins</strong></li>
                             <li><strong>Themes</strong></li>
                             <li><strong>Other Content</strong> (custom wp-content files)</li>
+                            <li><strong>Container code snapshot</strong> (hot-restores plugins + themes + mu-plugins onto the live container)</li>
                         </ul>
                         <p style="color:#666; font-size:13px;">Media files are handled in the next step via SharePoint/OneDrive sync.</p>
                     </div>

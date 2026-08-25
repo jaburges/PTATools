@@ -800,8 +800,8 @@ class Azure_User_Children {
             // Child Core
             'child_name', 'child_grade', 'child_teacher',
             // Parent Core
-            'parent_1_name', 'parent_1_email', 'parent_1_cell',
-            'parent_2_name', 'parent_2_email', 'parent_2_cell',
+            'parent_1_name', 'parent_1_email', 'parent_1_cell', 'parent_1_opt_in',
+            'parent_2_name', 'parent_2_email', 'parent_2_cell', 'parent_2_opt_in',
             // Enrichment
             'allergies', 'photos_ok', 'epi_pen', 'ymca', 'other_notes_instructor',
             // Family / Emergency Contact

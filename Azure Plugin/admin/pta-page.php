@@ -422,7 +422,7 @@ if (class_exists('Azure_PTA_Database')) {
 
 <!-- People Management Modal -->
 <div id="people-modal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 800px;">
+    <div class="modal-content modal-wide">
         <div class="modal-header">
             <h2>Manage People & Role Assignments</h2>
             <button type="button" class="modal-close">&times;</button>
@@ -444,7 +444,7 @@ if (class_exists('Azure_PTA_Database')) {
 
 <!-- Roles Management Modal -->
 <div id="roles-modal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 800px;">
+    <div class="modal-content modal-wide">
         <div class="modal-header">
             <h2>Manage Roles & Assignments</h2>
             <button type="button" class="modal-close">&times;</button>
@@ -477,7 +477,7 @@ if (class_exists('Azure_PTA_Database')) {
 
 <!-- Departments Management Modal -->
 <div id="departments-modal" class="modal" style="display: none;">
-    <div class="modal-content" style="max-width: 900px;">
+    <div class="modal-content modal-wide">
         <div class="modal-header">
             <h2>Manage Departments & VPs</h2>
             <button type="button" class="modal-close">&times;</button>
@@ -514,9 +514,10 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>description:</strong> true/false - Show role descriptions (default: false)</li>
                 <li><strong>status:</strong> "all", "open", "filled", "partial" - Filter by status (default: all)</li>
                 <li><strong>columns:</strong> 1-5 - Number of columns for grid layout (default: 3)</li>
+                <li><strong>width:</strong> Max width of the block, centered - e.g. "1100px" or "80%" (default: fills the container)</li>
                 <li><strong>show_count:</strong> true/false - Show position counts (default: true)</li>
                 <li><strong>layout:</strong> "grid", "list", "cards", "team-cards" - Layout style (default: grid)</li>
-                <li><strong>show_image:</strong> true/false - Show WordPress profile photos (default: false)</li>
+                <li><strong>show_image:</strong> true/false - Show each person's photo when they have one (default: false). Roles never have a photo.</li>
                 <li><strong>photo_size:</strong> Number - Photo size in pixels (default: 80)</li>
                 <li><strong>show_contact:</strong> true/false - Show email links (default: true)</li>
             </ul>
@@ -555,6 +556,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>department:</strong> "all" or specific department - Scope of chart (default: all)</li>
                 <li><strong>interactive:</strong> true/false - Enable click interactions (default: false)</li>
                 <li><strong>height:</strong> CSS height value - Chart height (default: 400px)</li>
+                <li><strong>width:</strong> Max width of the chart, centered - e.g. "1600px" (default: fills the container). Allow roughly 200px per department.</li>
             </ul>
         </div>
         
@@ -567,7 +569,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>show_contact:</strong> true/false - Show contact information (default: false)</li>
                 <li><strong>show_description:</strong> true/false - Show role description (default: true)</li>
                 <li><strong>show_assignments:</strong> true/false - Show current assignments (default: true)</li>
-                <li><strong>show_image:</strong> true/false - Show WordPress profile photos (default: false)</li>
+                <li><strong>show_image:</strong> true/false - Show each assigned person's photo when they have one (default: false)</li>
                 <li><strong>photo_size:</strong> Number - Photo size in pixels (default: 80)</li>
             </ul>
         </div>
@@ -596,6 +598,19 @@ if (class_exists('Azure_PTA_Database')) {
         </div>
         
         <div class="shortcode-example">
+            <h4>Role Description</h4>
+            <code>[Role-description role="president"]</code>
+            <p>Full write-up for a role: description, key responsibilities, time commitment, main point of contact, and pro tip. Omit <code>role</code> to list every role that has copy.</p>
+            <p><strong>Parameters:</strong></p>
+            <ul>
+                <li><strong>role</strong> or <strong>slug:</strong> Role name or slug (optional — omit to list all)</li>
+                <li><strong>department:</strong> Limit a listing to one department</li>
+                <li><strong>show_description / show_responsibilities / show_time / show_point_of_contact / show_protip:</strong> true/false (all default true)</li>
+                <li><strong>show_filter:</strong> true/false — search, department chips, and jump list when listing more than one role (default: true)</li>
+            </ul>
+        </div>
+        
+        <div class="shortcode-example">
             <h4>User Roles</h4>
             <code>[pta-user-roles user_id=123 show_department=true]</code>
             <p><strong>Parameters:</strong></p>
@@ -607,29 +622,122 @@ if (class_exists('Azure_PTA_Database')) {
         </div>
     </div>
     
-    <div class="beaver-builder-info">
-        <h3>🦫 Beaver Builder Integration</h3>
-        <p><strong>Drag & Drop Modules Available:</strong></p>
-        <ul>
-            <li><strong>PTA Roles Directory</strong> - Full-featured roles directory with visual settings</li>
-            <li><strong>PTA Department Roles</strong> - Department-specific role display</li>
-            <li><strong>PTA Org Chart</strong> - Interactive organizational chart</li>
-            <li><strong>PTA Open Positions</strong> - Current openings display</li>
-        </ul>
-        <p>Find these modules in the <strong>"PTA Tools"</strong> category when editing with Beaver Builder. Each module includes:</p>
-        <ul>
-            <li>✅ All shortcode parameters as visual form fields</li>
-            <li>✅ Color customization options</li>
-            <li>✅ Typography controls</li>
-            <li>✅ Spacing & layout settings</li>
-            <li>✅ Responsive design options</li>
-        </ul>
-        <p><em>Note: Beaver Builder modules are only available when the Beaver Builder plugin is active.</em></p>
-    </div>
 </div>
 
+<?php
+/* Role choices for the VP picker's filter, built from the roles that users
+ * actually hold so empty roles are not offered. count_users() is one query and
+ * gives the counts, which matter here: they are what makes it obvious at a
+ * glance that "Azure AD User" is the short, useful list and "All users" is not. */
+$pta_role_counts = count_users();
+$pta_avail_roles = isset($pta_role_counts['avail_roles']) ? $pta_role_counts['avail_roles'] : array();
+
+$pta_role_choices = array(
+    array(
+        'slug'  => 'all',
+        'name'  => __('All users', 'azure-plugin'),
+        'count' => isset($pta_role_counts['total_users']) ? (int) $pta_role_counts['total_users'] : 0,
+    ),
+);
+
+foreach (wp_roles()->get_names() as $pta_role_slug => $pta_role_name) {
+    $pta_role_count = isset($pta_avail_roles[$pta_role_slug]) ? (int) $pta_avail_roles[$pta_role_slug] : 0;
+    if ($pta_role_count < 1) {
+        continue;
+    }
+    $pta_role_choices[] = array(
+        'slug'  => $pta_role_slug,
+        'name'  => translate_user_role($pta_role_name),
+        'count' => $pta_role_count,
+    );
+}
+?>
 <script>
 jQuery(document).ready(function($) {
+    /* VPs are board members, who sign in through SSO, so the picker opens on
+     * the Azure AD User role. Falls back to all users if nobody holds it, which
+     * would otherwise present an empty picker with no obvious cause. */
+    var ptaRoleChoices = <?php echo wp_json_encode($pta_role_choices); ?>;
+    var ptaDefaultRoleFilter = ptaRoleChoices.some(function(r) { return r.slug === 'azuread'; })
+        ? 'azuread'
+        : 'all';
+
+    /* Held outside loadUsersAndRoles so the five places that refresh the People
+     * list after an edit keep the chosen filter instead of snapping back. */
+    var ptaPeopleRoleFilter = ptaDefaultRoleFilter;
+
+    function openUserPhotoPicker(userId, displayName, onSaved) {
+        if (typeof wp === 'undefined' || !wp.media) {
+            alert('The media library is not available. Refresh this page and try again.');
+            return;
+        }
+        var frame = wp.media({
+            title: 'Photo for ' + displayName,
+            button: { text: 'Use this photo' },
+            library: { type: 'image' },
+            multiple: false
+        });
+        frame.on('select', function() {
+            var att = frame.state().get('selection').first().toJSON();
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_set_user_photo',
+                user_id: userId,
+                attachment_id: att.id,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    alert('Could not save photo: ' + ((res && res.data) || 'unknown error'));
+                    return;
+                }
+                if (typeof onSaved === 'function') {
+                    onSaved(res.data && res.data.url ? res.data.url : '');
+                }
+            }).fail(function() {
+                alert('Network error saving photo');
+            });
+        });
+        frame.open();
+    }
+
+    function removeUserPhoto(userId, onSaved) {
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'pta_remove_user_photo',
+            user_id: userId,
+            nonce: azure_plugin_ajax.nonce
+        }).done(function(res) {
+            if (!res || !res.success) {
+                alert('Could not remove photo: ' + ((res && res.data) || 'unknown error'));
+                return;
+            }
+            if (typeof onSaved === 'function') {
+                onSaved('');
+            }
+        }).fail(function() {
+            alert('Network error removing photo');
+        });
+    }
+
+    /* One builder for every role filter, so the options and counts cannot
+     * diverge between the People list and the VP pickers. */
+    function buildRoleFilterSelect(className, selectedSlug) {
+        var $filter = $('<select>', { 'class': className });
+
+        ptaRoleChoices.forEach(function(role) {
+            $filter.append($('<option>', {
+                value: role.slug,
+                text: role.name + ' (' + role.count + ')',
+                selected: role.slug === selectedSlug
+            }));
+        });
+
+        return $filter;
+    }
+
+    function roleFilterLabel(slug) {
+        var match = ptaRoleChoices.filter(function(r) { return r.slug === slug; })[0];
+        return match ? match.name : slug;
+    }
+
     // Handle org chart view
     $('#show-org-chart').click(function() {
         loadPTAApp('org-chart');
@@ -920,25 +1028,45 @@ jQuery(document).ready(function($) {
     }
     
     // Load users and roles for assignment
-    function loadUsersAndRoles() {
-        // Load WordPress users synced from Azure AD
+    function loadUsersAndRoles(roleFilter) {
+        if (typeof roleFilter === 'string' && roleFilter !== '') {
+            ptaPeopleRoleFilter = roleFilter;
+        }
+
+        /* Filtered server-side rather than by hiding rows: unfiltered this is
+         * 735 rows, and the point of the filter is to not build them. */
         $.post(azure_plugin_ajax.ajax_url, {
             action: 'pta_get_users',
-            nonce: azure_plugin_ajax.nonce
+            nonce: azure_plugin_ajax.nonce,
+            wp_role: ptaPeopleRoleFilter
         }, function(response) {
             if (response.success) {
                 var usersList = $('#people-users-list');
                 usersList.empty();
                 
                 // Add header with actions and bulk controls
+                // The heading names the active filter. It used to read "Azure AD
+                // Synced Users" while listing all 735 accounts regardless.
                 var header = $('<div class="modal-section-header">' +
-                    '<h4>People Management - Azure AD Synced Users</h4>' +
+                    '<h4>People Management — ' + roleFilterLabel(ptaPeopleRoleFilter) + '</h4>' +
                     '<div class="section-actions">' +
                         '<input type="text" id="people-search-input" placeholder="Search people..." class="search-input">' +
                         '<button type="button" class="button" id="select-all-users">Select All</button>' +
                         '<button type="button" class="button" id="clear-selection-users">Clear</button>' +
                     '</div>' +
                 '</div>');
+
+                header.find('.section-actions').prepend(
+                    $('<label>').css({ 'margin-right': '8px', 'font-size': '12px' })
+                        .text('Role: ')
+                        .append(
+                            buildRoleFilterSelect('pta-people-role-filter', ptaPeopleRoleFilter)
+                                .on('change', function() {
+                                    loadUsersAndRoles($(this).val());
+                                })
+                        )
+                );
+
                 usersList.append(header);
                 
                 // Add bulk actions bar
@@ -997,7 +1125,7 @@ jQuery(document).ready(function($) {
                     if (isUnassigned) {
                         actions += ' <button type="button" class="button button-small button-link-delete delete-user-btn" data-user-id="' + user.ID + '" data-user-name="' + user.display_name + '">Delete</button>';
                     }
-                    actions += ' <button type="button" class="button button-small edit-user-btn" data-user-id="' + user.ID + '">Details</button>';
+                    actions += ' <button type="button" class="button button-small edit-user-btn" data-user-id="' + user.ID + '" data-photo-url="' + (user.photo_url || '') + '">Details</button>';
                     
                     var rowClass = isUnassigned ? ' class="unassigned-user-row" style="background-color: #fff2cc;"' : '';
                     var row = $('<tr' + rowClass + '>' +
@@ -1013,10 +1141,13 @@ jQuery(document).ready(function($) {
                     tableBody.append(row);
                 });
                 
-                // Add summary info
+                // Add summary info. Says "shown" rather than "total" because the
+                // list is a filtered subset, and names the filter so the number
+                // is not mistaken for the whole site.
                 var summary = $('<div style="margin-top: 10px; padding: 10px; background: #f0f0f1;">' +
-                    '<strong>Summary:</strong> ' + response.data.length + ' total users, ' +
-                    response.data.filter(function(u) { return !u.has_roles; }).length + ' unassigned, ' +
+                    '<strong>Summary:</strong> ' + response.data.length + ' users shown' +
+                    ' (role: ' + roleFilterLabel(ptaPeopleRoleFilter) + '), ' +
+                    response.data.filter(function(u) { return !u.has_roles; }).length + ' with no PTA role, ' +
                     response.data.filter(function(u) { return u.is_azure_user; }).length + ' from Azure AD' +
                 '</div>');
                 usersList.append(summary);
@@ -1338,8 +1469,13 @@ jQuery(document).ready(function($) {
     }
     
     // Bind event handlers for People actions
+    // Namespaced and cleared first for the same reason as bindRolesActions():
+    // this runs again on every People render, and duplicate delete handlers
+    // stack up confirm() dialogs that look like one dialog refusing to close.
     function bindPeopleActions() {
-        $('#people-search-input').on('keyup', function() {
+        $(document).off('.ptaPeople');
+
+        $('#people-search-input').off('.ptaPeople').on('keyup.ptaPeople', function() {
             var searchTerm = $(this).val().toLowerCase();
             $('#users-table-body tr').each(function() {
                 var text = $(this).text().toLowerCase();
@@ -1347,12 +1483,12 @@ jQuery(document).ready(function($) {
             });
         });
         
-        $(document).on('click', '#add-person-btn', function() {
+        $(document).on('click.ptaPeople', '#add-person-btn', function() {
             // This would open a form to add a new WordPress user
             alert('Add New Person functionality would be implemented here.\nNote: Users are typically created through WordPress admin or SSO.');
         });
         
-        $(document).on('click', '.assign-role-btn', function() {
+        $(document).on('click.ptaPeople', '.assign-role-btn', function() {
             var userId = $(this).data('user-id');
             $('#assignment-user-id').val(userId);
             // Set higher z-index to appear in front of other modals
@@ -1360,13 +1496,13 @@ jQuery(document).ready(function($) {
         });
         
         // Unassign role button handler
-        $(document).on('click', '.unassign-role-btn', function() {
+        $(document).on('click.ptaPeople', '.unassign-role-btn', function() {
             var userId = $(this).data('user-id');
             var userName = $(this).data('user-name');
             showUnassignRoleModal(userId, userName);
         });
         
-        $(document).on('click', '.delete-user-btn', function() {
+        $(document).on('click.ptaPeople', '.delete-user-btn', function() {
             var userId = $(this).data('user-id');
             var userName = $(this).data('user-name');
             
@@ -1400,15 +1536,88 @@ jQuery(document).ready(function($) {
             });
         });
         
-        $(document).on('click', '.edit-user-btn', function() {
+        $(document).on('click.ptaPeople', '.edit-user-btn', function() {
             var userId = $(this).data('user-id');
             showUserDetails(userId);
         });
     }
+
+    function roleResponsibilityRowHtml(item) {
+        item = item || {};
+        var heading = item.heading || '';
+        var body = item.body || '';
+        return '<div class="pta-role-resp-row">' +
+            '<input type="text" class="regular-text pta-resp-heading" placeholder="Heading (optional)" value="">' +
+            '<textarea class="large-text pta-resp-body" rows="2" placeholder="Responsibility"></textarea>' +
+            '<button type="button" class="button-link-delete" data-remove-resp>&times;</button>' +
+            '</div>';
+    }
+
+    function fillRoleResponsibilityRow($row, item) {
+        $row.find('.pta-resp-heading').val((item && item.heading) || '');
+        $row.find('.pta-resp-body').val((item && item.body) || '');
+    }
+
+    function renderRoleResponsibilities($root, items) {
+        var $list = $root.find('[data-resp-list]');
+        $list.empty();
+        items = $.isArray(items) ? items : [];
+        if (!items.length) {
+            items = [{ heading: '', body: '' }];
+        }
+        items.forEach(function(item) {
+            var $row = $(roleResponsibilityRowHtml(item));
+            $list.append($row);
+            fillRoleResponsibilityRow($row, item);
+        });
+    }
+
+    function collectRoleResponsibilities($root) {
+        var items = [];
+        $root.find('.pta-role-resp-row').each(function() {
+            var heading = $.trim($(this).find('.pta-resp-heading').val() || '');
+            var body = $.trim($(this).find('.pta-resp-body').val() || '');
+            if (heading || body) {
+                items.push({ heading: heading, body: body });
+            }
+        });
+        return items;
+    }
+
+    function syncRoleResponsibilitiesField($form) {
+        $form.find('input[name="responsibilities"]').val(JSON.stringify(collectRoleResponsibilities($form)));
+    }
+
+    $(document).on('click', '[data-add-resp]', function() {
+        var $list = $(this).closest('td, .modal-body, form').find('[data-resp-list]').first();
+        var $row = $(roleResponsibilityRowHtml());
+        $list.append($row);
+        fillRoleResponsibilityRow($row, {});
+    });
+
+    $(document).on('click', '[data-remove-resp]', function() {
+        var $list = $(this).closest('[data-resp-list]');
+        $(this).closest('.pta-role-resp-row').remove();
+        if (!$list.find('.pta-role-resp-row').length) {
+            var $row = $(roleResponsibilityRowHtml());
+            $list.append($row);
+            fillRoleResponsibilityRow($row, {});
+        }
+    });
     
-    // Bind event handlers for Roles actions
+    /* Bind event handlers for Roles actions.
+     *
+     * Called both on page load and every time the roles list re-renders, so the
+     * handlers are namespaced and cleared first. Without that they accumulated
+     * on document: reopening the list twice gave three copies of the delete
+     * handler, so confirm() reappeared as each one fired and the dialog looked
+     * like it was refreshing itself with OK and Cancel doing nothing. The
+     * delegated handlers do not actually need rebinding, but #role-dept-filter
+     * is recreated with the list and does. */
     function bindRolesActions() {
-        $('#role-dept-filter').on('change', function() {
+        $(document).off('.ptaRoles');
+
+        $('#role-dept-filter').off('.ptaRoles').on('change.ptaRoles', function() {
             var selectedDept = $(this).val();
             $('#roles-table-body tr').each(function() {
                 var deptCell = $(this).find('td:nth-child(2)').text();
@@ -1416,21 +1625,21 @@ jQuery(document).ready(function($) {
             });
         });
         
-        $(document).on('click', '#add-role-btn', function() {
+        $(document).on('click.ptaRoles', '#add-role-btn', function() {
             showAddRoleForm();
         });
         
-        $(document).on('click', '.view-role-assignments', function() {
+        $(document).on('click.ptaRoles', '.view-role-assignments', function() {
             var roleId = $(this).data('role-id');
             showRoleAssignments(roleId);
         });
         
-        $(document).on('click', '.edit-role-btn', function() {
+        $(document).on('click.ptaRoles', '.edit-role-btn', function() {
             var roleId = $(this).data('role-id');
             showEditRoleForm(roleId);
         });
         
-        $(document).on('click', '.delete-role-btn', function() {
+        $(document).on('click.ptaRoles', '.delete-role-btn', function() {
             var roleId = $(this).data('role-id');
             if (confirm('Are you sure you want to delete this role? This action cannot be undone.')) {
                 deleteRole(roleId);
@@ -1438,41 +1647,44 @@ jQuery(document).ready(function($) {
         });
     }
     
-    // Bind event handlers for Departments actions
+    // Bind event handlers for Departments actions. Namespaced and cleared first
+    // for the same reason as bindRolesActions().
     function bindDepartmentsActions() {
-        $(document).on('click', '#add-department-btn', function() {
+        $(document).off('.ptaDepts');
+
+        $(document).on('click.ptaDepts', '#add-department-btn', function() {
             showAddDepartmentForm();
         });
         
-        $(document).on('click', '#auto-assign-all-vps', function() {
+        $(document).on('click.ptaDepts', '#auto-assign-all-vps', function() {
             assignAllVPs();
         });
         
         // Assign VP button handler
-        $(document).on('click', '.assign-vp-btn', function() {
+        $(document).on('click.ptaDepts', '.assign-vp-btn', function() {
             var deptId = $(this).data('dept-id');
             showAssignVPModal(deptId);
         });
         
         // View Details button on main page department cards
-        $(document).on('click', '.view-dept-details', function() {
+        $(document).on('click.ptaDepts', '.view-dept-details', function() {
             var deptId = $(this).data('dept-id');
             showDepartmentDetails(deptId);
         });
         
-        $(document).on('click', '.edit-dept-btn', function() {
+        $(document).on('click.ptaDepts', '.edit-dept-btn', function() {
             var deptId = $(this).data('dept-id');
             showEditDepartmentForm(deptId);
         });
         
-        $(document).on('click', '.delete-dept-btn', function() {
+        $(document).on('click.ptaDepts', '.delete-dept-btn', function() {
             var deptId = $(this).data('dept-id');
             if (confirm('Are you sure you want to delete this department? This action cannot be undone.')) {
                 deleteDepartment(deptId);
             }
         });
         
-        $(document).on('click', '.view-dept-roles', function() {
+        $(document).on('click.ptaDepts', '.view-dept-roles', function() {
             var deptId = $(this).data('dept-id');
             // Filter roles modal to show only this department's roles
             showRolesModal();
@@ -1529,7 +1741,18 @@ jQuery(document).ready(function($) {
                                 <tr><th>Role Name</th><td><input type="text" name="name" required class="regular-text"></td></tr>
                                 <tr><th>Department</th><td><select name="department_id" required><option value="">Select Department</option></select></td></tr>
                                 <tr><th>Max Occupants</th><td><input type="number" name="max_occupants" value="1" min="1" class="small-text"></td></tr>
-                                <tr><th>Description</th><td><textarea name="description" class="large-text"></textarea></td></tr>
+                                <tr><th>Description</th><td><textarea name="description" class="large-text" rows="4"></textarea></td></tr>
+                                <tr><th>Time Commitment</th><td><textarea name="time_commitment" class="large-text" rows="2"></textarea></td></tr>
+                                <tr><th>Main Point of Contact</th><td><input type="text" name="point_of_contact" class="regular-text"></td></tr>
+                                <tr><th>Pro Tip</th><td><textarea name="pro_tip" class="large-text" rows="3"></textarea></td></tr>
+                                <tr>
+                                    <th>Key Responsibilities</th>
+                                    <td>
+                                        <div class="pta-role-resp-list" data-resp-list></div>
+                                        <p><button type="button" class="button" data-add-resp>Add responsibility</button></p>
+                                        <input type="hidden" name="responsibilities" value="[]">
+                                    </td>
+                                </tr>
                             </table>
                             <p class="submit">
                                 <button type="submit" class="button button-primary">Add Role</button>
@@ -1542,6 +1765,7 @@ jQuery(document).ready(function($) {
         `;
         
         $('body').append(formHtml);
+        renderRoleResponsibilities($('#add-role-form'), []);
         
         // Load departments for dropdown
         $.post(azure_plugin_ajax.ajax_url, {
@@ -1561,6 +1785,7 @@ jQuery(document).ready(function($) {
         // Handle form submission
         $('#add-role-form').submit(function(e) {
             e.preventDefault();
+            syncRoleResponsibilitiesField($(this));
             var formData = $(this).serialize();
             
             $.post(azure_plugin_ajax.ajax_url, formData + '&action=pta_create_role&nonce=' + azure_plugin_ajax.nonce, function(response) {
@@ -1600,20 +1825,10 @@ jQuery(document).ready(function($) {
             </div>
         `;
         
+        $('#add-dept-form-modal').remove();
         $('body').append(formHtml);
-        
-        // Load users for VP dropdown
-        $.post(azure_plugin_ajax.ajax_url, {
-            action: 'pta_get_users',
-            nonce: azure_plugin_ajax.nonce
-        }, function(response) {
-            if (response.success) {
-                var select = $('#add-dept-form select[name="vp_user_id"]');
-                response.data.forEach(function(user) {
-                    select.append('<option value="' + user.ID + '">' + user.display_name + '</option>');
-                });
-            }
-        });
+
+        populateVPSelect($('#add-dept-form-modal').find('select[name="vp_user_id"]'), '');
         
         $('#add-dept-form-modal').show();
         
@@ -1768,7 +1983,23 @@ jQuery(document).ready(function($) {
                 var userName = user.find('td:nth-child(2) strong').text();
                 var userEmail = user.find('td:nth-child(3)').text();
                 
-                var detailsHtml = '<div id="user-details-modal" class="modal"><div class="modal-content"><div class="modal-header"><h3>User Details: ' + userName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
+                var photoUrl = ($('#users-table-body .edit-user-btn').filter(function() {
+                    return String($(this).data('user-id')) === String(userId);
+                }).data('photo-url')) || '';
+
+                var detailsHtml = '<div id="user-details-modal" class="modal"><div class="modal-content modal-wide"><div class="modal-header"><h3>User Details: ' + userName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
+                detailsHtml += '<div class="pta-user-photo-block" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;">';
+                detailsHtml += '<div class="pta-user-photo-preview">';
+                if (photoUrl) {
+                    detailsHtml += '<img src="' + photoUrl + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">';
+                } else {
+                    detailsHtml += '<div style="width:72px;height:72px;border-radius:50%;background:#e0e0e0;"></div>';
+                }
+                detailsHtml += '</div><div>';
+                detailsHtml += '<button type="button" class="button" id="pta-user-photo-choose">Set photo</button> ';
+                detailsHtml += '<button type="button" class="button" id="pta-user-photo-remove">Remove</button>';
+                detailsHtml += '<p class="description" style="margin:6px 0 0;">This person\'s photo. Roles do not have photos — only people do. Used on the board when they hold a seat.</p>';
+                detailsHtml += '</div></div>';
                 detailsHtml += '<p><strong>Email:</strong> ' + userEmail + '</p>';
                 detailsHtml += '<h4>Role Assignments:</h4>';
                 
@@ -1789,8 +2020,29 @@ jQuery(document).ready(function($) {
                 $('#user-details-modal').show();
                 
                 // Bind close handler
-                $('.modal-close').on('click', function() {
+                $('#user-details-modal .modal-close').on('click', function() {
                     $('#user-details-modal').remove();
+                });
+
+                $('#pta-user-photo-choose').on('click', function() {
+                    openUserPhotoPicker(userId, userName, function(url) {
+                        var $preview = $('#user-details-modal .pta-user-photo-preview');
+                        if (url) {
+                            $preview.html('<img src="' + url + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">');
+                        }
+                        $('#users-table-body .edit-user-btn').filter(function() {
+                            return String($(this).data('user-id')) === String(userId);
+                        }).data('photo-url', url);
+                    });
+                });
+                $('#pta-user-photo-remove').on('click', function() {
+                    if (!confirm('Remove this photo?')) { return; }
+                    removeUserPhoto(userId, function() {
+                        $('#user-details-modal .pta-user-photo-preview').html('<div style="width:72px;height:72px;border-radius:50%;background:#e0e0e0;"></div>');
+                        $('#users-table-body .edit-user-btn').filter(function() {
+                            return String($(this).data('user-id')) === String(userId);
+                        }).data('photo-url', '');
+                    });
                 });
                 
                 // Bind remove assignment handler
@@ -1819,65 +2071,336 @@ jQuery(document).ready(function($) {
         });
     }
     
+    /* The assignments modal, as a roster of the role's slots.
+     *
+     * One row per position rather than one per assignment, so the open spaces
+     * are visible and fillable in place. It previously listed only the people
+     * already assigned, which meant a role's vacancies were invisible here and
+     * staffing one meant going out to the People screen and working backwards.
+     *
+     * Rebuilt in place after every change, so the counts and the remaining open
+     * rows stay honest without closing and reopening. */
     function showRoleAssignments(roleId) {
-        // Fetch and display role assignments
+        // Reopening used to append a second element with the same id, leaving
+        // handlers bound to the stale copy.
+        $('#role-assignments-modal').remove();
+
+        var $modal = $(
+            '<div id="role-assignments-modal" class="modal" style="z-index: 10002;">' +
+                '<div class="modal-content modal-wide">' +
+                    '<div class="modal-header">' +
+                        '<h3 class="roster-title">Assignments</h3>' +
+                        '<button type="button" class="modal-close">&times;</button>' +
+                    '</div>' +
+                    '<div class="modal-body">' +
+                        '<div class="roster-summary" style="margin-bottom: 12px;"></div>' +
+                        '<div class="roster-body"><p><em>Loading…</em></p></div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>'
+        );
+
+        $('body').append($modal);
+        $modal.show();
+
+        // Scoped to this modal. The previous version bound to every .modal-close
+        // on the page, so closing an unrelated modal also tore this one down.
+        $modal.find('.modal-close').on('click', function() {
+            $modal.remove();
+        });
+
+        loadRoleRoster(roleId, $modal);
+    }
+
+    function loadRoleRoster(roleId, $modal) {
+        var $body = $modal.find('.roster-body');
+
         $.post(azure_plugin_ajax.ajax_url, {
-            action: 'pta_get_assignments',
+            action: 'pta_get_role_roster',
             role_id: roleId,
             nonce: azure_plugin_ajax.nonce
-        }, function(response) {
-            if (response.success) {
-                var assignments = response.data;
-                var roleRow = $('#roles-table-body tr').find('[data-role-id="' + roleId + '"]').closest('tr');
-                var roleName = roleRow.find('td:first strong').text();
-                
-                var detailsHtml = '<div id="role-assignments-modal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Assignments for: ' + roleName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
-                
-                if (assignments && assignments.length > 0) {
-                    detailsHtml += '<table class="wp-list-table widefat fixed striped"><thead><tr><th>User</th><th>Email</th><th>Primary</th><th>Actions</th></tr></thead><tbody>';
-                    assignments.forEach(function(assignment) {
-                        var primaryBadge = assignment.is_primary ? '<span style="color: green;">✓ Primary</span>' : '';
-                        detailsHtml += '<tr><td>' + assignment.display_name + '</td><td>' + assignment.user_email + '</td><td>' + primaryBadge + '</td>';
-                        detailsHtml += '<td><button type="button" class="button button-small button-link-delete remove-assignment-btn" data-user-id="' + assignment.user_id + '" data-role-id="' + roleId + '">Remove</button></td></tr>';
-                    });
-                    detailsHtml += '</tbody></table>';
-                } else {
-                    detailsHtml += '<p><em>No users assigned to this role</em></p>';
-                }
-                
-                detailsHtml += '</div></div></div>';
-                $('body').append(detailsHtml);
-                $('#role-assignments-modal').show();
-                
-                // Bind close handler
-                $('.modal-close').on('click', function() {
-                    $('#role-assignments-modal').remove();
-                });
-                
-                // Bind remove assignment handler
-                $('.remove-assignment-btn').on('click', function() {
-                    var userId = $(this).data('user-id');
-                    if (confirm('Remove this user from the role?')) {
-                        $.post(azure_plugin_ajax.ajax_url, {
-                            action: 'pta_remove_assignment',
-                            user_id: userId,
-                            role_id: roleId,
-                            nonce: azure_plugin_ajax.nonce
-                        }, function(removeResponse) {
-                            if (removeResponse.success) {
-                                alert('✅ Assignment removed successfully!');
-                                $('#role-assignments-modal').remove();
-                                loadRolesList(); // Refresh
-                            } else {
-                                alert('❌ Failed to remove assignment: ' + (removeResponse.data || 'Unknown error'));
-                            }
-                        });
-                    }
-                });
-            } else {
-                alert('❌ Failed to load role assignments: ' + (response.data || 'Unknown error'));
+        }).done(function(response) {
+            if (!response || !response.success) {
+                $body.html($('<p>').css('color', '#b32d2e').text(
+                    'Could not load this role: ' + ((response && response.data) || 'unknown error')
+                ));
+                return;
             }
+
+            renderRoleRoster(response.data, $modal);
+        }).fail(function(xhr, status, error) {
+            console.error('pta_get_role_roster failed:', status, error, xhr && xhr.responseText);
+            $body.html($('<p>').css('color', '#b32d2e').text(
+                'Could not load this role (' + (status || 'error') + ') — see browser console'
+            ));
         });
+    }
+
+    function renderRoleRoster(data, $modal) {
+        var role = data.role;
+        var assignments = data.assignments || [];
+        var roleId = role.id;
+
+        // Shared by every picker in this render, then discarded with it.
+        var userCache = {};
+
+        /* Who already holds this role. Passed to the pickers so the same person
+         * cannot be offered for it twice; it does not affect their availability
+         * for any other role. */
+        var holderIds = assignments.map(function(a) { return a.user_id; });
+
+        $modal.find('.roster-title').text('Assignments for: ' + role.name);
+
+        var open = role.open_positions;
+        $modal.find('.roster-summary').html('').append(
+            $('<div>').append(
+                $('<strong>').text(role.assigned_count + ' of ' + role.max_occupants + ' filled'),
+                $('<span>').css({ 'margin-left': '10px' })
+                    .addClass('status-badge ' + (open > 0 ? 'open' : 'filled'))
+                    .text(open > 0 ? open + ' open' : 'Fully staffed'),
+                $('<div>').css({ 'margin-top': '4px', color: '#666', 'font-size': '12px' })
+                    .text(role.department_name || '')
+            )
+        );
+
+        /* Says out loud that this seat is the department's VP. Filling it also
+         * sets who the org chart shows and who Azure AD records as the manager
+         * of everyone in that department, which the role name alone does not
+         * convey. */
+        if (role.vp_for_department) {
+            $modal.find('.roster-summary').append(
+                $('<div class="notice notice-info inline">')
+                    .css({ margin: '8px 0 0', padding: '6px 10px' })
+                    .append(
+                        $('<p>').css({ margin: 0, 'font-size': '12px' }).append(
+                            'Whoever holds this position is the VP of ',
+                            $('<strong>').text(role.vp_for_department),
+                            ' — it sets the department VP, the org chart and the Azure AD manager.'
+                        )
+                    )
+            );
+        }
+
+        var $table = $('<table class="wp-list-table widefat striped">' +
+            '<thead><tr>' +
+                '<th style="width: 40px;">#</th>' +
+                '<th>Person</th>' +
+                '<th style="width: 90px;">Primary</th>' +
+                '<th>Actions</th>' +
+            '</tr></thead><tbody></tbody></table>');
+
+        var $tbody = $table.find('tbody');
+
+        assignments.forEach(function(assignment, index) {
+            $tbody.append(buildFilledRow(assignment, index + 1, roleId, $modal, userCache, holderIds));
+        });
+
+        // One row per remaining space, each independently fillable, so a role
+        // with three vacancies shows three.
+        for (var slot = 0; slot < open; slot++) {
+            $tbody.append(buildOpenRow(assignments.length + slot + 1, roleId, $modal, userCache, holderIds));
+        }
+
+        $modal.find('.roster-body').html('').append($table);
+    }
+
+    function buildFilledRow(assignment, position, roleId, $modal, userCache, holderIds) {
+        var $row = $('<tr>');
+
+        $row.append($('<td>').text(position));
+        var $thumb = assignment.photo_url
+            ? $('<img>').attr({ src: assignment.photo_url, alt: '', width: 40, height: 40 }).css({
+                borderRadius: '50%', objectFit: 'cover', verticalAlign: 'middle', marginRight: '8px'
+            })
+            : $('<span>').css({
+                display: 'inline-block', width: 40, height: 40, borderRadius: '50%',
+                background: '#e0e0e0', verticalAlign: 'middle', marginRight: '8px'
+            });
+        $row.append(
+            $('<td>').append(
+                $thumb,
+                $('<strong>').text(assignment.display_name),
+                $('<br>'),
+                $('<small>').text(assignment.user_email)
+            )
+        );
+        $row.append(
+            $('<td>').append(
+                assignment.is_primary
+                    ? $('<span>').css('color', 'green').text('✓ Primary')
+                    : $('<span>').css('color', '#999').text('—')
+            )
+        );
+
+        var $change = $('<button type="button" class="button button-small">').text('Change');
+        var $photo = $('<button type="button" class="button button-small">')
+            .css('margin-left', '4px').text(assignment.photo_url ? 'Change photo' : 'Add photo');
+        var $remove = $('<button type="button" class="button button-small button-link-delete">')
+            .css('margin-left', '4px').text('Remove');
+
+        $change.on('click', function() {
+            showChangeHolderRow($row, assignment, position, roleId, $modal, userCache, holderIds);
+        });
+
+        $photo.on('click', function() {
+            openUserPhotoPicker(assignment.user_id, assignment.display_name, function() {
+                loadRoleRoster(roleId, $modal);
+            });
+        });
+
+        $remove.on('click', function() {
+            if (!confirm('Remove ' + assignment.display_name + ' from this role?')) { return; }
+
+            $remove.prop('disabled', true).text('Removing…');
+
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_remove_assignment',
+                user_id: assignment.user_id,
+                role_id: roleId,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    $remove.prop('disabled', false).text('Remove');
+                    alert('❌ Failed to remove: ' + ((res && res.data) || 'Unknown error'));
+                    return;
+                }
+                // Reloaded rather than just dropping the row, so the counts and
+                // the new open slot appear without reopening the modal.
+                loadRoleRoster(roleId, $modal);
+                loadRolesList();
+            }).fail(function(xhr, status) {
+                $remove.prop('disabled', false).text('Remove');
+                alert('❌ Network error removing assignment (' + (status || 'error') + ')');
+            });
+        });
+
+        $row.append($('<td>').append($change, $photo, $remove));
+
+        return $row;
+    }
+
+    /* Turns a filled row into a picker pre-selected to the current holder, so
+     * handing a role over is one step instead of remove-then-find-then-add. */
+    function showChangeHolderRow($row, assignment, position, roleId, $modal, userCache, holderIds) {
+        var $cell = $('<td colspan="3">');
+        var $select = $('<select>').css({ width: '100%', 'max-width': '420px', 'min-width': '200px' });
+        var $primary = $('<label>').css({ 'margin-left': '10px', 'font-size': '12px' }).append(
+            $('<input type="checkbox">').prop('checked', !!assignment.is_primary),
+            ' Primary'
+        );
+
+        var $save = $('<button type="button" class="button button-primary button-small">')
+            .css('margin-left', '8px').text('Save');
+        var $cancel = $('<button type="button" class="button button-small">')
+            .css('margin-left', '4px').text('Cancel');
+
+        $cell.append($select, $primary, $save, $cancel);
+
+        $row.empty().append($('<td>').text(position), $cell);
+
+        populateUserSelect($select, {
+            selectedId: assignment.user_id,
+            emptyLabel: '-- Select a person --',
+            cache: userCache,
+            // The person being changed stays; the role's other holders drop out.
+            excludeIds: holderIds
+        });
+
+        $cancel.on('click', function() {
+            loadRoleRoster(roleId, $modal);
+        });
+
+        $save.on('click', function() {
+            var newUserId = $select.val();
+
+            if (!newUserId) {
+                alert('Pick someone, or use Remove to leave the position open.');
+                return;
+            }
+
+            $save.prop('disabled', true).text('Saving…');
+
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_replace_assignment',
+                role_id: roleId,
+                old_user_id: assignment.user_id,
+                new_user_id: newUserId,
+                is_primary: $primary.find('input').is(':checked') ? 1 : 0,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    $save.prop('disabled', false).text('Save');
+                    alert('❌ Failed to change: ' + ((res && res.data) || 'Unknown error'));
+                    return;
+                }
+                loadRoleRoster(roleId, $modal);
+                loadRolesList();
+            }).fail(function(xhr, status) {
+                $save.prop('disabled', false).text('Save');
+                alert('❌ Network error changing assignment (' + (status || 'error') + ')');
+            });
+        });
+    }
+
+    function buildOpenRow(position, roleId, $modal, userCache, holderIds) {
+        var $row = $('<tr>').css('background-color', '#fff8e5');
+
+        $row.append($('<td>').text(position));
+
+        var $select = $('<select>').css({ width: '100%', 'max-width': '420px', 'min-width': '200px' });
+        var $primary = $('<label>').css({ 'margin-left': '10px', 'font-size': '12px' }).append(
+            $('<input type="checkbox">'),
+            ' Primary'
+        );
+
+        $row.append($('<td colspan="2">').append(
+            $('<em>').css({ color: '#8a6d3b', display: 'block', 'margin-bottom': '4px' }).text('Open position'),
+            $select,
+            $primary
+        ));
+
+        var $assign = $('<button type="button" class="button button-primary button-small">').text('Assign');
+
+        $assign.on('click', function() {
+            var userId = $select.val();
+
+            if (!userId) {
+                alert('Choose a person to assign to this position.');
+                return;
+            }
+
+            $assign.prop('disabled', true).text('Assigning…');
+
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_assign_role',
+                user_id: userId,
+                role_id: roleId,
+                is_primary: $primary.find('input').is(':checked') ? 1 : 0,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(res) {
+                if (!res || !res.success) {
+                    $assign.prop('disabled', false).text('Assign');
+                    alert('❌ Failed to assign: ' + ((res && res.data) || 'Unknown error'));
+                    return;
+                }
+                loadRoleRoster(roleId, $modal);
+                loadRolesList();
+            }).fail(function(xhr, status) {
+                $assign.prop('disabled', false).text('Assign');
+                alert('❌ Network error assigning role (' + (status || 'error') + ')');
+            });
+        });
+
+        $row.append($('<td>').append($assign));
+
+        // Defaults to Azure AD accounts, which is who holds a PTA role.
+        populateUserSelect($select, {
+            emptyLabel: '-- Choose a person --',
+            cache: userCache,
+            excludeIds: holderIds
+        });
+
+        return $row;
     }
     
     function showEditRoleForm(roleId) {
@@ -1939,7 +2462,7 @@ jQuery(document).ready(function($) {
         // Create edit form modal
         var formHtml = `
             <div id="edit-role-form-modal" class="modal" style="z-index: 10001;">
-                <div class="modal-content">
+                <div class="modal-content modal-wide">
                     <div class="modal-header">
                         <h3>Edit Role: ${role.name}</h3>
                         <button type="button" class="modal-close">&times;</button>
@@ -1970,15 +2493,41 @@ jQuery(document).ready(function($) {
                                 </tr>
                                 <tr>
                                     <th>Description</th>
-                                    <td><textarea name="description" class="large-text">${role.description || ''}</textarea></td>
+                                    <td><textarea name="description" class="large-text" rows="4"></textarea></td>
                                 </tr>
                                 <tr>
-                                    <th>O365 Group</th>
+                                    <th>Time Commitment</th>
+                                    <td><textarea name="time_commitment" class="large-text" rows="2"></textarea></td>
+                                </tr>
+                                <tr>
+                                    <th>Main Point of Contact</th>
+                                    <td><input type="text" name="point_of_contact" class="regular-text"></td>
+                                </tr>
+                                <tr>
+                                    <th>Pro Tip</th>
+                                    <td><textarea name="pro_tip" class="large-text" rows="3"></textarea></td>
+                                </tr>
+                                <tr>
+                                    <th>Key Responsibilities</th>
                                     <td>
-                                        <select name="o365_group_id" id="edit-role-o365-group" style="min-width: 250px;">
-                                            <option value="">-- Loading groups... --</option>
-                                        </select>
-                                        <p class="description">Assign an O365 group email to this role (for Treasurer, Secretary, etc.)</p>
+                                        <div class="pta-role-resp-list" data-resp-list></div>
+                                        <p><button type="button" class="button" data-add-resp>Add responsibility</button></p>
+                                        <input type="hidden" name="responsibilities" value="[]">
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>O365 Groups</th>
+                                    <td>
+                                        <div class="pta-role-group-add">
+                                            <select id="edit-role-o365-group" style="min-width: 250px;">
+                                                <option value="">-- Loading groups... --</option>
+                                            </select>
+                                            <button type="button" class="button" id="edit-role-add-group">Add</button>
+                                        </div>
+                                        <ul id="edit-role-group-mappings" class="pta-role-group-mappings">
+                                            <li class="pta-mapping-empty">Loading mappings…</li>
+                                        </ul>
+                                        <p class="description">A role can map to more than one group. People in this role are synced into every mapped group. Adding or removing here saves immediately.</p>
                                     </td>
                                 </tr>
                             </table>
@@ -1996,42 +2545,158 @@ jQuery(document).ready(function($) {
         $('#edit-role-form-modal').remove();
         
         $('body').append(formHtml);
+
+        var $editForm = $('#edit-role-form');
+        $editForm.find('[name="description"]').val(role.description || '');
+        $editForm.find('[name="time_commitment"]').val(role.time_commitment || '');
+        $editForm.find('[name="point_of_contact"]').val(role.point_of_contact || '');
+        $editForm.find('[name="pro_tip"]').val(role.pro_tip || '');
+        renderRoleResponsibilities($editForm, role.responsibilities || []);
         
-        // Load O365 groups and current role mapping into dropdown
+        // O365 mappings are edited in place on this list. Save Changes does
+        // not touch them — the previous save path replaced every mapping with
+        // the one dropdown value, which hid existing mappings and could wipe
+        // extras.
         var $groupSelect = $('#edit-role-o365-group');
-        var currentGroupId = '';
+        var roleGroupMappings = [];
+        var allO365Groups = [];
 
-        $.post(azure_plugin_ajax.ajax_url, {
-            action: 'pta_get_role_group_mapping',
-            role_id: role.id,
-            nonce: azure_plugin_ajax.nonce
-        }, function(resp) {
-            if (resp.success && resp.data) {
-                currentGroupId = resp.data.group_id || '';
+        function mappingLabel(m) {
+            var name = m.group_name || 'Unnamed group';
+            if (m.mail) {
+                name += ' (' + m.mail + ')';
             }
-            loadO365GroupsForRole();
-        }).fail(function() {
-            loadO365GroupsForRole();
-        });
+            if (m.label) {
+                name += ' — ' + m.label;
+            }
+            return name;
+        }
 
-        function loadO365GroupsForRole() {
-            $.post(azure_plugin_ajax.ajax_url, {
-                action: 'pta_get_o365_groups',
-                nonce: azure_plugin_ajax.nonce
-            }, function(resp) {
-                var opts = '<option value="">-- None --</option>';
-                if (resp.success && resp.data) {
-                    resp.data.forEach(function(g) {
-                        var sel = (g.group_id === currentGroupId) ? 'selected' : '';
-                        var label = g.display_name + (g.mail ? ' (' + g.mail + ')' : '');
-                        opts += '<option value="' + g.group_id + '" ' + sel + '>' + label + '</option>';
-                    });
+        function mappedGroupIds() {
+            return roleGroupMappings.map(function(m) { return String(m.group_id); });
+        }
+
+        function fillGroupDropdown() {
+            var taken = mappedGroupIds();
+            var opts = '<option value="">-- Add an O365 group --</option>';
+            allO365Groups.forEach(function(g) {
+                if (taken.indexOf(String(g.group_id)) !== -1) {
+                    return;
                 }
-                $groupSelect.html(opts);
+                var label = g.display_name + (g.mail ? ' (' + g.mail + ')' : '');
+                opts += '<option value="' + $('<div>').text(g.group_id).html() + '">'
+                    + $('<div>').text(label).html() + '</option>';
+            });
+            $groupSelect.html(opts);
+        }
+
+        function renderRoleGroupMappings() {
+            var $list = $('#edit-role-group-mappings');
+            $list.empty();
+            if (!roleGroupMappings.length) {
+                $list.append($('<li class="pta-mapping-empty">').text('No O365 groups mapped to this role.'));
+                fillGroupDropdown();
+                return;
+            }
+            roleGroupMappings.forEach(function(m) {
+                var $li = $('<li class="pta-role-group-mapping">');
+                $li.append($('<span class="pta-mapping-badge">').text('Active'));
+                $li.append($('<span class="pta-mapping-name">').text(mappingLabel(m)));
+                var $x = $('<button type="button" class="pta-mapping-remove" aria-label="Remove mapping">&times;</button>');
+                $x.on('click', function() {
+                    if (!confirm('Remove the mapping to "' + (m.group_name || 'this group') + '"?\n\nPeople in this role will no longer be synced into that Office 365 group.')) {
+                        return;
+                    }
+                    $x.prop('disabled', true);
+                    $.post(azure_plugin_ajax.ajax_url, {
+                        action: 'pta_delete_group_mapping',
+                        mapping_id: m.id,
+                        nonce: azure_plugin_ajax.nonce
+                    }).done(function(res) {
+                        if (!res || !res.success) {
+                            $x.prop('disabled', false);
+                            alert('❌ Failed to remove mapping: ' + ((res && res.data) || 'unknown error'));
+                            return;
+                        }
+                        loadRoleGroupMappings();
+                    }).fail(function() {
+                        $x.prop('disabled', false);
+                        alert('❌ Network error removing mapping');
+                    });
+                });
+                $li.append($x);
+                $list.append($li);
+            });
+            fillGroupDropdown();
+        }
+
+        function loadRoleGroupMappings() {
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_get_role_group_mapping',
+                role_id: role.id,
+                nonce: azure_plugin_ajax.nonce
+            }).done(function(resp) {
+                roleGroupMappings = (resp && resp.success && Array.isArray(resp.data)) ? resp.data : [];
+                renderRoleGroupMappings();
             }).fail(function() {
-                $groupSelect.html('<option value="">-- Failed to load groups --</option>');
+                roleGroupMappings = [];
+                $('#edit-role-group-mappings').html(
+                    '<li class="pta-mapping-empty">Could not load group mappings.</li>'
+                );
             });
         }
+
+        function addRoleGroupMapping() {
+            var groupId = $groupSelect.val();
+            if (!groupId) {
+                alert('Choose an O365 group to add.');
+                return;
+            }
+            var $add = $('#edit-role-add-group');
+            $add.prop('disabled', true);
+            $groupSelect.prop('disabled', true);
+            $.post(azure_plugin_ajax.ajax_url, {
+                action: 'pta_create_group_mapping',
+                nonce: azure_plugin_ajax.nonce,
+                target_type: 'role',
+                target_id: role.id,
+                o365_group_id: groupId,
+                is_required: 1
+            }).done(function(res) {
+                $add.prop('disabled', false);
+                $groupSelect.prop('disabled', false);
+                if (!res || !res.success) {
+                    alert('❌ Failed to add mapping: ' + ((res && res.data) || 'unknown error'));
+                    return;
+                }
+                $groupSelect.val('');
+                loadRoleGroupMappings();
+            }).fail(function() {
+                $add.prop('disabled', false);
+                $groupSelect.prop('disabled', false);
+                alert('❌ Network error adding mapping');
+            });
+        }
+
+        $('#edit-role-add-group').on('click', addRoleGroupMapping);
+        $groupSelect.on('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addRoleGroupMapping();
+            }
+        });
+
+        $.post(azure_plugin_ajax.ajax_url, {
+            action: 'pta_get_o365_groups',
+            nonce: azure_plugin_ajax.nonce
+        }).done(function(resp) {
+            allO365Groups = (resp && resp.success && resp.data) ? resp.data : [];
+            fillGroupDropdown();
+            loadRoleGroupMappings();
+        }).fail(function() {
+            $groupSelect.html('<option value="">-- Failed to load groups --</option>');
+            loadRoleGroupMappings();
+        });
 
         // Handle "Create New Department" option
         $('#edit-role-department').on('change', function() {
@@ -2123,6 +2788,7 @@ jQuery(document).ready(function($) {
                 return false;
             }
             
+            syncRoleResponsibilitiesField($form);
             var formData = {
                 action: 'pta_update_role',
                 nonce: azure_plugin_ajax.nonce,
@@ -2130,7 +2796,11 @@ jQuery(document).ready(function($) {
                 name: $form.find('[name="name"]').val(),
                 department_id: deptVal,
                 max_occupants: $form.find('[name="max_occupants"]').val(),
-                description: $form.find('[name="description"]').val()
+                description: $form.find('[name="description"]').val(),
+                time_commitment: $form.find('[name="time_commitment"]').val(),
+                point_of_contact: $form.find('[name="point_of_contact"]').val(),
+                pro_tip: $form.find('[name="pro_tip"]').val(),
+                responsibilities: $form.find('[name="responsibilities"]').val()
             };
             
             console.log('Saving role with data:', formData);
@@ -2146,21 +2816,9 @@ jQuery(document).ready(function($) {
                     return;
                 }
 
-                var selectedGroup = $form.find('[name="o365_group_id"]').val();
-                $.post(azure_plugin_ajax.ajax_url, {
-                    action: 'pta_set_role_group',
-                    nonce: azure_plugin_ajax.nonce,
-                    role_id: roleId,
-                    o365_group_id: selectedGroup || ''
-                }, function() {
-                    alert('✅ Role updated successfully!');
-                    $modal.remove();
-                    loadRolesList();
-                }).fail(function() {
-                    alert('✅ Role updated but O365 group mapping may not have saved.');
-                    $modal.remove();
-                    loadRolesList();
-                });
+                alert('✅ Role updated successfully!');
+                $modal.remove();
+                loadRolesList();
             }).fail(function(xhr, status, error) {
                 $btn.prop('disabled', false).text('Save Changes');
                 console.error('Edit role AJAX error:', xhr, status, error);
@@ -2172,6 +2830,200 @@ jQuery(document).ready(function($) {
         });
     }
     
+    /* Fill a VP <select> from pta_get_users.
+     *
+     * Centralised because the three department forms each had their own copy and
+     * they disagreed about failure. The assign-VP picker sat on "Loading
+     * users..." forever whenever the request did not come back, because nothing
+     * handled that case, and the edit form left a completely empty <select>
+     * because it only added its placeholder inside the success branch. Both
+     * looked like a hang rather than a failure. */
+    /* The role filter is injected next to the <select> rather than written into
+     * each modal's markup: the three pickers are built in three separate places
+     * (two JS templates and one PHP form) and duplicated controls would drift
+     * apart, which is how the loading logic diverged in the first place. */
+    function ensureUserRoleFilter($select, opts) {
+        var $existing = $select.parent().find('.pta-user-role-filter');
+        if ($existing.length) { return $existing; }
+
+        var $filter = buildRoleFilterSelect('pta-user-role-filter', ptaDefaultRoleFilter)
+            .css({ display: 'block', 'margin-bottom': '6px' });
+
+        $select.before(
+            $('<label>')
+                .css({ display: 'block', 'margin-bottom': '6px', 'font-size': '12px' })
+                .text('Filter by role: ')
+                .append($filter)
+        );
+
+        $filter.on('change', function() {
+            // Keeps whoever is selected, so changing filter cannot lose the
+            // person already chosen.
+            populateUserSelect($select, $.extend({}, opts, {
+                selectedId: $select.val() || opts.selectedId,
+                roleFilter: $(this).val()
+            }));
+        });
+
+        return $filter;
+    }
+
+    /* Fill a user <select> from pta_get_users, with the role filter attached.
+     *
+     * opts: { selectedId, roleFilter, emptyLabel, showFilter }
+     *
+     * Generic rather than VP-specific because this is the third place needing a
+     * user picker. The first two each had their own copy and disagreed about
+     * failure: one sat on "Loading users..." forever when the request did not
+     * come back, the other left an empty <select> because it only added its
+     * placeholder on success. Both looked like a hang rather than an error. */
+    function populateUserSelect($select, opts) {
+        if (!$select.length) { return; }
+
+        opts = opts || {};
+        var selectedId = opts.selectedId || '';
+        var emptyLabel = typeof opts.emptyLabel === 'string' ? opts.emptyLabel : '-- Select a person --';
+        var roleFilter = opts.roleFilter;
+
+        if (opts.showFilter !== false) {
+            var $filter = ensureUserRoleFilter($select, opts);
+            if (typeof roleFilter === 'undefined' || roleFilter === null) {
+                roleFilter = $filter.val() || ptaDefaultRoleFilter;
+            }
+            $filter.val(roleFilter);
+        } else if (typeof roleFilter === 'undefined' || roleFilter === null) {
+            roleFilter = ptaDefaultRoleFilter;
+        }
+
+        $select.prop('disabled', true).html('<option value="">Loading users…</option>');
+
+        var params = {
+            action: 'pta_get_users',
+            nonce: azure_plugin_ajax.nonce,
+            wp_role: roleFilter,
+            // Asks for the current holder explicitly so the filter cannot drop them.
+            include_user_id: selectedId || 0
+        };
+
+        /* Callers rendering several pickers at once pass a shared cache so they
+         * issue one request instead of one per picker — a role with five open
+         * positions was otherwise fetching the same user list five times. The
+         * cache is owned by the caller and lives for one render, so an assignment
+         * cannot leave a picker offering someone who has just been placed. */
+        var request;
+        if (opts.cache) {
+            var key = roleFilter + '|' + (selectedId || 0);
+            if (!opts.cache[key]) {
+                opts.cache[key] = $.post(azure_plugin_ajax.ajax_url, params);
+            }
+            request = opts.cache[key];
+        } else {
+            request = $.post(azure_plugin_ajax.ajax_url, params);
+        }
+
+        return request.done(function(response) {
+            $select.empty().prop('disabled', false);
+
+            if (!response || !response.success) {
+                var reason = (response && response.data) ? response.data : 'unknown error';
+                $select.append($('<option>', { value: '', text: 'Could not load users: ' + reason }));
+                return;
+            }
+
+            $select.append($('<option>', { value: '', text: emptyLabel }));
+
+            var users = (response.data || []).slice();
+            var matchedFilter = users.length;
+
+            /* Only people already holding *this* role are dropped, and never the
+             * one being edited. Holding several different roles is normal and
+             * must not take someone out of the pool — but the same role twice is
+             * rejected server-side, so offering it is an action that can only
+             * fail. */
+            if (opts.excludeIds && opts.excludeIds.length) {
+                var excluded = opts.excludeIds.map(String);
+                users = users.filter(function(user) {
+                    return String(user.ID) === String(selectedId)
+                        || excluded.indexOf(String(user.ID)) === -1;
+                });
+            }
+
+            /* Alphabetical, so a person keeps their place in the list after being
+             * given a role. The endpoint sorts users with no PTA role first,
+             * which suits the People list but in a picker means anyone you just
+             * assigned jumps to the bottom and reads as having disappeared. */
+            users.sort(function(a, b) {
+                return String(a.display_name || '').localeCompare(String(b.display_name || ''));
+            });
+
+            if (!users.length) {
+                // Distinguishes the two reasons a picker can come back empty, so
+                // it does not look like the load failure it used to be mistaken
+                // for, and does not blame the filter when exclusion emptied it.
+                $select.append($('<option>', {
+                    value: '',
+                    disabled: true,
+                    text: matchedFilter > 0
+                        ? 'Everyone in this role filter already holds this role'
+                        : 'No users have this WordPress role — widen the filter above'
+                }));
+                return;
+            }
+
+            var ptsa = [], other = [];
+            users.forEach(function(user) {
+                (user.is_ptsa_account ? ptsa : other).push(user);
+            });
+
+            // Board addresses first: the list can be every user rather than the
+            // handful on the azuread role, and the person wanted is nearly
+            // always one of them.
+            [['PTSA accounts', ptsa], ['Other users', other]].forEach(function(group) {
+                if (!group[1].length) { return; }
+                var $group = $('<optgroup>', { label: group[0] + ' (' + group[1].length + ')' });
+                group[1].forEach(function(user) {
+                    var label = user.display_name + ' (' + user.user_email + ')';
+
+                    /* Flags what someone already holds instead of hiding them.
+                     * Holding more than one role is normal, but it should be a
+                     * visible choice when staffing rather than a surprise. */
+                    if (user.assignments_count > 0) {
+                        label += ' · holds ' + user.assignments_count
+                            + (user.assignments_count === 1 ? ' role' : ' roles');
+                    }
+
+                    // Built as nodes, not concatenated HTML, so a display name
+                    // or address containing markup cannot break the picker.
+                    $group.append($('<option>', {
+                        value: user.ID,
+                        text: label,
+                        title: user.roles || '',
+                        selected: String(selectedId) === String(user.ID)
+                    }));
+                });
+                $select.append($group);
+            });
+
+            if (typeof opts.onLoaded === 'function') {
+                opts.onLoaded($select, users);
+            }
+        }).fail(function(xhr, status, error) {
+            console.error('pta_get_users failed:', status, error, xhr && xhr.responseText);
+            $select.empty().prop('disabled', false).append($('<option>', {
+                value: '',
+                text: 'Could not load users (' + (status || 'error') + ') — see browser console'
+            }));
+        });
+    }
+
+    function populateVPSelect($select, selectedId, roleFilter) {
+        return populateUserSelect($select, {
+            selectedId: selectedId,
+            roleFilter: roleFilter,
+            emptyLabel: '-- No VP Assigned --'
+        });
+    }
+
     // Show Assign VP Modal
     function showAssignVPModal(deptId) {
         // Fetch department data first
@@ -2225,25 +3077,14 @@ jQuery(document).ready(function($) {
                 </div>
             `;
             
+            // Reopening appended a second element with the same id, and the
+            // dropdown lookup then found the stale one, leaving the visible
+            // modal stuck on its placeholder.
+            $('#assign-vp-modal').remove();
             $('body').append(modalHtml);
-            
-            // Load users for VP dropdown
-            $.post(azure_plugin_ajax.ajax_url, {
-                action: 'pta_get_users',
-                nonce: azure_plugin_ajax.nonce
-            }, function(usersResponse) {
-                var vpSelect = $('#assign-vp-select');
-                vpSelect.empty();
-                vpSelect.append('<option value="">-- Select a VP --</option>');
-                
-                if (usersResponse.success) {
-                    usersResponse.data.forEach(function(user) {
-                        var selected = dept.vp_user_id == user.ID ? 'selected' : '';
-                        vpSelect.append('<option value="' + user.ID + '" ' + selected + '>' + user.display_name + ' (' + user.user_email + ')</option>');
-                    });
-                }
-            });
-            
+
+            populateVPSelect($('#assign-vp-modal').find('#assign-vp-select'), dept.vp_user_id);
+
             $('#assign-vp-modal').show();
             
             // Bind close handler
@@ -2335,22 +3176,10 @@ jQuery(document).ready(function($) {
                 </div>
             `;
             
+            $('#edit-dept-form-modal').remove();
             $('body').append(formHtml);
-            
-            // Load users for VP dropdown
-            $.post(azure_plugin_ajax.ajax_url, {
-                action: 'pta_get_users',
-                nonce: azure_plugin_ajax.nonce
-            }, function(usersResponse) {
-                if (usersResponse.success) {
-                    var vpSelect = $('#edit-dept-vp');
-                    vpSelect.append('<option value="">-- No VP Assigned --</option>');
-                    usersResponse.data.forEach(function(user) {
-                        var selected = dept.vp_user_id == user.ID ? 'selected' : '';
-                        vpSelect.append('<option value="' + user.ID + '" ' + selected + '>' + user.display_name + ' (' + user.user_email + ')</option>');
-                    });
-                }
-            });
+
+            populateVPSelect($('#edit-dept-form-modal').find('#edit-dept-vp'), dept.vp_user_id);
 
             // Load O365 groups and current department mapping in parallel
             var currentGroupId = '';
@@ -2494,7 +3323,7 @@ jQuery(document).ready(function($) {
             // Create modal
             var modalHtml = `
                 <div id="dept-details-modal" class="modal" style="z-index: 10000;">
-                    <div class="modal-content" style="max-width: 900px;">
+                    <div class="modal-content modal-wide">
                         <div class="modal-header">
                             <h3>Department: ${dept.name}</h3>
                             <button type="button" class="modal-close">&times;</button>
@@ -2878,10 +3707,97 @@ jQuery(document).ready(function($) {
     background: #fff !important;
     color: #333 !important;
     border-radius: 8px;
-    max-width: 500px;
-    width: 90%;
-    max-height: 80%;
-    overflow-y: auto;
+    box-sizing: border-box;
+    max-width: min(640px, calc(100vw - 48px));
+    width: min(640px, calc(100vw - 48px));
+    max-height: min(80vh, calc(100vh - 48px));
+    overflow: auto;
+}
+
+.modal-content.modal-wide {
+    max-width: min(1200px, calc(100vw - 48px));
+    width: min(1200px, calc(100vw - 48px));
+}
+
+#role-assignments-modal td:last-child,
+#role-assignments-modal th:last-child {
+    white-space: nowrap;
+    width: 1%;
+}
+
+.modal .form-actions,
+.modal p.submit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pta-role-group-add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.pta-role-group-mappings {
+    list-style: none;
+    margin: 10px 0 6px;
+    padding: 0;
+}
+
+.pta-role-group-mapping {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.pta-mapping-badge {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #1e7e34;
+    background: #d4edda;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.pta-mapping-name {
+    flex: 1;
+    min-width: 0;
+    color: #1d2327;
+}
+
+.pta-mapping-remove {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #b32d2e;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.pta-mapping-remove:hover,
+.pta-mapping-remove:focus {
+    background: #b32d2e;
+    color: #fff;
+}
+
+.pta-mapping-empty {
+    color: #646970;
+    font-style: italic;
+    padding: 4px 0;
 }
 
 .modal-header {
@@ -2931,7 +3847,12 @@ jQuery(document).ready(function($) {
 }
 
 .form-field select,
-.form-field input {
+.form-field input[type="text"],
+.form-field input[type="password"],
+.form-field input[type="email"],
+.form-field input[type="number"],
+.form-field input[type="url"],
+.form-field input[type="search"] {
     width: 100%;
     padding: 8px;
     border: 1px solid #ddd;
@@ -3092,7 +4013,12 @@ jQuery(document).ready(function($) {
     background: #f9f9f9 !important;
 }
 
-.modal .form-table input,
+.modal .form-table input[type="text"],
+.modal .form-table input[type="password"],
+.modal .form-table input[type="email"],
+.modal .form-table input[type="number"],
+.modal .form-table input[type="url"],
+.modal .form-table input[type="search"],
 .modal .form-table select,
 .modal .form-table textarea {
     color: #333 !important;
@@ -3196,34 +4122,10 @@ jQuery(document).ready(function($) {
     color: #007cba;
 }
 
-.beaver-builder-info {
-    background: #f0f8ff;
-    border: 1px solid #b3d9ff;
-    border-radius: 6px;
-    padding: 20px;
-    margin-top: 20px;
-}
 
-.beaver-builder-info h3 {
-    margin: 0 0 15px 0;
-    color: #0073aa;
-    font-size: 18px;
-}
 
-.beaver-builder-info ul {
-    margin: 10px 0;
-    padding-left: 20px;
-}
 
-.beaver-builder-info li {
-    margin-bottom: 5px;
-    line-height: 1.5;
-}
 
-.beaver-builder-info em {
-    color: #666;
-    font-style: italic;
-}
 
 @media (max-width: 768px) {
     .shortcode-examples {

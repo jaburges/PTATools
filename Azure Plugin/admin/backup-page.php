@@ -36,7 +36,7 @@ if ($backup_jobs_table) {
 $settings = Azure_Settings::get_all_settings();
 ?>
 
-<div class="wrap">
+<div class="wrap azure-backup-page">
     <h1>PTA Tools - Backup Settings</h1>
     
     <!-- Module Status Toggle -->
@@ -216,21 +216,70 @@ $settings = Azure_Settings::get_all_settings();
             <!-- Backup Configuration -->
             <div class="backup-configuration">
                 <h2>Backup Configuration</h2>
-                
+                <?php
+                $host_detected = class_exists('Azure_Backup_Host') ? Azure_Backup_Host::detect() : 'unknown';
+                $host_setting  = class_exists('Azure_Backup_Host') ? Azure_Backup_Host::setting() : 'auto';
+                $host_resolved = class_exists('Azure_Backup_Host') ? Azure_Backup_Host::resolved() : 'app_service';
+                $host_labels = array(
+                    'auto'        => 'Auto-detect',
+                    'app_service' => 'App Service',
+                    'container'   => 'Container Apps',
+                    'unknown'     => 'Unknown',
+                );
+                ?>
                 <table class="form-table">
+                    <tr>
+                        <th scope="row">Hosting</th>
+                        <td>
+                            <fieldset>
+                                <label>
+                                    <input type="radio" name="azure_plugin_settings[backup_hosting_mode]" value="auto" <?php checked($host_setting, 'auto'); ?> />
+                                    Auto-detect
+                                </label><br>
+                                <label>
+                                    <input type="radio" name="azure_plugin_settings[backup_hosting_mode]" value="container" <?php checked($host_setting, 'container'); ?> />
+                                    Container Apps
+                                </label><br>
+                                <label>
+                                    <input type="radio" name="azure_plugin_settings[backup_hosting_mode]" value="app_service" <?php checked($host_setting, 'app_service'); ?> />
+                                    App Service
+                                </label>
+                            </fieldset>
+                            <p class="description">
+                                Detected: <strong><?php echo esc_html($host_labels[$host_detected] ?? $host_detected); ?></strong>
+                                · Using: <strong><?php echo esc_html($host_labels[$host_resolved] ?? $host_resolved); ?></strong>
+                            </p>
+                            <?php if ($host_resolved === 'container'): ?>
+                            <div class="notice notice-info inline" style="margin:10px 0 0;">
+                                <p>
+                                    <strong>Container mode.</strong>
+                                    Each backup also writes a <code>container-code</code> snapshot (plugins + themes + mu-plugins) to Azure Blob.
+                                    Restore applies it onto the live container immediately (hot restore).
+                                    The latest snapshot is also published at
+                                    <code><?php echo esc_html(class_exists('Azure_Backup_Host') ? Azure_Backup_Host::latest_blob_prefix() . '/…' : 'container-latest'); ?></code>.
+                                    Rebuild the WordPress image from that snapshot so the next revision keeps the same plugins.
+                                </p>
+                            </div>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
                     <tr>
                         <th scope="row">Backup Types</th>
                         <td>
                             <?php
                             // Default includes 'uploads' -- see docs/backup-review-2026-05-22.md.
                             $backup_types = $settings['backup_types'] ?? array('database', 'mu-plugins', 'plugins', 'themes', 'content', 'uploads');
-                            $selected_plugins = $settings['backup_selected_plugins'] ?? array();
-                            $selected_themes  = $settings['backup_selected_themes']  ?? array();
+                            $plugins_configured = array_key_exists('backup_selected_plugins', $settings);
+                            $themes_configured  = array_key_exists('backup_selected_themes', $settings);
+                            $selected_plugins = $plugins_configured ? (array) $settings['backup_selected_plugins'] : array();
+                            $selected_themes  = $themes_configured ? (array) $settings['backup_selected_themes'] : array();
 
                             $simple_types = array(
-                                'database'   => 'Database',
-                                'mu-plugins' => 'Must-Use Plugins',
-                                'content'    => 'Content Files',
+                                'database'       => 'Database',
+                                'mu-plugins'     => 'Must-Use Plugins',
+                                'content'        => 'Content Files',
+                                'uploads'        => 'Media / Uploads',
+                                'container_code' => 'Container code snapshot (plugins + themes + mu-plugins)',
                             );
 
                             $all_plugins = get_plugins();
@@ -252,13 +301,13 @@ $settings = Azure_Settings::get_all_settings();
                                 <a href="#" class="backup-expand-toggle" data-target="backup-plugins-list" style="margin-left: 6px; font-size: 12px; text-decoration: none;">[select individually ▾]</a>
                                 <div id="backup-plugins-list" style="display: none; margin: 6px 0 6px 24px; padding: 8px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; max-height: 200px; overflow-y: auto;">
                                     <label style="display: block; margin-bottom: 4px; font-weight: bold;">
-                                        <input type="checkbox" class="backup-select-all" data-group="backup-plugin-item" checked /> Select All
+                                        <input type="checkbox" class="backup-select-all" data-group="backup-plugin-item" /> Select All
                                     </label>
                                     <hr style="margin: 4px 0;">
                                     <?php foreach ($all_plugins as $plugin_file => $plugin_data):
                                         $slug = dirname($plugin_file);
                                         if ($slug === '.') $slug = basename($plugin_file, '.php');
-                                        $is_checked = empty($selected_plugins) || in_array($slug, $selected_plugins);
+                                        $is_checked = !$plugins_configured || in_array($slug, $selected_plugins, true);
                                     ?>
                                     <label style="display: block; margin: 2px 0;">
                                         <input type="checkbox" class="backup-plugin-item" name="azure_plugin_settings[backup_selected_plugins][]" value="<?php echo esc_attr($slug); ?>" <?php checked($is_checked); ?> />
@@ -278,12 +327,12 @@ $settings = Azure_Settings::get_all_settings();
                                 <a href="#" class="backup-expand-toggle" data-target="backup-themes-list" style="margin-left: 6px; font-size: 12px; text-decoration: none;">[select individually ▾]</a>
                                 <div id="backup-themes-list" style="display: none; margin: 6px 0 6px 24px; padding: 8px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; max-height: 200px; overflow-y: auto;">
                                     <label style="display: block; margin-bottom: 4px; font-weight: bold;">
-                                        <input type="checkbox" class="backup-select-all" data-group="backup-theme-item" checked /> Select All
+                                        <input type="checkbox" class="backup-select-all" data-group="backup-theme-item" /> Select All
                                     </label>
                                     <hr style="margin: 4px 0;">
                                     <?php foreach ($all_themes as $theme_slug => $theme_obj): ?>
                                     <label style="display: block; margin: 2px 0;">
-                                        <input type="checkbox" class="backup-theme-item" name="azure_plugin_settings[backup_selected_themes][]" value="<?php echo esc_attr($theme_slug); ?>" <?php checked(empty($selected_themes) || in_array($theme_slug, $selected_themes)); ?> />
+                                        <input type="checkbox" class="backup-theme-item" name="azure_plugin_settings[backup_selected_themes][]" value="<?php echo esc_attr($theme_slug); ?>" <?php checked(!$themes_configured || in_array($theme_slug, $selected_themes, true)); ?> />
                                         <?php echo esc_html($theme_obj->get('Name')); ?>
                                         <span style="color: #888; font-size: 11px;">(<?php echo esc_html($theme_slug); ?>)</span>
                                     </label>
@@ -502,12 +551,17 @@ jQuery(document).ready(function($) {
         var group = $(this).data('group');
         $('.' + group).prop('checked', $(this).is(':checked'));
     });
-    // Keep "Select All" in sync when individual items change
+    function syncBackupSelectAll(cls) {
+        var $items = $('.' + cls);
+        var all = $items.length;
+        var checked = $items.filter(':checked').length;
+        $items.closest('div').find('.backup-select-all').prop('checked', all > 0 && all === checked);
+    }
+    syncBackupSelectAll('backup-plugin-item');
+    syncBackupSelectAll('backup-theme-item');
     $(document).on('change', '.backup-plugin-item, .backup-theme-item', function() {
         var cls = $(this).hasClass('backup-plugin-item') ? 'backup-plugin-item' : 'backup-theme-item';
-        var all = $('.' + cls).length;
-        var checked = $('.' + cls + ':checked').length;
-        $(this).closest('div').find('.backup-select-all').prop('checked', all === checked);
+        syncBackupSelectAll(cls);
     });
 
     // Expand/collapse backup detail rows
@@ -548,7 +602,7 @@ jQuery(document).ready(function($) {
                 return;
             }
 
-            var entityLabels = {database:'Database', plugins:'Plugins', themes:'Themes', uploads:'Media / Uploads', media:'Media / Uploads', content:'Other Content', others:'Other Content'};
+            var entityLabels = {database:'Database', plugins:'Plugins', themes:'Themes', uploads:'Media / Uploads', media:'Media / Uploads', content:'Other Content', others:'Other Content', 'container_code':'Container code', muPlugins:'Must-Use Plugins', 'mu-plugins':'Must-Use Plugins'};
             var html = '<table class="widefat" style="margin:0; border:none; box-shadow:none;">';
             html += '<thead><tr><th>Component</th><th>File</th><th>Size</th><th></th></tr></thead><tbody>';
 
@@ -694,7 +748,7 @@ jQuery(document).ready(function($) {
                 url: azure_plugin_ajax.ajax_url,
                 type: 'POST',
                 timeout: 30000,
-                data: { action: 'azure_get_backup_progress', backup_id: backupId },
+                data: { action: 'azure_get_backup_progress', backup_id: backupId, nonce: azure_plugin_ajax.nonce },
                 success: function(response) {
                     polling = false;
                     if (typeof response === 'string') {
@@ -889,7 +943,8 @@ jQuery(document).ready(function($) {
     var entityLabelsRestore = {
         database: 'Database', plugins: 'Plugins', themes: 'Themes',
         uploads: 'Media / Uploads', media: 'Media / Uploads',
-        content: 'Other Content', others: 'Other Content'
+        content: 'Other Content', others: 'Other Content',
+        container_code: 'Container code', 'mu-plugins': 'Must-Use Plugins'
     };
 
     $(document).on('click', '.restore-backup', function() {
@@ -1265,7 +1320,8 @@ jQuery(document).ready(function($) {
 
     function pollRestoreProgress() {
         $.post(azure_plugin_ajax.ajax_url, {
-            action: 'azure_get_restore_progress'
+            action: 'azure_get_restore_progress',
+            nonce: azure_plugin_ajax.nonce
         }, function(response) {
             if (response && response.success && response.data) {
                 var d = response.data;

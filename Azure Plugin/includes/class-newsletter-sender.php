@@ -511,8 +511,13 @@ class Azure_Newsletter_Sender {
                     return $matches[0];
                 }
                 
+                // add_query_arg() encodes for us; urlencode() here meant the
+                // destination arrived double-encoded and the redirect landed on
+                // a mangled URL. The signature lets the public click route
+                // prove this destination came from a real send.
                 $tracked_url = add_query_arg(array(
-                    'url' => urlencode($url)
+                    'url' => $url,
+                    'sig' => Azure_Newsletter_Module::click_signature($url),
                 ), rest_url('azure-plugin/v1/newsletter/track/click/' . $token));
                 
                 return '<a ' . $matches[1] . 'href="' . esc_url($tracked_url) . '"' . $matches[3] . '>';
@@ -546,7 +551,10 @@ class Azure_Newsletter_Sender {
      */
     private function generate_tracking_token($newsletter_id, $email) {
         $data = $newsletter_id . '|' . $email . '|' . wp_salt();
-        return base64_encode(hash_hmac('sha256', $data, wp_salt('auth'), true));
+        // Plain base64 emits "+", "/" and "=", none of which survive the
+        // tracking routes' [a-zA-Z0-9_-]+ path pattern — tokens were being
+        // truncated or 404ing, so pixels and unsubscribe links silently failed.
+        return rtrim(strtr(base64_encode(hash_hmac('sha256', $data, wp_salt('auth'), true)), '+/', '-_'), '=');
     }
     
     /**

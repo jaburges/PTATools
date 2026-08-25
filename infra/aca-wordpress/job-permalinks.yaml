@@ -1,0 +1,63 @@
+location: westus2
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca": {}
+properties:
+  environmentId: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env"
+  workloadProfileName: Consumption
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 1800
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: db-password
+        keyVaultUrl: "https://kv-wilderptsa-cad4c2.vault.azure.net/secrets/mysql-small-ptsadbadmin-password"
+        identity: "/subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourcegroups/PTSAWebsite/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-wilderptsa-aca"
+  template:
+    containers:
+      - name: wpcli
+        image: "docker.io/library/wordpress:cli-php8.3"
+        resources:
+          cpu: 1.0
+          memory: 2.0Gi
+        env:
+          - name: DB_PASSWORD
+            secretRef: db-password
+        command: ["/bin/sh"]
+        args:
+          - "-c"
+          - |
+            set -e
+            WPBIN="php -d memory_limit=1024M /usr/local/bin/wp"
+            WP="$WPBIN --path=/tmp/wp --skip-plugins --skip-themes"
+            mkdir -p /tmp/wp
+            $WPBIN core download --path=/tmp/wp --version=6.9.4 --force --quiet
+            $WPBIN config create --path=/tmp/wp \
+              --dbname=wilderptsa_wp \
+              --dbuser=ptsadbadmin \
+              --dbpass="$DB_PASSWORD" \
+              --dbhost=wilderptsa-wpdb-small.mysql.database.azure.com \
+              --dbcharset=utf8mb4 \
+              --skip-check --force --quiet --extra-php <<'PHP'
+            define( 'MYSQL_CLIENT_FLAGS', MYSQLI_CLIENT_SSL );
+            PHP
+            echo "=== before ==="
+            echo "permalink_structure: [$($WP option get permalink_structure || true)]"
+            echo
+            echo "=== setting postname permalinks to match the live site ==="
+            # Only the database option is set here. Writing .htaccess from this
+            # job would be pointless: it runs in its own container, so the file
+            # would never reach the web replicas.
+            $WP option update permalink_structure '/%postname%/'
+            $WP option update category_base ''
+            $WP option update tag_base ''
+            echo "permalink_structure now: [$($WP option get permalink_structure)]"
+            echo
+            echo "=== published page slugs (for comparison with live URLs) ==="
+            $WP post list --post_type=page --post_status=publish \
+              --fields=post_name --format=csv --posts_per_page=500
+            echo PERMALINK_OK

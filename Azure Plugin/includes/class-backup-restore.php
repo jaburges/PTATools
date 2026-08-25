@@ -53,6 +53,7 @@ class Azure_Backup_Restore {
 
     public function ajax_get_restore_progress() {
         if (!current_user_can('manage_options')) wp_send_json_error('Unauthorized');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) wp_send_json_error('Invalid nonce');
         $data = get_transient(self::$restore_key);
         wp_send_json_success($data ?: array('progress' => 0, 'status' => 'idle', 'message' => ''));
     }
@@ -296,7 +297,7 @@ class Azure_Backup_Restore {
      * v2 restore: download and apply individual component archives.
      */
     private static function sort_restore_entities($a, $b) {
-        $order = array('database' => 0, 'mu-plugins' => 1, 'plugins' => 2, 'themes' => 3, 'uploads' => 4, 'media' => 4, 'others' => 5, 'content' => 5);
+        $order = array('database' => 0, 'uploads' => 1, 'media' => 1, 'mu-plugins' => 2, 'plugins' => 3, 'themes' => 4, 'others' => 5, 'content' => 5, 'container_code' => 6);
         $a_ord = $order[$a] ?? 5;
         $b_ord = $order[$b] ?? 5;
         return $a_ord - $b_ord;
@@ -464,6 +465,10 @@ class Azure_Backup_Restore {
             case 'content':
                 $dest = WP_CONTENT_DIR;
                 break;
+            case 'container_code':
+                $this->apply_container_code($extract);
+                $this->remove_directory($extract);
+                return;
             default:
                 Azure_Logger::warning("Restore: Unknown entity type '{$entity}' — skipping", 'Backup');
                 break;
@@ -475,6 +480,39 @@ class Azure_Backup_Restore {
         }
 
         $this->remove_directory($extract);
+    }
+
+    /**
+     * Hot-restore the container code snapshot onto the live filesystem.
+     * Survives until the next image revision unless that image was rebuilt
+     * from this snapshot.
+     */
+    private function apply_container_code($extract) {
+        $map = array(
+            'plugins'    => WP_PLUGIN_DIR,
+            'themes'     => get_theme_root(),
+            'mu-plugins' => defined('WPMU_PLUGIN_DIR') ? WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins',
+        );
+
+        $copied = 0;
+        foreach ($map as $subdir => $dest) {
+            $src = $extract . '/' . $subdir;
+            if (!is_dir($src)) {
+                continue;
+            }
+            wp_mkdir_p($dest);
+            $copied += $this->overlay_directory($src, $dest);
+            Azure_Logger::info("Restore: container_code overlaid {$subdir} → {$dest}", 'Backup');
+        }
+
+        $this->wizard_log(
+            sprintf(
+                /* translators: %d: files copied */
+                __('Container code restored onto the live site (%d files). This is live now. Rebuild the WordPress image from this snapshot so the next container revision keeps it.', 'azure-plugin'),
+                $copied
+            ),
+            'success'
+        );
     }
 
     private function apply_v1_component($type, $extract_dir, $siteurl, $home) {
@@ -851,6 +889,29 @@ class Azure_Backup_Restore {
         if ($num === 0) {
             $zip->close();
             return 0;
+        }
+
+        // ZipArchive::extractTo() honours "../" and absolute paths in entry
+        // names, unlike WP's unzip_file(). Without this check a crafted or
+        // tampered backup archive could write outside $dir — over wp-config.php
+        // or any other plugin — the moment an admin restored it.
+        for ($i = 0; $i < $num; $i++) {
+            $entry = $zip->getNameIndex($i);
+            if ($entry === false) {
+                $zip->close();
+                throw new Exception('Unreadable entry in archive ' . basename($archive));
+            }
+
+            $normalised = str_replace('\\', '/', $entry);
+            $is_absolute = $normalised !== '' && ($normalised[0] === '/' || preg_match('#^[A-Za-z]:/#', $normalised));
+            $has_traversal = in_array('..', explode('/', $normalised), true);
+
+            if ($is_absolute || $has_traversal) {
+                $zip->close();
+                throw new Exception(
+                    'Refusing to extract ' . basename($archive) . ': unsafe entry path "' . $entry . '"'
+                );
+            }
         }
 
         $ok = $zip->extractTo($dir);

@@ -391,9 +391,12 @@ class Azure_Newsletter_Tracking {
                        $settings['newsletter_mailgun_api_key'] ?? '';
         
         if (empty($signing_key)) {
-            // Skip verification if no key configured (development mode)
-            Azure_Logger::debug_module('Newsletter', 'Mailgun webhook: No signing key, skipping verification');
-            return true;
+            // Fail closed. Returning true here meant that on any site without a
+            // signing key configured — the default — the public webhook route
+            // accepted unauthenticated posts, letting anyone forge bounce and
+            // complaint events and unsubscribe arbitrary addresses.
+            Azure_Logger::error('Mailgun webhook: no signing key configured; rejecting webhook');
+            return false;
         }
         
         $body = $request->get_body();

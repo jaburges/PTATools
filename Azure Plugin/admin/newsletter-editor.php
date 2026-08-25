@@ -267,7 +267,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                                 <input type="text"
                                        id="newsletter_from_name_input"
                                        name="newsletter_from_name_input"
-                                       placeholder="<?php esc_attr_e('From name (e.g., Wilder PTSA)', 'azure-plugin'); ?>"
+                                       placeholder="<?php echo esc_attr(sprintf(__('From name (e.g., %s)', 'azure-plugin'), get_bloginfo('name'))); ?>"
                                        value="<?php echo esc_attr($current_name); ?>"
                                        style="flex:1;min-width:180px;"
                                        required>

@@ -119,9 +119,15 @@ class Azure_SSO_Auth {
             list($nonce_to_verify, $encoded_redirect) = explode('|', $state, 2);
             $decoded_redirect = base64_decode($encoded_redirect);
             
-            // Validate the decoded redirect URL for security
+            // FILTER_VALIDATE_URL only proves the string is a URL, not that it
+            // points at this site — so it accepted any absolute URL and turned
+            // the post-login hop into an open redirect. wp_validate_redirect()
+            // confines it to an allowed host.
             if ($decoded_redirect && filter_var($decoded_redirect, FILTER_VALIDATE_URL)) {
-                $redirect_url = esc_url_raw($decoded_redirect);
+                $candidate = wp_validate_redirect(esc_url_raw($decoded_redirect), '');
+                if ($candidate !== '') {
+                    $redirect_url = $candidate;
+                }
             }
         }
         
@@ -184,7 +190,7 @@ class Azure_SSO_Auth {
             Azure_Database::log_activity('sso', 'user_login', 'user', $user_id, $user_info);
             
             // Use the redirect URL from state parameter
-            wp_redirect($redirect_url);
+            wp_safe_redirect($redirect_url);
             exit;
         } else {
             Azure_Logger::error('SSO: Failed to process user login');
@@ -441,8 +447,10 @@ class Azure_SSO_Auth {
             return;
         }
         
-        // Redirect to SSO
-        $current_url = (is_ssl() ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+        // Redirect to SSO. The return URL is built from home_url() rather than
+        // HTTP_HOST so a poisoned Host header can't plant an off-site return
+        // address inside the OAuth state.
+        $current_url = home_url(add_query_arg(array()));
         $state = wp_create_nonce('azure_sso_state') . '|' . base64_encode($current_url);
         $sso_url = $this->get_authorization_url($state);
         
@@ -686,7 +694,19 @@ class Azure_SSO_Auth {
             return $role_slug;
         }
         
-        // Use standard WordPress role
-        return Azure_Settings::get_setting('sso_default_role', 'subscriber');
+        /* Defaults to azuread rather than subscriber: a subscriber cannot edit
+         * anything, so every board member provisioned this way had to be
+         * promoted to editor by hand, which is what made the role stop meaning
+         * "came from SSO". */
+        $role = Azure_Settings::get_setting('sso_default_role', 'azuread');
+
+        /* Never hand back a role that does not exist — wp_update_user() would
+         * silently leave the account with no role at all. */
+        if (!$role || !get_role($role)) {
+            Azure_Logger::warning("SSO: configured role '{$role}' does not exist; falling back to azuread");
+            return get_role('azuread') ? 'azuread' : 'subscriber';
+        }
+
+        return $role;
     }
 }

@@ -35,6 +35,8 @@ class Azure_PTA_Manager {
         add_action('wp_ajax_pta_get_assignments', array($this, 'ajax_get_assignments'));
         add_action('wp_ajax_pta_assign_role', array($this, 'ajax_assign_role'));
         add_action('wp_ajax_pta_remove_assignment', array($this, 'ajax_remove_assignment'));
+        add_action('wp_ajax_pta_get_role_roster', array($this, 'ajax_get_role_roster'));
+        add_action('wp_ajax_pta_replace_assignment', array($this, 'ajax_replace_assignment'));
         add_action('wp_ajax_pta_update_role', array($this, 'ajax_update_role'));
         add_action('wp_ajax_pta_update_department', array($this, 'ajax_update_department'));
         add_action('wp_ajax_pta_get_org_data', array($this, 'ajax_get_org_data'));
@@ -53,6 +55,8 @@ class Azure_PTA_Manager {
         
         // Hooks for user sync
         add_action('pta_user_assignment_changed', array($this, 'trigger_user_sync'), 10, 3);
+        // Keeps departments.vp_user_id in step with whoever holds the VP role.
+        add_action('pta_user_assignment_changed', array($this, 'sync_department_vp_from_assignment'), 5, 3);
         add_action('pta_department_vp_changed', array($this, 'trigger_department_sync'), 10, 2);
 
         // Daily cleanup handler. The schedule_event call lives in
@@ -126,6 +130,10 @@ class Azure_PTA_Manager {
                 $role->status = $this->calculate_role_status($role);
             }
         }
+
+        if (class_exists('Azure_PTA_Role_Descriptions')) {
+            Azure_PTA_Role_Descriptions::attach_to_roles($roles);
+        }
         
         return $roles;
     }
@@ -158,6 +166,9 @@ class Azure_PTA_Manager {
             $role->assigned_count = count($assignments);
             $role->open_positions = max(0, $role->max_occupants - $role->assigned_count);
             $role->status = $this->calculate_role_status($role);
+            if (class_exists('Azure_PTA_Role_Descriptions')) {
+                Azure_PTA_Role_Descriptions::attach_to_roles(array($role));
+            }
         }
         
         return $role;
@@ -191,6 +202,40 @@ class Azure_PTA_Manager {
     /**
      * Get user assignments
      */
+    /**
+     * Active assignments for many users in one query.
+     *
+     * get_user_assignments() per user is fine for a single profile but becomes
+     * one query per row when building a list; this exists so ajax_get_users()
+     * can return every user without issuing thousands of queries.
+     *
+     * @param int[] $user_ids
+     * @return array Rows with a user_id column to group by.
+     */
+    public function get_assignments_for_users($user_ids) {
+        global $wpdb;
+
+        $user_ids = array_filter(array_map('intval', (array) $user_ids));
+        if (empty($user_ids)) {
+            return array();
+        }
+
+        $assignments_table = Azure_PTA_Database::get_table_name('assignments');
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+        $id_list = implode(',', $user_ids);
+
+        $sql = "SELECT ra.*, r.name as role_name, r.slug as role_slug, r.department_id,
+                       d.name as department_name, d.slug as department_slug
+                FROM $assignments_table ra
+                JOIN $roles_table r ON ra.role_id = r.id
+                JOIN $dept_table d ON r.department_id = d.id
+                WHERE ra.user_id IN ($id_list) AND ra.status = %s
+                ORDER BY ra.is_primary DESC, d.name, r.name";
+
+        return $wpdb->get_results($wpdb->prepare($sql, 'active'));
+    }
+
     public function get_user_assignments($user_id, $active_only = true) {
         global $wpdb;
         $assignments_table = Azure_PTA_Database::get_table_name('assignments');
@@ -205,7 +250,7 @@ class Azure_PTA_Manager {
             $params[] = 'active';
         }
         
-        $sql = "SELECT ra.*, r.name as role_name, r.slug as role_slug, 
+        $sql = "SELECT ra.*, r.name as role_name, r.slug as role_slug, r.department_id,
                        d.name as department_name, d.slug as department_slug
                 FROM $assignments_table ra
                 JOIN $roles_table r ON ra.role_id = r.id
@@ -492,6 +537,44 @@ class Azure_PTA_Manager {
         $table = Azure_PTA_Database::get_table_name('departments');
         
         $old_department = $this->get_department($department_id);
+
+        /* Writes through to the VP role, so "Assign VP" and assigning the VP
+         * role are two doors into one record rather than two records. The column
+         * is then written by sync_department_vp_from_assignment().
+         *
+         * The guard matters: that listener writes the column directly, but a
+         * future listener calling back into here would otherwise loop. */
+        static $writing_through = false;
+
+        if (!$writing_through) {
+            $vp_role = $this->get_vp_role_for_department($department_id);
+
+            if ($vp_role) {
+                $writing_through = true;
+
+                try {
+                    $this->set_vp_role_holder((int) $vp_role->id, (int) $vp_user_id);
+                } catch (Exception $e) {
+                    $writing_through = false;
+                    Azure_Logger::error('PTA: could not set VP via role assignment - ' . $e->getMessage());
+                    throw $e;
+                }
+
+                $writing_through = false;
+
+                Azure_PTA_Database::log_audit(
+                    'department',
+                    $department_id,
+                    'vp_updated',
+                    array('vp_user_id' => $old_department ? $old_department->vp_user_id : null),
+                    array('vp_user_id' => $vp_user_id)
+                );
+
+                return true;
+            }
+            // No VP role yet (a department created before this existed), so fall
+            // through and write the column as before rather than refusing.
+        }
         
         $result = $wpdb->update(
             $table,
@@ -600,10 +683,14 @@ class Azure_PTA_Manager {
             }
         }
         
-        if ($primary_assignment) {
+        if ($primary_assignment && !empty($primary_assignment->department_id)) {
             $department = $this->get_department($primary_assignment->department_id);
+            if (!$department) {
+                Azure_Logger::warning("PTA: department {$primary_assignment->department_id} not found; skipping manager sync for user {$user_id}");
+                return;
+            }
             $manager_user_id = $department->vp_user_id;
-            
+
             Azure_PTA_Database::queue_sync(
                 'user_sync',
                 'user',
@@ -802,71 +889,324 @@ class Azure_PTA_Manager {
         }
     }
     
+    /**
+     * A role's capacity and who currently holds it, in one request.
+     *
+     * The assignments modal needs both to show open spaces. pta_get_assignments
+     * returns only the assignments and is shared with the per-user view, so
+     * rather than change its shape this returns the pair. It also means the
+     * modal no longer has to scrape the role name out of the table behind it,
+     * which broke whenever the list was filtered or not rendered yet.
+     */
+    public function ajax_get_role_roster() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        $role_id = isset($_POST['role_id']) ? intval($_POST['role_id']) : 0;
+
+        try {
+            $role = $this->get_role($role_id);
+
+            if (!$role) {
+                wp_send_json_error('Invalid role ID');
+            }
+
+            $assignments = array();
+            foreach ($this->get_role_assignments($role_id) as $assignment) {
+                $photo_url = '';
+                if (class_exists('Azure_Local_Avatars')) {
+                    $photo_url = Azure_Local_Avatars::url((int) $assignment->user_id, 80);
+                }
+                $assignments[] = array(
+                    'assignment_id' => (int) $assignment->id,
+                    'user_id'       => (int) $assignment->user_id,
+                    'display_name'  => $assignment->display_name,
+                    'user_email'    => $assignment->user_email,
+                    'is_primary'    => (bool) $assignment->is_primary,
+                    'photo_url'     => $photo_url,
+                );
+            }
+
+            $max = max(1, (int) $role->max_occupants);
+
+            /* Flagged so the modal can say that filling this seat also makes the
+             * person the department's VP — it drives the org chart and the Azure
+             * AD manager field, which is not obvious from the role name alone. */
+            global $wpdb;
+            $vp_for = null;
+            if (!empty($role->vp_for_department_id)) {
+                $vp_for = $wpdb->get_var($wpdb->prepare(
+                    "SELECT name FROM " . Azure_PTA_Database::get_table_name('departments') . " WHERE id = %d",
+                    (int) $role->vp_for_department_id
+                ));
+            }
+
+            wp_send_json_success(array(
+                'role' => array(
+                    'id'                   => (int) $role->id,
+                    'name'                 => $role->name,
+                    'department_name'      => $role->department_name,
+                    'max_occupants'        => $max,
+                    'assigned_count'       => count($assignments),
+                    'open_positions'       => max(0, $max - count($assignments)),
+                    'vp_for_department_id' => !empty($role->vp_for_department_id) ? (int) $role->vp_for_department_id : null,
+                    'vp_for_department'    => $vp_for,
+                ),
+                'assignments' => $assignments,
+            ));
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
+    }
+
+    /**
+     * Hand a role from one person to another, or change who holds it primarily.
+     */
+    public function ajax_replace_assignment() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+        }
+
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'azure_plugin_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        $role_id     = isset($_POST['role_id']) ? intval($_POST['role_id']) : 0;
+        $old_user_id = isset($_POST['old_user_id']) ? intval($_POST['old_user_id']) : 0;
+        $new_user_id = isset($_POST['new_user_id']) ? intval($_POST['new_user_id']) : 0;
+        $is_primary  = isset($_POST['is_primary']) ? (bool) intval($_POST['is_primary']) : null;
+
+        try {
+            $assignment_id = $this->replace_role_assignment($role_id, $old_user_id, $new_user_id, $is_primary);
+            wp_send_json_success(array('assignment_id' => $assignment_id));
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
+    }
+
+    /**
+     * Move a role from one holder to another.
+     *
+     * Freeing the slot has to happen before it can be refilled, because
+     * assign_user_to_role() refuses to exceed max_occupants. That leaves a
+     * window where the role has nobody in it, so everything that can be
+     * checked is checked before the first write, and the pair runs in a
+     * transaction — a failure between the two would otherwise silently drop
+     * someone from a role the admin was only trying to reassign.
+     *
+     * @param int       $role_id
+     * @param int       $old_user_id Current holder.
+     * @param int       $new_user_id Incoming holder; may equal the current one.
+     * @param bool|null $is_primary  Null leaves the existing flag alone.
+     * @return int Assignment id.
+     */
+    public function replace_role_assignment($role_id, $old_user_id, $new_user_id, $is_primary = null) {
+        global $wpdb;
+
+        $role = $this->get_role($role_id);
+        if (!$role) {
+            throw new Exception('Invalid role ID');
+        }
+
+        if (!get_userdata($new_user_id)) {
+            throw new Exception('Invalid user ID');
+        }
+
+        $table = Azure_PTA_Database::get_table_name('assignments');
+
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE user_id = %d AND role_id = %d AND status = 'active'",
+            $old_user_id,
+            $role_id
+        ));
+
+        if (!$existing) {
+            throw new Exception('Assignment not found');
+        }
+
+        // Same person, so only the primary flag can be changing.
+        if ((int) $old_user_id === (int) $new_user_id) {
+            if ($is_primary !== null && (bool) $existing->is_primary !== $is_primary) {
+                $this->set_assignment_primary((int) $existing->id, (int) $old_user_id, $is_primary);
+            }
+            return (int) $existing->id;
+        }
+
+        $conflict = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $table WHERE user_id = %d AND role_id = %d AND status = 'active'",
+            $new_user_id,
+            $role_id
+        ));
+
+        if ($conflict) {
+            throw new Exception('That person already holds this role');
+        }
+
+        // Carried over unless the caller says otherwise, so reassigning does not
+        // quietly demote a primary role holder.
+        $keep_primary = $is_primary === null ? (bool) $existing->is_primary : $is_primary;
+
+        $wpdb->query('START TRANSACTION');
+
+        try {
+            $this->remove_user_from_role($old_user_id, $role_id);
+            $assignment_id = $this->assign_user_to_role($new_user_id, $role_id, $keep_primary);
+            $wpdb->query('COMMIT');
+        } catch (Exception $e) {
+            $wpdb->query('ROLLBACK');
+            throw $e;
+        }
+
+        return $assignment_id;
+    }
+
+    /**
+     * Set or clear the primary flag on one assignment.
+     *
+     * A user has at most one primary role, so setting this clears their others,
+     * matching what assign_user_to_role() does on insert.
+     */
+    private function set_assignment_primary($assignment_id, $user_id, $is_primary) {
+        global $wpdb;
+        $table = Azure_PTA_Database::get_table_name('assignments');
+
+        if ($is_primary) {
+            $wpdb->update($table, array('is_primary' => 0), array('user_id' => $user_id), array('%d'), array('%d'));
+        }
+
+        $wpdb->update(
+            $table,
+            array('is_primary' => $is_primary ? 1 : 0),
+            array('id' => $assignment_id),
+            array('%d'),
+            array('%d')
+        );
+
+        $this->update_user_job_title($user_id);
+    }
+
     public function ajax_get_users() {
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }
-        
+
         if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'azure_plugin_nonce')) {
             wp_send_json_error('Invalid nonce');
         }
         
         try {
             global $wpdb;
-            
-            // Get all users with Azure SSO mapping (synced from Azure AD)
+
             $sso_users_table = Azure_Database::get_table_name('sso_users');
-            
-            $sso_user_ids = $wpdb->get_col("SELECT DISTINCT wordpress_user_id FROM $sso_users_table");
-            
-            // Get users with AzureAD role (SSO users)
-            $azure_users = get_users(array(
-                'role' => 'azuread',
-                'fields' => array('ID', 'display_name', 'user_email', 'user_registered', 'user_login')
-            ));
-            
-            // If no AzureAD role users, fall back to SSO mapped users or all users
-            if (empty($azure_users)) {
-                $user_args = array(
-                    'fields' => array('ID', 'display_name', 'user_email', 'user_registered', 'user_login')
-                );
-                
-                if (!empty($sso_user_ids)) {
-                    $user_args['include'] = $sso_user_ids;
-                } else {
-                    // Fallback to all users
-                    $user_args['number'] = 100; // Limit to prevent performance issues
+
+            /* Defaults to every user rather than only the azuread role.
+             *
+             * This previously returned get_users(role => azuread) unconditionally
+             * and only fell back to a wider set when that came back completely
+             * empty. On this site 15 of 735 users held that role, so the fallback
+             * never triggered and the VP pickers could only ever offer those 15.
+             *
+             * Eligibility to hold a PTA role is not the same thing as how an
+             * account authenticates, so the role is the wrong hard filter — but
+             * it is a useful optional one, since 735 names in a dropdown is not
+             * a picker. Callers pass wp_role to narrow it, and the VP pickers
+             * default to azuread. Omitting it keeps the full list for the Users
+             * tab, which needs everyone. */
+            $query = array(
+                'fields'  => array('ID', 'display_name', 'user_email', 'user_registered', 'user_login'),
+                'orderby' => 'display_name',
+                'order'   => 'ASC',
+            );
+
+            $wp_role = isset($_POST['wp_role']) ? sanitize_key(wp_unslash($_POST['wp_role'])) : '';
+
+            if ($wp_role !== '' && $wp_role !== 'all') {
+                /* Validated against the roles that exist, so a stale or
+                 * misspelled slug fails loudly instead of quietly returning
+                 * everyone — which is the failure mode that hid the original
+                 * bug. */
+                if (!get_role($wp_role)) {
+                    wp_send_json_error(sprintf('Unknown role "%s"', $wp_role));
                 }
-                
-                $users = get_users($user_args);
-            } else {
-                $users = $azure_users;
+                $query['role'] = $wp_role;
             }
-            
+
+            $users = get_users($query);
+
+            /* The currently selected user is always included, even when the role
+             * filter excludes them. Without this, opening a picker filtered to a
+             * role the existing VP does not hold would leave their option absent,
+             * the <select> would fall back to "No VP Assigned", and saving the
+             * form would silently clear a VP the admin never touched. */
+            $include_id = isset($_POST['include_user_id']) ? (int) $_POST['include_user_id'] : 0;
+
+            if ($include_id > 0 && !in_array($include_id, wp_list_pluck($users, 'ID'), false)) {
+                $extra = get_users(array(
+                    'include' => array($include_id),
+                    'fields'  => $query['fields'],
+                ));
+                $users = array_merge($extra, $users);
+            }
+
+            if (empty($users)) {
+                wp_send_json_success(array());
+            }
+
+            $user_ids = wp_list_pluck($users, 'ID');
+
+            /* Three bulk lookups instead of five queries per user. At 735 users
+             * the per-user form was ~3,700 queries and would not finish inside a
+             * request, which is what made widening the list possible at all. */
+            update_meta_cache('user', $user_ids);
+
+            $assignments_by_user = array();
+            foreach ($this->get_assignments_for_users($user_ids) as $assignment) {
+                $assignments_by_user[$assignment->user_id][] = $assignment;
+            }
+
+            $azure_by_user = array();
+            $id_list = implode(',', array_map('intval', $user_ids));
+            $azure_rows = $wpdb->get_results(
+                "SELECT wordpress_user_id, azure_email, azure_display_name, last_login
+                   FROM $sso_users_table
+                  WHERE wordpress_user_id IN ($id_list)"
+            );
+            foreach ((array) $azure_rows as $row) {
+                $azure_by_user[(int) $row->wordpress_user_id] = $row;
+            }
+
             $users_data = array();
             foreach ($users as $user) {
-                $assignments = $this->get_user_assignments($user->ID);
+                $assignments = isset($assignments_by_user[$user->ID]) ? $assignments_by_user[$user->ID] : array();
                 $roles_list = array();
                 $primary_role = null;
-                
+
                 foreach ($assignments as $assignment) {
                     $roles_list[] = $assignment->role_name;
                     if ($assignment->is_primary) {
                         $primary_role = $assignment->role_name;
                     }
                 }
-                
-                // Check if user is from Azure AD
-                $azure_info = $wpdb->get_row($wpdb->prepare(
-                    "SELECT azure_email, azure_display_name, last_login FROM $sso_users_table WHERE wordpress_user_id = %d",
-                    $user->ID
-                ));
-                
-                // Get user meta for additional info
+
+                $azure_info = isset($azure_by_user[$user->ID]) ? $azure_by_user[$user->ID] : null;
+
+                // Served from the primed cache, so these are not queries.
                 $first_name = get_user_meta($user->ID, 'first_name', true);
                 $last_name = get_user_meta($user->ID, 'last_name', true);
                 $job_title = get_user_meta($user->ID, 'job_title', true);
-                
+
+                /* WordPress roles, read out of the primed meta cache rather than
+                 * by constructing a WP_User per row. Named wp_roles because the
+                 * `roles` key below already means PTA role assignments, which is
+                 * a different thing entirely. */
+                $caps = get_user_meta($user->ID, $wpdb->get_blog_prefix() . 'capabilities', true);
+                $wp_role_slugs = is_array($caps) ? array_keys(array_filter($caps)) : array();
+
                 $user_data = array(
                     'ID' => $user->ID,
                     'user_login' => $user->user_login,
@@ -883,7 +1223,15 @@ class Azure_PTA_Manager {
                     'azure_email' => $azure_info ? $azure_info->azure_email : null,
                     'azure_display_name' => $azure_info ? $azure_info->azure_display_name : null,
                     'last_login' => $azure_info ? $azure_info->last_login : null,
-                    'has_roles' => count($assignments) > 0
+                    'has_roles' => count($assignments) > 0,
+                    // Lets the VP pickers put board addresses first now that the
+                    // list is every user rather than a pre-filtered handful.
+                    'is_ptsa_account' => (bool) preg_match('/@wilderptsa\.net$/i', (string) $user->user_email),
+                    'wp_roles' => $wp_role_slugs,
+                    'is_sso_role' => in_array('azuread', $wp_role_slugs, true),
+                    'photo_url' => (class_exists('Azure_Local_Avatars') && Azure_Local_Avatars::attachment_id($user->ID))
+                        ? Azure_Local_Avatars::url($user->ID, 96)
+                        : '',
                 );
                 
                 $users_data[] = $user_data;
@@ -924,6 +1272,14 @@ class Azure_PTA_Manager {
         try {
             $role_id = $this->create_role($name, $department_id, $max_occupants, $description);
             if ($role_id) {
+                if (class_exists('Azure_PTA_Role_Descriptions')) {
+                    Azure_PTA_Role_Descriptions::save_for_role($role_id, array(
+                        'time_commitment'  => $_POST['time_commitment'] ?? '',
+                        'point_of_contact' => $_POST['point_of_contact'] ?? '',
+                        'pro_tip'          => $_POST['pro_tip'] ?? '',
+                        'responsibilities' => Azure_PTA_Role_Descriptions::parse_responsibilities_from_request($_POST),
+                    ));
+                }
                 wp_send_json_success(array('role_id' => $role_id, 'message' => 'Role created successfully'));
             } else {
                 wp_send_json_error('Failed to create role');
@@ -971,6 +1327,14 @@ class Azure_PTA_Manager {
             );
             
             if ($result !== false) {
+                if (class_exists('Azure_PTA_Role_Descriptions')) {
+                    Azure_PTA_Role_Descriptions::save_for_role($role_id, array(
+                        'time_commitment'  => $_POST['time_commitment'] ?? '',
+                        'point_of_contact' => $_POST['point_of_contact'] ?? '',
+                        'pro_tip'          => $_POST['pro_tip'] ?? '',
+                        'responsibilities' => Azure_PTA_Role_Descriptions::parse_responsibilities_from_request($_POST),
+                    ));
+                }
                 Azure_Logger::info("PTA: Role updated - ID: $role_id, Name: $name");
                 wp_send_json_success(array('message' => 'Role updated successfully'));
             } else {
@@ -1057,19 +1421,31 @@ class Azure_PTA_Manager {
         try {
             global $wpdb;
             $table = Azure_PTA_Database::get_table_name('departments');
-            
+
+            $previous = $this->get_department($dept_id);
+
+            /* Only the name is written here. The VP goes through
+             * update_department_vp() below so the role assignment stays the
+             * record of who the VP is — writing vp_user_id here as well is what
+             * let this form disagree with the roles screen. */
             $result = $wpdb->update(
                 $table,
-                array(
-                    'name' => $name,
-                    'vp_user_id' => $vp_user_id
-                ),
+                array('name' => $name),
                 array('id' => $dept_id),
-                array('%s', '%d'),
+                array('%s'),
                 array('%d')
             );
             
             if ($result !== false) {
+                // A department that predates the VP role gets one now.
+                $this->ensure_department_vp_role($dept_id, $name);
+
+                if ($previous && $previous->name !== $name) {
+                    $this->rename_department_vp_role($dept_id, $name);
+                }
+
+                $this->update_department_vp($dept_id, $vp_user_id);
+
                 Azure_Logger::info("PTA: Department updated - ID: $dept_id, Name: $name, VP: $vp_user_id");
                 wp_send_json_success(array('message' => 'Department updated successfully'));
             } else {
@@ -1146,6 +1522,10 @@ class Azure_PTA_Manager {
         if ($assignment_count > 0) {
             throw new Exception('Cannot delete role: ' . $assignment_count . ' people are assigned to this role');
         }
+
+        if (class_exists('Azure_PTA_Role_Descriptions')) {
+            Azure_PTA_Role_Descriptions::delete_for_role($role_id);
+        }
         
         return $wpdb->delete($roles_table, array('id' => $role_id), array('%d'));
     }
@@ -1162,7 +1542,24 @@ class Azure_PTA_Manager {
             'vp_user_id' => $vp_user_id ?: null
         ), array('%s', '%s', $vp_user_id ? '%d' : null));
         
-        return $result ? $wpdb->insert_id : false;
+        if (!$result) {
+            return false;
+        }
+
+        $dept_id = $wpdb->insert_id;
+
+        /* Every department has a VP post, so the role exists because the
+         * department does rather than having to be remembered separately. That
+         * is what stopped the two representations agreeing before. */
+        $this->ensure_department_vp_role($dept_id, $name);
+
+        if ($vp_user_id) {
+            // Routed through the role so the assignment is the record of it, and
+            // the column is derived rather than set independently.
+            $this->update_department_vp($dept_id, $vp_user_id);
+        }
+
+        return $dept_id;
     }
     
     private function delete_department($dept_id) {
@@ -1170,14 +1567,264 @@ class Azure_PTA_Manager {
         $dept_table = Azure_PTA_Database::get_table_name('departments');
         $roles_table = Azure_PTA_Database::get_table_name('roles');
         
-        // Check if department has roles
-        $role_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $roles_table WHERE department_id = %d", $dept_id));
+        /* The department's own VP post does not count towards the roles that
+         * block deletion. It lives under Exec Board, so it would not be caught
+         * by the check below and would be left pointing at a department that no
+         * longer exists. */
+        $vp_role = $this->get_vp_role_for_department($dept_id);
+
+        $role_count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $roles_table
+              WHERE department_id = %d
+                AND (vp_for_department_id IS NULL OR vp_for_department_id <> %d)",
+            $dept_id,
+            $dept_id
+        ));
         
         if ($role_count > 0) {
             throw new Exception('Cannot delete department: ' . $role_count . ' roles belong to this department');
         }
+
+        if ($vp_role) {
+            $this->delete_role((int) $vp_role->id);
+        }
         
         return $wpdb->delete($dept_table, array('id' => $dept_id), array('%d'));
+    }
+
+    /**
+     * Make one person the holder of a VP role, replacing whoever is there.
+     *
+     * A VP post has one seat, so this clears the current holder rather than
+     * failing on max_occupants the way a plain assign would.
+     *
+     * @param int $role_id
+     * @param int $user_id Zero or empty leaves the post vacant.
+     */
+    private function set_vp_role_holder($role_id, $user_id) {
+        $holders = $this->get_role_assignments($role_id);
+
+        foreach ($holders as $holder) {
+            if ((int) $holder->user_id === (int) $user_id) {
+                return; // Already theirs; nothing to do.
+            }
+        }
+
+        foreach ($holders as $holder) {
+            $this->remove_user_from_role((int) $holder->user_id, $role_id);
+        }
+
+        if ($user_id) {
+            $this->assign_user_to_role($user_id, $role_id, false);
+        }
+    }
+
+    /**
+     * The role that is the VP post for a department, if it has one.
+     */
+    public function get_vp_role_for_department($department_id) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $roles_table WHERE vp_for_department_id = %d",
+            $department_id
+        ));
+    }
+
+    /**
+     * Create the VP post for a department if it does not already have one.
+     *
+     * @return int|false Role id, or false if it could not be created.
+     */
+    public function ensure_department_vp_role($department_id, $department_name = null) {
+        global $wpdb;
+
+        $existing = $this->get_vp_role_for_department($department_id);
+        if ($existing) {
+            return (int) $existing->id;
+        }
+
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+
+        if ($department_name === null) {
+            $department_name = $wpdb->get_var($wpdb->prepare(
+                "SELECT name FROM $dept_table WHERE id = %d",
+                $department_id
+            ));
+        }
+
+        if (!$department_name) {
+            return false;
+        }
+
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+        $name = 'VP ' . $department_name;
+
+        $result = $wpdb->insert(
+            $roles_table,
+            array(
+                'name'                 => $name,
+                'slug'                 => $this->unique_role_slug($name),
+                'department_id'        => $this->get_vp_role_home_department($department_id),
+                'max_occupants'        => 1,
+                'description'          => sprintf('Vice President for %s.', $department_name),
+                'vp_for_department_id' => $department_id,
+            ),
+            array('%s', '%s', '%d', '%d', '%s', '%d')
+        );
+
+        if (!$result) {
+            Azure_Logger::error("PTA: could not create VP role for department $department_id");
+            return false;
+        }
+
+        Azure_Logger::info("PTA: created VP role '$name' for department $department_id");
+
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Follow a department rename through to its VP post.
+     *
+     * Left alone, "VP Events" would still be called that after the department
+     * became "Community Events", and the name is the only thing tying the two
+     * together for anyone reading the roles list.
+     */
+    private function rename_department_vp_role($department_id, $department_name) {
+        global $wpdb;
+
+        $vp_role = $this->get_vp_role_for_department($department_id);
+        if (!$vp_role) {
+            return;
+        }
+
+        $new_name = 'VP ' . $department_name;
+        if ($vp_role->name === $new_name) {
+            return;
+        }
+
+        $wpdb->update(
+            Azure_PTA_Database::get_table_name('roles'),
+            array(
+                'name'        => $new_name,
+                'description' => sprintf('Vice President for %s.', $department_name),
+            ),
+            array('id' => $vp_role->id),
+            array('%s', '%s'),
+            array('%d')
+        );
+
+        Azure_Logger::info("PTA: renamed VP role {$vp_role->id} to '$new_name'");
+    }
+
+    /**
+     * Which department the VP posts themselves are filed under.
+     *
+     * The VP roles sit together under the Exec Board rather than inside the
+     * department each one leads, because collectively they *are* the exec board.
+     * Read from where the existing VP posts live so a new department's post
+     * lands with the others instead of somewhere else, with a name lookup and
+     * then the department itself as fallbacks.
+     */
+    private function get_vp_role_home_department($fallback_department_id) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+
+        $home = $wpdb->get_var(
+            "SELECT department_id FROM $roles_table
+              WHERE vp_for_department_id IS NOT NULL
+              GROUP BY department_id
+              ORDER BY COUNT(*) DESC
+              LIMIT 1"
+        );
+
+        if (!$home) {
+            $home = $wpdb->get_var(
+                "SELECT id FROM $dept_table
+                  WHERE name IN ('Exec Board', 'Executive Board')
+                  ORDER BY id LIMIT 1"
+            );
+        }
+
+        return $home ? (int) $home : (int) $fallback_department_id;
+    }
+
+    private function unique_role_slug($name) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+
+        $base = sanitize_title($name);
+        $slug = $base;
+        $suffix = 2;
+
+        // slug is UNIQUE on the table, so an insert would otherwise fail for a
+        // second department whose name sanitises to the same thing.
+        while ($wpdb->get_var($wpdb->prepare("SELECT id FROM $roles_table WHERE slug = %s", $slug))) {
+            $slug = $base . '-' . $suffix++;
+        }
+
+        return $slug;
+    }
+
+    /**
+     * Keep a department's vp_user_id in step with whoever holds its VP role.
+     *
+     * One direction only: the assignment is the record, the column is derived.
+     * Everything that already reads vp_user_id — the org chart, the public
+     * shortcodes, the REST API and the Azure AD manager sync — therefore keeps
+     * working untouched.
+     */
+    public function sync_department_vp_from_assignment($user_id, $role_id, $action) {
+        global $wpdb;
+        $roles_table = Azure_PTA_Database::get_table_name('roles');
+
+        $department_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT vp_for_department_id FROM $roles_table WHERE id = %d",
+            $role_id
+        ));
+
+        if (!$department_id) {
+            return;
+        }
+
+        /* Read back rather than trusting $action: a replace removes and assigns
+         * in one go, and the removal must not blank a column the assignment has
+         * just set. */
+        $holders = $this->get_role_assignments($role_id);
+        $vp_user_id = !empty($holders) ? (int) $holders[0]->user_id : null;
+
+        $this->write_department_vp_column((int) $department_id, $vp_user_id);
+    }
+
+    /**
+     * Write the derived vp_user_id column, without going back through the role.
+     */
+    private function write_department_vp_column($department_id, $vp_user_id) {
+        global $wpdb;
+        $dept_table = Azure_PTA_Database::get_table_name('departments');
+
+        $current = $wpdb->get_var($wpdb->prepare(
+            "SELECT vp_user_id FROM $dept_table WHERE id = %d",
+            $department_id
+        ));
+
+        if ((int) $current === (int) $vp_user_id) {
+            return;
+        }
+
+        $wpdb->update(
+            $dept_table,
+            array('vp_user_id' => $vp_user_id ?: null),
+            array('id' => $department_id),
+            array($vp_user_id ? '%d' : null),
+            array('%d')
+        );
+
+        Azure_Logger::info("PTA: department $department_id VP derived from role assignment -> " . ($vp_user_id ?: 'none'));
+
+        do_action('pta_department_vp_changed', $department_id, $vp_user_id);
     }
     
     /**

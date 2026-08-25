@@ -52,11 +52,11 @@ class Azure_Settings {
         $old_value = isset($settings[$key]) ? $settings[$key] : 'not_set';
         $settings[$key] = $value;
         
-        // Debug logging
-        error_log("Azure Plugin Settings Debug: Updating key '{$key}' from '{$old_value}' to '{$value}'");
-        error_log("Azure Plugin Settings Debug: Option name: '" . self::$option_name . "'");
-        error_log("Azure Plugin Settings Debug: Settings array size: " . count($settings));
-        error_log("Azure Plugin Settings Debug: Settings content: " . json_encode($settings));
+        // Deliberately does not log values: this array holds every credential
+        // the plugin stores (client secrets, storage account keys), and the
+        // previous debug lines wrote all of them to the PHP error log in
+        // plaintext on every settings save.
+        error_log("Azure Plugin Settings: updated key '{$key}'");
         
         $result = update_option(self::$option_name, $settings);
         
@@ -65,12 +65,14 @@ class Azure_Settings {
         if (!$result) {
             // Try to get more info about why it failed
             $current_option = get_option(self::$option_name, 'OPTION_NOT_EXISTS');
-            error_log("Azure Plugin Settings Debug: Current option value: " . json_encode($current_option));
+            error_log("Azure Plugin Settings Debug: Current option " . (is_array($current_option)
+                ? 'holds ' . count($current_option) . ' keys'
+                : 'is ' . gettype($current_option)));
             
             // Check if the issue is the option already has the same value
             // WordPress returns false if value hasn't changed, which is actually success
             if (is_array($current_option) && isset($current_option[$key]) && $current_option[$key] == $value) {
-                error_log("Azure Plugin Settings Debug: Setting '{$key}' already has value '{$value}' - this is normal");
+                error_log("Azure Plugin Settings Debug: Setting '{$key}' is already at the requested value - this is normal");
                 return true;
             }
             
@@ -292,7 +294,11 @@ class Azure_Settings {
             'sso_redirect_uri' => home_url('/wp-admin/admin-ajax.php?action=azure_sso_callback'),
             'sso_require_sso' => false,
             'sso_auto_create_users' => true,
-            'sso_default_role' => 'subscriber',
+            // Accounts that sign in through Entra ID get the Azure AD User role
+            // so the role records how the account authenticates. It carries
+            // editor capabilities, so there is no need to promote board members
+            // to editor by hand afterwards — which is how roles drifted before.
+            'sso_default_role' => 'azuread',
             'sso_show_on_login_page' => true,
             'sso_login_button_text' => 'Sign in with Microsoft',
             'sso_login_org_heading'   => '',
@@ -333,7 +339,7 @@ class Azure_Settings {
             'calendar_embed_mailbox_email' => '',
             'calendar_embed_enabled_calendars' => array(),
             'calendar_embed_timezones' => array(),
-            'calendar_default_timezone' => 'America/New_York',
+            'calendar_default_timezone' => 'America/Los_Angeles',
             'calendar_default_view' => 'month',
             'calendar_default_color_theme' => 'blue',
             'calendar_cache_duration' => 3600,
@@ -401,14 +407,18 @@ class Azure_Settings {
             'onedrive_media_use_year_folders' => true,
             'onedrive_media_auto_sync' => false,
             'onedrive_media_sync_frequency' => 'hourly',
-            'onedrive_media_sync_direction' => 'two_way',
-            'onedrive_media_sharing_link_type' => 'anonymous',
-            'onedrive_media_link_expiration' => 'never',
-            'onedrive_media_cdn_optimization' => true,
-            'onedrive_media_show_badge' => true,
+            // The media library is the primary copy; OneDrive is its backup, so
+            // the default flow pushes out rather than pulling in.
+            'onedrive_media_sync_direction' => 'wp_to_onedrive',
             'onedrive_media_keep_local_copies' => true,
             'onedrive_media_max_file_size' => 4294967296,
             'onedrive_media_chunk_size' => 10485760,
+            // Deleting an attachment leaves its OneDrive backup in place unless
+            // this is explicitly turned on.
+            'onedrive_media_delete_propagation' => false,
+            'onedrive_media_import_min_year' => 2026,
+            'onedrive_media_backup_batch_size' => 25,
+            'onedrive_media_backup_time_budget' => 90,
             
             // Newsletter specific settings
             'newsletter_sending_service' => 'mailgun',

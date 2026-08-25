@@ -64,7 +64,7 @@
 | **[Classes (WooCommerce)](https://github.com/jaburges/PTATools/wiki/Classes-Module)** | Create class products that auto-generate `pta_event` sessions on the calendar, variable pricing, commit-to-buy |
 | **[Auction](https://github.com/jaburges/PTATools/wiki/Auction-Module)** | Timed manual bidding, Buy It Now, confirm-bid modal, outbid + winner emails, instant updates |
 | **[Product Fields](https://github.com/jaburges/PTATools/wiki/Product-Fields-Module)** | Custom checkout fields with children profiles, applied by category |
-| **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, campaigns with goals, `[pta-donate]` shortcode |
+| **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, gift products, admin email, `[pta-donate]` and `[donations-list]` |
 
 ### 🙋 Volunteering
 | Module | Description |
@@ -95,7 +95,6 @@
 |--------|--------------|
 | [WooCommerce](https://woocommerce.com/) | Classes, Event Tickets, Auction modules |
 | [Forminator](https://wpmudev.com/project/forminator/) | PTA Roles signup form integration |
-| [Beaver Builder](https://www.wpbeaverbuilder.com/) | Page builder integration |
 | [Event Tickets](https://theeventscalendar.com/products/wordpress-event-tickets/) | Event Tickets module |
 
 ---
@@ -397,7 +396,102 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.130** | [Changelog](CHANGELOG.md) | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.143.0** | [Report Issue](https://github.com/jaburges/PTATools/issues)
+
+### What's new in v3.143.0
+
+The OneDrive Media module becomes a real backup for the media library instead of
+an importer. The media library was already the primary copy — WordPress serves
+files from `wp-content/uploads/` and attachment URLs are never rewritten — but
+nothing actually copied that library out to OneDrive.
+
+**The whole library can now be backed up.** Previously the only file that ever
+reached OneDrive was one being uploaded through wp-admin at that moment, so
+every item that predated the module stayed unprotected with no way to catch up.
+*OneDrive Media → Back Up Media Library* queues everything missing a backup and
+uploads it in batches.
+
+**Uploads no longer block on Microsoft.** The Graph upload ran inline inside the
+upload request with a 4GB ceiling, so a large file could time out the editor and
+a failure had nowhere to be retried. Attachments are now queued and drained by a
+worker with exponential-backoff retries. A file too large for OneDrive is also
+no longer rejected by WordPress — it is accepted locally and reported as
+unbackable.
+
+**Deleting media keeps its backup.** Deleting an attachment deleted the OneDrive
+copy at the same time, which meant the backup could not protect against the most
+likely accident. The copy is now retained and its mapping marked orphaned.
+Mirroring is still available via *On Deletion* for anyone who wants it.
+
+**Sync direction is honoured.** The setting was saved and then ignored: every
+scheduled run performed an import regardless, so a site set to
+"WordPress → OneDrive" quietly pulled files in. The default is now
+`wp_to_onedrive`.
+
+**The importer respects a year cutoff.** A new *Import Year Cutoff* (default
+2026) stops the previous site's back catalogue being pulled into a fresh library
+and inflating the uploads volume.
+
+**Coverage is now reported honestly.** Statistics counted only rows the module
+had created, so it could show "12 synced" while silently omitting the 83 items
+never attempted. The dashboard now shows backed-up versus total library items,
+plus queued and failed counts.
+
+Settings that were rendered and saved but never read by any code — CDN
+optimization, sharing link type, link expiration, and the media library badge —
+have been removed rather than left implying behaviour that did not exist. Upload
+chunk size is now actually applied.
+
+### What's new in v3.142.0
+
+A security and correctness release. Upgrading is recommended for every install.
+
+**Credentials no longer leak into the error log.** Saving any setting wrote the
+entire settings array to the PHP error log as JSON. That array holds every
+client secret and storage account key the plugin stores, so the log was a
+plaintext credential dump. If you have run an earlier version with logging
+enabled, rotate your Azure client secret and storage keys and clear old logs.
+
+**WooCommerce REST routes now check authorization.** The mobile API's
+`permission_callback` validated the bearer token, which proves who the caller is
+but not what they may do. The order and product routes had no capability check
+on top, so any account that could sign in through your tenant could list
+customer orders — names, addresses, purchase history — and issue refunds. Order
+routes now require `edit_shop_orders` and product routes `edit_products`.
+
+**Restore no longer trusts archive paths.** Backup extraction used
+`ZipArchive::extractTo()`, which honours `../` and absolute entry names (unlike
+WordPress's own `unzip_file()`). A tampered or corrupted archive could overwrite
+files anywhere the web user can write, including `wp-config.php`. Entry paths are
+now validated before anything is written.
+
+**Calendar sync no longer deletes events when Microsoft Graph is unavailable.**
+A failed request and a genuinely empty calendar both returned an empty list, and
+the sync engine trashes local events missing from the response — so a single
+transient `401`, `429` or timeout would trash every synced event in the window.
+Failed fetches are now distinguished from empty ones and skip the prune step.
+
+**Seat reservations are only released once they expire.** The hourly cleanup ran
+an unconditional delete before the expiry-scoped one, releasing every held seat
+including those mid-checkout.
+
+**Tickets are no longer issued twice.** Generation is hooked to both the
+`processing` and `completed` order statuses and most orders pass through both,
+so orders received a second full set of tickets with duplicate QR codes.
+
+Also fixed: an OAuth state check on the calendar callback that could be bypassed
+with a caller-supplied timestamp, now replaced with a single-use server-side
+record; refresh tokens being discarded when Microsoft omits them on refresh
+(which forced periodic manual re-authorisation of Calendar and OneDrive); an
+open redirect in the SSO return URL and a `Host`-header dependency alongside it;
+Mailgun webhooks accepting unsigned payloads whenever no signing key was
+configured; newsletter tracking tokens containing characters their own routes
+rejected, which silently broke open tracking and unsubscribe links; tracked
+links being double-encoded; unescaped values interpolated into inline
+`<script>` JSON on the calendar and org-chart shortcodes; three read endpoints
+that required only a nonce while returning other people's data; activity-log
+pruning that targeted a nonexistent table and therefore never ran; and a missing
+column that left every queued manager sync without a manager.
 
 ### What's new in v3.130
 
@@ -446,8 +540,8 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
   rendering stacked Day/Number on each card, and a location badge
   auto-derived from each event (IN PERSON when the event has no
   online URL, ONLINE when it does).
-- **New built-in `newsletter` theme** mirrors the LWPTSA weekly
-  newsletter image — dark navy outer container with an orange border,
+- **New built-in `newsletter` theme** mirrors a typical PTA weekly
+  newsletter layout — dark navy outer container with an orange border,
   centered "WEEK OF JUNE 1" header, orange day/number pills on each
   card, IN PERSON badges, footer with calendar URL. Drop in
   `[up-next theme="newsletter"]` to get it. Clone via the Themes

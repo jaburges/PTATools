@@ -2,6 +2,16 @@
  * Azure Plugin - PTA Roles Frontend Styles
  */
 
+/* ChromeNews's full-width page template is built for Elementor: it sets
+ * #primary.aft-pagebuilder-full-width-content and #main.site-main to
+ * padding: 0 so a page builder can go edge-to-edge. Classic headings then
+ * sit on the white container's left edge. Restore inset when the page is
+ * not an Elementor canvas. */
+body.page-template-full-width #primary.aft-pagebuilder-full-width-content > #main.site-main:not(:has(> .elementor)) {
+    padding: 28px 36px 40px;
+    box-sizing: border-box;
+}
+
 /* Leadership Structure Layout */
 .pta-leadership-structure {
     margin: 20px 0;
@@ -41,7 +51,11 @@
     margin-bottom: 8px;
 }
 
-.pta-leader-section .pta-role-assigned-names {
+.pta-leader-section .pta-person-photo {
+    border-width: 4px;
+}
+
+.pta-leader-section .pta-person-name {
     font-size: 16px;
     font-weight: 600;
     color: #333;
@@ -301,11 +315,55 @@
     text-transform: uppercase;
 }
 
+.pta-assignment-photo .pta-initials {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
 .pta-role-assigned-names {
     font-size: 14px;
     color: #555;
     font-weight: 500;
     margin-bottom: 8px;
+}
+
+.pta-role-people {
+    margin: 8px 0 12px;
+}
+
+.pta-person {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.pta-person-photo {
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #e1e1e1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pta-person-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.pta-layout-list .pta-person {
+    flex-direction: row;
+    justify-content: flex-start;
+    text-align: left;
 }
 
 /* Assignments list with photos */
@@ -783,6 +841,202 @@
 
 .pta-modal-body {
     padding: 24px;
+}
+
+.pta-role-descriptions {
+    display: flex;
+    flex-direction: column;
+    gap: 36px;
+    margin: 24px 0;
+}
+
+.pta-role-description-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0 0 8px;
+    padding: 16px 0 12px;
+    background: #fff;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+body.admin-bar .pta-role-description-toolbar {
+    top: 32px;
+}
+
+.pta-role-filter-q {
+    width: 100%;
+    max-width: 420px;
+    padding: 10px 12px;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    font-size: 16px;
+}
+
+.pta-role-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pta-role-filter-chip {
+    appearance: none;
+    border: 1px solid #d0d0d0;
+    background: #f6f7f7;
+    color: #1d2327;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.pta-role-filter-chip.is-active,
+.pta-role-filter-chip:hover {
+    background: #007cba;
+    border-color: #007cba;
+    color: #fff;
+}
+
+.pta-role-jump summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.pta-role-jump-nav {
+    display: grid;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+.pta-role-jump-group h3 {
+    margin: 0 0 6px;
+    font-size: 0.95rem;
+}
+
+.pta-role-jump-group ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pta-role-jump-group a {
+    text-decoration: none;
+}
+
+.pta-role-jump-group a:hover {
+    text-decoration: underline;
+}
+
+.pta-role-filter-status {
+    margin: 0;
+    min-height: 1.2em;
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.pta-role-description.is-filtered-out,
+.pta-role-jump-group.is-filtered-out,
+.pta-role-jump-nav li.is-filtered-out {
+    display: none;
+}
+
+.pta-role-description.is-target,
+.pta-role-description:target {
+    outline: 2px solid #c4a35a;
+    outline-offset: 8px;
+    border-radius: 4px;
+}
+
+@media (min-width: 782px) {
+    .pta-role-jump-nav {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    }
+}
+
+@media (max-width: 782px) {
+    body.admin-bar .pta-role-description-toolbar {
+        top: 46px;
+    }
+}
+
+.pta-role-description {
+    padding: 24px 0;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.pta-role-description:last-child {
+    border-bottom: none;
+}
+
+.pta-role-description-title {
+    margin: 0 0 4px;
+    font-size: 1.6rem;
+    line-height: 1.25;
+}
+
+.pta-role-description-dept {
+    margin: 0 0 16px;
+    color: #666;
+    font-size: 0.95rem;
+}
+
+.pta-role-description-block {
+    margin: 0 0 18px;
+}
+
+.pta-role-description-block h3,
+.pta-role-protip h3 {
+    margin: 0 0 8px;
+    font-size: 1.1rem;
+}
+
+.pta-role-description-block p,
+.pta-role-protip p {
+    margin: 0;
+}
+
+.pta-role-responsibilities {
+    margin: 0;
+    padding-left: 1.2em;
+}
+
+.pta-role-responsibilities li {
+    margin: 0 0 8px;
+}
+
+.pta-role-description-meta {
+    display: grid;
+    grid-template-columns: minmax(140px, 220px) 1fr;
+    gap: 8px 16px;
+    margin: 0 0 18px;
+}
+
+.pta-role-description-meta dt {
+    font-weight: 600;
+    margin: 0;
+}
+
+.pta-role-description-meta dd {
+    margin: 0;
+}
+
+.pta-role-protip {
+    background: #f7f4ee;
+    border-left: 4px solid #c4a35a;
+    padding: 14px 18px;
+    border-radius: 0 6px 6px 0;
+}
+
+@media (max-width: 640px) {
+    .pta-role-description-meta {
+        grid-template-columns: 1fr;
+    }
 }
 
 

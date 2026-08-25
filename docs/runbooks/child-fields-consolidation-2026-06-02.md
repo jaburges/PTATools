@@ -109,7 +109,7 @@ The legacy WAPF meta is untouched throughout, so nothing else needs reversal.
 After Phase 2 you can safely deactivate **WooCommerce Advanced Product Fields** without losing data. Steps:
 
 1. Spot-check the Reports module: rebuild the Yearbook saved report with `Child's Name`, `Childs Grade`, `Child Teacher`, `Parent 1 Name`, `Parent 1 Email`. Confirm all 200+ rows populate.
-2. Spot-check My Account → My Children for several parents: Greyson Burgess and others — confirm grade + teacher show.
+2. Spot-check My Account → My Children for several parents — confirm grade + teacher show.
 3. WP Admin → Plugins → Deactivate "WooCommerce Advanced Product Fields".
 4. Watch the next few Yearbook product page loads — they should now use the new Product Fields module's UI (dropdown + + Child + modal) for any future orders.
 5. If anything breaks, reactivate WAPF — the historical meta is still there and the plugin will pick up where it left off.

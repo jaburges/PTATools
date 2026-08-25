@@ -183,10 +183,20 @@ class Azure_Calendar_Auth {
      */
     private function store_tokens($token_data) {
         $expires_at = time() + ($token_data['expires_in'] ?? 3600);
-        
+
+        // Microsoft often omits refresh_token on a refresh response and expects
+        // the caller to keep using the existing one. Defaulting to '' wiped it,
+        // so the next expiry had nothing to refresh with and the calendar
+        // connection had to be re-authorised by hand.
+        $existing = get_option('azure_calendar_tokens', array());
+        $refresh_token = $token_data['refresh_token'] ?? '';
+        if ($refresh_token === '' && !empty($existing['refresh_token'])) {
+            $refresh_token = $existing['refresh_token'];
+        }
+
         $token_info = array(
             'access_token' => $token_data['access_token'],
-            'refresh_token' => $token_data['refresh_token'] ?? '',
+            'refresh_token' => $refresh_token,
             'expires_at' => $expires_at,
             'token_type' => $token_data['token_type'] ?? 'Bearer',
             'scope' => $token_data['scope'] ?? ''
@@ -459,46 +469,28 @@ class Azure_Calendar_Auth {
         // Decode state to get user email
         $state_data = json_decode(base64_decode($state), true);
         
-        if (!$state_data || !isset($state_data['user_email']) || !isset($state_data['nonce']) || !isset($state_data['timestamp'])) {
-            Azure_Logger::error('Calendar Auth: Invalid state data', array('state_data' => $state_data));
+        if (!$state_data || !isset($state_data['user_email']) || !isset($state_data['state_key'])) {
+            Azure_Logger::error('Calendar Auth: Invalid state data');
             wp_die('Invalid state data');
         }
-        
+
         $user_email = sanitize_email($state_data['user_email']);
-        
-        // Check if state is not too old (within 10 minutes)
-        $timestamp = intval($state_data['timestamp']);
-        if ((time() - $timestamp) > 600) {
-            Azure_Logger::error('Calendar Auth: State timestamp expired', array(
-                'timestamp' => $timestamp,
-                'current_time' => time(),
-                'age_seconds' => (time() - $timestamp)
-            ));
-            wp_die('Authorization state expired. Please try authenticating again.');
-        }
-        
-        // Verify nonce (matches the format used when creating: 'azure_calendar_user_' . $user_email)
-        $nonce_valid = wp_verify_nonce($state_data['nonce'], 'azure_calendar_user_' . $user_email);
-        
-        if (!$nonce_valid) {
-            // Log detailed nonce verification failure
-            Azure_Logger::error('Calendar Auth: Invalid state nonce', array(
-                'nonce_received' => $state_data['nonce'],
-                'nonce_action' => 'azure_calendar_user_' . $user_email,
+
+        // Consume the server-side record this authorization was started with.
+        // Missing or already-used means the callback wasn't initiated by an
+        // admin on this site, so there is nothing to fall back to — the old
+        // code's "recent timestamp" escape hatch let a forged state through.
+        $state_key   = sanitize_text_field($state_data['state_key']);
+        $transient   = 'azure_calendar_oauth_' . $state_key;
+        $expected    = get_transient($transient);
+        delete_transient($transient);
+
+        if (!is_array($expected) || empty($expected['user_email'])
+            || !hash_equals((string) $expected['user_email'], (string) $user_email)) {
+            Azure_Logger::error('Calendar Auth: Unrecognised or expired OAuth state', array(
                 'user_email' => $user_email,
-                'is_user_logged_in' => is_user_logged_in(),
-                'current_user_id' => get_current_user_id(),
-                'timestamp_age' => (time() - $timestamp)
             ));
-            
-            // Since nonces can fail due to session issues during OAuth redirect,
-            // we'll allow it if the timestamp is recent (within 10 minutes)
-            // This is acceptable because the OAuth code itself is single-use and expires quickly
-            if ((time() - $timestamp) > 600) {
-                wp_die('Invalid state nonce. Please try authenticating again.');
-            }
-            
-            Azure_Logger::warning('Calendar Auth: Bypassing nonce check due to recent timestamp', array('user_email' => $user_email));
+            wp_die('Authorization state expired or invalid. Please try authenticating again.');
         }
         
         // Exchange code for access token
@@ -515,9 +507,11 @@ class Azure_Calendar_Auth {
         Azure_Logger::info("Calendar Auth: User authorization completed for {$user_email}");
         Azure_Database::log_activity('calendar', 'user_authorization_completed', 'auth', null, array('user_email' => $user_email));
         
-        // Redirect back to the page that initiated authentication
-        $return_page = isset($state_data['return_page']) ? $state_data['return_page'] : 'azure-plugin-tec';
-        wp_redirect(admin_url('admin.php?page=' . $return_page . '&auth=success&user=' . urlencode($user_email)));
+        // Redirect back to the page that initiated authentication, taking the
+        // value from the verified server-side record rather than the state blob.
+        $return_page = !empty($expected['return_page']) ? $expected['return_page'] : 'azure-plugin-tec';
+        $return_page = sanitize_key($return_page);
+        wp_safe_redirect(admin_url('admin.php?page=' . $return_page . '&auth=success&user=' . urlencode($user_email)));
         exit;
     }
     
@@ -924,11 +918,22 @@ class Azure_Calendar_Auth {
         $tenant_id = $this->credentials['tenant_id'] ?: 'common';
         $base_url = "https://login.microsoftonline.com/{$tenant_id}/oauth2/v2.0/authorize";
         
-        // Create a state parameter that includes the user email and return page
+        // The state is validated against a server-side single-use record rather
+        // than a nonce. A nonce is tied to the login cookie, which is not
+        // reliably present when Microsoft redirects back, and the previous code
+        // worked around that by skipping verification for any state with a
+        // recent timestamp — a value the caller supplies, so it was trivially
+        // forgeable and the CSRF protection was effectively absent.
+        $state_key = wp_generate_password(32, false, false);
+        set_transient('azure_calendar_oauth_' . $state_key, array(
+            'user_email'  => $user_email,
+            'return_page' => $return_page,
+        ), 10 * MINUTE_IN_SECONDS);
+
         $state_data = array(
             'user_email' => $user_email,
             'return_page' => $return_page,
-            'nonce' => wp_create_nonce('azure_calendar_user_' . $user_email),
+            'state_key' => $state_key,
             'timestamp' => time()
         );
         $state = base64_encode(json_encode($state_data));

@@ -29,6 +29,53 @@ class Azure_PTA_Forminator {
         add_action('wp_ajax_pta_save_forminator_settings', array($this, 'ajax_save_forminator_settings'));
 
         add_filter('forminator_cform_render_fields', array($this, 'pre_populate_fields'), 10, 2);
+
+        // Late, so Forminator has had its chance to claim the tag on init:10.
+        add_action('init', array($this, 'register_absent_form_fallback'), 99);
+    }
+
+    /**
+     * Swallow [forminator_form] when the Forminator plugin is not installed.
+     *
+     * WordPress prints unregistered shortcodes verbatim, so pages carrying a
+     * form were showing visitors the literal string
+     * [forminator_form id="31359"] — /artdonate/ and /ptsa-info-2/ both did.
+     *
+     * Handled here rather than by editing those pages, so the form ids survive
+     * until there is a decision about how signup works. Whatever replaces it
+     * will want to know which form each page expected.
+     */
+    public function register_absent_form_fallback() {
+        if (class_exists('Forminator') || shortcode_exists('forminator_form')) {
+            return;
+        }
+
+        add_shortcode('forminator_form', array($this, 'render_absent_form_notice'));
+    }
+
+    /**
+     * Render nothing for visitors; tell editors why the form is missing.
+     */
+    public function render_absent_form_notice($atts = array()) {
+        if (!current_user_can('edit_posts')) {
+            return '';
+        }
+
+        // Attribute values in the live content use curly quotes, which the
+        // shortcode parser will not read as an id — so report the raw form of
+        // whatever was passed rather than implying a clean value was found.
+        $id = is_array($atts) && !empty($atts['id']) ? $atts['id'] : '';
+
+        $message = $id !== ''
+            ? sprintf(
+                /* translators: %s: Forminator form ID. */
+                __('Form %s cannot be shown: the Forminator plugin is not installed on this site. Only editors see this message.', 'azure-plugin'),
+                $id
+            )
+            : __('A form cannot be shown here: the Forminator plugin is not installed on this site. Only editors see this message.', 'azure-plugin');
+
+        return '<p class="pta-forminator-missing" style="padding:10px 14px;border-left:4px solid #dba617;background:#fcf9e8;color:#3c434a;">'
+            . esc_html($message) . '</p>';
     }
 
     /**
