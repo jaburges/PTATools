@@ -12,6 +12,7 @@ if (!defined('AZURE_PLUGIN_PATH')) {
 }
 
 require_once dirname(__DIR__) . '/Azure Plugin/includes/class-ptsa-meetings.php';
+require_once dirname(__DIR__) . '/Azure Plugin/includes/class-event-cpt.php';
 
 $t = new TestRunner('PTSA meetings matcher');
 
@@ -69,5 +70,9 @@ $t->equals('September agenda', $titles['https://example.org/wp-content/uploads/2
 $t->equals('Board minutes', $titles['https://example.org/wp-content/uploads/2026/09/minutes.pdf'] ?? '', 'file block name wins');
 
 $t->equals(array('PTSA Meeting'), Azure_PTSA_Meetings::preserved_category_names(array('PTA Events', 'PTSA Meeting', 'Art')), 'sync keeps only the meeting tag');
+
+$t->equals(array(12, 34), Azure_Event_CPT::normalize_attachment_ids(array('12', '34', '0', '12')), 'attachment ids unique and positive');
+$t->equals(array(5, 9), Azure_Event_CPT::normalize_attachment_ids('5, 9'), 'attachment ids from csv');
+$t->equals(array(), Azure_Event_CPT::normalize_attachment_ids(''), 'empty attachment ids');
 
 exit($t->finish() === 0 ? 0 : 1);

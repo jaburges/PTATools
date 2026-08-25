@@ -174,6 +174,32 @@ class Azure_PTSA_Meetings {
             ? (int) get_post_thumbnail_id($post_id)
             : 0;
 
+        $curated = function_exists('get_post_meta')
+            ? get_post_meta($post_id, '_pta_event_attachment_ids', true)
+            : array();
+        if (class_exists('Azure_Event_CPT')) {
+            $curated = Azure_Event_CPT::normalize_attachment_ids($curated);
+        } else {
+            $curated = is_array($curated) ? array_values(array_filter(array_map('intval', $curated))) : array();
+        }
+        foreach ($curated as $att_id) {
+            if ($featured > 0 && $att_id === $featured) {
+                continue;
+            }
+            $url = function_exists('wp_get_attachment_url')
+                ? wp_get_attachment_url($att_id)
+                : '';
+            if (!$url) {
+                continue;
+            }
+            $title = function_exists('get_the_title') ? trim((string) get_the_title($att_id)) : '';
+            $files[self::attachment_key($url)] = array(
+                'id'    => $att_id,
+                'url'   => $url,
+                'title' => $title !== '' ? $title : self::filename_from_url($url),
+            );
+        }
+
         if (function_exists('get_children')) {
             $children = get_children(array(
                 'post_parent' => $post_id,
@@ -343,6 +369,8 @@ class Azure_PTSA_Meetings {
      *   limit             max events (-1 = all)
      *   order             ASC | DESC by start date (used when upcoming=true)
      *   show_attachments  true/false
+     *   show_location     true/false
+     *   show_join         true/false
      *   show_time         true/false
      *   empty             custom empty-state text
      */
@@ -352,6 +380,8 @@ class Azure_PTSA_Meetings {
             'limit'            => '-1',
             'order'            => 'ASC',
             'show_attachments' => 'true',
+            'show_location'    => 'true',
+            'show_join'        => 'true',
             'show_time'        => 'true',
             'empty'            => '',
         ), $atts, 'ptsa-meetings');
@@ -362,6 +392,8 @@ class Azure_PTSA_Meetings {
 
         $upcoming_only    = filter_var($atts['upcoming'], FILTER_VALIDATE_BOOLEAN);
         $show_attachments = filter_var($atts['show_attachments'], FILTER_VALIDATE_BOOLEAN);
+        $show_location    = filter_var($atts['show_location'], FILTER_VALIDATE_BOOLEAN);
+        $show_join        = filter_var($atts['show_join'], FILTER_VALIDATE_BOOLEAN);
         $show_time        = filter_var($atts['show_time'], FILTER_VALIDATE_BOOLEAN);
         $limit            = (int) $atts['limit'];
         $order            = strtoupper((string) $atts['order']) === 'DESC' ? 'DESC' : 'ASC';
@@ -424,13 +456,13 @@ class Azure_PTSA_Meetings {
         if (!empty($upcoming)) {
             $html .= '<section class="ptsa-meetings-section ptsa-meetings-upcoming">';
             $html .= '<h3 class="ptsa-meetings-heading">' . esc_html__('Upcoming meetings', 'azure-plugin') . '</h3>';
-            $html .= $this->render_list($upcoming, $show_attachments, $show_time);
+            $html .= $this->render_list($upcoming, $show_attachments, $show_time, $show_location, $show_join);
             $html .= '</section>';
         }
         if (!empty($past)) {
             $html .= '<section class="ptsa-meetings-section ptsa-meetings-past">';
             $html .= '<h3 class="ptsa-meetings-heading">' . esc_html__('Past meetings', 'azure-plugin') . '</h3>';
-            $html .= $this->render_list($past, $show_attachments, $show_time);
+            $html .= $this->render_list($past, $show_attachments, $show_time, $show_location, $show_join);
             $html .= '</section>';
         }
         $html .= '</div>';
@@ -441,16 +473,16 @@ class Azure_PTSA_Meetings {
     /**
      * @param WP_Post[] $events
      */
-    private function render_list($events, $show_attachments, $show_time) {
+    private function render_list($events, $show_attachments, $show_time, $show_location = true, $show_join = true) {
         $html = '<ul class="ptsa-meetings-list">';
         foreach ($events as $event) {
-            $html .= $this->render_item($event, $show_attachments, $show_time);
+            $html .= $this->render_item($event, $show_attachments, $show_time, $show_location, $show_join);
         }
         $html .= '</ul>';
         return $html;
     }
 
-    private function render_item($event, $show_attachments, $show_time) {
+    private function render_item($event, $show_attachments, $show_time, $show_location = true, $show_join = true) {
         $post_id = (int) $event->ID;
         $title   = get_the_title($post_id);
         $url     = get_permalink($post_id);
@@ -467,9 +499,29 @@ class Azure_PTSA_Meetings {
             . esc_html($title) . '</a>';
         $html .= '</div>';
 
+        if ($show_location && class_exists('Azure_Event_CPT')) {
+            $location = Azure_Event_CPT::get_in_person_location($post_id);
+            if ($location !== '') {
+                $html .= '<p class="ptsa-meetings-location"><span class="ptsa-meetings-label">'
+                    . esc_html__('In person', 'azure-plugin') . '</span> '
+                    . esc_html($location) . '</p>';
+            }
+        }
+
+        if ($show_join && class_exists('Azure_Event_CPT')) {
+            $join = Azure_Event_CPT::extract_online_meeting_url($post_id);
+            if ($join !== '') {
+                $html .= '<p class="ptsa-meetings-join"><span class="ptsa-meetings-label">'
+                    . esc_html__('Teams meeting', 'azure-plugin') . '</span> '
+                    . '<a href="' . esc_url($join) . '" target="_blank" rel="noopener">'
+                    . esc_html($join) . '</a></p>';
+            }
+        }
+
         if ($show_attachments) {
             $files = self::get_event_attachments($post_id);
             if (!empty($files)) {
+                $html .= '<p class="ptsa-meetings-label">' . esc_html__('Attachments', 'azure-plugin') . '</p>';
                 $html .= '<ul class="ptsa-meetings-files">';
                 foreach ($files as $file) {
                     $html .= '<li><a class="ptsa-meetings-file" href="'

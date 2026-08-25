@@ -187,6 +187,7 @@ class Azure_Event_CPT {
         if (is_admin() || (defined('REST_REQUEST') && REST_REQUEST)) {
             add_action('add_meta_boxes_' . self::POST_TYPE_EVENT, array($this, 'register_event_metabox'));
             add_action('save_post_' . self::POST_TYPE_EVENT, array($this, 'save_event_metabox'), 10, 2);
+            add_action('admin_enqueue_scripts', array($this, 'enqueue_event_editor_assets'));
             add_filter('manage_' . self::POST_TYPE_EVENT . '_posts_columns', array($this, 'event_admin_columns'));
             add_action('manage_' . self::POST_TYPE_EVENT . '_posts_custom_column', array($this, 'event_admin_column_value'), 10, 2);
             add_filter('manage_edit-' . self::POST_TYPE_EVENT . '_sortable_columns', array($this, 'event_admin_sortable_columns'));
@@ -481,6 +482,31 @@ class Azure_Event_CPT {
     }
 
     /**
+     * Media library picker on the event editor. Azure AD / editor /
+     * administrator roles already have upload_files.
+     */
+    public function enqueue_event_editor_assets($hook) {
+        if (!in_array($hook, array('post.php', 'post-new.php'), true)) {
+            return;
+        }
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if (!$screen || $screen->post_type !== self::POST_TYPE_EVENT) {
+            return;
+        }
+        if (!current_user_can('upload_files')) {
+            return;
+        }
+        wp_enqueue_media();
+        wp_enqueue_script(
+            'pta-event-attachments',
+            AZURE_PLUGIN_URL . 'js/event-attachments.js',
+            array('jquery', 'media-editor'),
+            AZURE_PLUGIN_VERSION,
+            true
+        );
+    }
+
+    /**
      * Render the meta-box. Reads existing _Event* meta and shows simple
      * form fields. The save handler writes them back into the same keys.
      *
@@ -497,9 +523,12 @@ class Azure_Event_CPT {
         $end      = get_post_meta($post->ID, '_EventEndDate', true);
         $all_day  = get_post_meta($post->ID, '_EventAllDay', true) === 'yes';
         $venue    = get_post_meta($post->ID, '_EventVenue', true);
+        $join_url = (string) get_post_meta($post->ID, '_pta_online_meeting_url', true);
         $url      = get_post_meta($post->ID, '_EventURL', true);
         $cost     = get_post_meta($post->ID, '_EventCost', true);
         $hide_up  = get_post_meta($post->ID, '_EventHideFromUpcoming', true) === 'yes';
+        $att_ids  = self::normalize_attachment_ids(get_post_meta($post->ID, '_pta_event_attachment_ids', true));
+        $can_upload = current_user_can('upload_files');
 
         // datetime-local wants 'Y-m-d\TH:i'; tolerate empty.
         $to_dtl = function ($s) {
@@ -516,6 +545,10 @@ class Azure_Event_CPT {
             .pta-event-grid { display:grid; grid-template-columns:160px 1fr; gap:10px 16px; align-items:center; max-width:760px; }
             .pta-event-grid label { font-weight:600; }
             .pta-event-grid input[type="text"], .pta-event-grid input[type="datetime-local"], .pta-event-grid input[type="url"] { width:100%; max-width:380px; }
+            .pta-event-grid .pta-event-attachments { align-self:start; }
+            .pta-event-attachment-list { list-style:none; margin:0 0 8px; padding:0; }
+            .pta-event-attachment-row { margin:0 0 6px; }
+            .pta-event-attachment-remove { margin-left:8px; color:#b32d2e; }
             .pta-event-mirror-info { margin-top:14px; padding:10px 12px; background:#f6f7f7; border-left:3px solid #2271b1; font-size:12px; color:#50575e; }
             .pta-event-mirror-info code { background:rgba(0,0,0,0.05); padding:1px 5px; }
         </style>
@@ -529,8 +562,11 @@ class Azure_Event_CPT {
             <label for="pta_event_all_day"><?php esc_html_e('All day', 'azure-plugin'); ?></label>
             <label><input type="checkbox" id="pta_event_all_day" name="pta_event_all_day" value="yes" <?php checked($all_day); ?>> <?php esc_html_e('This is an all-day event', 'azure-plugin'); ?></label>
 
-            <label for="pta_event_venue"><?php esc_html_e('Venue', 'azure-plugin'); ?></label>
-            <input type="text" id="pta_event_venue" name="pta_event_venue" value="<?php echo esc_attr($venue); ?>" placeholder="<?php esc_attr_e('e.g. School Campus', 'azure-plugin'); ?>">
+            <label for="pta_event_venue"><?php esc_html_e('In-person location', 'azure-plugin'); ?></label>
+            <input type="text" id="pta_event_venue" name="pta_event_venue" value="<?php echo esc_attr($venue); ?>" placeholder="<?php esc_attr_e('e.g. Library, Room 12', 'azure-plugin'); ?>">
+
+            <label for="pta_event_join_url"><?php esc_html_e('Teams meeting join link', 'azure-plugin'); ?></label>
+            <input type="url" id="pta_event_join_url" name="pta_event_join_url" value="<?php echo esc_attr($join_url); ?>" placeholder="https://teams.microsoft.com/l/meetup-join/...">
 
             <label for="pta_event_url"><?php esc_html_e('Event URL', 'azure-plugin'); ?></label>
             <input type="url" id="pta_event_url" name="pta_event_url" value="<?php echo esc_attr($url); ?>" placeholder="https://...">
@@ -540,6 +576,38 @@ class Azure_Event_CPT {
 
             <label for="pta_event_hide_upcoming"><?php esc_html_e('Hide from upcoming', 'azure-plugin'); ?></label>
             <label><input type="checkbox" id="pta_event_hide_upcoming" name="pta_event_hide_upcoming" value="yes" <?php checked($hide_up); ?>> <?php esc_html_e('Don\'t show in upcoming-events lists/widgets', 'azure-plugin'); ?></label>
+
+            <label class="pta-event-attachments"><?php esc_html_e('Attachments', 'azure-plugin'); ?></label>
+            <div class="pta-event-attachments">
+                <ul id="pta-event-attachment-list" class="pta-event-attachment-list">
+                    <?php foreach ($att_ids as $att_id) :
+                        $att_url = wp_get_attachment_url($att_id);
+                        if (!$att_url) {
+                            continue;
+                        }
+                        $att_title = get_the_title($att_id);
+                        if ($att_title === '') {
+                            $att_title = basename(wp_parse_url($att_url, PHP_URL_PATH));
+                        }
+                    ?>
+                        <li class="pta-event-attachment-row" data-id="<?php echo esc_attr((string) $att_id); ?>">
+                            <input type="hidden" name="pta_event_attachment_ids[]" value="<?php echo esc_attr((string) $att_id); ?>">
+                            <a href="<?php echo esc_url($att_url); ?>" target="_blank" rel="noopener"><?php echo esc_html($att_title); ?></a>
+                            <?php if ($can_upload) : ?>
+                                <button type="button" class="button-link pta-event-attachment-remove"><?php esc_html_e('Remove', 'azure-plugin'); ?></button>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+                <?php if ($can_upload) : ?>
+                    <button type="button" class="button" id="pta-event-attachment-add"><?php esc_html_e('Add files from media library', 'azure-plugin'); ?></button>
+                    <p class="description" style="margin:6px 0 0;">
+                        <?php esc_html_e('Agendas, minutes, and other files. Azure AD users and admins can upload or pick existing media. Listed as download URLs on the event page.', 'azure-plugin'); ?>
+                    </p>
+                <?php else : ?>
+                    <p class="description"><?php esc_html_e('You do not have permission to upload files.', 'azure-plugin'); ?></p>
+                <?php endif; ?>
+            </div>
         </div>
 
         <?php if ($outlook_id || $tec_mirror_id): ?>
@@ -600,6 +668,53 @@ class Azure_Event_CPT {
             '_EventAllDay'           => !empty($_POST['pta_event_all_day']) ? 'yes' : 'no',
             '_EventHideFromUpcoming' => !empty($_POST['pta_event_hide_upcoming']) ? 'yes' : 'no',
         );
+
+        // Only flip source to "manual" when the editor actually changed
+        // the value. A save that only adds attachments must not freeze
+        // Outlook-synced location / join URL.
+        $join_url = isset($_POST['pta_event_join_url']) ? esc_url_raw(wp_unslash($_POST['pta_event_join_url'])) : '';
+        $current_join = esc_url_raw((string) get_post_meta($post_id, '_pta_online_meeting_url', true));
+        if ($join_url !== $current_join) {
+            if ($join_url !== '') {
+                update_post_meta($post_id, '_pta_online_meeting_url', $join_url);
+                update_post_meta($post_id, '_pta_online_meeting_url_source', 'manual');
+            } else {
+                delete_post_meta($post_id, '_pta_online_meeting_url');
+                delete_post_meta($post_id, '_pta_online_meeting_url_source');
+            }
+        }
+
+        $current_venue = (string) get_post_meta($post_id, '_EventVenue', true);
+        if ($fields['_EventVenue'] !== $current_venue) {
+            if ($fields['_EventVenue'] !== '') {
+                update_post_meta($post_id, '_pta_event_venue_source', 'manual');
+            } else {
+                delete_post_meta($post_id, '_pta_event_venue_source');
+            }
+        }
+
+        $att_ids = self::normalize_attachment_ids(
+            isset($_POST['pta_event_attachment_ids']) ? wp_unslash($_POST['pta_event_attachment_ids']) : array()
+        );
+        if (empty($att_ids)) {
+            delete_post_meta($post_id, '_pta_event_attachment_ids');
+        } else {
+            update_post_meta($post_id, '_pta_event_attachment_ids', $att_ids);
+        }
+        if (current_user_can('upload_files')) {
+            foreach ($att_ids as $att_id) {
+                $att = get_post($att_id);
+                if (!$att || $att->post_type !== 'attachment') {
+                    continue;
+                }
+                if ((int) $att->post_parent === 0) {
+                    wp_update_post(array(
+                        'ID'          => $att_id,
+                        'post_parent' => $post_id,
+                    ));
+                }
+            }
+        }
 
         foreach ($fields as $key => $value) {
             if ($value === '' || $value === 'no') {
@@ -663,7 +778,7 @@ class Azure_Event_CPT {
             $new[$k] = $v;
             if ($k === 'title') {
                 $new['pta_event_start']    = __('Starts', 'azure-plugin');
-                $new['pta_event_venue']    = __('Venue', 'azure-plugin');
+                $new['pta_event_venue']    = __('Location', 'azure-plugin');
                 $new['pta_event_category'] = __('Category', 'azure-plugin');
                 $new['pta_event_source']   = __('Source', 'azure-plugin');
             }
@@ -1437,17 +1552,56 @@ class Azure_Event_CPT {
     }
 
     /**
+     * Sanitize a list of media-library attachment IDs.
+     *
+     * @param mixed $raw Post meta, posted array, or comma-separated string.
+     * @return int[]
+     */
+    public static function normalize_attachment_ids($raw) {
+        if (is_string($raw) && $raw !== '') {
+            $raw = preg_split('/[\s,]+/', $raw);
+        }
+        if (!is_array($raw)) {
+            return array();
+        }
+        $ids = array();
+        foreach ($raw as $value) {
+            $id = (int) $value;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+        return array_values($ids);
+    }
+
+    /**
+     * In-person location label: structured venue post, then free-text.
+     *
+     * @param int $post_id
+     * @return string
+     */
+    public static function get_in_person_location($post_id) {
+        $post_id = (int) $post_id;
+        if ($post_id <= 0) {
+            return '';
+        }
+        $venue_id = (int) get_post_meta($post_id, '_EventVenueID', true);
+        if ($venue_id > 0) {
+            $block = self::get_venue_block($venue_id);
+            if (is_array($block) && !empty($block['name'])) {
+                return (string) $block['name'];
+            }
+        }
+        return trim((string) get_post_meta($post_id, '_EventVenue', true));
+    }
+
+    /**
      * Find a Teams / Zoom / Google Meet / Webex / etc. URL on an event.
      *
-     * The Outlook -> pta_event sync writes the event body (with the
-     * "Join Microsoft Teams Meeting" link) into post_content, but does
-     * not pull `onlineMeeting.joinUrl` into its own meta key — so we
-     * have to scrape it back out at render time.
-     *
      * Lookup order (first match wins):
-     *   1) Dedicated meta key `_pta_online_meeting_url` (set manually
-     *      by editors, or by a future sync-engine improvement that
-     *      requests `onlineMeeting/joinUrl` from Graph).
+     *   1) Dedicated meta key `_pta_online_meeting_url` (Outlook sync
+     *      writes Graph onlineMeeting.joinUrl here; editors can also
+     *      set it on the Event Details metabox).
      *   2) The post body / excerpt — both <a href> and bare-text URLs.
      *   3) The `_EventURL` meta (TEC's "Event Website").
      *   4) The venue display name and venue post body (Outlook sometimes

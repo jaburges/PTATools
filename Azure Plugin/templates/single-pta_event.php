@@ -44,6 +44,10 @@ while (have_posts()) :
     // URL by the shared helper. Empty string when this event isn't
     // an online meeting.
     $join_meeting_btn = Azure_Event_CPT::render_join_meeting_button($post_id, 'block');
+    $join_meeting_url = Azure_Event_CPT::extract_online_meeting_url($post_id);
+    $attachments      = class_exists('Azure_PTSA_Meetings')
+        ? Azure_PTSA_Meetings::get_event_attachments($post_id)
+        : array();
 
     // The "All Events" link should point at the existing /events/
     // archive — same place TEC's link goes — so users land in the
@@ -143,6 +147,14 @@ while (have_posts()) :
                         ?>
                     </p>
                 <?php endif; ?>
+                <?php if ($join_meeting_url) : ?>
+                    <p>
+                        <strong>Teams meeting Join Link:</strong><br />
+                        <a href="<?php echo esc_url($join_meeting_url); ?>" target="_blank" rel="noopener">
+                            <?php echo esc_html($join_meeting_url); ?>
+                        </a>
+                    </p>
+                <?php endif; ?>
                 <?php if ($event_url) : ?>
                     <p>
                         <strong>Website:</strong><br />
@@ -155,7 +167,7 @@ while (have_posts()) :
 
             <div class="pta-event-venue">
                 <?php if ($venue_block) : ?>
-                    <h3 class="pta-event-section">VENUE</h3>
+                    <h3 class="pta-event-section">IN-PERSON LOCATION</h3>
                     <p>
                         <a href="<?php echo esc_url($venue_block['permalink']); ?>">
                             <?php echo esc_html($venue_block['name']); ?>
@@ -180,7 +192,7 @@ while (have_posts()) :
                         </p>
                     <?php endif; ?>
                 <?php elseif ($venue_text) : ?>
-                    <h3 class="pta-event-section">VENUE</h3>
+                    <h3 class="pta-event-section">IN-PERSON LOCATION</h3>
                     <p><?php echo esc_html($venue_text); ?></p>
                 <?php endif; ?>
             </div>
@@ -197,6 +209,22 @@ while (have_posts()) :
             <?php endif; ?>
 
         </div>
+
+        <?php if (!empty($attachments)) : ?>
+            <hr class="pta-event-rule" />
+            <div class="pta-event-attachments">
+                <h3 class="pta-event-section">ATTACHMENTS</h3>
+                <ul class="pta-event-attachment-list">
+                    <?php foreach ($attachments as $file) : ?>
+                        <li>
+                            <a href="<?php echo esc_url($file['url']); ?>" target="_blank" rel="noopener">
+                                <?php echo esc_html($file['title']); ?>
+                            </a>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
 
         <?php
         $body_html = apply_filters('the_content', get_the_content());

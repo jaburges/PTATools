@@ -278,12 +278,9 @@ get_header();
                                                 echo ' - ' . esc_html(date_i18n($tf, strtotime($end)));
                                             }
                                         }
-                                        $vid = (int) get_post_meta($eid, '_EventVenueID', true);
-                                        if ($vid > 0) {
-                                            $vb = Azure_Event_CPT::get_venue_block($vid);
-                                            if ($vb && !empty($vb['name'])) {
-                                                echo ' &nbsp;|&nbsp; ' . esc_html($vb['name']);
-                                            }
+                                        $location = Azure_Event_CPT::get_in_person_location($eid);
+                                        if ($location !== '') {
+                                            echo ' &nbsp;|&nbsp; ' . esc_html($location);
                                         }
                                         ?>
                                     </p>

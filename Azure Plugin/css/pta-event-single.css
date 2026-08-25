@@ -173,6 +173,25 @@
     border: 0;
 }
 
+.pta-event-attachments .pta-event-attachment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.pta-event-attachments .pta-event-attachment-list li {
+    margin: 0 0 8px;
+}
+.pta-event-attachments .pta-event-attachment-list a {
+    color: #5b21b6;
+    text-decoration: none;
+}
+.pta-event-attachments .pta-event-attachment-list a:hover {
+    text-decoration: underline;
+}
+.pta-event-attachments .pta-event-attachment-list a::before {
+    content: "📎 ";
+}
+
 /* Body content (post_content) */
 .pta-event-body {
     font-size: 16px;

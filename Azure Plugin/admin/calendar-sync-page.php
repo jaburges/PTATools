@@ -108,10 +108,12 @@ $frequency_labels = array(
             <li><code>upcoming="true"</code> — <?php esc_html_e('hide past meetings', 'azure-plugin'); ?></li>
             <li><code>limit="10"</code> — <?php esc_html_e('cap how many events are shown (default: all)', 'azure-plugin'); ?></li>
             <li><code>show_attachments="false"</code> — <?php esc_html_e('hide agenda / minutes / other file links', 'azure-plugin'); ?></li>
+            <li><code>show_location="false"</code> — <?php esc_html_e('hide the in-person location', 'azure-plugin'); ?></li>
+            <li><code>show_join="false"</code> — <?php esc_html_e('hide the Teams / online meeting URL', 'azure-plugin'); ?></li>
             <li><code>show_time="false"</code> — <?php esc_html_e('date only', 'azure-plugin'); ?></li>
         </ul>
         <p class="description">
-            <?php esc_html_e('Add agendas or minutes from the event editor (Add Media, or a File block). Those attachments appear under that meeting in the list.', 'azure-plugin'); ?>
+            <?php esc_html_e('On each event, use Event Details to set In-person location, a Teams join link, and Attachments (media library). Azure AD users and admins can upload files there. Outlook still fills location and join URL on sync unless you override them.', 'azure-plugin'); ?>
         </p>
     </div>
     <script>

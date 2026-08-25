@@ -374,6 +374,13 @@ class Azure_PTSA_REST_API {
             $excerpt = wp_strip_all_tags(has_excerpt($post) ? get_the_excerpt($post) : $post->post_content);
             if (strlen($excerpt) > 240) $excerpt = substr($excerpt, 0, 237) . '...';
 
+            $join_url = class_exists('Azure_Event_CPT')
+                ? Azure_Event_CPT::extract_online_meeting_url($post->ID)
+                : (string) get_post_meta($post->ID, '_pta_online_meeting_url', true);
+            $attachments = class_exists('Azure_PTSA_Meetings')
+                ? Azure_PTSA_Meetings::get_event_attachments($post->ID)
+                : array();
+
             $out[] = array(
                 'id'             => (int) $post->ID,
                 'subject'        => (string) get_the_title($post),
@@ -383,6 +390,8 @@ class Azure_PTSA_REST_API {
                 'end'            => $this->to_iso8601($end),
                 'all_day'        => $all_day,
                 'location'       => $venue,
+                'join_url'       => $join_url,
+                'attachments'    => $attachments,
                 'calendar_id'    => $cid,
                 'calendar_name'  => $name_by_id[$cid] ?? '',
                 'outlook_event_id' => (string) get_post_meta($post->ID, '_outlook_event_id', true),
