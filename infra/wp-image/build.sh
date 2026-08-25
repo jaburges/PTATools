@@ -91,12 +91,18 @@ if [[ -d "$CONTEXT/wp-content/uploads" ]]; then
   rm -rf "$CONTEXT/wp-content/uploads"
 fi
 
+# Mac exports leave AppleDouble sidecars (`._foo.php`). WordPress loads every
+# mu-plugins/*.php file, so those binaries get echoed at the top of every page.
+echo "==> stripping AppleDouble / .DS_Store junk from the export"
+find "$CONTEXT/wp-content" \( -name '._*' -o -name '.DS_Store' \) -delete
+
 # Drop the exported copy of the plugin so the repository version is the only one
 # that lands in the image.
 rm -rf "$CONTEXT/wp-content/plugins/Azure Plugin"
 
 echo "==> staging plugin $TAG from the repository"
 cp -R "$REPO_ROOT/Azure Plugin/." "$CONTEXT/azure-plugin/"
+find "$CONTEXT/azure-plugin" \( -name '._*' -o -name '.DS_Store' \) -delete
 
 cp "$HERE/Dockerfile" "$HERE/php-opcache.ini" "$HERE/php-wordpress.ini" \
    "$HERE/apache-wp.conf" "$HERE/healthz.php" "$CONTEXT/"

@@ -87,6 +87,11 @@ RUN set -eux; \
     cp -R /usr/src/wordpress/wp-content/themes/twentytwentyfive \
           /var/www/html/wp-content/themes/twentytwentyfive
 
+# Belt-and-suspenders: Mac resource-fork files must never ship. A
+# mu-plugins/._*.php sidecar is treated as a real plugin and printed on
+# every request (visible as "Mac OS X … com.apple.provenance" in the header).
+RUN find /var/www/html/wp-content \( -name '._*' -o -name '.DS_Store' \) -delete
+
 # Create the mount point so Apache has a valid uploads path even before the
 # Azure Files share attaches.
 RUN set -eux; \
