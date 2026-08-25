@@ -2375,6 +2375,52 @@ div.gjs-block[style] {
     border-top: 1px solid #dcdcde;
 }
 
+#save-template-modal.template-modal {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 100000;
+    align-items: center;
+    justify-content: center;
+}
+
+#save-template-modal .template-modal-content {
+    background: #fff;
+    width: 90%;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+#save-template-modal .template-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid #dcdcde;
+    background: #f6f7f7;
+}
+
+#save-template-modal .template-modal-header h2 {
+    margin: 0;
+    font-size: 16px;
+}
+
+#save-template-modal .template-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #646970;
+    line-height: 1;
+}
+
+#save-template-modal .template-modal-body {
+    background: #fff;
+}
+
 /* Responsive */
 @media screen and (max-width: 782px) {
     .template-selection-screen {

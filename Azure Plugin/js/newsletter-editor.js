@@ -1459,6 +1459,34 @@
                     button_url: '#',
                     button_color: '#2271b1',
                     text_color: '#ffffff'
+                },
+                init: function() {
+                    this.on('change:button_text change:button_url change:button_color change:text_color', this.updateButtonFromTraits);
+                },
+                updateButtonFromTraits: function() {
+                    var links = this.find('a');
+                    var link = links && links.length ? links[0] : null;
+                    if (!link) {
+                        return;
+                    }
+                    var text = this.get('button_text');
+                    if (typeof text === 'string') {
+                        link.components(text);
+                    }
+                    var href = this.get('button_url');
+                    if (typeof href === 'string' && href !== '') {
+                        link.addAttributes({ href: href });
+                    }
+                    var style = {};
+                    if (this.get('button_color')) {
+                        style['background-color'] = this.get('button_color');
+                    }
+                    if (this.get('text_color')) {
+                        style.color = this.get('text_color');
+                    }
+                    if (Object.keys(style).length) {
+                        link.addStyle(style);
+                    }
                 }
             }
         });
@@ -1565,6 +1593,93 @@
     }
     
     /**
+     * Visible text blocks (headlines, paragraphs) — not images or layout tables.
+     */
+    function isEditableTextComponent(component) {
+        if (!component || !component.get) {
+            return false;
+        }
+        var type = component.get('type');
+        if (type === 'image' || type === 'email-image' || type === 'wrapper') {
+            return false;
+        }
+        if (type === 'text' || type === 'textnode') {
+            return true;
+        }
+        var tag = String(component.get('tagName') || '').toLowerCase();
+        return ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'strong', 'em', 'li'].indexOf(tag) !== -1;
+    }
+
+    function componentInnerHtml(component) {
+        var el = component.getEl && component.getEl();
+        if (el) {
+            return el.innerHTML;
+        }
+        var content = component.get('content');
+        return typeof content === 'string' ? content : '';
+    }
+
+    /**
+     * GrapesJS ships every component with an HTML `title` attribute trait.
+     * Editors type the headline there and the canvas never changes. Bind a
+     * real Text trait to the component's inner HTML instead.
+     */
+    function ensureTextContentTrait(component) {
+        if (!isEditableTextComponent(component)) {
+            return;
+        }
+
+        var traits = component.getTraits ? component.getTraits() : [];
+        var names = [];
+        if (traits && traits.forEach) {
+            traits.forEach(function(trait) {
+                names.push(trait.get('name'));
+            });
+        } else if (traits && traits.length) {
+            for (var i = 0; i < traits.length; i++) {
+                names.push(traits[i].get ? traits[i].get('name') : '');
+            }
+        }
+
+        if (names.indexOf('title') !== -1 && component.removeTrait) {
+            component.removeTrait('title');
+        }
+
+        if (names.indexOf('content') === -1 && component.addTrait) {
+            component.addTrait({
+                type: 'textarea',
+                name: 'content',
+                label: 'Text',
+                changeProp: 1
+            }, { at: 1 });
+        }
+
+        var html = componentInnerHtml(component);
+        if (html && component.get('content') !== html) {
+            component.set('content', html, { silent: true });
+        }
+
+        if (!component._ptaTextBound) {
+            component._ptaTextBound = true;
+            component.on('change:content', function() {
+                if (component._ptaApplyingText) {
+                    return;
+                }
+                var val = component.get('content');
+                if (typeof val !== 'string') {
+                    return;
+                }
+                component._ptaApplyingText = true;
+                try {
+                    component.components(val);
+                } finally {
+                    component._ptaApplyingText = false;
+                }
+            });
+        }
+    }
+
+    /**
      * Setup component selection handling for Settings panel
      */
     function setupComponentSelection() {
@@ -1577,6 +1692,10 @@
             var placeholder = $('.settings-placeholder');
             
             if (component) {
+                ensureTextContentTrait(component);
+                if (editor.TraitManager && typeof editor.TraitManager.render === 'function') {
+                    editor.TraitManager.render();
+                }
                 var traits = component.get('traits');
                 if (traits && traits.length > 0) {
                     placeholder.hide();
@@ -1592,6 +1711,18 @@
                 placeholder.show();
                 traitsContainer.hide();
                 $('#selected-element-name .element-name').text('No element selected');
+            }
+        });
+
+        editor.on('rte:disable', function() {
+            var selected = editor.getSelected();
+            if (!selected || !isEditableTextComponent(selected)) {
+                return;
+            }
+            var html = componentInnerHtml(selected);
+            selected.set('content', html, { silent: true });
+            if (editor.TraitManager && typeof editor.TraitManager.render === 'function') {
+                editor.TraitManager.render();
             }
         });
         
@@ -2509,6 +2640,85 @@
         // Set cursor position after tag
         input.selectionStart = input.selectionEnd = start + tag.length;
         input.focus();
+    });
+
+    function syncEditorToHiddenFields() {
+        if (!editor) {
+            return;
+        }
+        $('#newsletter_content_html').val(getEmailReadyHtml());
+        $('#newsletter_content_json').val(JSON.stringify(editor.getProjectData()));
+    }
+
+    function openSaveTemplateModal() {
+        syncEditorToHiddenFields();
+        var cfg = typeof newsletterEditorConfig !== 'undefined' ? newsletterEditorConfig : {};
+        if (!$('#template_save_name').val()) {
+            $('#template_save_name').val(cfg.templateName || $('#newsletter_name').val() || '');
+        }
+        $('#save-template-modal').css('display', 'flex').hide().fadeIn(150);
+        $('#template_save_name').trigger('focus');
+    }
+
+    $(document).on('click', '#save-as-template-top, #btn-save-as-template', function(e) {
+        e.preventDefault();
+        openSaveTemplateModal();
+    });
+
+    $(document).on('click', '#save-template-modal .template-modal-close, #save-template-cancel', function(e) {
+        e.preventDefault();
+        $('#save-template-modal').fadeOut(150);
+    });
+
+    $(document).on('click', '#save-template-modal', function(e) {
+        if (e.target === this) {
+            $('#save-template-modal').fadeOut(150);
+        }
+    });
+
+    $(document).on('click', '#save-template-confirm', function(e) {
+        e.preventDefault();
+        var cfg = typeof newsletterEditorConfig !== 'undefined' ? newsletterEditorConfig : {};
+        var name = $.trim($('#template_save_name').val() || '');
+        if (!name) {
+            alert('Please enter a template name.');
+            $('#template_save_name').trigger('focus');
+            return;
+        }
+
+        syncEditorToHiddenFields();
+
+        var btn = $(this);
+        btn.prop('disabled', true).text('Saving…');
+
+        $.post(cfg.ajaxUrl || newsletterEditorConfig.ajaxUrl, {
+            action: 'azure_newsletter_save_template',
+            nonce: cfg.nonce,
+            template_id: cfg.editTemplateId || 0,
+            name: name,
+            description: $('#template_save_description').val() || '',
+            category: $('#template_save_category').val() || 'custom',
+            content_html: $('#newsletter_content_html').val(),
+            content_json: $('#newsletter_content_json').val()
+        }, function(response) {
+            btn.prop('disabled', false).text('Save template');
+            if (response && response.success) {
+                $('#save-template-modal').fadeOut(150);
+                $('#save-status').text(response.data && response.data.message ? response.data.message : 'Template saved.');
+                if (response.data && response.data.template_id) {
+                    newsletterEditorConfig.editTemplateId = response.data.template_id;
+                    newsletterEditorConfig.templateName = name;
+                    if (response.data.edit_url && window.history.replaceState) {
+                        window.history.replaceState({}, '', response.data.edit_url);
+                    }
+                }
+            } else {
+                alert((response && response.data) || 'Could not save the template.');
+            }
+        }).fail(function() {
+            btn.prop('disabled', false).text('Save template');
+            alert('Could not save the template.');
+        });
     });
 
     /**

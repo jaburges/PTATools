@@ -35,6 +35,7 @@ class Azure_Newsletter_Ajax {
         
         // Template management
         add_action('wp_ajax_azure_newsletter_get_template', array($this, 'get_template'));
+        add_action('wp_ajax_azure_newsletter_save_template', array($this, 'save_template'));
         add_action('wp_ajax_azure_newsletter_reset_templates', array($this, 'reset_templates'));
         
         // Campaign preview
@@ -147,6 +148,70 @@ class Azure_Newsletter_Ajax {
             'description' => $template->description,
             'content_html' => $template->content_html,
             'content_json' => $template->content_json
+        ));
+    }
+
+    /**
+     * Create or update a custom (non-system) template from the editor.
+     */
+    public function save_template() {
+        check_ajax_referer('azure_newsletter_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Permission denied');
+        }
+
+        $name = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
+        if ($name === '') {
+            wp_send_json_error(__('Please enter a template name.', 'azure-plugin'));
+        }
+
+        $category = sanitize_key($_POST['category'] ?? 'custom');
+        $allowed  = array('general', 'events', 'onboarding', 'custom');
+        if (!in_array($category, $allowed, true)) {
+            $category = 'custom';
+        }
+
+        $data = array(
+            'name'         => $name,
+            'description'  => sanitize_textarea_field(wp_unslash($_POST['description'] ?? '')),
+            'category'     => $category,
+            'content_html' => $this->sanitize_email_html($_POST['content_html'] ?? ''),
+            'content_json' => wp_unslash($_POST['content_json'] ?? ''),
+            'is_system'    => 0,
+        );
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'azure_newsletter_templates';
+        $id    = intval($_POST['template_id'] ?? 0);
+
+        if ($id > 0) {
+            $existing = $wpdb->get_row($wpdb->prepare("SELECT id, is_system FROM {$table} WHERE id = %d", $id));
+            if (!$existing) {
+                wp_send_json_error(__('Template not found.', 'azure-plugin'));
+            }
+            if ((int) $existing->is_system === 1) {
+                wp_send_json_error(__('Built-in templates cannot be overwritten. Save a new custom template instead.', 'azure-plugin'));
+            }
+            $updated = $wpdb->update($table, $data, array('id' => $id));
+            if ($updated === false) {
+                wp_send_json_error(__('Could not update the template.', 'azure-plugin'));
+            }
+        } else {
+            $data['created_at'] = current_time('mysql');
+            $inserted = $wpdb->insert($table, $data);
+            if (!$inserted) {
+                wp_send_json_error(__('Could not save the template.', 'azure-plugin'));
+            }
+            $id = (int) $wpdb->insert_id;
+        }
+
+        do_action('azure_newsletter_template_changed', $id);
+
+        wp_send_json_success(array(
+            'template_id' => $id,
+            'message'     => __('Template saved.', 'azure-plugin'),
+            'edit_url'    => admin_url('admin.php?page=azure-plugin-newsletter&action=new&edit_template=' . $id),
         ));
     }
     

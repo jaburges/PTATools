@@ -179,7 +179,7 @@ wp_localize_script('azure-newsletter-template-thumbnails', 'azureNewsletterThumb
                         </button>
                         <?php endif; ?>
                         <?php if (!$template->is_system): ?>
-                        <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=templates&action=edit&id=' . $template->id); ?>"
+                        <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&action=new&edit_template=' . $template->id); ?>"
                            class="button button-small">
                             <?php _e('Edit', 'azure-plugin'); ?>
                         </a>
@@ -201,7 +201,7 @@ wp_localize_script('azure-newsletter-template-thumbnails', 'azureNewsletterThumb
 
     <div class="create-template-section">
         <h3><?php _e('Create Custom Template', 'azure-plugin'); ?></h3>
-        <p><?php _e('Design a newsletter and save it as a template for reuse.', 'azure-plugin'); ?></p>
+        <p><?php _e('Design a layout (header images, colors, blocks) and save it. You can also use Save as Template from any campaign editor.', 'azure-plugin'); ?></p>
         <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&action=new&save_as_template=1'); ?>" class="button">
             <?php _e('Create New Template', 'azure-plugin'); ?>
         </a>

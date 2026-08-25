@@ -37,11 +37,20 @@ if ($newsletter_id > 0) {
 
 // Load template if specified
 $template_id = isset($_GET['template']) ? intval($_GET['template']) : 0;
+$edit_template_id = isset($_GET['edit_template']) ? intval($_GET['edit_template']) : 0;
+$save_as_template = !empty($_GET['save_as_template']) || $edit_template_id > 0;
 $template = null;
+if ($edit_template_id > 0 && $template_id < 1) {
+    $template_id = $edit_template_id;
+}
 if ($template_id > 0 && !$newsletter) {
     global $wpdb;
     $templates_table = $wpdb->prefix . 'azure_newsletter_templates';
     $template = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$templates_table} WHERE id = %d", $template_id));
+    if ($edit_template_id > 0 && $template && (int) $template->is_system === 1) {
+        // Built-in templates are copied, not overwritten.
+        $edit_template_id = 0;
+    }
 }
 
 // Load all templates for template selection step
@@ -57,9 +66,13 @@ if ($table_exists) {
 // Step 0 = Template selection (only for new newsletters without template specified)
 // Steps 1-4 = Regular workflow
 $step = isset($_GET['step']) ? intval($_GET['step']) : 1;
+if ($save_as_template && !isset($_GET['step']) && ($template || isset($_GET['blank']))) {
+    $step = 2;
+}
 
 // Show template selection for new newsletters without a template pre-selected
 $show_template_selection = (!$newsletter && !$template && $step === 1 && !isset($_GET['blank']));
+$template_query = $save_as_template ? '&save_as_template=1' : '';
 
 // Get saved recipient lists for editing
 $saved_lists = array('all'); // Default to all
@@ -77,13 +90,15 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
     <!-- Template Selection Screen -->
     <div class="template-selection-screen">
         <div class="template-selection-header">
-            <h1><?php _e('Choose a Template', 'azure-plugin'); ?></h1>
-            <p class="description"><?php _e('Select a template to get started, or start with a blank canvas.', 'azure-plugin'); ?></p>
+            <h1><?php echo $save_as_template ? esc_html__('Choose a starting layout', 'azure-plugin') : esc_html__('Choose a Template', 'azure-plugin'); ?></h1>
+            <p class="description"><?php echo $save_as_template
+                ? esc_html__('Pick a starter, then save your own reusable template (header image, colors, and all).', 'azure-plugin')
+                : esc_html__('Select a template to get started, or start with a blank canvas.', 'azure-plugin'); ?></p>
         </div>
         
         <div class="template-selection-grid">
             <!-- Start from Scratch Option -->
-            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&action=new&blank=1'); ?>" class="template-selection-card blank-template">
+            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&action=new&blank=1' . $template_query); ?>" class="template-selection-card blank-template">
                 <div class="template-preview blank">
                     <span class="dashicons dashicons-plus-alt2"></span>
                 </div>
@@ -105,7 +120,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                     </style></head><body>' . $tpl->content_html . '</body></html>';
                 }
             ?>
-            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&action=new&template=' . $tpl->id); ?>" class="template-selection-card">
+            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&action=new&template=' . $tpl->id . $template_query); ?>" class="template-selection-card">
                 <div class="template-preview">
                     <?php if (!empty($preview_html)): ?>
                     <div class="preview-wrapper">
@@ -130,7 +145,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
         </div>
         
         <div class="template-selection-footer">
-            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=campaigns'); ?>" class="button">
+            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=' . ($save_as_template ? 'templates' : 'campaigns')); ?>" class="button">
                 <?php _e('Cancel', 'azure-plugin'); ?>
             </a>
         </div>
@@ -139,15 +154,31 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
     <?php else: ?>
     <!-- Regular Editor -->
     <div class="editor-header">
-        <h1><?php echo $newsletter ? __('Edit Newsletter', 'azure-plugin') : __('Create Newsletter', 'azure-plugin'); ?></h1>
+        <h1><?php
+            if ($edit_template_id) {
+                esc_html_e('Edit Template', 'azure-plugin');
+            } elseif ($save_as_template) {
+                esc_html_e('Create Template', 'azure-plugin');
+            } elseif ($newsletter) {
+                esc_html_e('Edit Newsletter', 'azure-plugin');
+            } else {
+                esc_html_e('Create Newsletter', 'azure-plugin');
+            }
+        ?></h1>
         <div class="editor-header-actions">
             <span id="save-status"></span>
+            <button type="button" class="button" id="save-as-template-top">
+                <span class="dashicons dashicons-layout"></span>
+                <?php echo $edit_template_id ? esc_html__('Update Template', 'azure-plugin') : esc_html__('Save as Template', 'azure-plugin'); ?>
+            </button>
+            <?php if (!$save_as_template): ?>
             <button type="button" class="button" id="save-draft-top">
                 <span class="dashicons dashicons-cloud-saved"></span>
                 <?php _e('Save Draft', 'azure-plugin'); ?>
             </button>
-            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=campaigns'); ?>" class="button">
-                <?php _e('Back to Campaigns', 'azure-plugin'); ?>
+            <?php endif; ?>
+            <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=' . ($save_as_template ? 'templates' : 'campaigns')); ?>" class="button">
+                <?php echo $save_as_template ? esc_html__('Back to Templates', 'azure-plugin') : esc_html__('Back to Campaigns', 'azure-plugin'); ?>
             </a>
         </div>
     </div>
@@ -405,9 +436,14 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                     <button type="button" class="button" id="btn-code" title="<?php _e('View Code', 'azure-plugin'); ?>">
                         <span class="dashicons dashicons-editor-code"></span>
                     </button>
+                    <button type="button" class="button" id="btn-save-as-template" title="<?php _e('Save this design as a reusable template', 'azure-plugin'); ?>">
+                        <span class="dashicons dashicons-layout"></span> <?php echo $edit_template_id ? esc_html__('Update Template', 'azure-plugin') : esc_html__('Save Template', 'azure-plugin'); ?>
+                    </button>
+                    <?php if (!$save_as_template): ?>
                     <button type="button" class="button" id="btn-update-design" title="<?php _e('Update design and save changes', 'azure-plugin'); ?>">
                         <span class="dashicons dashicons-update"></span> <?php _e('Update', 'azure-plugin'); ?>
                     </button>
+                    <?php endif; ?>
                     <button type="button" class="button button-primary next-step" data-next="3">
                         <?php _e('Review', 'azure-plugin'); ?> &rarr;
                     </button>
@@ -430,7 +466,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                     <div class="editor-help-bar" id="editor-help-bar">
                         <span class="dashicons dashicons-info-outline" aria-hidden="true"></span>
                         <span class="editor-help-text">
-                            <?php _e('Tip: drag blocks from the left. <strong>Double-click any text</strong> to edit it — the floating toolbar lets you bold, italicize, and add <strong>links</strong>.', 'azure-plugin'); ?>
+                            <?php _e('Tip: drag blocks from the left. Select text and edit it in Settings → Text, or <strong>double-click</strong> to bold, italicize, and add <strong>links</strong>.', 'azure-plugin'); ?>
                         </span>
                         <button type="button" class="editor-help-dismiss" aria-label="<?php esc_attr_e('Dismiss tip', 'azure-plugin'); ?>">&times;</button>
                     </div>
@@ -763,6 +799,55 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
     <?php endif; // End of else (not template selection) ?>
 </div>
 
+<div id="save-template-modal" class="template-modal" style="display:none;">
+    <div class="template-modal-content" style="max-width:480px;height:auto;">
+        <div class="template-modal-header">
+            <h2><?php echo $edit_template_id ? esc_html__('Update template', 'azure-plugin') : esc_html__('Save as template', 'azure-plugin'); ?></h2>
+            <button type="button" class="template-modal-close">&times;</button>
+        </div>
+        <div class="template-modal-body" style="padding:18px 20px;">
+            <p class="description" style="margin-top:0;">
+                <?php esc_html_e('Keeps the current design — header images, colors, and blocks — so you can start the next campaign from it.', 'azure-plugin'); ?>
+            </p>
+            <p>
+                <label for="template_save_name"><strong><?php esc_html_e('Template name', 'azure-plugin'); ?></strong></label><br>
+                <input type="text" id="template_save_name" class="regular-text" style="width:100%;"
+                       value="<?php echo esc_attr($edit_template_id && $template ? $template->name : ''); ?>"
+                       placeholder="<?php esc_attr_e('e.g. Monthly newsletter with header', 'azure-plugin'); ?>">
+            </p>
+            <p>
+                <label for="template_save_description"><?php esc_html_e('Description (optional)', 'azure-plugin'); ?></label><br>
+                <textarea id="template_save_description" class="large-text" rows="2" style="width:100%;"><?php echo esc_textarea($edit_template_id && $template ? (string) $template->description : ''); ?></textarea>
+            </p>
+            <p>
+                <label for="template_save_category"><?php esc_html_e('Category', 'azure-plugin'); ?></label><br>
+                <select id="template_save_category">
+                    <?php
+                    $save_cat = $edit_template_id && $template ? $template->category : 'custom';
+                    foreach (array(
+                        'custom' => __('Custom', 'azure-plugin'),
+                        'general' => __('General', 'azure-plugin'),
+                        'events' => __('Events', 'azure-plugin'),
+                        'onboarding' => __('Onboarding', 'azure-plugin'),
+                    ) as $slug => $label) {
+                        printf(
+                            '<option value="%s"%s>%s</option>',
+                            esc_attr($slug),
+                            selected($save_cat, $slug, false),
+                            esc_html($label)
+                        );
+                    }
+                    ?>
+                </select>
+            </p>
+            <p style="text-align:right;margin-bottom:0;">
+                <button type="button" class="button" id="save-template-cancel"><?php esc_html_e('Cancel', 'azure-plugin'); ?></button>
+                <button type="button" class="button button-primary" id="save-template-confirm"><?php esc_html_e('Save template', 'azure-plugin'); ?></button>
+            </p>
+        </div>
+    </div>
+</div>
+
 <script>
 var newsletterEditorConfig = {
     ajaxUrl: '<?php echo admin_url('admin-ajax.php'); ?>',
@@ -770,8 +855,10 @@ var newsletterEditorConfig = {
     pluginUrl: '<?php echo AZURE_PLUGIN_URL; ?>',
     initialContent: <?php echo json_encode($newsletter->content_json ?? ($template ? $template->content_json : '') ?? ''); ?>,
     initialHtml: <?php echo json_encode($newsletter->content_html ?? ($template ? $template->content_html : '') ?? ''); ?>,
-    templateId: <?php echo $template_id; ?>,
-    templateName: <?php echo json_encode($template ? $template->name : ''); ?>
+    templateId: <?php echo (int) $template_id; ?>,
+    templateName: <?php echo json_encode($template ? $template->name : ''); ?>,
+    editTemplateId: <?php echo (int) $edit_template_id; ?>,
+    saveAsTemplate: <?php echo $save_as_template ? 'true' : 'false'; ?>
 };
 </script>
 
