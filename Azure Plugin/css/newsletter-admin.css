@@ -1332,17 +1332,6 @@ div.gjs-block[style] {
     outline: 2px solid #2271b1 !important;
 }
 
-/* Toolbar */
-.gjs-toolbar {
-    background: #1d2327;
-    border-radius: 3px;
-}
-
-.gjs-toolbar-item {
-    color: #fff;
-    padding: 5px 8px;
-}
-
 /* Resizer */
 .gjs-resizer-h {
     border-color: #2271b1;
@@ -1369,34 +1358,51 @@ div.gjs-block[style] {
     margin-bottom: 3px;
 }
 
-/* Rich text editor */
-.gjs-rte-toolbar {
-    background: #1d2327;
-    border-radius: 3px;
-    padding: 5px;
+/* Rich text editor — GrapesJS also puts gjs-one-bg (#f8f9fa) on this
+   bar, which is the same grey as the canvas, so Bold/Italic vanish.
+   Sit it on its own row above the block toolbar. */
+.gjs-rte-toolbar,
+.gjs-rte-toolbar.gjs-one-bg {
+    background: #ffffff !important;
+    color: #1d2327 !important;
+    border: 1px solid #1d2327 !important;
+    border-radius: 6px !important;
+    padding: 4px 6px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28) !important;
+    transform: translateY(-40px);
+    z-index: 20 !important;
 }
 
 .gjs-rte-actionbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px;
+    gap: 4px;
 }
 
-.gjs-rte-action {
-    background: transparent;
-    color: #fff;
-    border: none;
-    padding: 5px 8px;
+.gjs-rte-toolbar .gjs-rte-action,
+.gjs-rte-toolbar.gjs-two-color,
+.gjs-rte-toolbar .gjs-two-color {
+    background: #f0f0f1 !important;
+    color: #1d2327 !important;
+    border: 1px solid #8c8f94 !important;
+    padding: 5px 8px !important;
     cursor: pointer;
-    border-radius: 2px;
+    border-radius: 4px !important;
+    min-width: 28px;
+    min-height: 28px;
+    font-weight: 700;
 }
 
-.gjs-rte-action:hover {
-    background: rgba(255,255,255,0.1);
+.gjs-rte-toolbar .gjs-rte-action:hover {
+    background: #dcdcde !important;
+    color: #1d2327 !important;
 }
 
-.gjs-rte-active {
-    background: #2271b1;
+.gjs-rte-toolbar .gjs-rte-active,
+.gjs-rte-toolbar .gjs-rte-action.gjs-rte-active {
+    background: #2271b1 !important;
+    color: #fff !important;
+    border-color: #135e96 !important;
 }
 
 /* Component selected highlight */
@@ -1444,11 +1450,16 @@ div.gjs-block[style] {
 }
 
 /* Toolbar position indicator */
-.gjs-toolbar {
+.gjs-toolbar,
+.gjs-toolbar.gjs-one-bg {
     background: #1d2327 !important;
-    border-radius: 4px !important;
-    padding: 4px !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+    color: #fff !important;
+    border: 1px solid #000 !important;
+    border-radius: 6px !important;
+    padding: 4px 6px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+    transform: translate(12px, 4px);
+    z-index: 15 !important;
 }
 
 .gjs-toolbar-item {
