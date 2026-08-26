@@ -430,6 +430,7 @@ class Azure_Settings {
             'newsletter_default_category' => 'newsletter',
             'newsletter_default_page_title' => '{subject}',
             'newsletter_default_parent_page' => 0,
+            'event_placeholder_image_id' => 0,
             
             // Organization settings (used across modules)
             'org_domain' => '',              // e.g., "yourptsa.net"

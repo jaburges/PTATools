@@ -45,6 +45,7 @@ class Azure_Membership_Module {
     private function __construct() {
         if (class_exists('Azure_Database')) {
             Azure_Database::seed_membership_optin_fields();
+            Azure_Database::rehome_directory_optin_fields();
         }
 
         add_shortcode(self::SHORTCODE_A, array($this, 'render_directory_shortcode'));

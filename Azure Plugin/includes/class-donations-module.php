@@ -2,9 +2,10 @@
 /**
  * Donations Module
  *
- * Round-up at checkout, custom donation amounts, gift products, and shortcodes.
- * Cash donations are WooCommerce cart fees. Gift products are real line items
- * marked `_pta_donated_product` so product fields and membership credit are skipped.
+ * Round-up at checkout, custom donation amounts, gift products, WAG giving
+ * levels, and shortcodes. Cash donations are WooCommerce cart fees. Gift
+ * products are real line items marked `_pta_donated_product` so product fields
+ * and membership credit are skipped.
  */
 
 if (!defined('ABSPATH')) {
@@ -12,6 +13,11 @@ if (!defined('ABSPATH')) {
 }
 
 class Azure_Donations_Module {
+
+    const WAG_DEFAULT_BG = '#0B2545';
+    const WAG_DEFAULT_FG = '#FFFFFF';
+    const WAG_DEFAULT_LABEL = 'Suggested Giving Levels';
+    const WAG_DEFAULT_FOOTER = 'Every gift of any amount is welcome, honored, and recognized.';
 
     private static $instance = null;
 
@@ -103,6 +109,7 @@ class Azure_Donations_Module {
         add_action('wp_ajax_azure_donations_delete_campaign', array($this, 'ajax_delete_campaign'));
         add_action('wp_ajax_azure_donations_get_records', array($this, 'ajax_get_records'));
         add_action('wp_ajax_azure_donations_save_settings', array($this, 'ajax_save_settings'));
+        add_action('wp_ajax_azure_donations_get_variations', array($this, 'ajax_get_variations'));
     }
 
     private function init_frontend_hooks() {
@@ -121,6 +128,8 @@ class Azure_Donations_Module {
         add_action('wp_ajax_nopriv_azure_donations_add_gift_product', array($this, 'ajax_add_gift_product'));
         add_shortcode('pta-donate', array($this, 'shortcode_donate'));
         add_shortcode('donations-list', array($this, 'shortcode_donations_list'));
+        add_shortcode('wag', array($this, 'shortcode_wag'));
+        add_shortcode('WAG', array($this, 'shortcode_wag'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
     }
 
@@ -844,6 +853,183 @@ class Azure_Donations_Module {
         return $out;
     }
 
+    public static function wag_enabled() {
+        return !empty(Azure_Settings::get_setting('donations_enable_wag', ''));
+    }
+
+    public static function default_wag_heading() {
+        $org = '';
+        if (class_exists('Azure_Settings')) {
+            $org = trim((string) Azure_Settings::get_setting('org_name', ''));
+        }
+        if ($org === '' && function_exists('get_bloginfo')) {
+            $org = trim((string) get_bloginfo('name'));
+        }
+        if ($org === '') {
+            $org = 'PTSA';
+        }
+        return sprintf('Fund the %s budget and help us reach our $40,000 goal for our kids.', $org);
+    }
+
+    public static function default_wag_levels() {
+        return array(
+            array(
+                'amount'       => 500,
+                'name'         => 'Pack Leader',
+                'suffix'       => 'per student',
+                'product_id'   => 0,
+                'variation_id' => 0,
+            ),
+            array(
+                'amount'       => 250,
+                'name'         => 'Helpful Howler',
+                'suffix'       => 'per student',
+                'product_id'   => 0,
+                'variation_id' => 0,
+            ),
+            array(
+                'amount'       => 150,
+                'name'         => 'Positive Paw',
+                'suffix'       => 'per student',
+                'product_id'   => 0,
+                'variation_id' => 0,
+            ),
+        );
+    }
+
+    public static function sanitize_wag_color($value, $fallback) {
+        $value = is_string($value) ? trim($value) : '';
+        if (function_exists('sanitize_hex_color')) {
+            $clean = sanitize_hex_color($value);
+            if (is_string($clean) && $clean !== '') {
+                return $clean;
+            }
+        }
+        if (preg_match('/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/', $value)) {
+            return $value;
+        }
+        return $fallback;
+    }
+
+    public static function sanitize_wag_levels($raw) {
+        $defaults = self::default_wag_levels();
+        $rows = is_array($raw) ? array_values($raw) : array();
+        $out = array();
+        for ($i = 0; $i < 3; $i++) {
+            $row = (isset($rows[$i]) && is_array($rows[$i])) ? $rows[$i] : array();
+            $d = $defaults[$i];
+            $amount = isset($row['amount']) ? round(floatval($row['amount']), 2) : $d['amount'];
+            if ($amount < 0) {
+                $amount = 0;
+            }
+            $name = isset($row['name']) ? sanitize_text_field($row['name']) : $d['name'];
+            if ($name === '') {
+                $name = $d['name'];
+            }
+            $suffix = isset($row['suffix']) ? sanitize_text_field($row['suffix']) : $d['suffix'];
+            $out[] = array(
+                'amount'       => $amount,
+                'name'         => $name,
+                'suffix'       => $suffix,
+                'product_id'   => isset($row['product_id']) ? max(0, (int) $row['product_id']) : 0,
+                'variation_id' => isset($row['variation_id']) ? max(0, (int) $row['variation_id']) : 0,
+            );
+        }
+        return $out;
+    }
+
+    public static function get_wag_levels() {
+        return self::sanitize_wag_levels(Azure_Settings::get_setting('donations_wag_levels', array()));
+    }
+
+    public static function get_wag_bg() {
+        return self::sanitize_wag_color(
+            Azure_Settings::get_setting('donations_wag_bg', self::WAG_DEFAULT_BG),
+            self::WAG_DEFAULT_BG
+        );
+    }
+
+    public static function get_wag_fg() {
+        return self::sanitize_wag_color(
+            Azure_Settings::get_setting('donations_wag_fg', self::WAG_DEFAULT_FG),
+            self::WAG_DEFAULT_FG
+        );
+    }
+
+    public static function format_wag_amount($amount) {
+        $amount = (float) $amount;
+        $decimals = (fmod($amount, 1.0) === 0.0) ? 0 : 2;
+        return '$' . number_format($amount, $decimals);
+    }
+
+    /**
+     * Product page URL with the mapped variation pre-selected when possible.
+     */
+    public static function wag_level_url($level) {
+        $vid = isset($level['variation_id']) ? (int) $level['variation_id'] : 0;
+        $pid = isset($level['product_id']) ? (int) $level['product_id'] : 0;
+
+        if (function_exists('wc_get_product')) {
+            if ($vid > 0) {
+                $product = wc_get_product($vid);
+                if ($product && is_callable(array($product, 'is_type')) && $product->is_type('variation')) {
+                    return $product->get_permalink();
+                }
+            }
+            if ($pid > 0) {
+                $product = wc_get_product($pid);
+                if ($product && is_callable(array($product, 'get_permalink'))) {
+                    return $product->get_permalink();
+                }
+            }
+        }
+
+        if ($pid > 0 && function_exists('get_permalink')) {
+            $url = get_permalink($pid);
+            return $url ? $url : '';
+        }
+
+        return '';
+    }
+
+    public function ajax_get_variations() {
+        check_ajax_referer('azure_plugin_nonce', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized');
+            return;
+        }
+
+        $product_id = isset($_POST['product_id']) ? (int) $_POST['product_id'] : 0;
+        if ($product_id <= 0 || !function_exists('wc_get_product')) {
+            wp_send_json_success(array());
+            return;
+        }
+
+        $product = wc_get_product($product_id);
+        if (!$product || !is_callable(array($product, 'is_type')) || !$product->is_type('variable')) {
+            wp_send_json_success(array());
+            return;
+        }
+
+        $out = array();
+        $children = $product->get_children();
+        foreach ($children as $variation_id) {
+            $variation = wc_get_product((int) $variation_id);
+            if (!$variation || !$variation->exists()) {
+                continue;
+            }
+            $label = is_callable(array($variation, 'get_formatted_name'))
+                ? wp_strip_all_tags($variation->get_formatted_name())
+                : wp_strip_all_tags($variation->get_name());
+            $out[] = array(
+                'id'    => (int) $variation->get_id(),
+                'label' => $label,
+            );
+        }
+
+        wp_send_json_success($out);
+    }
+
     public function ajax_add_gift_product() {
         check_ajax_referer('pta_donations_nonce', 'nonce');
         if (!class_exists('WooCommerce')) {
@@ -1161,6 +1347,75 @@ class Azure_Donations_Module {
         return ob_get_clean();
     }
 
+    /**
+     * Suggested giving levels mapped to a WooCommerce product variation.
+     * Disabled (or unmapped) output is empty so the shortcode is safe to leave on a page.
+     */
+    public function shortcode_wag($atts = array()) {
+        unset($atts);
+        if (!self::wag_enabled()) {
+            return '';
+        }
+
+        $this->enqueue_wag_styles();
+
+        $heading = trim((string) Azure_Settings::get_setting('donations_wag_heading', ''));
+        if ($heading === '') {
+            $heading = self::default_wag_heading();
+        }
+        $label = trim((string) Azure_Settings::get_setting('donations_wag_label', ''));
+        if ($label === '') {
+            $label = self::WAG_DEFAULT_LABEL;
+        }
+        $footer = trim((string) Azure_Settings::get_setting('donations_wag_footer', ''));
+        if ($footer === '') {
+            $footer = self::WAG_DEFAULT_FOOTER;
+        }
+
+        $bg = self::get_wag_bg();
+        $fg = self::get_wag_fg();
+        $levels = self::get_wag_levels();
+
+        ob_start();
+        ?>
+        <div class="pta-wag" style="--wag-bg: <?php echo esc_attr($bg); ?>; --wag-fg: <?php echo esc_attr($fg); ?>;">
+            <h2 class="pta-wag-heading"><?php echo esc_html($heading); ?></h2>
+            <div class="pta-wag-accent" aria-hidden="true"></div>
+            <p class="pta-wag-label"><?php echo esc_html($label); ?></p>
+            <div class="pta-wag-levels">
+                <?php foreach ($levels as $i => $level): ?>
+                    <?php
+                    $url = self::wag_level_url($level);
+                    $featured = ($i === 0) ? ' is-featured' : '';
+                    $amount = self::format_wag_amount($level['amount']);
+                    ?>
+                    <?php if ($url !== ''): ?>
+                        <a class="pta-wag-level<?php echo esc_attr($featured); ?>" href="<?php echo esc_url($url); ?>">
+                            <span class="pta-wag-amount"><?php echo esc_html($amount); ?></span>
+                            <span class="pta-wag-name"><?php echo esc_html($level['name']); ?></span>
+                            <?php if ($level['suffix'] !== ''): ?>
+                                <span class="pta-wag-suffix"><?php echo esc_html($level['suffix']); ?></span>
+                            <?php endif; ?>
+                        </a>
+                    <?php else: ?>
+                        <span class="pta-wag-level<?php echo esc_attr($featured); ?>">
+                            <span class="pta-wag-amount"><?php echo esc_html($amount); ?></span>
+                            <span class="pta-wag-name"><?php echo esc_html($level['name']); ?></span>
+                            <?php if ($level['suffix'] !== ''): ?>
+                                <span class="pta-wag-suffix"><?php echo esc_html($level['suffix']); ?></span>
+                            <?php endif; ?>
+                        </span>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+            <?php if ($footer !== ''): ?>
+                <p class="pta-wag-footer"><?php echo esc_html($footer); ?></p>
+            <?php endif; ?>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
     public static function public_gift_label($row) {
         $name = isset($row->product_name) ? trim((string) $row->product_name) : '';
         if ($name !== '') {
@@ -1178,11 +1433,17 @@ class Azure_Donations_Module {
         $has_shortcode = $post && (
             has_shortcode($content, 'pta-donate')
             || has_shortcode($content, 'donations-list')
+            || has_shortcode($content, 'wag')
+            || has_shortcode($content, 'WAG')
         );
         if (!is_checkout() && !is_cart() && !$has_shortcode) {
             return;
         }
 
+        $this->enqueue_wag_styles();
+    }
+
+    private function enqueue_wag_styles() {
         wp_enqueue_style('dashicons');
         wp_enqueue_style(
             'pta-donations-frontend',
@@ -1312,13 +1573,30 @@ class Azure_Donations_Module {
             'donations_enable_roundup',
             'donations_enable_custom',
             'donations_enable_gift_products',
+            'donations_enable_wag',
             'donations_default_campaign',
+            'donations_wag_heading',
+            'donations_wag_label',
+            'donations_wag_footer',
         );
 
         foreach ($fields as $field) {
             if (isset($_POST[$field])) {
                 Azure_Settings::update_setting($field, sanitize_text_field($_POST[$field]));
             }
+        }
+
+        if (isset($_POST['donations_wag_bg'])) {
+            Azure_Settings::update_setting(
+                'donations_wag_bg',
+                self::sanitize_wag_color(wp_unslash($_POST['donations_wag_bg']), self::WAG_DEFAULT_BG)
+            );
+        }
+        if (isset($_POST['donations_wag_fg'])) {
+            Azure_Settings::update_setting(
+                'donations_wag_fg',
+                self::sanitize_wag_color(wp_unslash($_POST['donations_wag_fg']), self::WAG_DEFAULT_FG)
+            );
         }
 
         if (isset($_POST['donations_quick_amounts'])) {
@@ -1329,6 +1607,11 @@ class Azure_Donations_Module {
         if (isset($_POST['donations_gift_products'])) {
             $raw = json_decode(wp_unslash($_POST['donations_gift_products']), true);
             Azure_Settings::update_setting('donations_gift_products', self::sanitize_gift_products($raw));
+        }
+
+        if (isset($_POST['donations_wag_levels'])) {
+            $raw = json_decode(wp_unslash($_POST['donations_wag_levels']), true);
+            Azure_Settings::update_setting('donations_wag_levels', self::sanitize_wag_levels($raw));
         }
 
         wp_send_json_success(array('message' => 'Settings saved'));

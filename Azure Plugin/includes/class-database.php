@@ -548,6 +548,7 @@ class Azure_Database {
         // v3.145: parent directory opt-in checkboxes. Separate gate because
         // azure_pf_v367_seed_done is already set on live installs.
         self::seed_membership_optin_fields();
+        self::rehome_directory_optin_fields();
 
         // Log successful table creation
         Azure_Logger::info('Azure Plugin database tables created successfully');
@@ -957,6 +958,73 @@ class Azure_Database {
         );
 
         update_option('azure_pf_membership_optin_seed_done', 'yes', false);
+    }
+
+    /**
+     * Directory opt-in boxes belong on the parent profile (next to each
+     * parent's phone), not under My Family. Older installs stored the
+     * Parent 2 checkbox as family-scope, which left an empty grid cell
+     * beside Parent 1 and rendered Parent 2 under emergency contact.
+     *
+     * Idempotent: gated, and only updates rows that are still family-scope.
+     */
+    public static function rehome_directory_optin_fields() {
+        if (get_option('azure_pf_optin_rehome_done') === 'yes') {
+            return;
+        }
+
+        $fields_table = self::get_table_name('product_fields');
+        $groups_table = self::get_table_name('product_field_groups');
+        if (!$fields_table || !$groups_table) {
+            return;
+        }
+
+        $parent_group_id = self::ensure_field_group(
+            $groups_table,
+            'Parent Core',
+            'Parent contact details, pre-filled from profile',
+            20
+        );
+        if (!$parent_group_id) {
+            return;
+        }
+
+        global $wpdb;
+        $rows = $wpdb->get_results(
+            "SELECT id, label, field_key, scope, field_type
+             FROM {$fields_table}
+             WHERE field_type = 'checkbox'"
+        );
+        if (!is_array($rows)) {
+            $rows = array();
+        }
+
+        foreach ($rows as $row) {
+            if (isset($row->scope) && $row->scope === 'parent') {
+                continue;
+            }
+            $label = strtolower((string) $row->label);
+            $key = strtolower((string) $row->field_key);
+            $is_opt_in = (strpos($key, 'opt_in') !== false
+                || strpos($label, 'directory') !== false
+                || strpos($label, 'opt-in') !== false
+                || strpos($label, 'opt in') !== false);
+            if (!$is_opt_in) {
+                continue;
+            }
+            $wpdb->update(
+                $fields_table,
+                array(
+                    'scope'    => 'parent',
+                    'group_id' => (int) $parent_group_id,
+                ),
+                array('id' => (int) $row->id),
+                array('%s', '%d'),
+                array('%d')
+            );
+        }
+
+        update_option('azure_pf_optin_rehome_done', 'yes', false);
     }
 
     /**

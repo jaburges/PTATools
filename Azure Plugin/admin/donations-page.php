@@ -13,8 +13,32 @@ $default_campaign = intval($settings['donations_default_campaign'] ?? 0);
 $enable_roundup = !empty($settings['donations_enable_roundup']);
 $enable_amounts = Azure_Donations_Module::amounts_enabled();
 $enable_gifts = Azure_Donations_Module::gift_products_enabled();
+$enable_wag = Azure_Donations_Module::wag_enabled();
 $quick_entries = Azure_Donations_Module::get_quick_amount_entries();
 $gift_products = Azure_Donations_Module::get_gift_products();
+$wag_levels = Azure_Donations_Module::get_wag_levels();
+$wag_heading = (string) Azure_Settings::get_setting('donations_wag_heading', '');
+if ($wag_heading === '') {
+    $wag_heading = Azure_Donations_Module::default_wag_heading();
+}
+$wag_label = (string) Azure_Settings::get_setting('donations_wag_label', '');
+if ($wag_label === '') {
+    $wag_label = Azure_Donations_Module::WAG_DEFAULT_LABEL;
+}
+$wag_footer = (string) Azure_Settings::get_setting('donations_wag_footer', '');
+if ($wag_footer === '') {
+    $wag_footer = Azure_Donations_Module::WAG_DEFAULT_FOOTER;
+}
+$wag_bg = Azure_Donations_Module::get_wag_bg();
+$wag_fg = Azure_Donations_Module::get_wag_fg();
+if (strlen(ltrim($wag_bg, '#')) === 3) {
+    $h = ltrim($wag_bg, '#');
+    $wag_bg = '#' . $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
+}
+if (strlen(ltrim($wag_fg, '#')) === 3) {
+    $h = ltrim($wag_fg, '#');
+    $wag_fg = '#' . $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
+}
 $wc_products = array();
 if (function_exists('wc_get_products')) {
     $wc_products = wc_get_products(array(
@@ -104,10 +128,78 @@ if (function_exists('wc_get_products')) {
                 </td>
             </tr>
             <tr>
+                <th>WAG</th>
+                <td>
+                    <label><input type="checkbox" id="donations_enable_wag" <?php checked($enable_wag); ?> /> Show suggested giving levels via <code>[WAG]</code></label>
+                    <p class="description" style="margin-top:8px;">Three buttons mapped to a WooCommerce product variation. Clicking a button opens that item with the variation already selected. Turn this off to hide the shortcode without deleting the mappings.</p>
+                    <div id="wag-settings" style="<?php echo $enable_wag ? '' : 'display:none;'; ?> margin-top:12px;">
+                        <p>
+                            <label for="donations_wag_heading"><strong><?php esc_html_e('Heading', 'azure-plugin'); ?></strong></label><br />
+                            <input type="text" id="donations_wag_heading" class="large-text" value="<?php echo esc_attr($wag_heading); ?>" />
+                        </p>
+                        <p>
+                            <label for="donations_wag_label"><strong><?php esc_html_e('Section label', 'azure-plugin'); ?></strong></label><br />
+                            <input type="text" id="donations_wag_label" class="regular-text" value="<?php echo esc_attr($wag_label); ?>" />
+                        </p>
+                        <p>
+                            <label for="donations_wag_footer"><strong><?php esc_html_e('Footer', 'azure-plugin'); ?></strong></label><br />
+                            <input type="text" id="donations_wag_footer" class="large-text" value="<?php echo esc_attr($wag_footer); ?>" />
+                        </p>
+                        <p style="display:flex; gap:24px; flex-wrap:wrap; align-items:center;">
+                            <label>
+                                <strong><?php esc_html_e('Background', 'azure-plugin'); ?></strong><br />
+                                <input type="color" id="donations_wag_bg" value="<?php echo esc_attr($wag_bg); ?>" />
+                            </label>
+                            <label>
+                                <strong><?php esc_html_e('Foreground text', 'azure-plugin'); ?></strong><br />
+                                <input type="color" id="donations_wag_fg" value="<?php echo esc_attr($wag_fg); ?>" />
+                            </label>
+                            <span class="description"><?php esc_html_e('Background is the navy fill, heading, and borders. Foreground is the text on the highlighted button.', 'azure-plugin'); ?></span>
+                        </p>
+                        <table class="widefat striped" style="max-width:960px;">
+                            <thead>
+                                <tr>
+                                    <th><?php esc_html_e('Amount', 'azure-plugin'); ?></th>
+                                    <th><?php esc_html_e('Name', 'azure-plugin'); ?></th>
+                                    <th><?php esc_html_e('Suffix', 'azure-plugin'); ?></th>
+                                    <th><?php esc_html_e('Product', 'azure-plugin'); ?></th>
+                                    <th><?php esc_html_e('Variation', 'azure-plugin'); ?></th>
+                                </tr>
+                            </thead>
+                            <tbody id="wag-level-rows">
+                                <?php foreach ($wag_levels as $i => $level): ?>
+                                    <tr class="wag-level-row" data-variation-id="<?php echo (int) $level['variation_id']; ?>">
+                                        <td><input type="number" class="wag-amount small-text" min="0" step="0.01" value="<?php echo esc_attr($level['amount']); ?>" style="width:90px;" /></td>
+                                        <td><input type="text" class="wag-name regular-text" value="<?php echo esc_attr($level['name']); ?>" /></td>
+                                        <td><input type="text" class="wag-suffix" value="<?php echo esc_attr($level['suffix']); ?>" style="width:120px;" /></td>
+                                        <td>
+                                            <select class="wag-product-id">
+                                                <option value="0">— Select product —</option>
+                                                <?php foreach ($wc_products as $product): ?>
+                                                    <option value="<?php echo (int) $product->get_id(); ?>" <?php selected((int) $level['product_id'], (int) $product->get_id()); ?>><?php echo esc_html($product->get_name()); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <select class="wag-variation-id">
+                                                <option value="0">— Select variation —</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                        <p class="description"><?php esc_html_e('The first button is shown filled; the other two use an outline. Map each row to the WAG donation product and the matching variation.', 'azure-plugin'); ?></p>
+                    </div>
+                </td>
+            </tr>
+            <tr>
                 <th>Shortcodes</th>
                 <td>
                     <code>[pta-donate]</code>
                     <p class="description">Donation form. Uses Quick Amounts by default. Optional: <code>campaign_id</code>, <code>amounts="5,10,25,50"</code> (numeric override), <code>show_custom="yes"</code>, <code>button_text="Donate Now"</code></p>
+                    <code>[WAG]</code>
+                    <p class="description">Suggested giving levels from the WAG section above. Hidden when WAG is disabled.</p>
                     <code>[donations-list]</code>
                     <p class="description">Public table: date, role (Parent / Staff / Guest), and product or amount. Never includes names or emails. Optional: <code>limit="25"</code></p>
                 </td>
@@ -304,6 +396,65 @@ jQuery(function($) {
         return rows;
     }
 
+    function toggleWagFields() {
+        $('#wag-settings').toggle($('#donations_enable_wag').is(':checked'));
+    }
+    $('#donations_enable_wag').on('change', toggleWagFields);
+
+    function loadWagVariations($row, selectedId) {
+        var productId = parseInt($row.find('.wag-product-id').val(), 10) || 0;
+        var $sel = $row.find('.wag-variation-id');
+        if (!productId) {
+            $sel.html('<option value="0">— Select a product first —</option>');
+            return;
+        }
+        $sel.html('<option value="0">Loading…</option>');
+        $.post(ajaxUrl, {
+            action: 'azure_donations_get_variations',
+            nonce: nonce,
+            product_id: productId
+        }, function(r) {
+            var list = (r && r.success && $.isArray(r.data)) ? r.data : [];
+            var html;
+            if (!list.length) {
+                html = '<option value="0">— No variations (simple product) —</option>';
+            } else {
+                html = '<option value="0">— Select variation —</option>';
+                list.forEach(function(v) {
+                    var id = parseInt(v.id, 10) || 0;
+                    var sel = String(id) === String(selectedId) ? ' selected' : '';
+                    html += '<option value="' + id + '"' + sel + '>' + $('<div>').text(v.label || ('#' + id)).html() + '</option>';
+                });
+            }
+            $sel.html(html);
+        }).fail(function() {
+            $sel.html('<option value="0">— Could not load variations —</option>');
+        });
+    }
+
+    $('#wag-level-rows .wag-level-row').each(function() {
+        var $row = $(this);
+        loadWagVariations($row, $row.attr('data-variation-id') || 0);
+    });
+
+    $('#wag-level-rows').on('change', '.wag-product-id', function() {
+        loadWagVariations($(this).closest('.wag-level-row'), 0);
+    });
+
+    function collectWagLevels() {
+        var rows = [];
+        $('#wag-level-rows .wag-level-row').each(function() {
+            rows.push({
+                amount: parseFloat($(this).find('.wag-amount').val()) || 0,
+                name: $(this).find('.wag-name').val(),
+                suffix: $(this).find('.wag-suffix').val(),
+                product_id: parseInt($(this).find('.wag-product-id').val(), 10) || 0,
+                variation_id: parseInt($(this).find('.wag-variation-id').val(), 10) || 0
+            });
+        });
+        return rows;
+    }
+
     $('.save-donation-settings').on('click', function() {
         var $btn = $(this), $res = $('#donation-settings-result');
         $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 5px 0 0;"></span> Saving...');
@@ -314,9 +465,16 @@ jQuery(function($) {
             donations_enable_roundup: $('#donations_enable_roundup').is(':checked') ? '1' : '0',
             donations_enable_custom: $('#donations_enable_custom').is(':checked') ? '1' : '0',
             donations_enable_gift_products: $('#donations_enable_gift_products').is(':checked') ? '1' : '0',
+            donations_enable_wag: $('#donations_enable_wag').is(':checked') ? '1' : '0',
             donations_quick_amounts: JSON.stringify(collectQuickAmounts()),
             donations_default_campaign: $('#donations_default_campaign').val(),
-            donations_gift_products: JSON.stringify(collectGiftProducts())
+            donations_gift_products: JSON.stringify(collectGiftProducts()),
+            donations_wag_heading: $('#donations_wag_heading').val(),
+            donations_wag_label: $('#donations_wag_label').val(),
+            donations_wag_footer: $('#donations_wag_footer').val(),
+            donations_wag_bg: $('#donations_wag_bg').val(),
+            donations_wag_fg: $('#donations_wag_fg').val(),
+            donations_wag_levels: JSON.stringify(collectWagLevels())
         }, function(r) {
             $btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:middle;line-height:1;margin-right:4px;"></span> Save Settings');
             $res.css('color', r.success ? '#00a32a' : '#d63638').text(r.success ? 'Saved!' : (r.data || 'Error')).show();

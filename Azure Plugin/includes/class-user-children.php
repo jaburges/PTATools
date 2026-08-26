@@ -669,14 +669,123 @@ class Azure_User_Children {
      * Get all parent-scope field definitions for the My Profile form.
      */
     public static function get_parent_meta_fields() {
-        return self::get_meta_fields_by_scope('parent', array());
+        $fields = self::get_meta_fields_by_scope('parent', array());
+        foreach (self::get_meta_fields_by_scope('family', array()) as $field) {
+            if (self::is_directory_opt_in_field($field)) {
+                $fields[] = $field;
+            }
+        }
+        return $fields;
     }
 
     /**
      * Get all family-scope field definitions for the My Family form.
+     * Directory opt-in checkboxes belong next to the parent contact fields
+     * even if they were originally saved as family-scope.
      */
     public static function get_family_meta_fields() {
-        return self::get_meta_fields_by_scope('family', array());
+        $fields = self::get_meta_fields_by_scope('family', array());
+        $out = array();
+        foreach ($fields as $field) {
+            if (!self::is_directory_opt_in_field($field)) {
+                $out[] = $field;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * True when a product-field definition is a parent-directory opt-in box.
+     */
+    public static function is_directory_opt_in_field($field) {
+        $key = strtolower(isset($field['key']) ? (string) $field['key'] : '');
+        $label = strtolower(isset($field['label']) ? (string) $field['label'] : '');
+        if ($key !== '' && (strpos($key, 'opt_in') !== false || strpos($key, 'opt-in') !== false)) {
+            return true;
+        }
+        if ($label === '') {
+            return false;
+        }
+        if (strpos($label, 'directory') !== false) {
+            return true;
+        }
+        return (strpos($label, 'opt in') !== false || strpos($label, 'opt-in') !== false);
+    }
+
+    /**
+     * Pair parent_1_* / parent_2_* fields into two-column rows (Name | Name,
+     * Email | Email, Cell | Cell, opt-in | opt-in). Unpaired extras go in $tail.
+     *
+     * @param array $parent_meta Field defs from get_parent_meta_fields().
+     * @return array{pairs: array, tail: array}
+     */
+    public static function pair_parent_profile_fields($parent_meta) {
+        $parent_pairs = array();
+        $parent_tail  = array();
+        $by_key = array();
+        foreach ((array) $parent_meta as $f) {
+            if (empty($f['key'])) {
+                continue;
+            }
+            $by_key[$f['key']] = $f;
+        }
+
+        $take_parent_field = function ($slot, $sub) use (&$by_key) {
+            $suffix = 'parent_' . $slot . '_' . $sub;
+            $canonical = 'pta_pf_' . $suffix;
+            if (isset($by_key[$canonical])) {
+                $field = $by_key[$canonical];
+                unset($by_key[$canonical]);
+                return $field;
+            }
+            foreach ($by_key as $key => $field) {
+                if (substr($key, -strlen($suffix)) === $suffix) {
+                    unset($by_key[$key]);
+                    return $field;
+                }
+            }
+            if ($sub !== 'opt_in') {
+                return null;
+            }
+            foreach ($by_key as $key => $field) {
+                if (!self::is_directory_opt_in_field($field)) {
+                    continue;
+                }
+                $label = strtolower(isset($field['label']) ? $field['label'] : '');
+                $is_p2 = (strpos($label, 'parent 2') !== false || strpos($key, 'parent_2') !== false);
+                if (($slot === '2' && $is_p2) || ($slot === '1' && !$is_p2)) {
+                    unset($by_key[$key]);
+                    return $field;
+                }
+            }
+            return null;
+        };
+
+        foreach (array('name', 'email', 'cell', 'opt_in') as $sub) {
+            $left  = $take_parent_field('1', $sub);
+            $right = $take_parent_field('2', $sub);
+            if (!$left && !$right) {
+                continue;
+            }
+            $parent_pairs[] = array(
+                'left'  => $left,
+                'right' => $right,
+            );
+        }
+
+        foreach ($by_key as $field) {
+            $label = strtolower(isset($field['label']) ? $field['label'] : '');
+            $key   = isset($field['key']) ? $field['key'] : '';
+            if (strpos($key, 'opt_in') !== false || strpos($label, 'directory') !== false) {
+                continue;
+            }
+            $parent_tail[] = $field;
+        }
+
+        return array(
+            'pairs' => $parent_pairs,
+            'tail'  => $parent_tail,
+        );
     }
 
     /**
@@ -828,11 +937,19 @@ class Azure_User_Children {
      */
     public static function get_parent_meta_values($user_id, $parent_fields) {
         $values = array();
+        $family_stored = array();
+        $family = self::get_family_for_user($user_id);
+        if ($family) {
+            $family_stored = self::get_family_meta($family->id);
+        }
         foreach ($parent_fields as $f) {
             if (empty($f['key'])) {
                 continue;
             }
             $val = get_user_meta($user_id, $f['key'], true);
+            if ($val === '' && isset($family_stored[$f['key']]) && $family_stored[$f['key']] !== '') {
+                $val = $family_stored[$f['key']];
+            }
             if ($val !== '') {
                 $values[$f['key']] = $val;
             }

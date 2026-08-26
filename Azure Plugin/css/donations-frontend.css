@@ -328,3 +328,118 @@ button.pta-donate-quick.active {
     font-size: 13px;
     color: #50575e;
 }
+
+/* ─── WAG suggested giving levels ──────────────────────────── */
+.pta-wag {
+    --wag-bg: #0B2545;
+    --wag-fg: #FFFFFF;
+    color: var(--wag-bg);
+    max-width: 920px;
+    margin: 0 0 1.5em;
+    font-family: inherit;
+}
+
+.pta-wag-heading {
+    margin: 0;
+    font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--wag-bg);
+}
+
+.pta-wag-accent {
+    width: 4.5rem;
+    height: 0.45rem;
+    margin: 0.85rem 0 1.5rem;
+    background: var(--wag-bg);
+    border-radius: 1px;
+}
+
+.pta-wag-label {
+    margin: 0 0 1rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #5c6f86;
+    color: color-mix(in srgb, var(--wag-bg) 55%, #8a9bb0);
+}
+
+.pta-wag-levels {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.pta-wag-level {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-height: 8.5rem;
+    padding: 1.35rem 0.85rem;
+    text-align: center;
+    text-decoration: none;
+    color: var(--wag-bg);
+    background: #fff;
+    border: 2px solid var(--wag-bg);
+    border-radius: 1.15rem;
+    box-shadow: none;
+    transition: background .15s ease, color .15s ease;
+}
+
+a.pta-wag-level {
+    cursor: pointer;
+}
+
+a.pta-wag-level:hover,
+a.pta-wag-level:focus-visible {
+    background: var(--wag-bg);
+    color: var(--wag-fg);
+    outline: none;
+}
+
+.pta-wag-level.is-featured {
+    background: var(--wag-bg);
+    color: var(--wag-fg);
+    border-color: var(--wag-bg);
+}
+
+a.pta-wag-level.is-featured:hover,
+a.pta-wag-level.is-featured:focus-visible {
+    filter: brightness(1.08);
+}
+
+.pta-wag-amount {
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.pta-wag-name {
+    margin-top: 0.2rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.pta-wag-suffix {
+    margin-top: 0.25rem;
+    font-size: 0.95rem;
+    font-weight: 400;
+}
+
+.pta-wag-footer {
+    margin: 1.25rem 0 0;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    color: #6b7c90;
+    color: color-mix(in srgb, var(--wag-bg) 50%, #8a9bb0);
+}
+
+@media (max-width: 700px) {
+    .pta-wag-levels {
+        grid-template-columns: 1fr;
+    }
+}

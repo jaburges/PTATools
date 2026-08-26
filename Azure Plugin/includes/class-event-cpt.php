@@ -52,6 +52,12 @@ class Azure_Event_CPT {
     const FLAG_OWNER       = 'pta_calendar_owner';
     const FLAG_DATA_SOURCE = 'pta_calendar_data_source';
 
+    // Media filename used when an event has no featured image of its own.
+    // Looked up in the Media Library (not a hardcoded site URL) so a
+    // fresh install is not branded with another PTA's calendar art.
+    const PLACEHOLDER_FILENAME = 'event-placeholder.jpeg';
+    const PLACEHOLDER_SETTING  = 'event_placeholder_image_id';
+
     public static function get_instance() {
         if (self::$instance === null) {
             self::$instance = new self();
@@ -179,6 +185,13 @@ class Azure_Event_CPT {
         // honour it here on the next request (any context) by calling
         // flush_rewrite_rules() once and clearing the transient.
         add_action('init', array($this, 'maybe_flush_rewrite_rules'), 99);
+
+        // Front-end lists ([up-next], /events/, related cards, the
+        // ChromeNews ticker) all go through get_post_thumbnail_id().
+        // When an event has no featured image, substitute the calendar
+        // placeholder from the media library. Admin edit screens skip
+        // this so "Set event image" still means the event has none.
+        add_filter('post_thumbnail_id', array($this, 'maybe_use_event_placeholder_thumbnail'), 10, 2);
 
         // Phase 4 admin UI: meta-box + list-table columns so editors
         // can author and triage pta_event posts without TEC's UI. Only
@@ -1549,6 +1562,78 @@ class Azure_Event_CPT {
             'ics'    => $base,
             'webcal' => $webcal,
         );
+    }
+
+    /**
+     * Sanitize a list of media-library attachment IDs.
+     *
+     * @param mixed $raw Post meta, posted array, or comma-separated string.
+     * @return int[]
+     */
+    /**
+     * Front-end only: if this event has no featured image, use the
+     * calendar placeholder from the media library.
+     *
+     * @param int          $thumbnail_id
+     * @param WP_Post|null $post
+     * @return int
+     */
+    public function maybe_use_event_placeholder_thumbnail($thumbnail_id, $post) {
+        if ((int) $thumbnail_id > 0) {
+            return $thumbnail_id;
+        }
+        if (!($post instanceof WP_Post) || $post->post_type !== self::POST_TYPE_EVENT) {
+            return $thumbnail_id;
+        }
+        if (is_admin() && !wp_doing_ajax()) {
+            return $thumbnail_id;
+        }
+        $placeholder = self::get_placeholder_attachment_id();
+        return $placeholder > 0 ? $placeholder : $thumbnail_id;
+    }
+
+    /**
+     * Attachment ID of event-placeholder.jpeg (or a saved setting).
+     *
+     * @return int
+     */
+    public static function get_placeholder_attachment_id() {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+        $cached = 0;
+
+        if (class_exists('Azure_Settings')) {
+            $saved = (int) Azure_Settings::get_setting(self::PLACEHOLDER_SETTING, 0);
+            if ($saved > 0 && function_exists('get_post_type') && get_post_type($saved) === 'attachment') {
+                $cached = $saved;
+                return $cached;
+            }
+        }
+
+        global $wpdb;
+        if (!isset($wpdb) || !is_object($wpdb)) {
+            return $cached;
+        }
+
+        $like = '%' . $wpdb->esc_like(self::PLACEHOLDER_FILENAME);
+        $id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT post_id FROM {$wpdb->postmeta}
+             WHERE meta_key = '_wp_attached_file' AND meta_value LIKE %s
+             ORDER BY post_id DESC LIMIT 1",
+            $like
+        ));
+        if ($id > 0) {
+            $cached = $id;
+            if (class_exists('Azure_Settings')
+                && !(int) Azure_Settings::get_setting(self::PLACEHOLDER_SETTING, 0)
+            ) {
+                Azure_Settings::update_setting(self::PLACEHOLDER_SETTING, $id);
+            }
+        }
+
+        return $cached;
     }
 
     /**

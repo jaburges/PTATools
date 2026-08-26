@@ -22,71 +22,9 @@ if (!defined('ABSPATH')) {
 <div class="azure-my-children-page">
 
     <?php if (!empty($parent_meta)):
-        // Pair parent_1_* / parent_2_* fields into the same row (Name | Name,
-        // Email | Email, Cell | Cell). Keys we pair: parent_1_name with
-        // parent_2_name, etc. Anything else falls into a single-column tail.
-        $parent_pairs = array();
-        $parent_tail  = array();
-        $by_key = array();
-        foreach ($parent_meta as $f) {
-            $by_key[$f['key']] = $f;
-        }
-
-        $take_parent_field = function ($slot, $sub) use (&$by_key) {
-            $suffix = 'parent_' . $slot . '_' . $sub;
-            $canonical = 'pta_pf_' . $suffix;
-            if (isset($by_key[$canonical])) {
-                $field = $by_key[$canonical];
-                unset($by_key[$canonical]);
-                return $field;
-            }
-            foreach ($by_key as $key => $field) {
-                if (substr($key, -strlen($suffix)) === $suffix) {
-                    unset($by_key[$key]);
-                    return $field;
-                }
-            }
-            if ($sub !== 'opt_in') {
-                return null;
-            }
-            foreach ($by_key as $key => $field) {
-                $label = strtolower(isset($field['label']) ? $field['label'] : '');
-                $is_directory = (strpos($label, 'directory') !== false || strpos($label, 'opt in') !== false || strpos($label, 'opt-in') !== false);
-                if (!$is_directory) {
-                    continue;
-                }
-                $is_p2 = (strpos($label, 'parent 2') !== false || strpos($key, 'parent_2') !== false);
-                if (($slot === '2' && $is_p2) || ($slot === '1' && !$is_p2)) {
-                    unset($by_key[$key]);
-                    return $field;
-                }
-            }
-            return null;
-        };
-
-        foreach (array('name', 'email', 'cell', 'opt_in') as $sub) {
-            $left  = $take_parent_field('1', $sub);
-            $right = $take_parent_field('2', $sub);
-            if (!$left && !$right) {
-                continue;
-            }
-            if ($sub === 'opt_in' && $right) {
-                $right['label'] = __('Opt Parent 2 in to directory', 'azure-plugin');
-            }
-            $parent_pairs[] = array(
-                'left'  => $left,
-                'right' => $right,
-            );
-        }
-
-        foreach ($by_key as $field) {
-            $label = strtolower(isset($field['label']) ? $field['label'] : '');
-            $key   = isset($field['key']) ? $field['key'] : '';
-            if (strpos($key, 'opt_in') !== false || strpos($label, 'directory') !== false) {
-                continue;
-            }
-            $parent_tail[] = $field;
-        }
+        $paired = Azure_User_Children::pair_parent_profile_fields($parent_meta);
+        $parent_pairs = $paired['pairs'];
+        $parent_tail  = $paired['tail'];
     ?>
     <div class="azure-uc-section">
         <h3 style="margin: 0 0 15px;"><?php _e('My Profile', 'azure-plugin'); ?></h3>
