@@ -337,29 +337,31 @@ button.pta-donate-quick.active {
     max-width: 920px;
     margin: 0 0 1.5em;
     font-family: inherit;
+    container-type: inline-size;
+    container-name: wag;
 }
 
 .pta-wag-heading {
     margin: 0;
-    font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+    font-size: clamp(1.15rem, 5.5cqi, 1.75rem);
     font-weight: 700;
     line-height: 1.25;
     color: var(--wag-bg);
 }
 
 .pta-wag-accent {
-    width: 4.5rem;
-    height: 0.45rem;
-    margin: 0.85rem 0 1.5rem;
+    width: clamp(2.5rem, 12cqi, 4.5rem);
+    height: 0.35rem;
+    margin: 0.55rem 0 0.85rem;
     background: var(--wag-bg);
     border-radius: 1px;
 }
 
 .pta-wag-label {
-    margin: 0 0 1rem;
-    font-size: 0.8rem;
+    margin: 0 0 0.65rem;
+    font-size: clamp(0.62rem, 2.8cqi, 0.8rem);
     font-weight: 700;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: #5c6f86;
     color: color-mix(in srgb, var(--wag-bg) 55%, #8a9bb0);
@@ -368,7 +370,7 @@ button.pta-donate-quick.active {
 .pta-wag-levels {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1rem;
+    gap: clamp(0.35rem, 2cqi, 1rem);
 }
 
 .pta-wag-level {
@@ -377,15 +379,18 @@ button.pta-donate-quick.active {
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    min-height: 8.5rem;
-    padding: 1.35rem 0.85rem;
+    min-height: 0;
+    padding: clamp(0.5rem, 2.2cqi, 1.35rem) clamp(0.25rem, 1.4cqi, 0.85rem);
     text-align: center;
     text-decoration: none;
     color: var(--wag-bg);
     background: #fff;
     border: 2px solid var(--wag-bg);
-    border-radius: 1.15rem;
+    border-radius: clamp(0.7rem, 3cqi, 1.15rem);
     box-shadow: none;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
     transition: background .15s ease, color .15s ease;
 }
 
@@ -412,28 +417,33 @@ a.pta-wag-level.is-featured:focus-visible {
 }
 
 .pta-wag-amount {
-    font-size: 2rem;
+    font-size: clamp(0.95rem, 5cqi, 2rem);
     font-weight: 800;
     line-height: 1.1;
+    white-space: nowrap;
 }
 
 .pta-wag-name {
-    margin-top: 0.2rem;
-    font-size: 1.15rem;
+    margin-top: 0.15rem;
+    font-size: clamp(0.68rem, 3.4cqi, 1.15rem);
     font-weight: 700;
     line-height: 1.2;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
 }
 
 .pta-wag-suffix {
-    margin-top: 0.25rem;
-    font-size: 0.95rem;
+    margin-top: 0.15rem;
+    font-size: clamp(0.62rem, 2.8cqi, 0.95rem);
     font-weight: 400;
+    white-space: nowrap;
 }
 
 .pta-wag-footer {
-    margin: 1.25rem 0 0;
-    font-size: 0.95rem;
-    line-height: 1.4;
+    margin: 0.75rem 0 0;
+    font-size: clamp(0.75rem, 3.2cqi, 0.95rem);
+    line-height: 1.35;
     color: #6b7c90;
     color: color-mix(in srgb, var(--wag-bg) 50%, #8a9bb0);
 }
@@ -442,4 +452,71 @@ a.pta-wag-level.is-featured:focus-visible {
     .pta-wag-levels {
         grid-template-columns: 1fr;
     }
+}
+
+/* ─── Campaign thermometer [Donation-progress] ─────────────── */
+.pta-donation-progress {
+    --wag-bg: #0B2545;
+    --wag-fg: #FFFFFF;
+    max-width: 920px;
+    margin: 0 0 1.25em;
+    color: var(--wag-bg);
+    font-family: inherit;
+    container-type: inline-size;
+}
+
+.pta-donation-progress-heading {
+    margin: 0 0 0.5rem;
+    font-size: clamp(1rem, 4.8cqi, 1.25rem);
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.pta-donation-progress-meter {
+    display: flex;
+    align-items: center;
+}
+
+.pta-donation-progress-bulb {
+    width: 1.35rem;
+    height: 1.35rem;
+    margin-right: -0.4rem;
+    background: var(--wag-bg);
+    border: 2px solid var(--wag-bg);
+    border-radius: 50%;
+    flex: 0 0 auto;
+    z-index: 1;
+}
+
+.pta-donation-progress-track {
+    flex: 1;
+    height: 0.9rem;
+    background: #e8eef4;
+    background: color-mix(in srgb, var(--wag-bg) 10%, #fff);
+    border: 2px solid var(--wag-bg);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.pta-donation-progress-fill {
+    height: 100%;
+    background: var(--wag-bg);
+    border-radius: 999px;
+    min-width: 0;
+}
+
+.pta-donation-progress-total {
+    margin: 0.5rem 0 0;
+    font-size: clamp(0.85rem, 3.4cqi, 1rem);
+    line-height: 1.35;
+}
+
+.pta-donation-progress-total strong {
+    font-weight: 800;
+}
+
+.pta-donation-progress-pct {
+    margin-left: 0.4em;
+    font-weight: 700;
+    opacity: 0.75;
 }

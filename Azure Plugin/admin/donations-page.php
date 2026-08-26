@@ -14,6 +14,7 @@ $enable_roundup = !empty($settings['donations_enable_roundup']);
 $enable_amounts = Azure_Donations_Module::amounts_enabled();
 $enable_gifts = Azure_Donations_Module::gift_products_enabled();
 $enable_wag = Azure_Donations_Module::wag_enabled();
+$wag_campaign = Azure_Donations_Module::get_wag_campaign_id();
 $quick_entries = Azure_Donations_Module::get_quick_amount_entries();
 $gift_products = Azure_Donations_Module::get_gift_products();
 $wag_levels = Azure_Donations_Module::get_wag_levels();
@@ -128,10 +129,19 @@ if (function_exists('wc_get_products')) {
                 </td>
             </tr>
             <tr>
-                <th>WAG</th>
+                <th>Donation Items</th>
                 <td>
                     <label><input type="checkbox" id="donations_enable_wag" <?php checked($enable_wag); ?> /> Show suggested giving levels via <code>[WAG]</code></label>
-                    <p class="description" style="margin-top:8px;">Three buttons mapped to a WooCommerce product variation. Clicking a button opens that item with the variation already selected. Turn this off to hide the shortcode without deleting the mappings.</p>
+                    <p class="description" style="margin-top:8px;">Three buttons mapped to a WooCommerce product variation. Clicking a button opens that item with the variation already selected. Turn this off to hide the shortcode without deleting the mappings. Purchases of the mapped products still count toward the campaign below, even if the buyer never used <code>[WAG]</code>.</p>
+                    <p style="margin-top:10px;">
+                        <label for="donations_wag_campaign"><strong><?php esc_html_e('Campaign', 'azure-plugin'); ?></strong></label><br />
+                        <select id="donations_wag_campaign">
+                            <option value="0">— Select campaign —</option>
+                            <?php foreach ($campaigns as $c): ?>
+                                <option value="<?php echo (int) $c->id; ?>" <?php selected($wag_campaign, (int) $c->id); ?>><?php echo esc_html($c->name); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </p>
                     <div id="wag-settings" style="<?php echo $enable_wag ? '' : 'display:none;'; ?> margin-top:12px;">
                         <p>
                             <label for="donations_wag_heading"><strong><?php esc_html_e('Heading', 'azure-plugin'); ?></strong></label><br />
@@ -189,7 +199,7 @@ if (function_exists('wc_get_products')) {
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
-                        <p class="description"><?php esc_html_e('The first button is shown filled; the other two use an outline. Map each row to the WAG donation product and the matching variation.', 'azure-plugin'); ?></p>
+                        <p class="description"><?php esc_html_e('The first button is shown filled; the other two use an outline. Map each row to the donation product and the matching variation.', 'azure-plugin'); ?></p>
                     </div>
                 </td>
             </tr>
@@ -199,7 +209,9 @@ if (function_exists('wc_get_products')) {
                     <code>[pta-donate]</code>
                     <p class="description">Donation form. Uses Quick Amounts by default. Optional: <code>campaign_id</code>, <code>amounts="5,10,25,50"</code> (numeric override), <code>show_custom="yes"</code>, <code>button_text="Donate Now"</code></p>
                     <code>[WAG]</code>
-                    <p class="description">Suggested giving levels from the WAG section above. Hidden when WAG is disabled.</p>
+                    <p class="description">Suggested giving levels from Donation Items above. Hidden when Donation Items is disabled.</p>
+                    <code>[Donation-progress campaign="WAG"]</code>
+                    <p class="description">Horizontal thermometer for a campaign total, including Donation Item purchases. <code>campaign="WAG"</code> uses the Donation Items campaign. You can also pass a campaign name or numeric id.</p>
                     <code>[donations-list]</code>
                     <p class="description">Public table: date, role (Parent / Staff / Guest), and product or amount. Never includes names or emails. Optional: <code>limit="25"</code></p>
                 </td>
@@ -236,7 +248,10 @@ if (function_exists('wc_get_products')) {
                 </thead>
                 <tbody>
                     <?php foreach ($campaigns as $c): ?>
-                        <?php $pct = $c->goal_amount > 0 ? min(100, round(($c->raised_amount / $c->goal_amount) * 100)) : 0; ?>
+                        <?php
+                        $raised = Azure_Donations_Module::get_campaign_raised($c);
+                        $pct = $c->goal_amount > 0 ? min(100, round(($raised / $c->goal_amount) * 100)) : 0;
+                        ?>
                         <tr>
                             <td><strong><?php echo esc_html($c->name); ?></strong></td>
                             <td>
@@ -247,7 +262,7 @@ if (function_exists('wc_get_products')) {
                                 <?php endif; ?>
                             </td>
                             <td><?php echo $c->goal_amount > 0 ? '$' . number_format($c->goal_amount, 2) : '—'; ?></td>
-                            <td>$<?php echo number_format($c->raised_amount, 2); ?></td>
+                            <td>$<?php echo number_format($raised, 2); ?></td>
                             <td>
                                 <?php if ($c->goal_amount > 0): ?>
                                     <div style="background:#f0f0f1; border-radius:4px; height:16px; width:120px; display:inline-block; vertical-align:middle;">
@@ -468,6 +483,7 @@ jQuery(function($) {
             donations_enable_wag: $('#donations_enable_wag').is(':checked') ? '1' : '0',
             donations_quick_amounts: JSON.stringify(collectQuickAmounts()),
             donations_default_campaign: $('#donations_default_campaign').val(),
+            donations_wag_campaign: $('#donations_wag_campaign').val(),
             donations_gift_products: JSON.stringify(collectGiftProducts()),
             donations_wag_heading: $('#donations_wag_heading').val(),
             donations_wag_label: $('#donations_wag_label').val(),

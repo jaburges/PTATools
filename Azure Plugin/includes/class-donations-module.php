@@ -130,6 +130,8 @@ class Azure_Donations_Module {
         add_shortcode('donations-list', array($this, 'shortcode_donations_list'));
         add_shortcode('wag', array($this, 'shortcode_wag'));
         add_shortcode('WAG', array($this, 'shortcode_wag'));
+        add_shortcode('donation-progress', array($this, 'shortcode_donation_progress'));
+        add_shortcode('Donation-progress', array($this, 'shortcode_donation_progress'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
     }
 
@@ -159,6 +161,219 @@ class Azure_Donations_Module {
         }
         $campaigns = self::get_active_campaigns();
         return !empty($campaigns) ? $campaigns[0] : null;
+    }
+
+    public static function get_campaign_by_id($id) {
+        $id = (int) $id;
+        if ($id <= 0) {
+            return null;
+        }
+        global $wpdb;
+        $table = Azure_Database::get_table_name('donation_campaigns');
+        if (!$table) {
+            return null;
+        }
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id));
+    }
+
+    public static function get_campaign_by_name($name) {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return null;
+        }
+        global $wpdb;
+        $table = Azure_Database::get_table_name('donation_campaigns');
+        if (!$table) {
+            return null;
+        }
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+            $name
+        ));
+    }
+
+    public static function get_wag_campaign_id() {
+        return max(0, (int) Azure_Settings::get_setting('donations_wag_campaign', 0));
+    }
+
+    /**
+     * Parse [Donation-progress campaign="…"] into a lookup type.
+     * "WAG" (and donation-items aliases) use the Donation Items campaign dropdown.
+     *
+     * @return array{type:string,id?:int,name?:string}
+     */
+    public static function normalize_progress_campaign_attr($attr) {
+        $attr = trim((string) $attr);
+        $alias = strtolower($attr);
+        if (in_array($alias, array('wag', 'donation-items', 'donation_items', 'donation items'), true)) {
+            return array('type' => 'wag');
+        }
+        if ($attr !== '' && ctype_digit($attr)) {
+            return array('type' => 'id', 'id' => (int) $attr);
+        }
+        return array('type' => 'name', 'name' => $attr);
+    }
+
+    public static function resolve_progress_campaign($attr) {
+        $parsed = self::normalize_progress_campaign_attr($attr);
+        if ($parsed['type'] === 'wag') {
+            $campaign = self::get_campaign_by_id(self::get_wag_campaign_id());
+            if ($campaign) {
+                return $campaign;
+            }
+            return self::get_campaign_by_name('WAG');
+        }
+        if ($parsed['type'] === 'id') {
+            return self::get_campaign_by_id($parsed['id']);
+        }
+        if (!empty($parsed['name'])) {
+            return self::get_campaign_by_name($parsed['name']);
+        }
+        return self::get_default_campaign();
+    }
+
+    public static function format_progress_totals($raised, $goal) {
+        $raised = max(0.0, (float) $raised);
+        $goal = max(0.0, (float) $goal);
+        $pct = 0;
+        if ($goal > 0) {
+            $pct = (int) min(100, round(($raised / $goal) * 100));
+        } elseif ($raised > 0) {
+            $pct = 100;
+        }
+        return array(
+            'raised' => $raised,
+            'goal'   => $goal,
+            'pct'    => $pct,
+        );
+    }
+
+    /**
+     * A line item matches Donation Items when its variation is mapped, or
+     * (if that row has no variation) when the parent product is mapped.
+     */
+    public static function is_wag_mapped_item($product_id, $variation_id = 0) {
+        $product_id = (int) $product_id;
+        $variation_id = (int) $variation_id;
+        foreach (self::get_wag_levels() as $level) {
+            $pid = (int) $level['product_id'];
+            $vid = (int) $level['variation_id'];
+            if ($vid > 0) {
+                if ($variation_id === $vid) {
+                    return true;
+                }
+                continue;
+            }
+            if ($pid > 0 && ($product_id === $pid || $variation_id === $pid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function wag_mapped_ids() {
+        $variations = array();
+        $products = array();
+        foreach (self::get_wag_levels() as $level) {
+            $pid = (int) $level['product_id'];
+            $vid = (int) $level['variation_id'];
+            if ($vid > 0) {
+                $variations[$vid] = true;
+            } elseif ($pid > 0) {
+                $products[$pid] = true;
+            }
+        }
+        return array(
+            'variations' => array_map('intval', array_keys($variations)),
+            'products'   => array_map('intval', array_keys($products)),
+        );
+    }
+
+    public static function get_campaign_raised($campaign) {
+        $campaign_id = is_object($campaign) ? (int) $campaign->id : (int) $campaign;
+        if ($campaign_id <= 0) {
+            return 0.0;
+        }
+        $raised = self::sum_recorded_for_campaign($campaign_id);
+        if ($campaign_id === self::get_wag_campaign_id()) {
+            $raised += self::sum_unrecorded_wag_sales($campaign_id);
+        }
+        return round(max(0.0, (float) $raised), 2);
+    }
+
+    public static function sum_recorded_for_campaign($campaign_id) {
+        $campaign_id = (int) $campaign_id;
+        if ($campaign_id <= 0) {
+            return 0.0;
+        }
+        global $wpdb;
+        $table = Azure_Database::get_table_name('donation_records');
+        if (!$table || !isset($wpdb) || !is_object($wpdb)) {
+            return 0.0;
+        }
+        $sum = $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(amount),0) FROM {$table} WHERE campaign_id = %d",
+            $campaign_id
+        ));
+        return (float) $sum;
+    }
+
+    /**
+     * Paid WooCommerce sales of mapped Donation Items that are not already
+     * in donation_records for this campaign (covers shop purchases that
+     * never went through [WAG]).
+     */
+    public static function sum_unrecorded_wag_sales($campaign_id) {
+        $ids = self::wag_mapped_ids();
+        if (empty($ids['variations']) && empty($ids['products'])) {
+            return 0.0;
+        }
+        global $wpdb;
+        if (!isset($wpdb) || !is_object($wpdb)) {
+            return 0.0;
+        }
+        $lookup = $wpdb->prefix . 'wc_order_product_lookup';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $lookup)) !== $lookup) {
+            return 0.0;
+        }
+
+        $match = array();
+        if (!empty($ids['variations'])) {
+            $match[] = 'l.variation_id IN (' . implode(',', $ids['variations']) . ')';
+        }
+        if (!empty($ids['products'])) {
+            $match[] = 'l.product_id IN (' . implode(',', $ids['products']) . ')';
+        }
+        $match_sql = implode(' OR ', $match);
+
+        $records = Azure_Database::get_table_name('donation_records');
+        $exclude = '0';
+        if ($records && $campaign_id > 0) {
+            $exclude = $wpdb->prepare(
+                "SELECT order_id FROM {$records} WHERE campaign_id = %d AND order_id > 0 AND product_id > 0",
+                $campaign_id
+            );
+        }
+
+        $hpos = $wpdb->prefix . 'wc_orders';
+        $paid = "'wc-completed','wc-processing'";
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $hpos)) === $hpos) {
+            $sql = "SELECT COALESCE(SUM(l.product_net_revenue),0)
+                    FROM {$lookup} l
+                    INNER JOIN {$hpos} o ON o.id = l.order_id
+                    WHERE o.status IN ({$paid})
+                      AND ({$match_sql})
+                      AND l.order_id NOT IN ({$exclude})";
+        } else {
+            $sql = "SELECT COALESCE(SUM(l.product_net_revenue),0)
+                    FROM {$lookup} l
+                    INNER JOIN {$wpdb->posts} o ON o.ID = l.order_id
+                    WHERE o.post_status IN ({$paid})
+                      AND ({$match_sql})
+                      AND l.order_id NOT IN ({$exclude})";
+        }
+
+        return (float) $wpdb->get_var($sql);
     }
 
     // ─── Cart Fee Logic ──────────────────────────────────────────────
@@ -577,30 +792,44 @@ class Azure_Donations_Module {
             }
         }
 
+        $wag_campaign_id = self::get_wag_campaign_id();
+
         foreach ($order->get_items() as $item) {
-            if (!is_object($item) || !method_exists($item, 'get_meta')) {
-                continue;
-            }
-            if (!$item->get_meta('_pta_donated_product')) {
+            if (!is_object($item) || !method_exists($item, 'get_total')) {
                 continue;
             }
             $amount = abs(floatval($item->get_total()));
+            if ($amount <= 0) {
+                continue;
+            }
             $product_id = method_exists($item, 'get_product_id') ? (int) $item->get_product_id() : 0;
-            $product_name = $item->get_name();
+            $variation_id = method_exists($item, 'get_variation_id') ? (int) $item->get_variation_id() : 0;
+            $product_name = method_exists($item, 'get_name') ? $item->get_name() : '';
+            $is_gift = method_exists($item, 'get_meta') && $item->get_meta('_pta_donated_product');
+            $is_wag = self::is_wag_mapped_item($product_id, $variation_id);
+
+            if (!$is_gift && !$is_wag) {
+                continue;
+            }
+
+            $item_campaign = $is_wag && $wag_campaign_id > 0 ? $wag_campaign_id : $campaign_id;
+            $type = $is_wag ? 'wag' : 'product';
             if ($this->insert_donation_record($records_table, array(
-                'campaign_id'   => $campaign_id,
+                'campaign_id'   => $item_campaign,
                 'order_id'      => (int) $order_id,
                 'user_id'       => $user_id,
                 'amount'        => $amount,
-                'donation_type' => 'product',
-                'product_id'    => $product_id,
+                'donation_type' => $type,
+                'product_id'    => $variation_id > 0 ? $variation_id : $product_id,
                 'product_name'  => $product_name,
                 'donor_role'    => $donor_role,
                 'created_at'    => current_time('mysql'),
             ))) {
                 $recorded++;
-                $this->bump_campaign_raised($campaigns_table, $campaign_id, $amount);
-                $this->send_admin_donation_email($order, $product_name);
+                $this->bump_campaign_raised($campaigns_table, $item_campaign, $amount);
+                if ($is_gift && !$is_wag) {
+                    $this->send_admin_donation_email($order, $product_name);
+                }
             }
         }
 
@@ -1140,13 +1369,14 @@ class Azure_Donations_Module {
                 <?php if ($campaign->goal_amount > 0): ?>
                     <div class="pta-donate-progress">
                         <?php
-                        $pct = min(100, round(($campaign->raised_amount / $campaign->goal_amount) * 100));
+                        $donate_raised = Azure_Donations_Module::get_campaign_raised($campaign);
+                        $pct = min(100, round(($donate_raised / $campaign->goal_amount) * 100));
                         ?>
                         <div class="pta-donate-progress-bar">
                             <div class="pta-donate-progress-fill" style="width: <?php echo $pct; ?>%"></div>
                         </div>
                         <span class="pta-donate-progress-text">
-                            $<?php echo number_format($campaign->raised_amount, 2); ?> raised of $<?php echo number_format($campaign->goal_amount, 2); ?> goal
+                            $<?php echo number_format($donate_raised, 2); ?> raised of $<?php echo number_format($campaign->goal_amount, 2); ?> goal
                         </span>
                     </div>
                 <?php endif; ?>
@@ -1348,6 +1578,60 @@ class Azure_Donations_Module {
     }
 
     /**
+     * Horizontal campaign thermometer. campaign="WAG" uses the Donation Items mapping.
+     */
+    public function shortcode_donation_progress($atts = array()) {
+        $atts = shortcode_atts(array(
+            'campaign' => 'WAG',
+        ), $atts, 'donation-progress');
+
+        $campaign = self::resolve_progress_campaign($atts['campaign']);
+        if (!$campaign) {
+            return '';
+        }
+
+        $this->enqueue_wag_styles();
+
+        $goal = isset($campaign->goal_amount) ? (float) $campaign->goal_amount : 0;
+        $totals = self::format_progress_totals(self::get_campaign_raised($campaign), $goal);
+        $bg = self::get_wag_bg();
+        $fg = self::get_wag_fg();
+        $name = isset($campaign->name) ? (string) $campaign->name : '';
+
+        $raised_label = '$' . number_format($totals['raised'], $totals['raised'] == floor($totals['raised']) ? 0 : 2);
+        $goal_label = '$' . number_format($totals['goal'], $totals['goal'] == floor($totals['goal']) ? 0 : 2);
+
+        ob_start();
+        ?>
+        <div class="pta-donation-progress" style="--wag-bg: <?php echo esc_attr($bg); ?>; --wag-fg: <?php echo esc_attr($fg); ?>;">
+            <?php if ($name !== ''): ?>
+                <p class="pta-donation-progress-heading"><?php echo esc_html($name); ?></p>
+            <?php endif; ?>
+            <div class="pta-donation-progress-meter">
+                <span class="pta-donation-progress-bulb" aria-hidden="true"></span>
+                <div class="pta-donation-progress-track" role="progressbar"
+                     aria-valuemin="0"
+                     aria-valuemax="<?php echo $totals['goal'] > 0 ? (int) $totals['goal'] : 100; ?>"
+                     aria-valuenow="<?php echo (int) round($totals['raised']); ?>"
+                     aria-label="<?php echo esc_attr($name !== '' ? $name : __('Donation progress', 'azure-plugin')); ?>">
+                    <div class="pta-donation-progress-fill" style="width: <?php echo (int) $totals['pct']; ?>%;"></div>
+                </div>
+            </div>
+            <p class="pta-donation-progress-total">
+                <strong><?php echo esc_html($raised_label); ?></strong>
+                <?php if ($totals['goal'] > 0): ?>
+                    <?php echo esc_html(sprintf(__('raised of %s goal', 'azure-plugin'), $goal_label)); ?>
+                    <span class="pta-donation-progress-pct"><?php echo (int) $totals['pct']; ?>%</span>
+                <?php else: ?>
+                    <?php esc_html_e('raised', 'azure-plugin'); ?>
+                <?php endif; ?>
+            </p>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
      * Suggested giving levels mapped to a WooCommerce product variation.
      * Disabled (or unmapped) output is empty so the shortcode is safe to leave on a page.
      */
@@ -1435,6 +1719,8 @@ class Azure_Donations_Module {
             || has_shortcode($content, 'donations-list')
             || has_shortcode($content, 'wag')
             || has_shortcode($content, 'WAG')
+            || has_shortcode($content, 'donation-progress')
+            || has_shortcode($content, 'Donation-progress')
         );
         if (!is_checkout() && !is_cart() && !$has_shortcode) {
             return;
@@ -1575,6 +1861,7 @@ class Azure_Donations_Module {
             'donations_enable_gift_products',
             'donations_enable_wag',
             'donations_default_campaign',
+            'donations_wag_campaign',
             'donations_wag_heading',
             'donations_wag_label',
             'donations_wag_footer',

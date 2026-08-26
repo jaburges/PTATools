@@ -83,4 +83,25 @@ $t->check(!Azure_Donations_Module::wag_enabled(), 'wag disabled when setting is 
 
 $t->equals('', Azure_Donations_Module::wag_level_url(array('product_id' => 0, 'variation_id' => 0)), 'unmapped level has no url');
 
+WP_Shim::$settings['donations_wag_levels'] = Azure_Donations_Module::sanitize_wag_levels(array(
+    array('amount' => 500, 'name' => 'Pack Leader', 'suffix' => 'per student', 'product_id' => 10, 'variation_id' => 99),
+    array('amount' => 250, 'name' => 'Howler', 'suffix' => 'per student', 'product_id' => 10, 'variation_id' => 88),
+    array('amount' => 150, 'name' => 'Paw', 'suffix' => 'per student', 'product_id' => 22, 'variation_id' => 0),
+));
+$t->check(Azure_Donations_Module::is_wag_mapped_item(10, 99), 'mapped variation matches');
+$t->check(!Azure_Donations_Module::is_wag_mapped_item(10, 77), 'unmapped variation of the same parent does not match');
+$t->check(Azure_Donations_Module::is_wag_mapped_item(22, 0), 'parent-only mapping matches the product');
+$t->check(!Azure_Donations_Module::is_wag_mapped_item(33, 0), 'unrelated product does not match');
+
+$t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('WAG'), 'WAG alias');
+$t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('donation-items'), 'donation-items alias');
+$t->equals(array('type' => 'id', 'id' => 7), Azure_Donations_Module::normalize_progress_campaign_attr('7'), 'numeric campaign id');
+$t->equals(array('type' => 'name', 'name' => 'Spring Drive'), Azure_Donations_Module::normalize_progress_campaign_attr('Spring Drive'), 'campaign name');
+
+$totals = Azure_Donations_Module::format_progress_totals(12500, 40000);
+$t->equals(12500.0, $totals['raised'], 'progress raised');
+$t->equals(31, $totals['pct'], 'progress percent rounds');
+$empty = Azure_Donations_Module::format_progress_totals(0, 0);
+$t->equals(0, $empty['pct'], 'no goal and no raised is 0%');
+
 exit($t->finish() === 0 ? 0 : 1);
