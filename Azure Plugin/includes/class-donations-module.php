@@ -18,6 +18,7 @@ class Azure_Donations_Module {
     const WAG_DEFAULT_FG = '#FFFFFF';
     const WAG_DEFAULT_LABEL = 'Suggested Giving Levels';
     const WAG_DEFAULT_FOOTER = 'Every gift of any amount is welcome, honored, and recognized.';
+    const CUSTOM_AMOUNT_MIN = 5;
 
     private static $instance = null;
 
@@ -133,6 +134,13 @@ class Azure_Donations_Module {
         add_shortcode('donation-progress', array($this, 'shortcode_donation_progress'));
         add_shortcode('Donation-progress', array($this, 'shortcode_donation_progress'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
+        add_action('woocommerce_before_add_to_cart_button', array($this, 'render_custom_amount_field'));
+        add_filter('woocommerce_available_variation', array($this, 'flag_custom_amount_variation'), 10, 3);
+        add_filter('woocommerce_add_to_cart_validation', array($this, 'validate_custom_amount'), 10, 5);
+        add_filter('woocommerce_add_cart_item_data', array($this, 'add_custom_amount_cart_data'), 10, 3);
+        add_filter('woocommerce_add_to_cart_quantity', array($this, 'force_custom_amount_quantity'), 10, 2);
+        add_action('woocommerce_before_calculate_totals', array($this, 'apply_custom_amount_price'), 25, 1);
+        add_filter('woocommerce_cart_item_quantity', array($this, 'lock_custom_amount_cart_qty'), 10, 3);
     }
 
     // ─── Campaign Helpers ────────────────────────────────────────────
@@ -945,21 +953,34 @@ class Azure_Donations_Module {
     }
 
     public function save_donated_item_meta($item, $cart_item_key, $values, $order) {
-        if (empty($values['_pta_donated_product'])) {
-            return;
+        if (!empty($values['_pta_donated_product'])) {
+            $item->update_meta_data('_pta_donated_product', 1);
+            $item->update_meta_data(__('Donation', 'azure-plugin'), __('Gift item', 'azure-plugin'));
         }
-        $item->update_meta_data('_pta_donated_product', 1);
-        $item->update_meta_data(__('Donation', 'azure-plugin'), __('Gift item', 'azure-plugin'));
+        if (!empty($values['_pta_custom_donation_amount'])) {
+            $amount = (float) $values['_pta_custom_donation_amount'];
+            $item->update_meta_data('_pta_custom_donation_amount', $amount);
+            $item->update_meta_data(
+                __('Donation amount', 'azure-plugin'),
+                function_exists('wc_price') ? wp_strip_all_tags(wc_price($amount)) : ('$' . number_format($amount, 2))
+            );
+        }
     }
 
     public function display_donated_item_data($item_data, $cart_item) {
-        if (empty($cart_item['_pta_donated_product'])) {
-            return $item_data;
+        if (!empty($cart_item['_pta_donated_product'])) {
+            $item_data[] = array(
+                'key'   => __('Donation', 'azure-plugin'),
+                'value' => __('Gift item — product fields skipped', 'azure-plugin'),
+            );
         }
-        $item_data[] = array(
-            'key'   => __('Donation', 'azure-plugin'),
-            'value' => __('Gift item — product fields skipped', 'azure-plugin'),
-        );
+        if (!empty($cart_item['_pta_custom_donation_amount'])) {
+            $amount = (float) $cart_item['_pta_custom_donation_amount'];
+            $item_data[] = array(
+                'key'   => __('Donation amount', 'azure-plugin'),
+                'value' => function_exists('wc_price') ? wp_strip_all_tags(wc_price($amount)) : ('$' . number_format($amount, 2)),
+            );
+        }
         return $item_data;
     }
 
@@ -1183,6 +1204,101 @@ class Azure_Donations_Module {
             Azure_Settings::get_setting('donations_wag_fg', self::WAG_DEFAULT_FG),
             self::WAG_DEFAULT_FG
         );
+    }
+
+    public static function custom_amount_min() {
+        return (float) self::CUSTOM_AMOUNT_MIN;
+    }
+
+    /**
+     * True when a variation attribute/name is the typed-amount "Custom" option.
+     * "Customer" does not match.
+     */
+    public static function is_custom_amount_label($label) {
+        $n = strtolower(trim(preg_replace('/[\s_\-]+/', ' ', strip_tags((string) $label))));
+        return $n === 'custom' || $n === 'custom amount';
+    }
+
+    /**
+     * Parse a typed donation. Null when empty, non-numeric, or below the minimum.
+     *
+     * @param mixed $raw
+     * @return float|null
+     */
+    public static function sanitize_custom_donation_amount($raw) {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        if (is_string($raw)) {
+            $raw = str_replace(array('$', ',', ' '), '', $raw);
+        }
+        if (!is_numeric($raw)) {
+            return null;
+        }
+        $amount = round((float) $raw, 2);
+        if ($amount < self::custom_amount_min()) {
+            return null;
+        }
+        return $amount;
+    }
+
+    public static function is_wag_parent_product($product_id) {
+        $product_id = (int) $product_id;
+        if ($product_id <= 0) {
+            return false;
+        }
+        foreach (self::get_wag_levels() as $level) {
+            if ((int) $level['product_id'] === $product_id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function is_wag_donation_product($product_id) {
+        $product_id = (int) $product_id;
+        if (self::is_wag_parent_product($product_id)) {
+            return true;
+        }
+        if (!function_exists('wc_get_product')) {
+            return false;
+        }
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            return false;
+        }
+        $slug = method_exists($product, 'get_slug') ? (string) $product->get_slug() : '';
+        if ($slug === 'wag-donation') {
+            return true;
+        }
+        $sku = method_exists($product, 'get_sku') ? (string) $product->get_sku() : '';
+        return (stripos($sku, 'WAG-') === 0);
+    }
+
+    public static function variation_uses_typed_amount($variation, $parent = null) {
+        if (!is_object($variation)) {
+            return false;
+        }
+        $parent_id = 0;
+        if (is_object($parent) && method_exists($parent, 'get_id')) {
+            $parent_id = (int) $parent->get_id();
+        } elseif (method_exists($variation, 'get_parent_id')) {
+            $parent_id = (int) $variation->get_parent_id();
+        }
+        if ($parent_id > 0 && !self::is_wag_donation_product($parent_id)) {
+            return false;
+        }
+        $attrs = method_exists($variation, 'get_attributes') ? (array) $variation->get_attributes() : array();
+        foreach ($attrs as $val) {
+            if (is_array($val)) {
+                $val = implode(' ', $val);
+            }
+            if (self::is_custom_amount_label($val)) {
+                return true;
+            }
+        }
+        $name = method_exists($variation, 'get_name') ? (string) $variation->get_name() : '';
+        return (bool) preg_match('/(?:^|[\s\-])custom(?:$|[\s\-])/i', $name);
     }
 
     public static function format_wag_amount($amount) {
@@ -1709,6 +1825,120 @@ class Azure_Donations_Module {
         return '$' . number_format($amount, 2);
     }
 
+    public function render_custom_amount_field() {
+        if (!function_exists('is_product') || !is_product()) {
+            return;
+        }
+        $product_id = (int) get_the_ID();
+        if (!self::is_wag_donation_product($product_id)) {
+            return;
+        }
+        $min = self::custom_amount_min();
+        ?>
+        <div class="pta-custom-donation-amount" hidden>
+            <label for="pta_custom_donation_amount"><?php esc_html_e('Donation amount', 'azure-plugin'); ?></label>
+            <div class="pta-custom-donation-input-wrap">
+                <span class="pta-custom-donation-prefix" aria-hidden="true">$</span>
+                <input type="number" name="pta_custom_donation_amount" id="pta_custom_donation_amount"
+                       min="<?php echo esc_attr($min); ?>" step="0.01" inputmode="decimal"
+                       placeholder="<?php echo esc_attr(number_format($min, 0)); ?>" />
+            </div>
+            <p class="pta-custom-donation-hint"><?php echo esc_html(sprintf(__('Enter any amount of $%s or more.', 'azure-plugin'), number_format($min, 0))); ?></p>
+        </div>
+        <?php
+    }
+
+    public function flag_custom_amount_variation($data, $product, $variation) {
+        if (self::variation_uses_typed_amount($variation, $product)) {
+            $data['pta_custom_amount'] = true;
+            $data['pta_custom_amount_min'] = self::custom_amount_min();
+            $data['price_html'] = '<span class="price">' . esc_html__('Enter an amount', 'azure-plugin') . '</span>';
+        }
+        return $data;
+    }
+
+    public function validate_custom_amount($passed, $product_id, $quantity, $variation_id = 0, $variations = array()) {
+        if (!$passed || (int) $variation_id <= 0 || !function_exists('wc_get_product')) {
+            return $passed;
+        }
+        $variation = wc_get_product((int) $variation_id);
+        $parent = wc_get_product((int) $product_id);
+        if (!self::variation_uses_typed_amount($variation, $parent)) {
+            return $passed;
+        }
+        $amount = self::sanitize_custom_donation_amount(isset($_POST['pta_custom_donation_amount']) ? wp_unslash($_POST['pta_custom_donation_amount']) : '');
+        if ($amount === null) {
+            if (function_exists('wc_add_notice')) {
+                wc_add_notice(
+                    sprintf(
+                        __('Please enter a donation of at least $%s.', 'azure-plugin'),
+                        number_format(self::custom_amount_min(), 0)
+                    ),
+                    'error'
+                );
+            }
+            return false;
+        }
+        return $passed;
+    }
+
+    public function add_custom_amount_cart_data($cart_item_data, $product_id, $variation_id) {
+        if ((int) $variation_id <= 0 || !function_exists('wc_get_product')) {
+            return $cart_item_data;
+        }
+        $variation = wc_get_product((int) $variation_id);
+        $parent = wc_get_product((int) $product_id);
+        if (!self::variation_uses_typed_amount($variation, $parent)) {
+            return $cart_item_data;
+        }
+        $amount = self::sanitize_custom_donation_amount(isset($_POST['pta_custom_donation_amount']) ? wp_unslash($_POST['pta_custom_donation_amount']) : '');
+        if ($amount !== null) {
+            $cart_item_data['_pta_custom_donation_amount'] = $amount;
+        }
+        return $cart_item_data;
+    }
+
+    public function force_custom_amount_quantity($quantity, $product_id) {
+        $variation_id = isset($_POST['variation_id']) ? (int) $_POST['variation_id'] : 0;
+        if ($variation_id <= 0 || !function_exists('wc_get_product')) {
+            return $quantity;
+        }
+        $variation = wc_get_product($variation_id);
+        $parent = wc_get_product((int) $product_id);
+        if (self::variation_uses_typed_amount($variation, $parent)) {
+            return 1;
+        }
+        return $quantity;
+    }
+
+    public function apply_custom_amount_price($cart) {
+        if (is_admin() && !defined('DOING_AJAX')) {
+            return;
+        }
+        if (!$cart || !is_object($cart) || !method_exists($cart, 'get_cart')) {
+            return;
+        }
+        foreach ($cart->get_cart() as $cart_item) {
+            if (empty($cart_item['_pta_custom_donation_amount']) || empty($cart_item['data'])) {
+                continue;
+            }
+            $amount = (float) $cart_item['_pta_custom_donation_amount'];
+            if ($amount < self::custom_amount_min()) {
+                continue;
+            }
+            if (method_exists($cart_item['data'], 'set_price')) {
+                $cart_item['data']->set_price($amount);
+            }
+        }
+    }
+
+    public function lock_custom_amount_cart_qty($product_quantity, $cart_item_key, $cart_item) {
+        if (!empty($cart_item['_pta_custom_donation_amount'])) {
+            return '1';
+        }
+        return $product_quantity;
+    }
+
     // ─── Frontend Assets ─────────────────────────────────────────────
 
     public function enqueue_frontend_assets() {
@@ -1722,11 +1952,25 @@ class Azure_Donations_Module {
             || has_shortcode($content, 'donation-progress')
             || has_shortcode($content, 'Donation-progress')
         );
-        if (!is_checkout() && !is_cart() && !$has_shortcode) {
+        $is_wag_product = function_exists('is_product') && is_product() && self::is_wag_donation_product((int) get_the_ID());
+        if (!is_checkout() && !is_cart() && !$has_shortcode && !$is_wag_product) {
             return;
         }
 
         $this->enqueue_wag_styles();
+
+        if ($is_wag_product) {
+            wp_enqueue_script(
+                'pta-donations-custom-amount',
+                AZURE_PLUGIN_URL . 'js/donations-custom-amount.js',
+                array('jquery'),
+                AZURE_PLUGIN_VERSION,
+                true
+            );
+            wp_localize_script('pta-donations-custom-amount', 'ptaCustomDonation', array(
+                'min' => self::custom_amount_min(),
+            ));
+        }
     }
 
     private function enqueue_wag_styles() {

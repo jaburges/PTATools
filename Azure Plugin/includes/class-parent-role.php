@@ -2,14 +2,18 @@
 /**
  * Parent Role
  *
- * Registers the `parent` WordPress role used by the Connected Family +
- * Parent Import (v3.67). Imported parents are created with this role and
+ * Registers the `parent` and `alumni` WordPress roles used by Connected
+ * Family + Parent Import. Imported parents are created with `parent` and
  * `_pta_login_disabled = 1` meta so they cannot sign in until the admin
  * runs the welcome-email tool, which clears the flag and emails a temp
  * password.
  *
- * The class is intentionally tiny: a one-shot role registration on plugin
- * upgrade plus an `authenticate` filter that short-circuits sign-in for
+ * Parent = any active child in PreK–5. Alumni = every graded active
+ * child is past 5th. Roles are swapped on child save/delete and on
+ * plugin upgrade so newsletter lists and directory permissions follow
+ * the same source of truth.
+ *
+ * Also: an `authenticate` filter that short-circuits sign-in for
  * disabled accounts. Force-password-change on first login is enforced via
  * `template_redirect`.
  */
@@ -21,6 +25,7 @@ if (!defined('ABSPATH')) {
 class Azure_Parent_Role {
 
     const ROLE_SLUG          = 'parent';
+    const ROLE_ALUMNI        = 'alumni';
     const META_LOGIN_DISABLED = '_pta_login_disabled';
     const META_FORCE_PW_RESET = '_pta_force_password_change';
     const META_LAST_LOGIN     = '_pta_last_login';
@@ -56,6 +61,8 @@ class Azure_Parent_Role {
         // lookup against the already-loaded $wp_roles global so this costs
         // nothing on the front-end or for logged-out visitors.
         add_action('admin_init', array(__CLASS__, 'maybe_self_heal_role'));
+
+        add_action('azure_user_children_changed', array(__CLASS__, 'sync_family_for_user'), 10, 1);
     }
 
     /**
@@ -78,6 +85,9 @@ class Azure_Parent_Role {
     public static function maybe_self_heal_role() {
         if (!get_role(self::ROLE_SLUG)) {
             self::register_role();
+        }
+        if (!get_role(self::ROLE_ALUMNI)) {
+            self::register_alumni_role();
         }
     }
 
@@ -128,6 +138,169 @@ class Azure_Parent_Role {
                 $existing->add_cap($cap, (bool) $grant);
             }
         }
+    }
+
+    /**
+     * Same capability set as Parent. Alumni keep My Account / shop access
+     * but drop Parent-only surfaces that check the `parent` role
+     * (directory, Parents newsletter list).
+     */
+    public static function register_alumni_role() {
+        if (!get_role(self::ROLE_SLUG)) {
+            self::register_role();
+        }
+        $parent = get_role(self::ROLE_SLUG);
+        $caps = ($parent && is_array($parent->capabilities))
+            ? $parent->capabilities
+            : array('read' => true);
+
+        $existing = get_role(self::ROLE_ALUMNI);
+        if (!$existing) {
+            add_role(self::ROLE_ALUMNI, __('Alumni', 'azure-plugin'), $caps);
+            return;
+        }
+        foreach ($caps as $cap => $grant) {
+            if (empty($existing->capabilities[$cap])) {
+                $existing->add_cap($cap, (bool) $grant);
+            }
+        }
+    }
+
+    /**
+     * Swap Parent ↔ Alumni while leaving every other role (customer,
+     * administrator, …) untouched. Unclassified grades and users who
+     * have neither population role are left as-is.
+     *
+     * @param string[] $current_roles
+     * @param string|null $target self::ROLE_SLUG|self::ROLE_ALUMNI|null
+     * @return string[]
+     */
+    public static function next_population_roles($current_roles, $target) {
+        $current_roles = array_values((array) $current_roles);
+        if ($target !== self::ROLE_SLUG && $target !== self::ROLE_ALUMNI) {
+            return $current_roles;
+        }
+        $has_population = in_array(self::ROLE_SLUG, $current_roles, true)
+            || in_array(self::ROLE_ALUMNI, $current_roles, true);
+        if (!$has_population) {
+            return $current_roles;
+        }
+        $kept = array();
+        foreach ($current_roles as $role) {
+            if ($role !== self::ROLE_SLUG && $role !== self::ROLE_ALUMNI) {
+                $kept[] = $role;
+            }
+        }
+        $kept[] = $target;
+        return $kept;
+    }
+
+    /**
+     * Recompute Parent vs Alumni for one user from their family's
+     * active children. No-op when grades are unclassified or the
+     * account is not already in the parent/alumni population.
+     *
+     * @param int $user_id
+     * @return string|null Classification after the attempt.
+     */
+    public static function sync_user($user_id) {
+        $user_id = (int) $user_id;
+        if (!$user_id || !function_exists('get_userdata')) {
+            return null;
+        }
+        $user = get_userdata($user_id);
+        if (!$user) {
+            return null;
+        }
+        $target = null;
+        if (class_exists('Azure_User_Children')) {
+            $target = Azure_User_Children::classify_user_population($user_id);
+        }
+        $current = array_values((array) $user->roles);
+        $next = self::next_population_roles($current, $target);
+        $cur_sorted = $current;
+        $next_sorted = $next;
+        sort($cur_sorted);
+        sort($next_sorted);
+        if ($cur_sorted === $next_sorted) {
+            return $target;
+        }
+        foreach (array(self::ROLE_SLUG, self::ROLE_ALUMNI) as $role) {
+            if (in_array($role, $current, true) && !in_array($role, $next, true)) {
+                $user->remove_role($role);
+            }
+        }
+        foreach ($next as $role) {
+            if (!in_array($role, $current, true)) {
+                $user->add_role($role);
+            }
+        }
+        return $target;
+    }
+
+    /**
+     * Sync the user and their connected co-parent.
+     *
+     * @param int $user_id
+     */
+    public static function sync_family_for_user($user_id) {
+        $user_id = (int) $user_id;
+        if (!$user_id) {
+            return;
+        }
+        if (class_exists('Azure_User_Children')) {
+            Azure_User_Children::clear_children_cache();
+        }
+        $ids = array($user_id);
+        if (class_exists('Azure_User_Children')) {
+            $family = Azure_User_Children::get_family_for_user($user_id);
+            if ($family) {
+                if (!empty($family->primary_user_id)) {
+                    $ids[] = (int) $family->primary_user_id;
+                }
+                if (!empty($family->secondary_user_id)) {
+                    $ids[] = (int) $family->secondary_user_id;
+                }
+            }
+        }
+        foreach (array_unique(array_filter($ids)) as $id) {
+            self::sync_user($id);
+        }
+    }
+
+    /**
+     * Recompute Parent vs Alumni for every user who already has one of
+     * those roles. Called from the plugin version-bump path.
+     *
+     * @return array{scanned:int,parent:int,alumni:int,skipped:int}
+     */
+    public static function sync_all() {
+        $counts = array(
+            'scanned' => 0,
+            'parent'  => 0,
+            'alumni'  => 0,
+            'skipped' => 0,
+        );
+        if (!function_exists('get_users')) {
+            return $counts;
+        }
+        $users = get_users(array(
+            'role__in' => array(self::ROLE_SLUG, self::ROLE_ALUMNI),
+            'fields'   => 'ID',
+            'number'   => -1,
+        ));
+        foreach ($users as $id) {
+            $counts['scanned']++;
+            $target = self::sync_user((int) $id);
+            if ($target === self::ROLE_SLUG) {
+                $counts['parent']++;
+            } elseif ($target === self::ROLE_ALUMNI) {
+                $counts['alumni']++;
+            } else {
+                $counts['skipped']++;
+            }
+        }
+        return $counts;
     }
 
     /**

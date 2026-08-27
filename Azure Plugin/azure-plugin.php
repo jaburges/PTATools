@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.22
+ * Version: 3.147.26
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.22');
+define('AZURE_PLUGIN_VERSION', '3.147.26');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -681,22 +681,31 @@ class AzurePlugin {
                         }
                     }
 
-                    // v3.67: register the Parent role once. Idempotent —
-                    // skips if the role already exists.
+                    // v3.67 / v3.147.24: register Parent + Alumni, then
+                    // recompute who belongs in each from child grades.
                     if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-parent-role.php')) {
                         require_once AZURE_PLUGIN_PATH . 'includes/class-parent-role.php';
                         if (class_exists('Azure_Parent_Role')) {
                             Azure_Parent_Role::register_role();
+                            Azure_Parent_Role::register_alumni_role();
+                            $uc = AZURE_PLUGIN_PATH . 'includes/class-user-children.php';
+                            if (!class_exists('Azure_User_Children') && file_exists($uc)) {
+                                require_once $uc;
+                            }
+                            $sync = Azure_Parent_Role::sync_all();
+                            if (class_exists('Azure_Logger')) {
+                                Azure_Logger::info('Parent/Alumni role sync', array_merge(array('module' => 'Core'), $sync));
+                            }
                         }
                     }
 
-                    // v3.74: seed/repair the Parents newsletter list (role-
-                    // bound to `parent`) and ensure the school_staff role
-                    // exists for the admin's manual school-staff imports
-                    // (school_staff_domain configured per tenant).
+                    // v3.74 / v3.147.24: seed/repair role-bound newsletter
+                    // lists and ensure the school_staff role exists for the
+                    // admin's manual school-staff imports.
                     // Schedule the activation-token cleanup cron. All
                     // idempotent — safe to re-run on every upgrade.
                     $this->seed_parent_population_lists();
+                    $this->seed_alumni_population_list();
                     $this->ensure_school_staff_role();
                     if (!wp_next_scheduled(Azure_Parent_Activation::CLEANUP_HOOK)) {
                         wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', Azure_Parent_Activation::CLEANUP_HOOK);
@@ -1326,27 +1335,10 @@ class AzurePlugin {
     }
     
     /**
-     * Idempotently seed the "Parents" newsletter list (role-bound to the
-     * `parent` role). Called from the version-bump block in init() so we
-     * only pay the option/insert cost when the plugin version actually
-     * changes.
-     *
-     * Important: also REPAIRS the criteria on an existing Parents list.
-     * Earlier seeds used the wrong criteria key (`role` singular instead
-     * of `roles` plural array), which made Azure_Newsletter_Lists::get_subscribers()
-     * report 0 even when parent-role users existed. This method overwrites
-     * criteria on every run so the bug is self-healing.
-     *
-     * We deliberately do NOT seed PTSA Volunteers (the existing
-     * "PTSA Board and Staff" list already covers that population via the
-     * `participant` role) or School Staff (the admin handles staff imports
-     * separately into the `school_staff` role).
-     *
-     * Skips silently if the Newsletter module isn't installed yet, so
-     * activating the plugin without the Newsletter feature flag doesn't
-     * fail.
+     * Idempotently seed a role-bound newsletter list. Repairs criteria on
+     * an existing list of the same name so a bad earlier seed self-heals.
      */
-    private function seed_parent_population_lists() {
+    private function seed_role_population_list($name, $role, $description) {
         try {
             $lists_path = AZURE_PLUGIN_PATH . 'includes/class-newsletter-lists.php';
             if (!class_exists('Azure_Newsletter_Lists')) {
@@ -1355,24 +1347,16 @@ class AzurePlugin {
                 }
                 require_once $lists_path;
             }
-            $migration_path = AZURE_PLUGIN_PATH . 'includes/class-parent-migration.php';
-            if (!class_exists('Azure_Parent_Migration')) {
-                if (!file_exists($migration_path)) {
-                    return;
-                }
-                require_once $migration_path;
-            }
 
             $lists = new Azure_Newsletter_Lists();
-            $correct_criteria = array('roles' => array('parent'));
+            $correct_criteria = array('roles' => array($role));
+            $needle = strtolower(trim($name));
 
-            // Find an existing "Parents" list (case-insensitive) so we can
-            // REPAIR criteria rather than create a duplicate.
             $existing_id = 0;
             $all = $lists->get_all_lists();
             if (is_array($all)) {
                 foreach ($all as $l) {
-                    if (isset($l->name) && strtolower(trim($l->name)) === 'parents') {
+                    if (isset($l->name) && strtolower(trim($l->name)) === $needle) {
                         $existing_id = (int) $l->id;
                         break;
                     }
@@ -1384,20 +1368,39 @@ class AzurePlugin {
                     'criteria' => $correct_criteria,
                 ));
             } else {
-                $lists->create_list(
-                    'Parents',
-                    'role',
-                    'All parent-role users (auto-synced).',
-                    $correct_criteria
-                );
+                $lists->create_list($name, 'role', $description, $correct_criteria);
             }
 
             if (class_exists('Azure_Logger')) {
-                Azure_Logger::info('Parents newsletter list seed/repair complete', array('module' => 'Core'));
+                Azure_Logger::info($name . ' newsletter list seed/repair complete', array('module' => 'Core'));
             }
         } catch (\Throwable $e) {
-            error_log('Azure Plugin: seed_parent_population_lists failed - ' . $e->getMessage());
+            error_log('Azure Plugin: seed_role_population_list(' . $name . ') failed - ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Parents list stays role-bound to `parent`. Anyone with a PreK–5
+     * child keeps that role; past-5th-only families are moved to Alumni.
+     */
+    private function seed_parent_population_lists() {
+        $this->seed_role_population_list(
+            'Parents',
+            'parent',
+            'Parents with a child in 5th grade or below (auto-synced from the parent role).'
+        );
+    }
+
+    /**
+     * Alumni list is role-bound to `alumni` — families whose active
+     * children are all past 5th grade.
+     */
+    private function seed_alumni_population_list() {
+        $this->seed_role_population_list(
+            'Alumni',
+            'alumni',
+            'Families whose children are past 5th grade (auto-synced from the alumni role).'
+        );
     }
 
     /**

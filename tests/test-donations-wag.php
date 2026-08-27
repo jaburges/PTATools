@@ -104,4 +104,18 @@ $t->equals(31, $totals['pct'], 'progress percent rounds');
 $empty = Azure_Donations_Module::format_progress_totals(0, 0);
 $t->equals(0, $empty['pct'], 'no goal and no raised is 0%');
 
+$t->equals(5.0, Azure_Donations_Module::custom_amount_min(), 'typed custom amount minimum is $5');
+$t->check(Azure_Donations_Module::is_custom_amount_label('Custom'), 'Custom label matches');
+$t->check(Azure_Donations_Module::is_custom_amount_label('custom amount'), 'custom amount label matches');
+$t->check(Azure_Donations_Module::is_custom_amount_label('CUSTOM'), 'CUSTOM label matches');
+$t->check(!Azure_Donations_Module::is_custom_amount_label('Pack Leader'), 'named level is not custom');
+$t->check(!Azure_Donations_Module::is_custom_amount_label('Customer'), 'Customer does not match Custom');
+
+$t->equals(5.0, Azure_Donations_Module::sanitize_custom_donation_amount('5'), 'minimum $5 is accepted');
+$t->equals(75.0, Azure_Donations_Module::sanitize_custom_donation_amount('$75'), 'dollar sign and whole dollars');
+$t->equals(12.5, Azure_Donations_Module::sanitize_custom_donation_amount('12.50'), 'cents are kept');
+$t->equals(null, Azure_Donations_Module::sanitize_custom_donation_amount('4.99'), 'below minimum is rejected');
+$t->equals(null, Azure_Donations_Module::sanitize_custom_donation_amount('abc'), 'non-numeric is rejected');
+$t->equals(null, Azure_Donations_Module::sanitize_custom_donation_amount(''), 'empty is rejected');
+
 exit($t->finish() === 0 ? 0 : 1);

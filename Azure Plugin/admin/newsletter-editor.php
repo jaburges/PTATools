@@ -7,6 +7,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Azure_Newsletter_Email_Css')) {
+    require_once AZURE_PLUGIN_PATH . 'includes/class-newsletter-email-css.php';
+}
+
 // Enqueue GrapesJS and dependencies
 wp_enqueue_media();
 wp_enqueue_style('grapesjs', 'https://unpkg.com/grapesjs@0.21.10/dist/css/grapes.min.css', array(), '0.21.10');
@@ -918,6 +922,7 @@ var newsletterEditorConfig = {
     pluginUrl: '<?php echo AZURE_PLUGIN_URL; ?>',
     initialContent: <?php echo json_encode($newsletter->content_json ?? ($template ? $template->content_json : '') ?? ''); ?>,
     initialHtml: <?php echo json_encode($newsletter->content_html ?? ($template ? $template->content_html : '') ?? ''); ?>,
+    columnStackCss: <?php echo json_encode(Azure_Newsletter_Email_Css::column_stack_css()); ?>,
     templateId: <?php echo (int) $template_id; ?>,
     templateName: <?php echo json_encode($template ? $template->name : ''); ?>,
     editTemplateId: <?php echo (int) $edit_template_id; ?>,

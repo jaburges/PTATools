@@ -15,6 +15,9 @@ class Azure_User_Children {
 
     private static $instance = null;
 
+    /** @var array<int, array<object>> Per-request memo for get_children_for_user(). */
+    private static $children_for_user_cache = array();
+
     public static function get_instance() {
         if (self::$instance === null) {
             self::$instance = new self();
@@ -112,13 +115,12 @@ class Azure_User_Children {
      * @return array<object>
      */
     public static function get_children_for_user($user_id) {
-        static $cache = array();
         $user_id = (int) $user_id;
         if (!$user_id) {
             return array();
         }
-        if (isset($cache[$user_id])) {
-            return $cache[$user_id];
+        if (isset(self::$children_for_user_cache[$user_id])) {
+            return self::$children_for_user_cache[$user_id];
         }
 
         global $wpdb;
@@ -145,15 +147,172 @@ class Azure_User_Children {
                  ORDER BY child_name ASC",
                 $user_id
             ));
-            $cache[$user_id] = array_merge((array) $rows, (array) $legacy);
+            self::$children_for_user_cache[$user_id] = array_merge((array) $rows, (array) $legacy);
         } else {
-            $cache[$user_id] = $wpdb->get_results($wpdb->prepare(
+            self::$children_for_user_cache[$user_id] = $wpdb->get_results($wpdb->prepare(
                 "SELECT * FROM {$children_table} WHERE user_id = %d AND is_active = 1 ORDER BY child_name ASC",
                 $user_id
             ));
         }
 
-        return $cache[$user_id];
+        return self::$children_for_user_cache[$user_id];
+    }
+
+    /**
+     * Drop the per-request children memo so a save/delete is visible
+     * to the Parent/Alumni role sync on the same request.
+     *
+     * @param int $user_id 0 clears every cached user.
+     */
+    public static function clear_children_cache($user_id = 0) {
+        if ($user_id) {
+            unset(self::$children_for_user_cache[(int) $user_id]);
+            return;
+        }
+        self::$children_for_user_cache = array();
+    }
+
+    /**
+     * Known child-grade meta keys. The live site uses pta_pf_childsgrade;
+     * the others are legacy aliases from earlier field slugs.
+     *
+     * @return string[]
+     */
+    public static function child_grade_meta_keys() {
+        return array(
+            'pta_pf_childsgrade',
+            'pta_pf_child_grade',
+            'pta_pf_childs_grade',
+            'childsgrade',
+            'child_grade',
+        );
+    }
+
+    /**
+     * True when a stored grade is PreK through 5th.
+     *
+     * @param mixed $grade
+     * @return bool
+     */
+    public static function is_elementary_grade($grade) {
+        if ($grade === null) {
+            return false;
+        }
+        $normalized = strtoupper(trim((string) $grade));
+        if ($normalized === '') {
+            return false;
+        }
+        $normalized = preg_replace('/[\s\-]+/', '', $normalized);
+        if ($normalized === 'K' || $normalized === 'PREK' || $normalized === 'PREK|K') {
+            return true;
+        }
+        return (bool) preg_match('/^[0-5](TH)?$/', $normalized);
+    }
+
+    /**
+     * True when a stored grade is past 5th (6, 6th, 7, …).
+     *
+     * @param mixed $grade
+     * @return bool
+     */
+    public static function is_alumni_grade($grade) {
+        if ($grade === null) {
+            return false;
+        }
+        $normalized = strtoupper(trim((string) $grade));
+        if ($normalized === '') {
+            return false;
+        }
+        $normalized = preg_replace('/[\s\-]+/', '', $normalized);
+        if (!preg_match('/^(\d+)(ST|ND|RD|TH)?$/', $normalized, $m)) {
+            return false;
+        }
+        return ((int) $m[1]) > 5;
+    }
+
+    /**
+     * Parent = any PreK–5 grade. Alumni = only past-5th grades (blanks ignored).
+     * Null when nothing classifiable is present.
+     *
+     * @param array $grades
+     * @return string|null 'parent'|'alumni'|null
+     */
+    public static function classify_population_from_grades($grades) {
+        $has_k5 = false;
+        $has_alumni = false;
+        foreach ((array) $grades as $grade) {
+            if (self::is_elementary_grade($grade)) {
+                $has_k5 = true;
+            } elseif (self::is_alumni_grade($grade)) {
+                $has_alumni = true;
+            }
+        }
+        if ($has_k5) {
+            return 'parent';
+        }
+        if ($has_alumni) {
+            return 'alumni';
+        }
+        return null;
+    }
+
+    /**
+     * True when any known grade meta key on a child is PreK–5.
+     *
+     * @param array $meta
+     * @return bool
+     */
+    public static function child_meta_has_elementary_grade($meta) {
+        if (!is_array($meta)) {
+            return false;
+        }
+        foreach (self::child_grade_meta_keys() as $key) {
+            if (isset($meta[$key]) && self::is_elementary_grade($meta[$key])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Family-aware: the user qualifies if any active child on their
+     * connected family is in PreK–5.
+     *
+     * @param int $user_id
+     * @return bool
+     */
+    public static function user_has_k5_child($user_id) {
+        foreach (self::get_children_for_user($user_id) as $child) {
+            if (empty($child->id)) {
+                continue;
+            }
+            if (self::child_meta_has_elementary_grade(self::get_child_meta($child->id))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Classify a user from their family's active children.
+     *
+     * @param int $user_id
+     * @return string|null 'parent'|'alumni'|null
+     */
+    public static function classify_user_population($user_id) {
+        $grades = array();
+        foreach (self::get_children_for_user($user_id) as $child) {
+            if (empty($child->id)) {
+                continue;
+            }
+            $meta = self::get_child_meta($child->id);
+            foreach (self::child_grade_meta_keys() as $key) {
+                if (isset($meta[$key])) {
+                    $grades[] = $meta[$key];
+                }
+            }
+        }
+        return self::classify_population_from_grades($grades);
     }
 
     /**
@@ -366,6 +525,13 @@ class Azure_User_Children {
             self::update_child_meta($id, $data['meta']);
         }
 
+        if ($id) {
+            self::clear_children_cache();
+            if (function_exists('do_action')) {
+                do_action('azure_user_children_changed', (int) $user_id, (int) $id);
+            }
+        }
+
         return $id;
     }
 
@@ -409,6 +575,10 @@ class Azure_User_Children {
 
         $wpdb->delete($meta_table, array('child_id' => $child_id));
         $wpdb->delete($table, array('id' => $child_id));
+        self::clear_children_cache();
+        if (function_exists('do_action')) {
+            do_action('azure_user_children_changed', (int) $user_id, (int) $child_id);
+        }
         return true;
     }
 

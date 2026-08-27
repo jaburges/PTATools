@@ -8503,7 +8503,7 @@ class Azure_Diagnostics_API {
         $protected_roles = array(
             'administrator', 'editor', 'author', 'contributor', 'subscriber',
             'customer', 'shop_manager',
-            'parent', 'school_staff', 'azuread', 'pta_manager',
+            'parent', 'alumni', 'school_staff', 'azuread', 'pta_manager',
         );
 
         $dead_plugin_prefixes = array(

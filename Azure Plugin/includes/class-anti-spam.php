@@ -70,6 +70,7 @@ class Azure_Anti_Spam {
         'pta_manager',
         'azuread',
         'parent',
+        'alumni',
         'school_staff',
         'dev_admin',
         'sign_up_plugin_administrators',

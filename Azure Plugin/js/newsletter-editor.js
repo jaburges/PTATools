@@ -101,15 +101,17 @@
         emailHtml += '<title>Newsletter</title>\n';
         
         // Add CSS in head (better than body, some clients support it)
+        emailHtml += '<style type="text/css">\n';
+        emailHtml += '/* Email Reset */\n';
+        emailHtml += 'body { margin: 0 !important; padding: 0 !important; }\n';
+        emailHtml += 'table { border-collapse: collapse !important; }\n';
+        emailHtml += 'img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }\n';
         if (css) {
-            emailHtml += '<style type="text/css">\n';
-            emailHtml += '/* Email Reset */\n';
-            emailHtml += 'body { margin: 0 !important; padding: 0 !important; }\n';
-            emailHtml += 'table { border-collapse: collapse !important; }\n';
-            emailHtml += 'img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }\n';
             emailHtml += css + '\n';
-            emailHtml += '</style>\n';
         }
+        emailHtml += '/* pta-nl-stack-cols */\n';
+        emailHtml += (newsletterEditorConfig.columnStackCss || '') + '\n';
+        emailHtml += '</style>\n';
         
         emailHtml += '</head>\n<body style="margin:0;padding:0;">\n';
         emailHtml += html;
@@ -316,6 +318,9 @@
                 }
             });
 
+            editor.on('load', injectColumnStackCss);
+            editor.on('canvas:frame:load', injectColumnStackCss);
+
             // Add custom email blocks
             addEmailBlocks();
             
@@ -369,6 +374,27 @@
             console.error('GrapesJS initialization error:', error);
             $('#gjs-editor').html('<p style="padding:20px;color:#d63638;">Error initializing editor: ' + error.message + '</p>');
         }
+    }
+
+    /**
+     * Stack 2/3-column tables in the GrapesJS canvas when the
+     * Mobile device preview shrinks the iframe below 600px.
+     */
+    function injectColumnStackCss() {
+        if (!editor || !editor.Canvas || !editor.Canvas.getDocument) {
+            return;
+        }
+        var doc = editor.Canvas.getDocument();
+        if (!doc || !doc.head) {
+            return;
+        }
+        if (doc.getElementById('pta-nl-stack-cols')) {
+            return;
+        }
+        var style = doc.createElement('style');
+        style.id = 'pta-nl-stack-cols';
+        style.textContent = newsletterEditorConfig.columnStackCss || '';
+        doc.head.appendChild(style);
     }
 
     /**
@@ -456,12 +482,12 @@
             category: 'Layout',
             media: icons.columns2,
             content: `
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <table class="nl-stack-cols" width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td width="50%" valign="top" style="padding: 10px;">
+                        <td class="nl-stack-col" width="50%" valign="top" style="padding: 10px;">
                             <p>Left column</p>
                         </td>
-                        <td width="50%" valign="top" style="padding: 10px;">
+                        <td class="nl-stack-col" width="50%" valign="top" style="padding: 10px;">
                             <p>Right column</p>
                         </td>
                     </tr>
@@ -474,15 +500,15 @@
             category: 'Layout',
             media: icons.columns3,
             content: `
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <table class="nl-stack-cols" width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td width="33%" valign="top" style="padding: 10px;">
+                        <td class="nl-stack-col" width="33%" valign="top" style="padding: 10px;">
                             <p>Column 1</p>
                         </td>
-                        <td width="34%" valign="top" style="padding: 10px;">
+                        <td class="nl-stack-col" width="34%" valign="top" style="padding: 10px;">
                             <p>Column 2</p>
                         </td>
-                        <td width="33%" valign="top" style="padding: 10px;">
+                        <td class="nl-stack-col" width="33%" valign="top" style="padding: 10px;">
                             <p>Column 3</p>
                         </td>
                     </tr>

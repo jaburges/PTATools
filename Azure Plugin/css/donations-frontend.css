@@ -520,3 +520,50 @@ a.pta-wag-level.is-featured:focus-visible {
     font-weight: 700;
     opacity: 0.75;
 }
+
+/* ─── WAG Custom typed amount on the product page ──────────── */
+.pta-custom-donation-amount {
+    margin: 0 0 1rem;
+}
+.pta-custom-donation-amount[hidden] {
+    display: none !important;
+}
+.pta-custom-donation-amount label {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+.pta-custom-donation-input-wrap {
+    display: flex;
+    align-items: center;
+    max-width: 12rem;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    background: #fff;
+    overflow: hidden;
+}
+.pta-custom-donation-prefix {
+    padding: 0.5rem 0 0.5rem 0.75rem;
+    font-weight: 700;
+    color: #1d2327;
+}
+.pta-custom-donation-amount input {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    padding: 0.5rem 0.75rem 0.5rem 0.25rem;
+    font-size: 1.1rem;
+    box-shadow: none;
+}
+.pta-custom-donation-amount input:focus {
+    outline: none;
+}
+.pta-custom-donation-input-wrap:focus-within {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+.pta-custom-donation-hint {
+    margin: 0.4rem 0 0;
+    font-size: 0.85rem;
+    color: #646970;
+}

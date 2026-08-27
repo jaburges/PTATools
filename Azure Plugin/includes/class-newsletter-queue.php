@@ -529,7 +529,8 @@ class Azure_Newsletter_Queue {
                 'user_id' => $item->user_id
             ));
             
-            // Inline CSS for email client compatibility
+            // Inline CSS for email client compatibility, then keep
+            // the mobile column-stack media query in a <style> tag.
             $html = $this->inline_css($html);
             
             // Send email
@@ -640,148 +641,17 @@ class Azure_Newsletter_Queue {
      * Most email clients strip <style> tags, so we need to inline CSS
      */
     private function inline_css($html) {
-        if (empty($html)) {
+        if (!class_exists('Azure_Newsletter_Email_Css')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-newsletter-email-css.php';
+            if (file_exists($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('Azure_Newsletter_Email_Css')) {
             return $html;
         }
-        
-        // Extract CSS from <style> tags
-        $css_rules = array();
-        if (preg_match_all('/<style[^>]*>(.*?)<\/style>/is', $html, $matches)) {
-            foreach ($matches[1] as $css) {
-                // Parse CSS rules
-                if (preg_match_all('/([^{]+)\{([^}]+)\}/s', $css, $rules, PREG_SET_ORDER)) {
-                    foreach ($rules as $rule) {
-                        $selectors = trim($rule[1]);
-                        $properties = trim($rule[2]);
-                        
-                        // Skip @media, @keyframes, etc.
-                        if (strpos($selectors, '@') === 0) {
-                            continue;
-                        }
-                        
-                        // Handle multiple selectors
-                        $selector_list = array_map('trim', explode(',', $selectors));
-                        foreach ($selector_list as $selector) {
-                            if (!empty($selector)) {
-                                $css_rules[$selector] = isset($css_rules[$selector]) 
-                                    ? $css_rules[$selector] . ' ' . $properties 
-                                    : $properties;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        if (empty($css_rules)) {
-            return $html;
-        }
-        
-        // Load HTML into DOMDocument
-        $dom = new DOMDocument();
-        // Suppress warnings for malformed HTML
-        libxml_use_internal_errors(true);
-        
-        // Add UTF-8 meta to ensure proper encoding
-        $html_with_meta = '<?xml encoding="UTF-8">' . $html;
-        $dom->loadHTML($html_with_meta, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        
-        $xpath = new DOMXPath($dom);
-        
-        // Apply CSS rules to matching elements
-        foreach ($css_rules as $selector => $properties) {
-            // Convert CSS selector to XPath (basic conversion)
-            $xpath_query = $this->css_to_xpath($selector);
-            
-            if (empty($xpath_query)) {
-                continue;
-            }
-            
-            try {
-                $elements = $xpath->query($xpath_query);
-                if ($elements === false) {
-                    continue;
-                }
-                
-                foreach ($elements as $element) {
-                    if ($element instanceof DOMElement) {
-                        $existing_style = $element->getAttribute('style');
-                        $new_style = $existing_style 
-                            ? rtrim($existing_style, '; ') . '; ' . $properties 
-                            : $properties;
-                        $element->setAttribute('style', $new_style);
-                    }
-                }
-            } catch (Exception $e) {
-                // Skip invalid selectors
-                continue;
-            }
-        }
-        
-        // Get the HTML back
-        $result = $dom->saveHTML();
-        
-        // Remove the XML declaration we added
-        $result = preg_replace('/^<\?xml[^>]*\?>\s*/i', '', $result);
-        
-        // Keep the <style> tags for clients that support them (Gmail app, Apple Mail)
-        // The inline styles provide fallback for others
-        
-        return $result;
-    }
-    
-    /**
-     * Convert basic CSS selector to XPath
-     */
-    private function css_to_xpath($selector) {
-        $selector = trim($selector);
-        
-        if (empty($selector)) {
-            return '';
-        }
-        
-        // Handle ID selector: #id
-        if (preg_match('/^#([\w-]+)$/', $selector, $m)) {
-            return "//*[@id='{$m[1]}']";
-        }
-        
-        // Handle class selector: .class
-        if (preg_match('/^\.([\w-]+)$/', $selector, $m)) {
-            return "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$m[1]} ')]";
-        }
-        
-        // Handle element selector: div
-        if (preg_match('/^([\w]+)$/', $selector, $m)) {
-            return "//{$m[1]}";
-        }
-        
-        // Handle element.class: div.class
-        if (preg_match('/^([\w]+)\.([\w-]+)$/', $selector, $m)) {
-            return "//{$m[1]}[contains(concat(' ', normalize-space(@class), ' '), ' {$m[2]} ')]";
-        }
-        
-        // Handle element#id: div#id
-        if (preg_match('/^([\w]+)#([\w-]+)$/', $selector, $m)) {
-            return "//{$m[1]}[@id='{$m[2]}']";
-        }
-        
-        // Handle descendant: div p (simplified)
-        if (preg_match('/^([\w]+)\s+([\w]+)$/', $selector, $m)) {
-            return "//{$m[1]}//{$m[2]}";
-        }
-        
-        // Handle universal with class: *.class or just element
-        if (preg_match('/^\*?\.([\w-]+)$/', $selector, $m)) {
-            return "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$m[1]} ')]";
-        }
-        
-        // For complex selectors, try basic element match
-        if (preg_match('/^[\w]+/', $selector, $m)) {
-            return "//{$m[0]}";
-        }
-        
-        return '';
+        $html = Azure_Newsletter_Email_Css::inline_keeping_media($html);
+        return Azure_Newsletter_Email_Css::ensure_column_stack_style($html);
     }
     
     /**

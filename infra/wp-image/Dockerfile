@@ -79,6 +79,16 @@ RUN set -eux; \
     rm -f /tmp/multiple-roles.zip; \
     test -f /var/www/html/wp-content/plugins/multiple-roles/multiple-roles.php
 
+# WooCommerce Stripe. A wp-admin install writes to the running replica only and
+# disappears on the next image revision. Keep the version pin here.
+ARG STRIPE_VERSION=10.9.0
+RUN set -eux; \
+    curl -fSL -o /tmp/woocommerce-gateway-stripe.zip \
+      "https://downloads.wordpress.org/plugin/woocommerce-gateway-stripe.${STRIPE_VERSION}.zip"; \
+    unzip -q /tmp/woocommerce-gateway-stripe.zip -d /var/www/html/wp-content/plugins/; \
+    rm -f /tmp/woocommerce-gateway-stripe.zip; \
+    test -f /var/www/html/wp-content/plugins/woocommerce-gateway-stripe/woocommerce-gateway-stripe.php
+
 # Keep one core theme so WordPress has something to fall back to if the active
 # theme raises a fatal error. Without it a broken theme means a blank site with
 # no route back into wp-admin. Taken from the base image rather than the export,
