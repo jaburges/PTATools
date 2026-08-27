@@ -169,7 +169,11 @@ jQuery(function ($) {
                 $grade.val(values.grade);
             }
             if (values.teacher) {
-                $card.find('.azure-pf-child-teacher').val(values.teacher);
+                var $teacher = $card.find('.azure-pf-child-teacher');
+                if ($teacher.is('select') && $teacher.find('option[value="' + values.teacher + '"]').length === 0) {
+                    $teacher.append($('<option/>').val(values.teacher).text(values.teacher));
+                }
+                $teacher.val(values.teacher);
             }
         }
         $familyList.append($card);

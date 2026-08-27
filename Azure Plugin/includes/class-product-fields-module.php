@@ -95,6 +95,18 @@ class Azure_Product_Fields_Module {
      */
     private $family_children_mode = false;
 
+    /**
+     * Grade / teacher product-field rows for the current family roster.
+     *
+     * @var object|null
+     */
+    private $family_grade_field = null;
+
+    /**
+     * @var object|null
+     */
+    private $family_teacher_field = null;
+
     // ─── Helpers ───────────────────────────────────────────────────────
 
     /**
@@ -271,6 +283,90 @@ class Azure_Product_Fields_Module {
     }
 
     /**
+     * Teacher choices from the Child Info product-field mapping.
+     * Empty when that field is free text.
+     *
+     * @return string[]
+     */
+    public static function get_teacher_options() {
+        global $wpdb;
+
+        $options = array();
+        $fld_table = Azure_Database::get_table_name('product_fields');
+        if ($fld_table) {
+            $keys = self::get_child_profile_field_keys();
+            $row = $wpdb->get_row($wpdb->prepare(
+                "SELECT field_type, options_json FROM {$fld_table} WHERE field_key = %s LIMIT 1",
+                $keys['teacher']
+            ));
+            if ($row) {
+                $options = self::options_from_field($row);
+            }
+        }
+
+        return apply_filters('azure_pf_teacher_options', $options);
+    }
+
+    /**
+     * @param object|null $field
+     * @return string[]
+     */
+    public static function options_from_field($field) {
+        if (!$field || empty($field->options_json)) {
+            return array();
+        }
+        $decoded = json_decode($field->options_json, true);
+        if (!is_array($decoded)) {
+            return array();
+        }
+        return array_values(array_filter(array_map('strval', $decoded), 'strlen'));
+    }
+
+    /**
+     * @param object|null $field
+     * @return bool
+     */
+    public static function field_uses_choices($field) {
+        if (!$field) {
+            return false;
+        }
+        $type = isset($field->field_type) ? strtolower((string) $field->field_type) : '';
+        if ($type === 'select' || $type === 'radio') {
+            return true;
+        }
+        return !empty(self::options_from_field($field));
+    }
+
+    /**
+     * Locate the grade or teacher row in the product's assigned field groups.
+     *
+     * @param array  $groups
+     * @param string $kind   'grade'|'teacher'
+     * @return object|null
+     */
+    public static function find_core_field_in_groups($groups, $kind) {
+        foreach ((array) $groups as $group) {
+            if (empty($group->fields)) {
+                continue;
+            }
+            foreach ($group->fields as $field) {
+                $scope = !empty($field->scope) ? $field->scope : 'child';
+                if ($scope !== 'child') {
+                    continue;
+                }
+                $haystack = strtolower((isset($field->field_key) ? $field->field_key : '') . ' ' . (isset($field->label) ? $field->label : ''));
+                if ($kind === 'teacher' && strpos($haystack, 'teacher') !== false) {
+                    return $field;
+                }
+                if ($kind === 'grade' && (strpos($haystack, 'grade') !== false || preg_match('/\byear\b/', $haystack))) {
+                    return $field;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Family PTSA membership uses a multi-child roster instead of the
      * single-child dropdown.
      */
@@ -399,6 +495,8 @@ class Azure_Product_Fields_Module {
         $family_children = $this->family_children_mode
             ? self::filter_family_membership_children($children)
             : $children;
+        $this->family_grade_field = self::find_core_field_in_groups($groups, 'grade');
+        $this->family_teacher_field = self::find_core_field_in_groups($groups, 'teacher');
 
         // Defaults map: parent-scope is current user's saved meta. Child-scope
         // values live under the child id and are swapped in via JS when the
@@ -486,8 +584,22 @@ class Azure_Product_Fields_Module {
                         </select>
                     </p>
                     <p>
-                        <label for="azure-pf-new-child-teacher"><?php esc_html_e('Teacher', 'azure-plugin'); ?></label>
-                        <input type="text" id="azure-pf-new-child-teacher" placeholder="<?php esc_attr_e('e.g. Congdon', 'azure-plugin'); ?>" autocomplete="off" />
+                        <label for="azure-pf-new-child-teacher"><?php echo esc_html($this->family_teacher_field && !empty($this->family_teacher_field->label) ? $this->family_teacher_field->label : __('Teacher', 'azure-plugin')); ?></label>
+                        <?php
+                        $modal_teacher_opts = $this->family_teacher_field
+                            ? self::options_from_field($this->family_teacher_field)
+                            : self::get_teacher_options();
+                        if (self::field_uses_choices($this->family_teacher_field) || !empty($modal_teacher_opts)) :
+                            ?>
+                            <select id="azure-pf-new-child-teacher">
+                                <option value=""><?php esc_html_e('-- Select teacher --', 'azure-plugin'); ?></option>
+                                <?php foreach ($modal_teacher_opts as $opt) : ?>
+                                    <option value="<?php echo esc_attr($opt); ?>"><?php echo esc_html($opt); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        <?php else : ?>
+                            <input type="text" id="azure-pf-new-child-teacher" placeholder="<?php esc_attr_e('e.g. Congdon', 'azure-plugin'); ?>" autocomplete="off" />
+                        <?php endif; ?>
                     </p>
                     <p class="azure-pf-modal-actions">
                         <button type="button" class="button azure-pf-cancel-child"><?php esc_html_e('Cancel', 'azure-plugin'); ?></button>
@@ -586,27 +698,65 @@ class Azure_Product_Fields_Module {
         echo '<label>' . esc_html__("Child's name", 'azure-plugin') . ' <span class="required">*</span></label>';
         echo '<input type="text" name="' . esc_attr($name_attr) . '" value="' . esc_attr($name) . '" class="azure-pf-child-name" autocomplete="off"' . ($locked ? ' readonly' : ' required') . ' />';
         echo '</p>';
-        echo '<p class="form-row azure-pf-field">';
-        echo '<label>' . esc_html__('Year', 'azure-plugin') . ' <span class="required">*</span></label>';
-        echo '<select name="' . esc_attr($grade_attr) . '" class="azure-pf-child-grade" required>';
-        echo '<option value="">' . esc_html__('-- Select year --', 'azure-plugin') . '</option>';
-        foreach (self::get_grade_options() as $opt) {
-            $selected = ((string) $opt === $grade) ? ' selected' : '';
-            echo '<option value="' . esc_attr($opt) . '"' . $selected . '>' . esc_html($opt) . '</option>';
-        }
-        if ($grade !== '' && !in_array($grade, self::get_grade_options(), true)) {
-            echo '<option value="' . esc_attr($grade) . '" selected>' . esc_html($grade) . '</option>';
-        }
-        echo '</select>';
-        echo '</p>';
-        echo '<p class="form-row azure-pf-field">';
-        echo '<label>' . esc_html__('Teacher', 'azure-plugin') . ' <span class="required">*</span></label>';
-        echo '<input type="text" name="' . esc_attr($teacher_attr) . '" value="' . esc_attr($teacher) . '" class="azure-pf-child-teacher" placeholder="' . esc_attr__('e.g. Congdon', 'azure-plugin') . '" autocomplete="off" required />';
-        echo '</p>';
+        $this->render_family_choice_field(
+            $grade_attr,
+            'azure-pf-child-grade',
+            $grade,
+            $this->family_grade_field,
+            __('Year', 'azure-plugin'),
+            self::get_grade_options()
+        );
+        $teacher_opts = $this->family_teacher_field
+            ? self::options_from_field($this->family_teacher_field)
+            : self::get_teacher_options();
+        $this->render_family_choice_field(
+            $teacher_attr,
+            'azure-pf-child-teacher',
+            $teacher,
+            $this->family_teacher_field,
+            __('Teacher', 'azure-plugin'),
+            $teacher_opts
+        );
         if ($removable) {
             echo '<button type="button" class="button-link azure-pf-remove-child">' . esc_html__('Remove', 'azure-plugin') . '</button>';
         }
         echo '</div>';
+    }
+
+    /**
+     * Select when the Child Info field is a dropdown (or has options);
+     * otherwise a text input so unmapped installs keep working.
+     *
+     * @param string      $name
+     * @param string      $class
+     * @param string      $value
+     * @param object|null $field
+     * @param string      $fallback_label
+     * @param string[]    $options
+     */
+    private function render_family_choice_field($name, $class, $value, $field, $fallback_label, $options) {
+        $label = ($field && !empty($field->label)) ? $field->label : $fallback_label;
+        $placeholder = ($field && !empty($field->placeholder)) ? $field->placeholder : '';
+        $use_select = self::field_uses_choices($field) || !empty($options);
+
+        echo '<p class="form-row azure-pf-field">';
+        echo '<label>' . esc_html($label) . ' <span class="required">*</span></label>';
+        if ($use_select) {
+            echo '<select name="' . esc_attr($name) . '" class="' . esc_attr($class) . '" required>';
+            echo '<option value="">' . esc_html($placeholder !== '' ? $placeholder : sprintf(__('-- Select %s --', 'azure-plugin'), strtolower($fallback_label))) . '</option>';
+            foreach ((array) $options as $opt) {
+                $selected = ((string) $opt === (string) $value) ? ' selected' : '';
+                echo '<option value="' . esc_attr($opt) . '"' . $selected . '>' . esc_html($opt) . '</option>';
+            }
+            if ($value !== '' && !in_array((string) $value, array_map('strval', (array) $options), true)) {
+                echo '<option value="' . esc_attr($value) . '" selected>' . esc_html($value) . '</option>';
+            }
+            echo '</select>';
+        } else {
+            $ph = $placeholder !== '' ? $placeholder : $fallback_label;
+            echo '<input type="text" name="' . esc_attr($name) . '" value="' . esc_attr($value) . '" class="' . esc_attr($class) . '" placeholder="' . esc_attr($ph) . '" autocomplete="off" required />';
+        }
+        echo '</p>';
     }
 
     private function render_single_field($field, $parent_defaults, $family_defaults = array()) {
@@ -1241,6 +1391,10 @@ class Azure_Product_Fields_Module {
 
         $teacher = isset($_POST['child_teacher']) ? sanitize_text_field(wp_unslash($_POST['child_teacher'])) : '';
         $teacher = trim($teacher);
+        $teacher_options = self::get_teacher_options();
+        if ($teacher !== '' && !empty($teacher_options) && !in_array($teacher, $teacher_options, true)) {
+            wp_send_json_error(array('message' => __('Please choose a valid teacher.', 'azure-plugin')), 400);
+        }
         if (function_exists('mb_strlen') ? mb_strlen($teacher) > 80 : strlen($teacher) > 80) {
             wp_send_json_error(array('message' => __('Teacher name is too long (max 80 characters).', 'azure-plugin')), 400);
         }

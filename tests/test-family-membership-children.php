@@ -62,4 +62,20 @@ $t->check(Azure_Product_Fields_Module::is_family_child_core_field($grade_field),
 $t->check(Azure_Product_Fields_Module::is_family_child_core_field($teacher_field), 'teacher is a roster field');
 $t->check(!Azure_Product_Fields_Module::is_family_child_core_field($optin_field), 'parent opt-in stays on the form');
 
+$teacher_select = (object) array(
+    'field_key'    => 'child_teacher',
+    'label'        => "Child's Teacher",
+    'scope'        => 'child',
+    'field_type'   => 'select',
+    'options_json' => wp_json_encode(array('Congdon', 'Lee', 'Patel')),
+);
+$t->equals(array('Congdon', 'Lee', 'Patel'), Azure_Product_Fields_Module::options_from_field($teacher_select), 'teacher options decode from product field');
+$t->check(Azure_Product_Fields_Module::field_uses_choices($teacher_select), 'mapped teacher select uses a dropdown');
+$t->check(!Azure_Product_Fields_Module::field_uses_choices((object) array('field_type' => 'text')), 'plain text teacher stays an input');
+
+$group = (object) array('fields' => array($name_field, $grade_field, $teacher_select, $optin_field));
+$found = Azure_Product_Fields_Module::find_core_field_in_groups(array($group), 'teacher');
+$t->check($found && $found->field_key === 'child_teacher', 'teacher field is found on the product group');
+$t->check(Azure_Product_Fields_Module::find_core_field_in_groups(array($group), 'grade')->field_key === 'childsgrade', 'grade field is found on the product group');
+
 exit($t->finish() === 0 ? 0 : 1);
