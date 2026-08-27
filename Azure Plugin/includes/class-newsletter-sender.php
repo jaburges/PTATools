@@ -104,9 +104,19 @@ class Azure_Newsletter_Sender {
         
         $args = wp_parse_args($args, $defaults);
         
-        // Add tracking pixel and click tracking if newsletter_id is set
-        if (!empty($args['newsletter_id']) && !empty($args['html'])) {
-            $args['html'] = $this->add_tracking($args['html'], $args['newsletter_id'], $args['to']);
+        // Footer merge tokens (view in browser / unsubscribe) must be
+        // replaced on every send, including Review & Test emails that
+        // have no newsletter_id. Tracking pixels stay gated on a real id.
+        if (!empty($args['html'])) {
+            if (!empty($args['newsletter_id'])) {
+                $args['html'] = $this->add_tracking($args['html'], $args['newsletter_id'], $args['to']);
+            } else {
+                $args['html'] = self::replace_footer_tokens(
+                    $args['html'],
+                    home_url('/'),
+                    rest_url('azure-plugin/v1/newsletter/unsubscribe/' . $this->generate_tracking_token(0, $args['to']))
+                );
+            }
         }
         
         // Choose sending method based on service type
@@ -525,24 +535,29 @@ class Azure_Newsletter_Sender {
             $html
         );
         
-        // Add view in browser link variable replacement
         $view_url = rest_url('azure-plugin/v1/newsletter/view/' . $this->get_newsletter_archive_token($newsletter_id));
-        // Replace both regular and URL-encoded versions of the placeholder
+        $unsubscribe_url = rest_url('azure-plugin/v1/newsletter/unsubscribe/' . $token);
+        return self::replace_footer_tokens($html, $view_url, $unsubscribe_url);
+    }
+
+    /**
+     * Replace View in browser / Unsubscribe merge tokens in email HTML.
+     * GrapesJS often URL-encodes {{tokens}} inside href attributes.
+     */
+    public static function replace_footer_tokens($html, $view_url, $unsubscribe_url) {
+        if (!is_string($html) || $html === '') {
+            return $html;
+        }
         $html = str_replace(
-            array('{{view_in_browser_url}}', '%7B%7Bview_in_browser_url%7D%7D', urlencode('{{view_in_browser_url}}')),
+            array('{{view_in_browser_url}}', '%7B%7Bview_in_browser_url%7D%7D', rawurlencode('{{view_in_browser_url}}')),
             $view_url,
             $html
         );
-        
-        // Add unsubscribe link variable replacement
-        $unsubscribe_url = rest_url('azure-plugin/v1/newsletter/unsubscribe/' . $token);
-        // Replace both regular and URL-encoded versions of the placeholder
         $html = str_replace(
-            array('{{unsubscribe_url}}', '%7B%7Bunsubscribe_url%7D%7D', urlencode('{{unsubscribe_url}}')),
+            array('{{unsubscribe_url}}', '%7B%7Bunsubscribe_url%7D%7D', rawurlencode('{{unsubscribe_url}}')),
             $unsubscribe_url,
             $html
         );
-        
         return $html;
     }
     

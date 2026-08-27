@@ -751,6 +751,7 @@ class Azure_Newsletter_Ajax {
         $email = sanitize_email($_POST['email'] ?? '');
         $html = $this->sanitize_email_html($_POST['html'] ?? '');
         $subject = sanitize_text_field($_POST['subject'] ?? 'Test Newsletter');
+        $newsletter_id = intval($_POST['newsletter_id'] ?? 0);
         
         // Parse from field
         $from_parts = explode('|', sanitize_text_field($_POST['from'] ?? ''));
@@ -779,7 +780,8 @@ class Azure_Newsletter_Ajax {
             'from' => $from_email,
             'from_name' => $from_name,
             'subject' => '[TEST] ' . $subject,
-            'html' => $html
+            'html' => $html,
+            'newsletter_id' => $newsletter_id
         ));
         
         if ($result['success']) {

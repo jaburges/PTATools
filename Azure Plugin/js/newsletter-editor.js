@@ -1530,7 +1530,8 @@
                         {
                             type: 'text',
                             label: 'Image URL',
-                            name: 'src'
+                            name: 'src',
+                            changeProp: 1
                         },
                         {
                             type: 'text',
@@ -2173,6 +2174,7 @@
         }
 
         openMediaLibrary._currentTarget = props && props.target ? props.target : null;
+        openMediaLibrary._select = props && typeof props.select === 'function' ? props.select : null;
 
         // Always create a fresh frame to avoid stale state issues
         try {
@@ -2202,12 +2204,13 @@
                 name: attachment.filename
             });
 
-            // CRITICAL: We must update the GrapesJS *component model* (not
-            // just the DOM element). editor.getHtml() serializes from the
-            // model, so a DOM-only update would be invisible at save /
-            // review time and the original placeholder URL would silently
-            // come back when advancing to step 3. If the user clicked a
-            // wrapping <td>/<table>/<a> instead of the <img>, locate the
+            // CRITICAL: GrapesJS image components store the URL as a model
+            // *property* named src. getHtml() (Review & Test, save, send)
+            // reads that property and overwrites attributes.src. Updating
+            // only addAttributes() or the canvas <img> leaves the original
+            // placeholder (e.g. placehold.co "Feature Image") in the
+            // exported HTML. set('src') is the official API.
+            // If the user clicked a wrapping <td>/<table>/<a>, locate the
             // first descendant image component and update it instead.
             var imgComponent = component;
             if (imgComponent.get('tagName') !== 'img') {
@@ -2232,11 +2235,23 @@
                 if (found) imgComponent = found;
             }
 
+            imgComponent.set('src', attachment.url);
             var attrs = { src: attachment.url };
             if (attachment.alt) {
                 attrs.alt = attachment.alt;
             }
             imgComponent.addAttributes(attrs);
+
+            if (typeof openMediaLibrary._select === 'function') {
+                try {
+                    openMediaLibrary._select({
+                        getSrc: function() { return attachment.url; },
+                        src: attachment.url
+                    }, true);
+                } catch (err) {
+                    console.warn('Asset select callback failed; src already set on the component.', err);
+                }
+            }
 
             // Best-effort DOM sync for instant visual feedback. The model
             // update above is what actually persists; this just avoids a
@@ -2885,7 +2900,8 @@
             email: email,
             html: htmlContent,
             subject: $('#newsletter_subject').val(),
-            from: $('#newsletter_from').val()
+            from: $('#newsletter_from').val(),
+            newsletter_id: $('#newsletter_id').val() || 0
         }, function(response) {
             btn.prop('disabled', false).text('Send Test');
             var result = $('#test-send-result').show();
