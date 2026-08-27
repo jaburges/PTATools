@@ -20,6 +20,35 @@ class Azure_Newsletter_Module {
         }
         return self::$instance;
     }
+
+    /**
+     * Build a draft row from a campaign for Duplicate.
+     *
+     * Copies design, sender, and recipient list checkboxes. Clears send
+     * history fields so the copy can be queued to the same people. Drops
+     * archive_token — reusing it hits a UNIQUE key and the insert fails
+     * silently.
+     *
+     * @param array $original Row from azure_newsletters (ARRAY_A).
+     * @return array Insert-ready row (no id).
+     */
+    public static function prepare_duplicate_campaign(array $original) {
+        unset($original['id']);
+
+        $name = isset($original['name']) ? trim((string) $original['name']) : '';
+        $original['name'] = ($name === '') ? 'Untitled - copy' : $name . ' - copy';
+        $original['status'] = 'draft';
+        $original['created_at'] = function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s');
+        if (array_key_exists('updated_at', $original)) {
+            $original['updated_at'] = $original['created_at'];
+        }
+
+        // Omit these so MySQL stores NULL. Empty-string archive_token
+        // still collides with UNIQUE KEY archive_token.
+        unset($original['sent_at'], $original['scheduled_at'], $original['archive_token'], $original['wp_page_id']);
+
+        return $original;
+    }
     
     private function __construct() {
         // Initialize hooks

@@ -31,14 +31,13 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
     } elseif ($action === 'duplicate' && wp_verify_nonce($_GET['_wpnonce'] ?? '', 'duplicate_' . $id)) {
         $original = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$newsletters_table} WHERE id = %d", $id), ARRAY_A);
         if ($original) {
-            unset($original['id']);
-            $original['name'] = $original['name'] . ' (Copy)';
-            $original['status'] = 'draft';
-            $original['created_at'] = current_time('mysql');
-            $original['sent_at'] = null;
-            $original['scheduled_at'] = null;
-            $wpdb->insert($newsletters_table, $original);
-            echo '<div class="notice notice-success is-dismissible"><p>' . __('Campaign duplicated.', 'azure-plugin') . '</p></div>';
+            $copy = Azure_Newsletter_Module::prepare_duplicate_campaign($original);
+            $inserted = $wpdb->insert($newsletters_table, $copy);
+            if ($inserted) {
+                echo '<div class="notice notice-success is-dismissible"><p>' . __('Campaign duplicated.', 'azure-plugin') . '</p></div>';
+            } else {
+                echo '<div class="notice notice-error is-dismissible"><p>' . __('Could not duplicate this campaign.', 'azure-plugin') . '</p></div>';
+            }
         }
     }
 }
@@ -58,17 +57,21 @@ if (isset($_POST['action']) && isset($_POST['newsletter_ids'])) {
                 echo '<div class="notice notice-success"><p>' . __('Selected campaigns deleted.', 'azure-plugin') . '</p></div>';
                 break;
             case 'duplicate':
+                $duplicated = 0;
                 foreach ($ids as $id) {
                     $original = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$newsletters_table} WHERE id = %d", $id), ARRAY_A);
                     if ($original) {
-                        unset($original['id']);
-                        $original['name'] = $original['name'] . ' (Copy)';
-                        $original['status'] = 'draft';
-                        $original['created_at'] = current_time('mysql');
-                        $wpdb->insert($newsletters_table, $original);
+                        $copy = Azure_Newsletter_Module::prepare_duplicate_campaign($original);
+                        if ($wpdb->insert($newsletters_table, $copy)) {
+                            $duplicated++;
+                        }
                     }
                 }
-                echo '<div class="notice notice-success"><p>' . __('Selected campaigns duplicated.', 'azure-plugin') . '</p></div>';
+                if ($duplicated > 0) {
+                    echo '<div class="notice notice-success"><p>' . __('Selected campaigns duplicated.', 'azure-plugin') . '</p></div>';
+                } else {
+                    echo '<div class="notice notice-error"><p>' . __('Could not duplicate the selected campaigns.', 'azure-plugin') . '</p></div>';
+                }
                 break;
         }
     }
