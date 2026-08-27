@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.32
+ * Version: 3.147.33
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.32');
+define('AZURE_PLUGIN_VERSION', '3.147.33');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -333,6 +333,32 @@ function pta_load_ptsa_rest_api() {
         $api = new Azure_PTSA_REST_API();
         if (method_exists($api, 'register_routes')) {
             $api->register_routes();
+        }
+    }
+}
+
+/**
+ * Newsletter click/open/view/unsubscribe + Mailgun webhook routes.
+ *
+ * Azure_Newsletter_Module is skipped on front-end pageloads. During plugin
+ * init() WordPress has not defined REST_REQUEST yet, so the is_rest gate
+ * also skipped real /wp-json/ requests and left those routes as
+ * rest_no_route. Load them here — rest_api_init only fires on REST.
+ */
+function pta_load_newsletter_rest() {
+    $path = AZURE_PLUGIN_PATH . 'includes/class-newsletter-module.php';
+    if (file_exists($path)) {
+        require_once $path;
+    }
+    if (class_exists('Azure_Newsletter_Module')) {
+        $module = Azure_Newsletter_Module::get_instance();
+        // init() already ran before rest_api_init, so the constructor's
+        // add_action('init') missed this request. Load tracking/lists now.
+        if (method_exists($module, 'init')) {
+            $module->init();
+        }
+        if (method_exists($module, 'register_rest_routes')) {
+            $module->register_rest_routes();
         }
     }
 }
@@ -950,6 +976,12 @@ class AzurePlugin {
             if (!empty($settings['enable_newsletter'])) {
                 PTA_Trace::module('newsletter');
                 $this->init_newsletter_components($ctx);
+                // REST_REQUEST is still unset during init(), so the
+                // is_rest gate in init_newsletter_components() misses
+                // /wp-json/ clicks. Hook the loader on rest_api_init.
+                if (!has_action('rest_api_init', 'pta_load_newsletter_rest')) {
+                    add_action('rest_api_init', 'pta_load_newsletter_rest');
+                }
             }
 
             if (!empty($settings['enable_auction'])) {
@@ -1591,8 +1623,10 @@ class AzurePlugin {
     }
 
     /**
-     * Newsletter module: REST webhooks + cron + admin dashboard.
-     * No public-facing shortcodes — front-end pageloads can skip it entirely.
+     * Newsletter module: cron + admin dashboard. Public REST routes are
+     * registered by pta_load_newsletter_rest() — REST_REQUEST is unset
+     * during init(), so this gate cannot see /wp-json/ click requests.
+     * No public-facing shortcodes — front-end pageloads can skip it.
      */
     private function init_newsletter_components($ctx) {
         if (!$ctx['is_backend'] && !$ctx['is_rest']) {

@@ -457,6 +457,13 @@ class Azure_Newsletter_Queue {
     }
     
     /**
+     * Failed rows (3 attempts) are retried only after pending is empty.
+     */
+    public static function should_reclaim_failed($pending_count, $failed_count) {
+        return (int) $pending_count === 0 && (int) $failed_count > 0;
+    }
+
+    /**
      * Process a batch of queued emails
      * 
      * @return array Result with sent/failed counts
@@ -465,8 +472,9 @@ class Azure_Newsletter_Queue {
         global $wpdb;
         
         $settings = Azure_Settings::get_all_settings();
-        $batch_size = $settings['newsletter_batch_size'] ?? 100;
-        $rate_limit = $settings['newsletter_rate_limit_per_hour'] ?? 1000;
+        // 300 / 5 minutes needs a ceiling above the old 1000/hour default.
+        $batch_size = max(300, intval($settings['newsletter_batch_size'] ?? 300));
+        $rate_limit = max(10000, intval($settings['newsletter_rate_limit_per_hour'] ?? 10000));
         
         // Check rate limit
         $sent_this_hour = $this->get_sent_this_hour();
@@ -494,7 +502,31 @@ class Azure_Newsletter_Queue {
         ));
         
         if (empty($pending)) {
-            return array('sent' => 0, 'failed' => 0, 'total' => 0);
+            $failed_count = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$this->table} WHERE status = 'failed'"
+            );
+            if (self::should_reclaim_failed(0, $failed_count)) {
+                $wpdb->query(
+                    "UPDATE {$this->table}
+                     SET status = 'pending', attempts = 0
+                     WHERE status = 'failed'"
+                );
+                $pending = $wpdb->get_results($wpdb->prepare(
+                    "SELECT q.*, n.subject, n.from_name, n.from_email, n.content_html
+                     FROM {$this->table} q
+                     JOIN {$this->newsletters_table} n ON q.newsletter_id = n.id
+                     WHERE q.status = 'pending'
+                     AND q.scheduled_at <= %s
+                     AND q.attempts < 3
+                     ORDER BY q.scheduled_at ASC
+                     LIMIT %d",
+                    current_time('mysql'),
+                    $batch_size
+                ));
+            }
+            if (empty($pending)) {
+                return array('sent' => 0, 'failed' => 0, 'total' => 0);
+            }
         }
         
         // Ensure sender class is loaded

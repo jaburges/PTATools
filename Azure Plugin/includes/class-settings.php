@@ -422,8 +422,8 @@ class Azure_Settings {
             
             // Newsletter specific settings
             'newsletter_sending_service' => 'mailgun',
-            'newsletter_batch_size' => 100,
-            'newsletter_rate_limit_per_hour' => 1000,
+            'newsletter_batch_size' => 300,
+            'newsletter_rate_limit_per_hour' => 10000,
             'newsletter_from_addresses' => array(),
             'newsletter_bounce_mailbox' => '',
             'newsletter_bounce_enabled' => false,

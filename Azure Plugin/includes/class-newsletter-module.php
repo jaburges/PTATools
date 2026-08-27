@@ -602,16 +602,94 @@ class Azure_Newsletter_Module {
     }
     
     /**
+     * Stable HMAC key for click destinations.
+     *
+     * wp_salt('nonce') is regenerated on every Container Apps revision
+     * (wp-config.php is not on a persistent volume), which invalidated
+     * every inbox link after a deploy. This option lives in MySQL.
+     */
+    public static function click_signing_key() {
+        $stored = get_option('azure_newsletter_click_key');
+        if (is_string($stored) && strlen($stored) >= 32) {
+            return $stored;
+        }
+        $generated = function_exists('wp_generate_password')
+            ? wp_generate_password(64, true, true)
+            : bin2hex(random_bytes(32));
+        update_option('azure_newsletter_click_key', $generated);
+        return $generated;
+    }
+
+    /**
      * Signature proving a click-tracking destination came from one of our sends.
      *
-     * Click tracking has to be able to redirect off-site — that's the point —
-     * so the destination can't be restricted by host. Instead the sender signs
-     * each URL and this route refuses anything unsigned, which stops the
-     * endpoint from being used as a general-purpose redirector for phishing
-     * under this domain's name.
+     * Off-site redirects stay HMAC-gated so this route cannot be used as a
+     * general-purpose redirector for phishing under this domain's name.
      */
     public static function click_signature($url) {
-        return hash_hmac('sha256', (string) $url, wp_salt('nonce'));
+        return hash_hmac('sha256', (string) $url, self::click_signing_key());
+    }
+
+    /**
+     * True when $sig matches the current key or the revision-local nonce salt
+     * (emails sent before the MySQL key existed).
+     */
+    public static function click_signature_matches($url, $sig) {
+        if (!is_string($sig) || $sig === '') {
+            return false;
+        }
+        $url = (string) $url;
+        $keys = array(self::click_signing_key());
+        if (function_exists('wp_salt')) {
+            $keys[] = wp_salt('nonce');
+        }
+        foreach ($keys as $key) {
+            if (hash_equals(hash_hmac('sha256', $url, $key), $sig)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Same-site HTTPS only. Used when an inbox HMAC was signed with a
+     * wp_salt that died on the last revision. Not an off-site open redirect:
+     * wp_validate_redirect confines the host to home_url().
+     */
+    public static function is_same_site_https_url($url) {
+        $url = function_exists('esc_url_raw') ? esc_url_raw((string) $url) : trim((string) $url);
+        if ($url === '') {
+            return false;
+        }
+        $parts = function_exists('wp_parse_url') ? wp_parse_url($url) : parse_url($url);
+        if (!is_array($parts) || empty($parts['host']) || empty($parts['scheme'])) {
+            return false;
+        }
+        if (strtolower((string) $parts['scheme']) !== 'https') {
+            return false;
+        }
+        if (!empty($parts['user']) || !empty($parts['pass'])) {
+            return false;
+        }
+        if (!function_exists('wp_validate_redirect')) {
+            return false;
+        }
+        $validated = wp_validate_redirect($url, '');
+        return is_string($validated) && $validated !== '';
+    }
+
+    /**
+     * Off-site: valid HMAC required. Same-site HTTPS: HMAC or allow-list.
+     */
+    public static function click_redirect_allowed($url, $sig) {
+        $url = (string) $url;
+        if ($url === '') {
+            return false;
+        }
+        if (self::click_signature_matches($url, $sig)) {
+            return true;
+        }
+        return self::is_same_site_https_url($url);
     }
 
     /**
@@ -626,7 +704,7 @@ class Azure_Newsletter_Module {
             return new WP_REST_Response('Invalid URL', 400);
         }
 
-        if ($sig === '' || !hash_equals(self::click_signature($url), $sig)) {
+        if (!self::click_redirect_allowed($url, $sig)) {
             return new WP_REST_Response('Refusing to redirect: missing or invalid signature', 400);
         }
 
