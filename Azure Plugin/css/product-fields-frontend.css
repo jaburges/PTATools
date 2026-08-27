@@ -93,6 +93,62 @@
     cursor: pointer;
 }
 
+/* ── Family membership roster ─────────────────────────────── */
+
+.azure-pf-family-children {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+.azure-pf-family-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.azure-pf-family-heading-row label {
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+}
+
+.azure-pf-family-help {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #646970;
+}
+
+.azure-pf-child-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.azure-pf-child-card {
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: #fafafa;
+}
+
+.azure-pf-child-card .azure-pf-field {
+    margin-bottom: 8px;
+}
+
+.azure-pf-child-card .azure-pf-field:last-of-type {
+    margin-bottom: 0;
+}
+
+.azure-pf-remove-child {
+    margin-top: 8px;
+    padding: 0;
+    color: #b32d2e;
+    cursor: pointer;
+}
+
 /* ── Quick-add child modal ────────────────────────────────── */
 
 .azure-pf-modal {

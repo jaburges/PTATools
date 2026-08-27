@@ -88,6 +88,24 @@ class Azure_Membership_Module {
         return self::normalize_id_list(Azure_Settings::get_setting(self::OPTION_FAMILY, array()));
     }
 
+    /**
+     * True when this WooCommerce product (or its parent) is configured as
+     * the Family PTSA membership item.
+     *
+     * @param int $product_id
+     * @param int $parent_id
+     * @return bool
+     */
+    public static function product_is_family($product_id, $parent_id = 0) {
+        $ids = array_flip(self::get_family_product_ids());
+        $product_id = (int) $product_id;
+        $parent_id = (int) $parent_id;
+        if ($product_id > 0 && isset($ids[$product_id])) {
+            return true;
+        }
+        return $parent_id > 0 && isset($ids[$parent_id]);
+    }
+
     public static function get_individual_product_ids() {
         return self::normalize_id_list(Azure_Settings::get_setting(self::OPTION_INDIVIDUAL, array()));
     }

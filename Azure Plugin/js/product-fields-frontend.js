@@ -1,12 +1,14 @@
 /**
- * Product Fields – child profile auto-population.
+ * Product Fields – child profile auto-population and family roster.
  *
  * When a logged-in user selects a child from the dropdown, swap each
  * child-scope field's value for that child's stored profile data. Lookup is
  * keyed by `data-field-key` (stable slug), with a label-based fallback so
  * legacy installs still hydrate from old label-keyed meta.
  *
- * Parent-scope fields are pre-filled server-side and ignored by the swap.
+ * Family PTSA membership uses a multi-child roster instead of the dropdown.
+ * Logged-in + Child still saves to the profile via AJAX, then appends a card.
+ * Guests append a blank name / year / teacher card.
  *
  * Parent- and family-scope fields are pre-filled server-side and ignored by
  * the swap (family-scope is shared between co-parents, not per-child).
@@ -15,17 +17,19 @@
  *   window.azurePtaProductFields = {
  *     children: { <child_id>: { name, fields: { <field_key>: value, ... } } },
  *     parent:   { <field_key>: value },
- *     family:   { <field_key>: value }
+ *     family:   { <field_key>: value },
+ *     family_children_mode: bool
  *   }
  */
 jQuery(function ($) {
-    var $selector = $('#azure-pf-select-child');
-    if (!$selector.length || typeof window.azurePtaProductFields === 'undefined') {
-        return;
-    }
-
     var data = window.azurePtaProductFields || {};
     var children = data.children || {};
+    var familyMode = !!data.family_children_mode || $('#azure-pf-family-children').length > 0;
+    var $selector = $('#azure-pf-select-child');
+
+    if (!familyMode && !$selector.length && typeof window.azurePtaProductFields === 'undefined') {
+        return;
+    }
 
     $selector.on('change', function () {
         var childId = parseInt($(this).val(), 10);
@@ -124,6 +128,59 @@ jQuery(function ($) {
         });
     }
 
+    // ─── Family roster cards ──────────────────────────────────────────
+
+    var $familyList = $('#azure-pf-child-list');
+    var $cardTemplate = $('#azure-pf-child-card-template');
+    var nextFamilyIndex = $familyList.length ? $familyList.find('.azure-pf-child-card').length : 0;
+
+    function nextCardIndex() {
+        var index = nextFamilyIndex;
+        nextFamilyIndex += 1;
+        return index;
+    }
+
+    function appendFamilyCard(values) {
+        if (!$familyList.length || !$cardTemplate.length) {
+            return;
+        }
+        var html = $cardTemplate.html();
+        if (!html) {
+            return;
+        }
+        var index = nextCardIndex();
+        html = html.split('__INDEX__').join(String(index));
+        var $card = $(html);
+        if (values) {
+            if (values.id) {
+                $card.find('.azure-pf-child-id').val(values.id);
+            }
+            if (values.name) {
+                $card.find('.azure-pf-child-name').val(values.name);
+                if (values.locked) {
+                    $card.find('.azure-pf-child-name').prop('readonly', true);
+                }
+            }
+            if (values.grade) {
+                var $grade = $card.find('.azure-pf-child-grade');
+                if (values.grade && $grade.find('option[value="' + values.grade + '"]').length === 0) {
+                    $grade.append($('<option/>').val(values.grade).text(values.grade));
+                }
+                $grade.val(values.grade);
+            }
+            if (values.teacher) {
+                $card.find('.azure-pf-child-teacher').val(values.teacher);
+            }
+        }
+        $familyList.append($card);
+        $card.find('.azure-pf-child-name').trigger('focus');
+    }
+
+    $familyList.on('click', '.azure-pf-remove-child', function (e) {
+        e.preventDefault();
+        $(this).closest('.azure-pf-child-card').remove();
+    });
+
     // ─── Quick-add child modal ────────────────────────────────────────
     //
     // Opens when the "+ Child" button next to the dropdown is clicked.
@@ -139,6 +196,7 @@ jQuery(function ($) {
     var $newTeacher = $('#azure-pf-new-child-teacher');
     var $error      = $('#azure-pf-add-child-error');
     var ajaxCfg     = (data && data.ajax) ? data.ajax : null;
+    var requireDetails = !!data.require_child_details || familyMode;
 
     function showModal() {
         $error.hide().text('');
@@ -155,11 +213,24 @@ jQuery(function ($) {
         $error.text(msg).show();
     }
 
-    if ($addBtn.length && $modal.length && ajaxCfg) {
+    if ($addBtn.length) {
         $addBtn.on('click', function (e) {
             e.preventDefault();
-            showModal();
+            if (familyMode && !ajaxCfg) {
+                appendFamilyCard(null);
+                return;
+            }
+            if ($modal.length && ajaxCfg) {
+                showModal();
+                return;
+            }
+            if (familyMode) {
+                appendFamilyCard(null);
+            }
         });
+    }
+
+    if ($addBtn.length && $modal.length && ajaxCfg) {
         $modal.on('click', '.azure-pf-modal-backdrop, .azure-pf-cancel-child', function () {
             hideModal();
         });
@@ -180,27 +251,53 @@ jQuery(function ($) {
                 $newName.trigger('focus');
                 return;
             }
+            var grade = $newGrade.val() || '';
+            var teacher = ($newTeacher.val() || '').trim();
+            if (requireDetails && !grade) {
+                showError('Please choose a year.');
+                $newGrade.trigger('focus');
+                return;
+            }
+            if (requireDetails && !teacher) {
+                showError('Please enter a teacher.');
+                $newTeacher.trigger('focus');
+                return;
+            }
             var $btn = $(this).prop('disabled', true).text('Saving…');
             $error.hide();
             $.post(ajaxCfg.url, {
                 action: 'azure_pf_quick_add_child',
                 nonce: ajaxCfg.nonce_quick_add,
                 child_name: name,
-                child_grade: $newGrade.val() || '',
-                child_teacher: ($newTeacher.val() || '').trim()
+                child_grade: grade,
+                child_teacher: teacher
             }, function (resp) {
                 $btn.prop('disabled', false).text('Add child');
                 if (resp && resp.success && resp.data && resp.data.id) {
                     var id = parseInt(resp.data.id, 10);
                     var label = resp.data.name || name;
-                    // Append + auto-select, then trigger change so the
-                    // existing populateChildFields path fills in the grade
-                    // and teacher we just saved.
-                    if (!$selector.find('option[value="' + id + '"]').length) {
-                        $selector.append($('<option/>').val(id).text(label));
+                    var fields = resp.data.fields || {};
+                    children[id] = { name: label, fields: fields };
+                    if (familyMode) {
+                        var gradeKey = Object.keys(fields).filter(function (k) {
+                            return k.indexOf('grade') !== -1;
+                        })[0];
+                        var teacherKey = Object.keys(fields).filter(function (k) {
+                            return k.indexOf('teacher') !== -1;
+                        })[0];
+                        appendFamilyCard({
+                            id: id,
+                            name: label,
+                            grade: gradeKey ? fields[gradeKey] : grade,
+                            teacher: teacherKey ? fields[teacherKey] : teacher,
+                            locked: true
+                        });
+                    } else if ($selector.length) {
+                        if (!$selector.find('option[value="' + id + '"]').length) {
+                            $selector.append($('<option/>').val(id).text(label));
+                        }
+                        $selector.val(id).trigger('change');
                     }
-                    children[id] = { name: label, fields: resp.data.fields || {} };
-                    $selector.val(id).trigger('change');
                     hideModal();
                 } else {
                     showError((resp && resp.data && resp.data.message) ? resp.data.message : 'Could not add child.');

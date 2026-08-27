@@ -88,6 +88,13 @@ class Azure_Product_Fields_Module {
      */
     private $child_selector_rendered = false;
 
+    /**
+     * True when this product page is Family PTSA membership (multi-child roster).
+     *
+     * @var bool
+     */
+    private $family_children_mode = false;
+
     // ─── Helpers ───────────────────────────────────────────────────────
 
     /**
@@ -257,10 +264,115 @@ class Azure_Product_Fields_Module {
         }
 
         if (empty($options)) {
-            $options = array('K', '1', '2', '3', '4', '5');
+            $options = array('PreK', 'K', '1', '2', '3', '4', '5');
         }
 
         return apply_filters('azure_pf_grade_options', $options);
+    }
+
+    /**
+     * Family PTSA membership uses a multi-child roster instead of the
+     * single-child dropdown.
+     */
+    public static function is_family_membership_product($product_id) {
+        $product_id = (int) $product_id;
+        $parent_id = 0;
+        $name = '';
+        if (function_exists('wc_get_product')) {
+            $product = wc_get_product($product_id);
+            if ($product) {
+                $parent_id = (int) $product->get_parent_id();
+                $name = strtolower((string) $product->get_name());
+                if ($name === '' && $parent_id > 0) {
+                    $parent = wc_get_product($parent_id);
+                    if ($parent) {
+                        $name = strtolower((string) $parent->get_name());
+                    }
+                }
+            }
+        }
+        if (class_exists('Azure_Membership_Module') && Azure_Membership_Module::product_is_family($product_id, $parent_id)) {
+            return true;
+        }
+        return $name !== ''
+            && strpos($name, 'family') !== false
+            && (strpos($name, 'membership') !== false || strpos($name, 'ptsa') !== false || strpos($name, 'pta ') !== false);
+    }
+
+    /**
+     * Child's Name / year / teacher — collected per child on family membership.
+     */
+    public static function is_family_child_core_field($field) {
+        if (self::is_child_name_field($field)) {
+            return true;
+        }
+        $scope = !empty($field->scope) ? $field->scope : 'child';
+        if ($scope !== 'child') {
+            return false;
+        }
+        $haystack = strtolower((isset($field->field_key) ? $field->field_key : '') . ' ' . (isset($field->label) ? $field->label : ''));
+        return strpos($haystack, 'grade') !== false
+            || strpos($haystack, 'teacher') !== false
+            || preg_match('/\byear\b/', $haystack);
+    }
+
+    /**
+     * @param array $children Azure_User_Children rows
+     * @return array
+     */
+    public static function filter_family_membership_children($children) {
+        $out = array();
+        if (empty($children) || !class_exists('Azure_User_Children')) {
+            return $out;
+        }
+        foreach ($children as $child) {
+            if (empty($child->id)) {
+                continue;
+            }
+            $meta = Azure_User_Children::get_child_meta($child->id);
+            if (Azure_User_Children::include_on_family_membership($meta)) {
+                $out[] = $child;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Normalize posted or stored family-membership child rows.
+     *
+     * @param mixed $raw
+     * @return array<int, array{id:int,name:string,grade:string,teacher:string}>
+     */
+    public static function sanitize_family_children($raw) {
+        if (!is_array($raw)) {
+            return array();
+        }
+        $out = array();
+        $seen = array();
+        foreach ($raw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $id = isset($row['id']) ? (int) $row['id'] : 0;
+            $name = isset($row['name']) ? trim(sanitize_text_field($row['name'])) : '';
+            $grade = isset($row['grade']) ? trim(sanitize_text_field($row['grade'])) : '';
+            $teacher = isset($row['teacher']) ? trim(sanitize_text_field($row['teacher'])) : '';
+            if ($id <= 0 && $name === '' && $grade === '' && $teacher === '') {
+                continue;
+            }
+            $key = $id > 0 ? 'id:' . $id : 'name:' . strtolower($name);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = array(
+                'id'      => $id,
+                'name'    => $name,
+                'grade'   => $grade,
+                'teacher' => $teacher,
+            );
+        }
+        return $out;
     }
 
     // ─── Frontend: render fields ───────────────────────────────────────
@@ -277,12 +389,16 @@ class Azure_Product_Fields_Module {
         }
 
         $user_id = get_current_user_id();
+        $this->family_children_mode = self::is_family_membership_product($product->get_id());
         $children = array();
         $family   = null;
         if ($user_id && class_exists('Azure_User_Children')) {
             $children = Azure_User_Children::get_children_for_user($user_id);
             $family   = Azure_User_Children::get_family_for_user($user_id);
         }
+        $family_children = $this->family_children_mode
+            ? self::filter_family_membership_children($children)
+            : $children;
 
         // Defaults map: parent-scope is current user's saved meta. Child-scope
         // values live under the child id and are swapped in via JS when the
@@ -294,12 +410,15 @@ class Azure_Product_Fields_Module {
 
         echo '<div class="azure-product-fields">';
 
-        // Child picker — always rendered for logged-in parents so the
-        // "Child's Name" input is *always* a dropdown choice (not free
-        // text). Guests still fall through to the regular text-field
-        // renderer at the bottom because they have no family/children
-        // to bind a dropdown to.
-        if ($user_id) {
+        if ($this->family_children_mode) {
+            $this->child_selector_rendered = true;
+            $this->render_family_children_block($user_id, $family_children);
+        } elseif ($user_id) {
+            // Child picker — always rendered for logged-in parents so the
+            // "Child's Name" input is *always* a dropdown choice (not free
+            // text). Guests still fall through to the regular text-field
+            // renderer at the bottom because they have no family/children
+            // to bind a dropdown to.
             $this->child_selector_rendered = true;
             echo '<div class="azure-pf-child-selector">';
             echo '<label for="azure-pf-select-child">' . esc_html__("Child's Name", 'azure-plugin') . ' <span class="required">*</span></label>';
@@ -325,7 +444,9 @@ class Azure_Product_Fields_Module {
                 'url'             => admin_url('admin-ajax.php'),
                 'nonce_quick_add' => wp_create_nonce('azure_pf_quick_add_child'),
             ),
-            'is_user_logged_in' => $user_id > 0,
+            'is_user_logged_in'     => $user_id > 0,
+            'family_children_mode'  => $this->family_children_mode,
+            'require_child_details' => $this->family_children_mode,
         )) . ';</script>';
 
         foreach ($groups as $group) {
@@ -343,8 +464,8 @@ class Azure_Product_Fields_Module {
         }
 
         // Quick-add child modal. Hidden by default, opened by the
-        // "+ Child" button in the selector row. Only emitted for
-        // logged-in users (guests have no profile to attach to).
+        // "+ Child" button. Logged-in users save to their profile.
+        // Guests on family membership add a card in JS instead.
         if ($user_id) {
             ?>
             <div id="azure-pf-add-child-modal" class="azure-pf-modal" style="display:none;" aria-hidden="true">
@@ -381,7 +502,119 @@ class Azure_Product_Fields_Module {
         echo '</div>';
     }
 
+    /**
+     * Roster of children on Family PTSA membership: auto-include PreK–5
+     * for logged-in parents; guests start with one blank card.
+     *
+     * @param int   $user_id
+     * @param array $children
+     */
+    private function render_family_children_block($user_id, $children) {
+        $help = $user_id
+            ? __('Every PreK–5 child in your family is included. Use + Child to add another.', 'azure-plugin')
+            : __('Add each child with their year and teacher.', 'azure-plugin');
+
+        echo '<div class="azure-pf-family-children" id="azure-pf-family-children">';
+        echo '<div class="azure-pf-family-heading-row">';
+        echo '<label>' . esc_html__('Children', 'azure-plugin') . ' <span class="required">*</span></label>';
+        echo '<button type="button" class="button azure-pf-add-child-btn" id="azure-pf-add-child" aria-label="' . esc_attr__('Add a child', 'azure-plugin') . '">+ ' . esc_html__('Child', 'azure-plugin') . '</button>';
+        echo '</div>';
+        echo '<p class="azure-pf-family-help">' . esc_html($help) . '</p>';
+        echo '<div class="azure-pf-child-list" id="azure-pf-child-list">';
+
+        $index = 0;
+        if ($user_id) {
+            foreach ($children as $child) {
+                $meta = class_exists('Azure_User_Children')
+                    ? Azure_User_Children::get_child_meta($child->id)
+                    : array();
+                $this->render_family_child_card($index, array(
+                    'id'         => (int) $child->id,
+                    'name'       => $child->child_name,
+                    'grade'      => class_exists('Azure_User_Children') ? Azure_User_Children::grade_from_meta($meta) : '',
+                    'teacher'    => class_exists('Azure_User_Children') ? Azure_User_Children::teacher_from_meta($meta) : '',
+                    'locked'     => true,
+                    'removable'  => false,
+                ));
+                $index++;
+            }
+        } else {
+            $this->render_family_child_card($index, array(
+                'id'        => 0,
+                'name'      => '',
+                'grade'     => '',
+                'teacher'   => '',
+                'locked'    => false,
+                'removable' => false,
+            ));
+            $index++;
+        }
+
+        echo '</div>';
+        echo '<template id="azure-pf-child-card-template">';
+        $this->render_family_child_card('__INDEX__', array(
+            'id'        => 0,
+            'name'      => '',
+            'grade'     => '',
+            'teacher'   => '',
+            'locked'    => false,
+            'removable' => true,
+        ));
+        echo '</template>';
+        echo '</div>';
+    }
+
+    /**
+     * @param int|string $index
+     * @param array      $data
+     */
+    private function render_family_child_card($index, $data) {
+        $id = isset($data['id']) ? (int) $data['id'] : 0;
+        $name = isset($data['name']) ? (string) $data['name'] : '';
+        $grade = isset($data['grade']) ? (string) $data['grade'] : '';
+        $teacher = isset($data['teacher']) ? (string) $data['teacher'] : '';
+        $locked = !empty($data['locked']);
+        $removable = !empty($data['removable']);
+        $name_attr = 'azure_pf_children[' . $index . '][name]';
+        $grade_attr = 'azure_pf_children[' . $index . '][grade]';
+        $teacher_attr = 'azure_pf_children[' . $index . '][teacher]';
+        $id_attr = 'azure_pf_children[' . $index . '][id]';
+
+        echo '<div class="azure-pf-child-card"' . ($removable ? ' data-removable="1"' : '') . '>';
+        echo '<input type="hidden" name="' . esc_attr($id_attr) . '" value="' . esc_attr((string) $id) . '" class="azure-pf-child-id" />';
+        echo '<p class="form-row azure-pf-field">';
+        echo '<label>' . esc_html__("Child's name", 'azure-plugin') . ' <span class="required">*</span></label>';
+        echo '<input type="text" name="' . esc_attr($name_attr) . '" value="' . esc_attr($name) . '" class="azure-pf-child-name" autocomplete="off"' . ($locked ? ' readonly' : ' required') . ' />';
+        echo '</p>';
+        echo '<p class="form-row azure-pf-field">';
+        echo '<label>' . esc_html__('Year', 'azure-plugin') . ' <span class="required">*</span></label>';
+        echo '<select name="' . esc_attr($grade_attr) . '" class="azure-pf-child-grade" required>';
+        echo '<option value="">' . esc_html__('-- Select year --', 'azure-plugin') . '</option>';
+        foreach (self::get_grade_options() as $opt) {
+            $selected = ((string) $opt === $grade) ? ' selected' : '';
+            echo '<option value="' . esc_attr($opt) . '"' . $selected . '>' . esc_html($opt) . '</option>';
+        }
+        if ($grade !== '' && !in_array($grade, self::get_grade_options(), true)) {
+            echo '<option value="' . esc_attr($grade) . '" selected>' . esc_html($grade) . '</option>';
+        }
+        echo '</select>';
+        echo '</p>';
+        echo '<p class="form-row azure-pf-field">';
+        echo '<label>' . esc_html__('Teacher', 'azure-plugin') . ' <span class="required">*</span></label>';
+        echo '<input type="text" name="' . esc_attr($teacher_attr) . '" value="' . esc_attr($teacher) . '" class="azure-pf-child-teacher" placeholder="' . esc_attr__('e.g. Congdon', 'azure-plugin') . '" autocomplete="off" required />';
+        echo '</p>';
+        if ($removable) {
+            echo '<button type="button" class="button-link azure-pf-remove-child">' . esc_html__('Remove', 'azure-plugin') . '</button>';
+        }
+        echo '</div>';
+    }
+
     private function render_single_field($field, $parent_defaults, $family_defaults = array()) {
+        // Family membership collects name / year / teacher on the roster.
+        if ($this->family_children_mode && self::is_family_child_core_field($field)) {
+            return;
+        }
+
         // The canonical child_name field is rendered as a dropdown selector
         // at the top of the form (see render_product_fields). Skip the
         // text-input render here so we don't get a duplicate input — but
@@ -586,6 +819,23 @@ class Azure_Product_Fields_Module {
         }
 
         $groups = self::get_groups_for_product($product_id);
+        $is_family = self::is_family_membership_product($product_id);
+
+        if ($is_family) {
+            $family_children = $this->resolve_family_children_for_cart($product_id);
+            if (empty($family_children)) {
+                wc_add_notice(__('Add at least one child with a name, year, and teacher.', 'azure-plugin'), 'error');
+                $passed = false;
+            } else {
+                foreach ($family_children as $child) {
+                    if ($child['name'] === '' || $child['grade'] === '' || $child['teacher'] === '') {
+                        wc_add_notice(__('Each child needs a name, year, and teacher.', 'azure-plugin'), 'error');
+                        $passed = false;
+                        break;
+                    }
+                }
+            }
+        }
 
         // For logged-in parents the "Child's Name" field is collected via
         // the child-picker dropdown (name="azure_pf_child_id"), and its
@@ -597,6 +847,9 @@ class Azure_Product_Fields_Module {
 
         foreach ($groups as $group) {
             foreach ($group->fields as $field) {
+                if ($is_family && self::is_family_child_core_field($field)) {
+                    continue;
+                }
                 if (!$field->required) {
                     continue;
                 }
@@ -625,6 +878,62 @@ class Azure_Product_Fields_Module {
         return $passed;
     }
 
+    /**
+     * Posted family-membership children, with logged-in PreK–5 kids
+     * re-attached so they cannot be omitted from the cart.
+     *
+     * @param int $product_id
+     * @return array<int, array{id:int,name:string,grade:string,teacher:string}>
+     */
+    public function resolve_family_children_for_cart($product_id = 0) {
+        unset($product_id);
+        $raw = isset($_POST['azure_pf_children']) ? wp_unslash($_POST['azure_pf_children']) : array();
+        $posted = self::sanitize_family_children($raw);
+        $user_id = function_exists('get_current_user_id') ? get_current_user_id() : 0;
+        if (!$user_id || !class_exists('Azure_User_Children')) {
+            return $posted;
+        }
+
+        $by_key = array();
+        foreach ($posted as $row) {
+            $key = $row['id'] > 0 ? 'id:' . $row['id'] : 'name:' . strtolower($row['name']);
+            $by_key[$key] = $row;
+        }
+
+        $merged = array();
+        foreach (self::filter_family_membership_children(Azure_User_Children::get_children_for_user($user_id)) as $child) {
+            $key = 'id:' . (int) $child->id;
+            $meta = Azure_User_Children::get_child_meta($child->id);
+            $defaults = array(
+                'id'      => (int) $child->id,
+                'name'    => (string) $child->child_name,
+                'grade'   => Azure_User_Children::grade_from_meta($meta),
+                'teacher' => Azure_User_Children::teacher_from_meta($meta),
+            );
+            if (isset($by_key[$key])) {
+                $row = $by_key[$key];
+                $row['id'] = $defaults['id'];
+                $row['name'] = $defaults['name'];
+                if ($row['grade'] === '') {
+                    $row['grade'] = $defaults['grade'];
+                }
+                if ($row['teacher'] === '') {
+                    $row['teacher'] = $defaults['teacher'];
+                }
+                $merged[] = $row;
+                unset($by_key[$key]);
+            } else {
+                $merged[] = $defaults;
+            }
+        }
+
+        foreach ($by_key as $row) {
+            $merged[] = $row;
+        }
+
+        return $merged;
+    }
+
     // ─── Cart ──────────────────────────────────────────────────────────
 
     public function add_cart_item_data($cart_item_data, $product_id, $variation_id) {
@@ -651,6 +960,17 @@ class Azure_Product_Fields_Module {
             }
         }
 
+        if (self::is_family_membership_product($product_id)) {
+            $family_children = $this->resolve_family_children_for_cart($product_id);
+            if (!empty($family_children)) {
+                $cart_item_data['azure_pf_children'] = $family_children;
+                if ($family_children[0]['id'] > 0) {
+                    $cart_item_data['azure_pf_child_id'] = $family_children[0]['id'];
+                }
+                $this->inject_family_children_field_values($groups, $family_children, $field_values);
+            }
+        }
+
         // Resolve the child-picker dropdown selection. Its azure_pf_{id}
         // text input is never rendered for logged-in parents, so the only
         // submitted value is the child id. Look up the child's NAME and
@@ -658,7 +978,7 @@ class Azure_Product_Fields_Module {
         // so it persists to the cart, order line item, emails, and exports
         // as "Child's Name" — not just an opaque child id.
         $child_id = isset($_POST['azure_pf_child_id']) ? intval($_POST['azure_pf_child_id']) : 0;
-        if ($child_id > 0) {
+        if ($child_id > 0 && empty($cart_item_data['azure_pf_children'])) {
             $cart_item_data['azure_pf_child_id'] = $child_id;
 
             $child = class_exists('Azure_User_Children')
@@ -696,12 +1016,43 @@ class Azure_Product_Fields_Module {
     }
 
     public function display_cart_item_data($item_data, $cart_item) {
+        $skip_core = array();
+        if (!empty($cart_item['azure_pf_children']) && is_array($cart_item['azure_pf_children'])) {
+            foreach ($cart_item['azure_pf_children'] as $i => $child) {
+                $bits = array();
+                if (!empty($child['name'])) {
+                    $bits[] = $child['name'];
+                }
+                if (!empty($child['grade'])) {
+                    $bits[] = $child['grade'];
+                }
+                if (!empty($child['teacher'])) {
+                    $bits[] = $child['teacher'];
+                }
+                if (empty($bits)) {
+                    continue;
+                }
+                $item_data[] = array(
+                    'key'   => sprintf(__('Child %d', 'azure-plugin'), $i + 1),
+                    'value' => implode(' — ', $bits),
+                );
+            }
+            $skip_core = array('child_name', 'child_grade', 'childsgrade', 'child_teacher');
+        }
+
         if (empty($cart_item['azure_product_fields'])) {
             return $item_data;
         }
 
         foreach ($cart_item['azure_product_fields'] as $field) {
             if ($field['value'] === '') {
+                continue;
+            }
+            $field_key = isset($field['field_key']) ? $field['field_key'] : '';
+            if ($field_key !== '' && in_array($field_key, $skip_core, true)) {
+                continue;
+            }
+            if ($field_key === '' && self::is_family_child_core_field((object) $field)) {
                 continue;
             }
             $item_data[] = array(
@@ -713,32 +1064,93 @@ class Azure_Product_Fields_Module {
         return $item_data;
     }
 
+    /**
+     * Copy roster values into the canonical child_name / grade / teacher
+     * field map so emails and exports still see a Child's Name value.
+     *
+     * @param array $groups
+     * @param array $children
+     * @param array $field_values
+     */
+    private function inject_family_children_field_values($groups, $children, &$field_values) {
+        $names = array();
+        $grades = array();
+        $teachers = array();
+        foreach ($children as $child) {
+            if ($child['name'] !== '') {
+                $names[] = $child['name'];
+            }
+            if ($child['grade'] !== '') {
+                $grades[] = $child['grade'];
+            }
+            if ($child['teacher'] !== '') {
+                $teachers[] = $child['teacher'];
+            }
+        }
+        $by_kind = array(
+            'name'    => implode(', ', $names),
+            'grade'   => implode(', ', $grades),
+            'teacher' => implode(', ', $teachers),
+        );
+
+        foreach ($groups as $group) {
+            if (empty($group->fields)) {
+                continue;
+            }
+            foreach ($group->fields as $field) {
+                if (!self::is_family_child_core_field($field)) {
+                    continue;
+                }
+                $haystack = strtolower((isset($field->field_key) ? $field->field_key : '') . ' ' . (isset($field->label) ? $field->label : ''));
+                $kind = 'name';
+                if (strpos($haystack, 'grade') !== false || preg_match('/\byear\b/', $haystack)) {
+                    $kind = 'grade';
+                } elseif (strpos($haystack, 'teacher') !== false) {
+                    $kind = 'teacher';
+                }
+                $field_values[$field->id] = array(
+                    'field_key'       => (!empty($field->field_key)) ? $field->field_key : '',
+                    'scope'           => !empty($field->scope) ? $field->scope : 'child',
+                    'label'           => $field->label,
+                    'value'           => $by_kind[$kind],
+                    'save_to_profile' => false,
+                    'user_meta_key'   => isset($field->user_meta_key) ? $field->user_meta_key : '',
+                );
+            }
+        }
+    }
+
     // ─── Order line item meta ──────────────────────────────────────────
 
     public function save_order_item_meta($item, $cart_item_key, $values, $order) {
-        if (empty($values['azure_product_fields'])) {
+        if (empty($values['azure_product_fields']) && empty($values['azure_pf_children'])) {
             return;
         }
 
-        foreach ($values['azure_product_fields'] as $field) {
-            if ($field['value'] === '') {
-                continue;
+        if (!empty($values['azure_product_fields']) && is_array($values['azure_product_fields'])) {
+            foreach ($values['azure_product_fields'] as $field) {
+                if ($field['value'] === '') {
+                    continue;
+                }
+
+                // Human-readable label retained for admin order screen / emails.
+                $item->update_meta_data($field['label'], $field['value']);
+
+                // Machine-stable key retained for export/reporting. Survives label
+                // edits because it is keyed by `field_key`, not the display label.
+                if (!empty($field['field_key'])) {
+                    $item->update_meta_data('_pta_' . $field['field_key'], $field['value']);
+                }
             }
 
-            // Human-readable label retained for admin order screen / emails.
-            $item->update_meta_data($field['label'], $field['value']);
-
-            // Machine-stable key retained for export/reporting. Survives label
-            // edits because it is keyed by `field_key`, not the display label.
-            if (!empty($field['field_key'])) {
-                $item->update_meta_data('_pta_' . $field['field_key'], $field['value']);
-            }
+            $item->update_meta_data('_azure_product_fields_raw', $values['azure_product_fields']);
         }
-
-        $item->update_meta_data('_azure_product_fields_raw', $values['azure_product_fields']);
 
         if (!empty($values['azure_pf_child_id'])) {
             $item->update_meta_data('_azure_pf_child_id', intval($values['azure_pf_child_id']));
+        }
+        if (!empty($values['azure_pf_children']) && is_array($values['azure_pf_children'])) {
+            $item->update_meta_data('_azure_pf_children', $values['azure_pf_children']);
         }
     }
 

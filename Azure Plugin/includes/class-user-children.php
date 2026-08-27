@@ -189,6 +189,72 @@ class Azure_User_Children {
     }
 
     /**
+     * Known child-teacher meta keys.
+     *
+     * @return string[]
+     */
+    public static function child_teacher_meta_keys() {
+        return array(
+            'pta_pf_child_teacher',
+            'pta_pf_childsteacher',
+            'pta_pf_teacher',
+            'child_teacher',
+            'teacher',
+        );
+    }
+
+    /**
+     * First non-empty grade value from a child meta map.
+     *
+     * @param array $meta
+     * @return string
+     */
+    public static function grade_from_meta($meta) {
+        if (!is_array($meta)) {
+            return '';
+        }
+        foreach (self::child_grade_meta_keys() as $key) {
+            if (!empty($meta[$key])) {
+                return trim((string) $meta[$key]);
+            }
+        }
+        return '';
+    }
+
+    /**
+     * First non-empty teacher value from a child meta map.
+     *
+     * @param array $meta
+     * @return string
+     */
+    public static function teacher_from_meta($meta) {
+        if (!is_array($meta)) {
+            return '';
+        }
+        foreach (self::child_teacher_meta_keys() as $key) {
+            if (!empty($meta[$key])) {
+                return trim((string) $meta[$key]);
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Family membership auto-includes PreK–5 and ungraded children.
+     * Past-5th (alumni) kids are left off.
+     *
+     * @param array $meta
+     * @return bool
+     */
+    public static function include_on_family_membership($meta) {
+        $grade = self::grade_from_meta(is_array($meta) ? $meta : array());
+        if ($grade === '') {
+            return true;
+        }
+        return !self::is_alumni_grade($grade);
+    }
+
+    /**
      * True when a stored grade is PreK through 5th.
      *
      * @param mixed $grade
@@ -628,8 +694,12 @@ class Azure_User_Children {
 
         foreach ($order->get_items() as $item) {
             $raw = $item->get_meta('_azure_product_fields_raw', true);
-            if (empty($raw) || !is_array($raw)) {
+            $roster = $item->get_meta('_azure_pf_children', true);
+            if ((!is_array($raw) || empty($raw)) && !(is_array($roster) && !empty($roster))) {
                 continue;
+            }
+            if (!is_array($raw)) {
+                $raw = array();
             }
 
             // Family-scope meta (emergency contact, etc.) is shared across
@@ -640,6 +710,11 @@ class Azure_User_Children {
                 if ($family_id) {
                     self::update_family_meta($family_id, $family_meta);
                 }
+            }
+
+            if (is_array($roster) && !empty($roster)) {
+                $this->auto_save_family_children($user_id, $roster);
+                continue;
             }
 
             // Selected child id (set on the product page) is the most reliable
@@ -670,6 +745,63 @@ class Azure_User_Children {
             } else {
                 self::save_child($user_id, array(
                     'child_name' => $child_name,
+                    'meta'       => $meta,
+                ));
+            }
+        }
+    }
+
+    /**
+     * Write each family-membership roster child back to the profile.
+     *
+     * @param int   $user_id
+     * @param array $roster
+     */
+    private function auto_save_family_children($user_id, $roster) {
+        $grade_key = 'pta_pf_childsgrade';
+        $teacher_key = 'pta_pf_child_teacher';
+        if (class_exists('Azure_Product_Fields_Module')) {
+            $keys = Azure_Product_Fields_Module::get_child_profile_field_keys();
+            if (!empty($keys['grade'])) {
+                $grade_key = 'pta_pf_' . $keys['grade'];
+            }
+            if (!empty($keys['teacher'])) {
+                $teacher_key = 'pta_pf_' . $keys['teacher'];
+            }
+        }
+
+        foreach ($roster as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $id = isset($row['id']) ? (int) $row['id'] : 0;
+            $name = isset($row['name']) ? trim((string) $row['name']) : '';
+            $grade = isset($row['grade']) ? trim((string) $row['grade']) : '';
+            $teacher = isset($row['teacher']) ? trim((string) $row['teacher']) : '';
+            if ($id <= 0 && $name === '') {
+                continue;
+            }
+
+            $meta = array();
+            if ($grade !== '') {
+                $meta[$grade_key] = $grade;
+            }
+            if ($teacher !== '') {
+                $meta[$teacher_key] = $teacher;
+            }
+
+            $child = $id > 0 ? self::get_child($id, $user_id) : null;
+            if (!$child && $name !== '') {
+                $child = self::find_child_by_name($user_id, $name);
+            }
+
+            if ($child) {
+                if (!empty($meta)) {
+                    self::update_child_meta($child->id, $meta);
+                }
+            } elseif ($name !== '') {
+                self::save_child($user_id, array(
+                    'child_name' => $name,
                     'meta'       => $meta,
                 ));
             }
