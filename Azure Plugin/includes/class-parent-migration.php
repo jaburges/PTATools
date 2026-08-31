@@ -430,7 +430,7 @@ class Azure_Parent_Migration {
      * Attach an existing WP user to the parent population. Behavior
      * depends on what roles they already carry:
      *
-     *   - administrator / editor / shop_manager / the SSO role
+     *   - administrator / editor / shop_manager / finance / the SSO role
      *       → leave alone (stronger role wins, no parent role added)
      *   - subscriber (only)
      *       → remove subscriber, add parent (matches the existing
@@ -455,7 +455,7 @@ class Azure_Parent_Migration {
         }
         $roles = (array) $user->roles;
         $sso_role = self::get_sso_role_slug();
-        $strong = array('administrator', 'editor', 'shop_manager', $sso_role);
+        $strong = array('administrator', 'editor', 'shop_manager', 'finance', $sso_role);
         foreach ($strong as $r) {
             if ($r && in_array($r, $roles, true)) {
                 return true;

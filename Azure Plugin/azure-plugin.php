@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.34
+ * Version: 3.147.36
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.34');
+define('AZURE_PLUGIN_VERSION', '3.147.36');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -733,6 +733,12 @@ class AzurePlugin {
                     $this->seed_parent_population_lists();
                     $this->seed_alumni_population_list();
                     $this->ensure_school_staff_role();
+                    if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-finance-role.php')) {
+                        require_once AZURE_PLUGIN_PATH . 'includes/class-finance-role.php';
+                        if (class_exists('Azure_Finance_Role')) {
+                            Azure_Finance_Role::ensure_role();
+                        }
+                    }
                     if (!wp_next_scheduled(Azure_Parent_Activation::CLEANUP_HOOK)) {
                         wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', Azure_Parent_Activation::CLEANUP_HOOK);
                     }
@@ -833,6 +839,17 @@ class AzurePlugin {
                 require_once AZURE_PLUGIN_PATH . 'includes/class-edge-cache.php';
                 if (class_exists('Azure_Edge_Cache')) {
                     Azure_Edge_Cache::get_instance();
+                }
+            }
+
+            // Finance role: Shop Manager + membership/donations. Converged
+            // on every request so a missing or stale role is repaired without
+            // waiting for a version bump. Must load before Membership so the
+            // admin menu can use manage_pta_finance.
+            if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-finance-role.php')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-finance-role.php';
+                if (class_exists('Azure_Finance_Role')) {
+                    Azure_Finance_Role::ensure_role();
                 }
             }
 

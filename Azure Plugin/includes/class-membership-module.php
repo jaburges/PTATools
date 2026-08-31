@@ -110,6 +110,94 @@ class Azure_Membership_Module {
         return self::normalize_id_list(Azure_Settings::get_setting(self::OPTION_INDIVIDUAL, array()));
     }
 
+    /**
+     * True when this WooCommerce product (or its parent) is configured as
+     * the Individual PTSA membership item.
+     *
+     * @param int $product_id
+     * @param int $parent_id
+     * @return bool
+     */
+    public static function product_is_individual($product_id, $parent_id = 0) {
+        return self::ids_match(self::get_individual_product_ids(), $product_id, $parent_id);
+    }
+
+    /**
+     * Family / Individual / Staff from configured product IDs, then the
+     * product title so an unsaved Individual picker still matches sold
+     * "PTSA Individual Membership" (and staff) rows.
+     *
+     * @param int    $product_id
+     * @param int    $parent_id
+     * @param string $name
+     * @return string family|individual|staff|''
+     */
+    public static function classify_membership_product($product_id, $parent_id = 0, $name = '') {
+        if (self::product_is_family($product_id, $parent_id)) {
+            return 'family';
+        }
+        if (self::product_is_individual($product_id, $parent_id)) {
+            return 'individual';
+        }
+        $name = strtolower(trim((string) $name));
+        if ($name === '' && function_exists('wc_get_product')) {
+            $product = wc_get_product((int) $product_id);
+            if ($product) {
+                $name = strtolower((string) $product->get_name());
+                if ($name === '' && (int) $parent_id > 0) {
+                    $parent = wc_get_product((int) $parent_id);
+                    if ($parent) {
+                        $name = strtolower((string) $parent->get_name());
+                    }
+                }
+            }
+        }
+        return self::classify_membership_name($name);
+    }
+
+    /**
+     * @param string $name
+     * @return string family|individual|staff|''
+     */
+    public static function classify_membership_name($name) {
+        $name = strtolower(trim((string) $name));
+        if ($name === '') {
+            return '';
+        }
+        $is_membership = strpos($name, 'membership') !== false
+            || strpos($name, 'ptsa') !== false
+            || (bool) preg_match('/\bpta\b/', $name);
+        if (!$is_membership) {
+            return '';
+        }
+        if (strpos($name, 'family') !== false) {
+            return 'family';
+        }
+        if (strpos($name, 'staff') !== false) {
+            return 'staff';
+        }
+        if (strpos($name, 'individual') !== false) {
+            return 'individual';
+        }
+        return '';
+    }
+
+    /**
+     * @param int[] $ids
+     * @param int   $product_id
+     * @param int   $parent_id
+     * @return bool
+     */
+    private static function ids_match(array $ids, $product_id, $parent_id = 0) {
+        $lookup = array_flip($ids);
+        $product_id = (int) $product_id;
+        $parent_id = (int) $parent_id;
+        if ($product_id > 0 && isset($lookup[$product_id])) {
+            return true;
+        }
+        return $parent_id > 0 && isset($lookup[$parent_id]);
+    }
+
     public static function save_product_ids($family_ids, $individual_ids) {
         Azure_Settings::update_setting(self::OPTION_FAMILY, self::normalize_id_list($family_ids));
         Azure_Settings::update_setting(self::OPTION_INDIVIDUAL, self::normalize_id_list($individual_ids));
@@ -147,6 +235,52 @@ class Azure_Membership_Module {
         $map = self::build_member_map($range);
         set_transient($cache_key, $map, HOUR_IN_SECONDS);
         return $map;
+    }
+
+    /**
+     * One CSV row per paid membership line item this school year —
+     * Family, Individual, and Staff, including guest checkouts.
+     *
+     * @return array<int, array{name:string,email:string,membership:string,paid_at:string,children:string,role_types:string[]}>
+     */
+    public static function build_sold_membership_rows() {
+        if (!function_exists('wc_get_orders')) {
+            return array();
+        }
+        $range = self::school_year_range();
+        $orders = wc_get_orders(array(
+            'status'       => array('processing', 'completed'),
+            'type'         => 'shop_order',
+            'date_created' => $range['from'] . '...' . $range['to'],
+            'limit'        => -1,
+            'return'       => 'objects',
+        ));
+        return self::sold_membership_rows_from_orders($orders);
+    }
+
+    /**
+     * @param object[] $orders
+     * @return array<int, array{name:string,email:string,membership:string,paid_at:string,children:string,role_types:string[]}>
+     */
+    public static function sold_membership_rows_from_orders($orders) {
+        $rows = array();
+        foreach ((array) $orders as $order) {
+            if (!is_object($order) || !method_exists($order, 'get_items')) {
+                continue;
+            }
+            foreach ($order->get_items() as $item) {
+                $type = self::item_membership_type($item);
+                if ($type === '') {
+                    continue;
+                }
+                $rows[] = self::export_row_from_order_item($order, $item, $type);
+            }
+        }
+        usort($rows, function ($a, $b) {
+            $cmp = strcmp((string) $a['paid_at'], (string) $b['paid_at']);
+            return $cmp !== 0 ? $cmp : strcasecmp((string) $a['name'], (string) $b['name']);
+        });
+        return $rows;
     }
 
     public static function flush_member_map() {
@@ -187,11 +321,6 @@ class Azure_Membership_Module {
 
     private static function build_member_map(array $range) {
         $map = array();
-        $family_ids = array_flip(self::get_family_product_ids());
-        $indiv_ids  = array_flip(self::get_individual_product_ids());
-        if (empty($family_ids) && empty($indiv_ids)) {
-            return $map;
-        }
         if (!function_exists('wc_get_orders')) {
             return $map;
         }
@@ -205,7 +334,7 @@ class Azure_Membership_Module {
         ));
 
         foreach ($orders as $order) {
-            $type = self::order_membership_type($order, $family_ids, $indiv_ids);
+            $type = self::order_membership_type($order);
             if (!$type) {
                 continue;
             }
@@ -234,46 +363,160 @@ class Azure_Membership_Module {
         return $map;
     }
 
-    private static function order_membership_type($order, array $family_ids, array $indiv_ids) {
-        $found_family = false;
-        $found_indiv  = false;
+    private static function order_membership_type($order) {
+        $found = array();
         foreach ($order->get_items() as $item) {
-            if (!is_object($item) || !method_exists($item, 'get_product_id')) {
-                continue;
-            }
-            if (method_exists($item, 'get_meta') && $item->get_meta('_pta_donated_product')) {
-                continue;
-            }
-            $candidates = array((int) $item->get_product_id());
-            if (method_exists($item, 'get_variation_id')) {
-                $vid = (int) $item->get_variation_id();
-                if ($vid) {
-                    $candidates[] = $vid;
-                }
-            }
-            $product = method_exists($item, 'get_product') ? $item->get_product() : null;
-            if ($product && method_exists($product, 'get_parent_id')) {
-                $parent = (int) $product->get_parent_id();
-                if ($parent) {
-                    $candidates[] = $parent;
-                }
-            }
-            foreach ($candidates as $pid) {
-                if (isset($family_ids[$pid])) {
-                    $found_family = true;
-                }
-                if (isset($indiv_ids[$pid])) {
-                    $found_indiv = true;
-                }
+            $type = self::item_membership_type($item);
+            if ($type !== '') {
+                $found[$type] = true;
             }
         }
-        if ($found_family) {
+        if (isset($found['family'])) {
             return 'family';
         }
-        if ($found_indiv) {
+        if (isset($found['staff'])) {
+            return 'staff';
+        }
+        if (isset($found['individual'])) {
             return 'individual';
         }
         return '';
+    }
+
+    /**
+     * @param object $item
+     * @return string family|individual|staff|''
+     */
+    public static function item_membership_type($item) {
+        if (!is_object($item) || !method_exists($item, 'get_product_id')) {
+            return '';
+        }
+        if (method_exists($item, 'get_meta') && $item->get_meta('_pta_donated_product')) {
+            return '';
+        }
+        $product_id = (int) $item->get_product_id();
+        $parent_id = 0;
+        $name = method_exists($item, 'get_name') ? (string) $item->get_name() : '';
+        if (method_exists($item, 'get_variation_id')) {
+            $vid = (int) $item->get_variation_id();
+            if ($vid) {
+                $parent_id = $product_id;
+                $product_id = $vid;
+            }
+        }
+        $product = method_exists($item, 'get_product') ? $item->get_product() : null;
+        if ($product && method_exists($product, 'get_parent_id')) {
+            $from_product = (int) $product->get_parent_id();
+            if ($from_product) {
+                $parent_id = $from_product;
+            }
+            if ($name === '' && method_exists($product, 'get_name')) {
+                $name = (string) $product->get_name();
+            }
+        }
+        return self::classify_membership_product($product_id, $parent_id, $name);
+    }
+
+    /**
+     * @param object $order
+     * @param object $item
+     * @param string $type
+     * @return array{name:string,email:string,membership:string,paid_at:string,children:string,role_types:string[]}
+     */
+    private static function export_row_from_order_item($order, $item, $type) {
+        $name = '';
+        $email = '';
+        $role_types = array();
+        $user_id = method_exists($order, 'get_user_id') ? (int) $order->get_user_id() : 0;
+        if ($user_id && function_exists('get_userdata')) {
+            $user = get_userdata($user_id);
+            if ($user) {
+                $name = (string) $user->display_name;
+                $email = (string) $user->user_email;
+                $roles = (array) $user->roles;
+                if (in_array('parent', $roles, true)) {
+                    $role_types[] = 'Parent';
+                }
+                if (in_array('school_staff', $roles, true)) {
+                    $role_types[] = 'School staff';
+                }
+            }
+        }
+        if ($name === '' && method_exists($order, 'get_billing_first_name')) {
+            $name = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+        }
+        if ($email === '' && method_exists($order, 'get_billing_email')) {
+            $email = (string) $order->get_billing_email();
+        }
+
+        $paid_at = '';
+        if (method_exists($order, 'get_date_paid') && $order->get_date_paid()) {
+            $paid = $order->get_date_paid();
+            $paid_at = is_object($paid) && method_exists($paid, 'date')
+                ? $paid->date('Y-m-d H:i:s')
+                : (string) $paid;
+        } elseif (method_exists($order, 'get_date_created') && $order->get_date_created()) {
+            $created = $order->get_date_created();
+            $paid_at = is_object($created) && method_exists($created, 'date')
+                ? $created->date('Y-m-d H:i:s')
+                : (string) $created;
+        }
+
+        return array(
+            'name'       => $name,
+            'email'      => $email,
+            'membership' => $type,
+            'paid_at'    => $paid_at,
+            'children'   => self::children_label_from_item($item),
+            'role_types' => $role_types,
+        );
+    }
+
+    /**
+     * @param object $item
+     * @return string
+     */
+    public static function children_label_from_item($item) {
+        if (!is_object($item) || !method_exists($item, 'get_meta')) {
+            return '';
+        }
+        $roster = $item->get_meta('_azure_pf_children');
+        if (is_array($roster) && $roster) {
+            $bits = array();
+            foreach ($roster as $child) {
+                $child_name = isset($child['name']) ? trim((string) $child['name']) : '';
+                $grade = isset($child['grade']) ? trim((string) $child['grade']) : '';
+                if ($child_name === '') {
+                    continue;
+                }
+                $bits[] = $grade !== '' ? $child_name . ' (' . $grade . ')' : $child_name;
+            }
+            if ($bits) {
+                return implode('; ', $bits);
+            }
+        }
+        $names = trim((string) $item->get_meta('_pta_child_name'));
+        if ($names === '') {
+            $names = trim((string) $item->get_meta('Child Name'));
+        }
+        $grades = trim((string) $item->get_meta('_pta_childsgrade'));
+        if ($grades === '') {
+            $grades = trim((string) $item->get_meta('_pta_child_grade'));
+        }
+        if ($names === '') {
+            return '';
+        }
+        $name_list = array_map('trim', explode(',', $names));
+        $grade_list = $grades === '' ? array() : array_map('trim', explode(',', $grades));
+        $bits = array();
+        foreach ($name_list as $i => $child_name) {
+            if ($child_name === '') {
+                continue;
+            }
+            $grade = isset($grade_list[$i]) ? $grade_list[$i] : '';
+            $bits[] = $grade !== '' ? $child_name . ' (' . $grade . ')' : $child_name;
+        }
+        return implode('; ', $bits);
     }
 
     /**
@@ -874,7 +1117,7 @@ class Azure_Membership_Module {
     // ─── Dashboard widget ───────────────────────────────────────────
 
     public function register_dashboard_widget() {
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             return;
         }
         wp_add_dashboard_widget(
@@ -907,9 +1150,7 @@ class Azure_Membership_Module {
      * Paid membership orders (not donated) created since a relative time.
      */
     public static function count_membership_orders_since($relative) {
-        $family_ids = array_flip(self::get_family_product_ids());
-        $indiv_ids  = array_flip(self::get_individual_product_ids());
-        if ((empty($family_ids) && empty($indiv_ids)) || !function_exists('wc_get_orders')) {
+        if (!function_exists('wc_get_orders')) {
             return 0;
         }
 
@@ -926,7 +1167,7 @@ class Azure_Membership_Module {
 
         $count = 0;
         foreach ($orders as $order) {
-            if (self::order_membership_type($order, $family_ids, $indiv_ids)) {
+            if (self::order_membership_type($order)) {
                 $count++;
             }
         }
@@ -964,7 +1205,7 @@ class Azure_Membership_Module {
                 <?php
                 printf(
                     /* translators: %s: school year label like 2026–2027 */
-                    esc_html__('Memberships are paid Family or Individual products this school year (%s). Last week counts orders, not people. Donated memberships are excluded.', 'azure-plugin'),
+                    esc_html__('Memberships are paid Family, Individual, or Staff products this school year (%s). Last week counts orders, not people. Donated memberships are excluded.', 'azure-plugin'),
                     esc_html($stats['year_label'])
                 );
                 ?>
@@ -978,19 +1219,30 @@ class Azure_Membership_Module {
 
     // ─── Admin page ─────────────────────────────────────────────────
 
+    /**
+     * Administrators and Finance. Shop Manager stays on Selling / WooCommerce.
+     */
+    public static function current_user_can_manage() {
+        if (class_exists('Azure_Finance_Role')) {
+            return Azure_Finance_Role::user_can();
+        }
+        return current_user_can('manage_options');
+    }
+
     public function register_admin_page() {
+        $cap = class_exists('Azure_Finance_Role') ? Azure_Finance_Role::CAP : 'manage_options';
         add_submenu_page(
             'azure-plugin',
             __('Membership', 'azure-plugin'),
             __('Membership', 'azure-plugin'),
-            'manage_options',
+            $cap,
             'azure-plugin-membership',
             array($this, 'render_admin_page')
         );
     }
 
     public function render_admin_page() {
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             wp_die(esc_html__('Forbidden', 'azure-plugin'));
         }
         $page = AZURE_PLUGIN_PATH . 'admin/membership-page.php';
@@ -1008,14 +1260,12 @@ class Azure_Membership_Module {
         if (empty($_GET['export']) || $_GET['export'] !== 'csv') {
             return;
         }
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             wp_die(esc_html__('Forbidden', 'azure-plugin'));
         }
         check_admin_referer(self::NONCE_ADMIN);
 
-        $map = self::get_member_map();
-        $member_ids = array_keys($map);
-        $rows = self::build_roster_rows($member_ids);
+        $rows = self::build_sold_membership_rows();
 
         $filename = 'wilderptsa-membership-' . gmdate('Y-m-d') . '.csv';
         nocache_headers();
@@ -1026,21 +1276,12 @@ class Azure_Membership_Module {
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
         fputcsv($out, array('Name', 'Email', 'Membership Type', 'Paid Date', 'Children', 'Role Types'));
         foreach ($rows as $row) {
-            if ($row['membership'] === 'none') {
-                continue;
-            }
-            $child_bits = array();
-            foreach ($row['children'] as $child) {
-                $child_bits[] = $child['grade'] !== ''
-                    ? $child['name'] . ' (' . $child['grade'] . ')'
-                    : $child['name'];
-            }
             fputcsv($out, array(
                 $row['name'],
                 $row['email'],
                 ucfirst($row['membership']),
                 $row['paid_at'],
-                implode('; ', $child_bits),
+                $row['children'],
                 implode('; ', $row['role_types']),
             ));
         }

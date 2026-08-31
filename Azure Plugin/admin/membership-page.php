@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-if (!current_user_can('manage_options')) {
+if (!Azure_Membership_Module::current_user_can_manage()) {
     return;
 }
 
@@ -62,7 +62,7 @@ foreach ($rows as $r) {
         <?php
         printf(
             /* translators: %s: school year label like 2026–2027 */
-            esc_html__('Paid Family or Individual membership this school year (%s). The directory is a separate list — only parents who opted in.', 'azure-plugin'),
+            esc_html__('Paid Family, Individual, or Staff membership this school year (%s). The directory is a separate list — only parents who opted in.', 'azure-plugin'),
             esc_html($range['label'])
         );
         ?>
@@ -186,6 +186,7 @@ foreach ($rows as $r) {
             <option value=""><?php esc_html_e('Any membership type', 'azure-plugin'); ?></option>
             <option value="family"><?php esc_html_e('Family', 'azure-plugin'); ?></option>
             <option value="individual"><?php esc_html_e('Individual', 'azure-plugin'); ?></option>
+            <option value="staff"><?php esc_html_e('Staff', 'azure-plugin'); ?></option>
             <option value="none"><?php esc_html_e('None', 'azure-plugin'); ?></option>
         </select>
         <select id="azure-mem-role">
@@ -195,7 +196,7 @@ foreach ($rows as $r) {
             <option value="Azure AD"><?php esc_html_e('Azure AD', 'azure-plugin'); ?></option>
         </select>
         <span id="azure-mem-count"></span>
-        <a class="button" href="<?php echo esc_url($export_url); ?>"><?php esc_html_e('Export members CSV (WA / LW)', 'azure-plugin'); ?></a>
+        <a class="button" href="<?php echo esc_url($export_url); ?>"><?php esc_html_e('Export sold memberships CSV (WA / LW)', 'azure-plugin'); ?></a>
     </div>
 
     <table class="widefat striped" id="azure-mem-table">

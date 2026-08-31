@@ -14,6 +14,7 @@ $enable_roundup = !empty($settings['donations_enable_roundup']);
 $enable_amounts = Azure_Donations_Module::amounts_enabled();
 $enable_gifts = Azure_Donations_Module::gift_products_enabled();
 $enable_wag = Azure_Donations_Module::wag_enabled();
+$show_wag_progress = Azure_Donations_Module::wag_progress_enabled();
 $wag_campaign = Azure_Donations_Module::get_wag_campaign_id();
 $quick_entries = Azure_Donations_Module::get_quick_amount_entries();
 $gift_products = Azure_Donations_Module::get_gift_products();
@@ -131,8 +132,9 @@ if (function_exists('wc_get_products')) {
             <tr>
                 <th>Donation Items</th>
                 <td>
-                    <label><input type="checkbox" id="donations_enable_wag" <?php checked($enable_wag); ?> /> Show suggested giving levels via <code>[WAG]</code></label>
-                    <p class="description" style="margin-top:8px;">Three buttons mapped to a WooCommerce product variation. Clicking a button opens that item with the variation already selected. Turn this off to hide the shortcode without deleting the mappings. Purchases of the mapped products still count toward the campaign below, even if the buyer never used <code>[WAG]</code>.</p>
+                    <label><input type="checkbox" id="donations_enable_wag" <?php checked($enable_wag); ?> /> Show suggested giving levels via <code>[WAG]</code></label><br />
+                    <label style="margin-top:6px; display:inline-block;"><input type="checkbox" id="donations_wag_show_progress" <?php checked($show_wag_progress); ?> /> <?php esc_html_e('Display progress bar', 'azure-plugin'); ?></label>
+                    <p class="description" style="margin-top:8px;">Three buttons mapped to a WooCommerce product variation. Clicking a button opens that item with the variation already selected. The progress bar sits in the same <code>[WAG]</code> block so it does not need a second sidebar widget. Turn this off to hide the shortcode without deleting the mappings. Purchases of the mapped products still count toward the campaign below, even if the buyer never used <code>[WAG]</code>.</p>
                     <p style="margin-top:10px;">
                         <label for="donations_wag_campaign"><strong><?php esc_html_e('Campaign', 'azure-plugin'); ?></strong></label><br />
                         <select id="donations_wag_campaign">
@@ -209,9 +211,9 @@ if (function_exists('wc_get_products')) {
                     <code>[pta-donate]</code>
                     <p class="description">Donation form. Uses Quick Amounts by default. Optional: <code>campaign_id</code>, <code>amounts="5,10,25,50"</code> (numeric override), <code>show_custom="yes"</code>, <code>button_text="Donate Now"</code></p>
                     <code>[WAG]</code>
-                    <p class="description">Suggested giving levels from Donation Items above. Hidden when Donation Items is disabled.</p>
+                    <p class="description">Suggested giving levels from Donation Items above. Includes the campaign thermometer when Display progress bar is checked. Hidden when Donation Items is disabled.</p>
                     <code>[Donation-progress campaign="WAG"]</code>
-                    <p class="description">Horizontal thermometer for a campaign total, including Donation Item purchases. <code>campaign="WAG"</code> uses the Donation Items campaign. You can also pass a campaign name or numeric id.</p>
+                    <p class="description">Standalone thermometer if you need it on a different page. Optional once the bar is shown inside <code>[WAG]</code>.</p>
                     <code>[donations-list]</code>
                     <p class="description">Public table: date, role (Parent / Staff / Guest), and product or amount. Never includes names or emails. Optional: <code>limit="25"</code></p>
                 </td>
@@ -481,6 +483,7 @@ jQuery(function($) {
             donations_enable_custom: $('#donations_enable_custom').is(':checked') ? '1' : '0',
             donations_enable_gift_products: $('#donations_enable_gift_products').is(':checked') ? '1' : '0',
             donations_enable_wag: $('#donations_enable_wag').is(':checked') ? '1' : '0',
+            donations_wag_show_progress: $('#donations_wag_show_progress').is(':checked') ? '1' : '0',
             donations_quick_amounts: JSON.stringify(collectQuickAmounts()),
             donations_default_campaign: $('#donations_default_campaign').val(),
             donations_wag_campaign: $('#donations_wag_campaign').val(),

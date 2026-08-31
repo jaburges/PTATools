@@ -89,4 +89,35 @@ foreach ($family_emergency as $field) {
 }
 $t->equals(1, $kept, 'family section keeps emergency contact and drops the Parent 2 opt-in');
 
+$t->check(
+    Azure_User_Children::is_staff_profile_field(array('key' => 'pta_pf_staff_first_name', 'label' => 'First Name')),
+    'staff first name is a staff field'
+);
+$t->check(
+    !Azure_User_Children::belongs_on_parent_profile(array('key' => 'pta_pf_staff_email', 'label' => 'Email')),
+    'staff email stays off the parent profile'
+);
+$t->check(
+    Azure_User_Children::belongs_on_parent_profile(array('key' => 'pta_pf_parent_1_name', 'label' => 'Parent 1 Name')),
+    'parent 1 name stays on the parent profile'
+);
+$t->check(
+    Azure_User_Children::is_parent_contact_duplicate_field(array('key' => 'pta_pf_parent_2_cell_2', 'label' => 'Parent 2 Mobile')),
+    'numbered Parent 2 Mobile is a duplicate of Parent 2 Cell'
+);
+$t->check(
+    !Azure_User_Children::is_parent_contact_duplicate_field(array('key' => 'pta_pf_emergency_contact_cell', 'label' => 'Emergency Contact Cell')),
+    'emergency contact cell is kept'
+);
+
+$dupes = Azure_User_Children::pair_parent_profile_fields(array(
+    array('key' => 'pta_pf_parent_2_cell', 'label' => 'Parent 2 Cell', 'type' => 'text'),
+    array('key' => 'pta_pf_parent_2_cell_2', 'label' => 'Parent 2 Mobile', 'type' => 'tel'),
+    array('key' => 'pta_pf_staff_first_name', 'label' => 'First Name', 'type' => 'text'),
+    array('key' => 'pta_pf_staff_phone', 'label' => 'Phone', 'type' => 'tel'),
+));
+$t->equals(1, count($dupes['pairs']), 'cell pair is created from the canonical Parent 2 Cell');
+$t->equals('pta_pf_parent_2_cell', $dupes['pairs'][0]['right']['key'], 'canonical cell wins over Parent 2 Mobile');
+$t->equals(0, count($dupes['tail']), 'staff fields and Parent 2 Mobile are not repeated under the grid');
+
 exit($t->finish() === 0 ? 0 : 1);

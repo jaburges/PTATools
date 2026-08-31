@@ -67,6 +67,7 @@ class Azure_Anti_Spam {
         'administrator',
         'editor',
         'shop_manager',
+        'finance',
         'pta_manager',
         'azuread',
         'parent',

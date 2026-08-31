@@ -29,6 +29,17 @@ class Azure_Donations_Module {
         return self::$instance;
     }
 
+    /**
+     * Administrators and Finance. Shop Manager can open the Selling tab
+     * but donation AJAX previously required manage_options.
+     */
+    public static function current_user_can_manage() {
+        if (class_exists('Azure_Finance_Role')) {
+            return Azure_Finance_Role::user_can();
+        }
+        return current_user_can('manage_options');
+    }
+
     private function __construct() {
         // Only run table existence + admin hook registration when this request
         // could plausibly need them. On a front-end cart/checkout pageload we
@@ -1107,6 +1118,10 @@ class Azure_Donations_Module {
         return !empty(Azure_Settings::get_setting('donations_enable_wag', ''));
     }
 
+    public static function wag_progress_enabled() {
+        return !empty(Azure_Settings::get_setting('donations_wag_show_progress', ''));
+    }
+
     public static function default_wag_heading() {
         $org = '';
         if (class_exists('Azure_Settings')) {
@@ -1339,7 +1354,7 @@ class Azure_Donations_Module {
 
     public function ajax_get_variations() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             wp_send_json_error('Unauthorized');
             return;
         }
@@ -1707,7 +1722,16 @@ class Azure_Donations_Module {
         }
 
         $this->enqueue_wag_styles();
+        return self::render_progress_html($campaign, array('show_heading' => true, 'embedded' => false));
+    }
 
+    /**
+     * @param object $campaign Campaign row.
+     * @param array  $args     {show_heading:bool, embedded:bool}
+     */
+    public static function render_progress_html($campaign, $args = array()) {
+        $show_heading = !isset($args['show_heading']) || !empty($args['show_heading']);
+        $embedded = !empty($args['embedded']);
         $goal = isset($campaign->goal_amount) ? (float) $campaign->goal_amount : 0;
         $totals = self::format_progress_totals(self::get_campaign_raised($campaign), $goal);
         $bg = self::get_wag_bg();
@@ -1716,11 +1740,15 @@ class Azure_Donations_Module {
 
         $raised_label = '$' . number_format($totals['raised'], $totals['raised'] == floor($totals['raised']) ? 0 : 2);
         $goal_label = '$' . number_format($totals['goal'], $totals['goal'] == floor($totals['goal']) ? 0 : 2);
+        $class = 'pta-donation-progress';
+        if ($embedded) {
+            $class .= ' pta-donation-progress--embedded';
+        }
 
         ob_start();
         ?>
-        <div class="pta-donation-progress" style="--wag-bg: <?php echo esc_attr($bg); ?>; --wag-fg: <?php echo esc_attr($fg); ?>;">
-            <?php if ($name !== ''): ?>
+        <div class="<?php echo esc_attr($class); ?>"<?php echo $embedded ? '' : ' style="--wag-bg: ' . esc_attr($bg) . '; --wag-fg: ' . esc_attr($fg) . ';"'; ?>>
+            <?php if ($show_heading && $name !== ''): ?>
                 <p class="pta-donation-progress-heading"><?php echo esc_html($name); ?></p>
             <?php endif; ?>
             <div class="pta-donation-progress-meter">
@@ -1808,6 +1836,17 @@ class Azure_Donations_Module {
                     <?php endif; ?>
                 <?php endforeach; ?>
             </div>
+            <?php
+            if (self::wag_progress_enabled()) {
+                $progress_campaign = self::resolve_progress_campaign('WAG');
+                if ($progress_campaign) {
+                    echo self::render_progress_html($progress_campaign, array(
+                        'show_heading' => false,
+                        'embedded'     => true,
+                    ));
+                }
+            }
+            ?>
             <?php if ($footer !== ''): ?>
                 <p class="pta-wag-footer"><?php echo esc_html($footer); ?></p>
             <?php endif; ?>
@@ -1987,7 +2026,7 @@ class Azure_Donations_Module {
 
     public function ajax_save_campaign() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             wp_send_json_error('Unauthorized');
             return;
         }
@@ -2040,7 +2079,7 @@ class Azure_Donations_Module {
 
     public function ajax_delete_campaign() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             wp_send_json_error('Unauthorized');
             return;
         }
@@ -2059,7 +2098,7 @@ class Azure_Donations_Module {
 
     public function ajax_get_records() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             wp_send_json_error('Unauthorized');
             return;
         }
@@ -2094,7 +2133,7 @@ class Azure_Donations_Module {
 
     public function ajax_save_settings() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!self::current_user_can_manage()) {
             wp_send_json_error('Unauthorized');
             return;
         }
@@ -2104,6 +2143,7 @@ class Azure_Donations_Module {
             'donations_enable_custom',
             'donations_enable_gift_products',
             'donations_enable_wag',
+            'donations_wag_show_progress',
             'donations_default_campaign',
             'donations_wag_campaign',
             'donations_wag_heading',

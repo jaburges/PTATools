@@ -380,7 +380,7 @@ button.pta-donate-quick.active {
     justify-content: center;
     box-sizing: border-box;
     min-height: 0;
-    padding: clamp(0.5rem, 2.2cqi, 1.35rem) clamp(0.25rem, 1.4cqi, 0.85rem);
+    padding: clamp(0.35rem, 1.6cqi, 0.75rem) clamp(0.2rem, 1.2cqi, 0.6rem);
     text-align: center;
     text-decoration: none;
     color: var(--wag-bg);
@@ -417,7 +417,7 @@ a.pta-wag-level.is-featured:focus-visible {
 }
 
 .pta-wag-amount {
-    font-size: clamp(0.95rem, 5cqi, 2rem);
+    font-size: clamp(0.85rem, 4.2cqi, 1.35rem);
     font-weight: 800;
     line-height: 1.1;
     white-space: nowrap;
@@ -425,7 +425,7 @@ a.pta-wag-level.is-featured:focus-visible {
 
 .pta-wag-name {
     margin-top: 0.15rem;
-    font-size: clamp(0.68rem, 3.4cqi, 1.15rem);
+    font-size: clamp(0.62rem, 2.8cqi, 0.82rem);
     font-weight: 700;
     line-height: 1.2;
     overflow-wrap: normal;
@@ -435,7 +435,7 @@ a.pta-wag-level.is-featured:focus-visible {
 
 .pta-wag-suffix {
     margin-top: 0.15rem;
-    font-size: clamp(0.62rem, 2.8cqi, 0.95rem);
+    font-size: clamp(0.58rem, 2.4cqi, 0.75rem);
     font-weight: 400;
     white-space: nowrap;
 }
@@ -519,6 +519,20 @@ a.pta-wag-level.is-featured:focus-visible {
     margin-left: 0.4em;
     font-weight: 700;
     opacity: 0.75;
+}
+
+.pta-wag .pta-donation-progress--embedded {
+    margin: 0.75rem 0 0;
+    max-width: none;
+}
+
+.pta-wag .pta-donation-progress--embedded .pta-donation-progress-heading {
+    display: none;
+}
+
+.pta-wag .pta-donation-progress--embedded .pta-donation-progress-total {
+    margin-top: 0.35rem;
+    font-size: clamp(0.72rem, 3.1cqi, 0.9rem);
 }
 
 /* ─── WAG Custom typed amount on the product page ──────────── */

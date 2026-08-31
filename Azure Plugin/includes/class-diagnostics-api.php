@@ -6036,7 +6036,7 @@ class Azure_Diagnostics_API {
      * the `parent` role (and remove `subscriber` per
      * attach_existing_to_parent rules). Profile data is preserved — only
      * role membership changes. Existing parents and users with stronger
-     * roles (admin/editor/shop_manager/SSO) are left untouched. Returns
+     * roles (admin/editor/shop_manager/finance/SSO) are left untouched. Returns
      * { processed, migrated, remaining } so a CLI loop can iterate.
      */
     public function route_parent_subscriber_migrate($request) {
@@ -8483,7 +8483,7 @@ class Azure_Diagnostics_API {
      * etn-*, mb-*, mp-*) AND with zero users assigned. Built-in roles
      * (administrator, editor, author, contributor, subscriber) are
      * always preserved. Custom roles defined by PTA Tools (parent,
-     * school_staff, azuread, pta_manager, customer, shop_manager) are
+     * school_staff, azuread, pta_manager, customer, shop_manager, finance) are
      * always preserved.
      */
     public function route_roles_cleanup($request) {
@@ -8502,7 +8502,7 @@ class Azure_Diagnostics_API {
 
         $protected_roles = array(
             'administrator', 'editor', 'author', 'contributor', 'subscriber',
-            'customer', 'shop_manager',
+            'customer', 'shop_manager', 'finance',
             'parent', 'alumni', 'school_staff', 'azuread', 'pta_manager',
         );
 

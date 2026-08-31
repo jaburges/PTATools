@@ -80,6 +80,10 @@ WP_Shim::$settings['donations_enable_wag'] = '1';
 $t->check(Azure_Donations_Module::wag_enabled(), 'wag enabled when setting is 1');
 WP_Shim::$settings['donations_enable_wag'] = '';
 $t->check(!Azure_Donations_Module::wag_enabled(), 'wag disabled when setting is empty');
+WP_Shim::$settings['donations_wag_show_progress'] = '1';
+$t->check(Azure_Donations_Module::wag_progress_enabled(), 'progress bar enabled when setting is 1');
+WP_Shim::$settings['donations_wag_show_progress'] = '';
+$t->check(!Azure_Donations_Module::wag_progress_enabled(), 'progress bar hidden when setting is empty');
 
 $t->equals('', Azure_Donations_Module::wag_level_url(array('product_id' => 0, 'variation_id' => 0)), 'unmapped level has no url');
 

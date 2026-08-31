@@ -70,28 +70,74 @@ class Azure_User_Children {
     public static function bootstrap_endpoints() {
         add_rewrite_endpoint('profile', EP_ROOT | EP_PAGES);
         add_rewrite_endpoint('my-children', EP_ROOT | EP_PAGES);
+        add_filter('woocommerce_get_query_vars', array(__CLASS__, 'register_account_query_vars'));
+        add_filter('request', array(__CLASS__, 'map_stale_account_profile_request'));
 
-        // Self-heal: if the persisted rewrite_rules option doesn't yet
-        // include the `profile` endpoint pattern, schedule one flush at
-        // wp_loaded (priority 999, after every plugin's init has fired).
-        // Gated by an option so subsequent requests pay nothing.
-        if (get_option('azure_pf_profile_endpoint_flushed') !== 'yes') {
-            $rules = get_option('rewrite_rules');
-            $needs_flush = true;
-            if (is_array($rules)) {
-                foreach (array_keys($rules) as $pattern) {
-                    if (strpos($pattern, '/profile') !== false) {
-                        $needs_flush = false;
-                        break;
-                    }
-                }
-            }
-            if ($needs_flush) {
+        // Persist the endpoint into rewrite_rules when it is missing.
+        // Do not trust azure_pf_profile_endpoint_flushed alone — a later
+        // flush_rewrite_rules() from another module can drop /profile while
+        // leaving the flag at "yes", which 404s Family Info forever.
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $on_account_endpoint = (bool) preg_match('#/my-account/(profile|my-children)(/|$)#', $uri);
+        if ($on_account_endpoint || get_option('azure_pf_profile_endpoint_flushed') !== 'yes') {
+            if (!self::rewrite_rules_have_profile()) {
                 add_action('wp_loaded', array(__CLASS__, 'flush_and_mark'), 999);
-            } else {
+            } elseif (get_option('azure_pf_profile_endpoint_flushed') !== 'yes') {
                 update_option('azure_pf_profile_endpoint_flushed', 'yes', false);
             }
         }
+    }
+
+    /**
+     * @param array<string,string> $vars
+     * @return array<string,string>
+     */
+    public static function register_account_query_vars($vars) {
+        $vars['profile'] = 'profile';
+        $vars['my-children'] = 'my-children';
+        return $vars;
+    }
+
+    /**
+     * When rewrite_rules lack the WC endpoint, /my-account/profile/ is parsed
+     * as a child page and 404s. Remap that path to the My Account page +
+     * endpoint query var so Family Info works on this request too.
+     *
+     * @param array<string,mixed> $vars
+     * @return array<string,mixed>
+     */
+    public static function map_stale_account_profile_request($vars) {
+        $pagename = isset($vars['pagename']) ? trim((string) $vars['pagename'], '/') : '';
+        $map = array(
+            'my-account/profile'     => 'profile',
+            'my-account/my-children' => 'my-children',
+        );
+        if (!isset($map[$pagename])) {
+            return $vars;
+        }
+        $vars['pagename'] = 'my-account';
+        $vars[$map[$pagename]] = '';
+        unset($vars['name'], $vars['error']);
+        return $vars;
+    }
+
+    /**
+     * @param mixed $rules
+     * @return bool
+     */
+    public static function rewrite_rules_have_profile($rules = null) {
+        if ($rules === null) {
+            $rules = get_option('rewrite_rules');
+        }
+        if (!is_array($rules)) {
+            return false;
+        }
+        foreach (array_keys($rules) as $pattern) {
+            if (strpos((string) $pattern, '/profile') !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static function flush_and_mark() {
@@ -972,12 +1018,18 @@ class Azure_User_Children {
      */
     public static function get_parent_meta_fields() {
         $fields = self::get_meta_fields_by_scope('parent', array());
-        foreach (self::get_meta_fields_by_scope('family', array()) as $field) {
-            if (self::is_directory_opt_in_field($field)) {
-                $fields[] = $field;
+        $out = array();
+        foreach ($fields as $field) {
+            if (self::belongs_on_parent_profile($field)) {
+                $out[] = $field;
             }
         }
-        return $fields;
+        foreach (self::get_meta_fields_by_scope('family', array()) as $field) {
+            if (self::is_directory_opt_in_field($field)) {
+                $out[] = $field;
+            }
+        }
+        return $out;
     }
 
     /**
@@ -989,11 +1041,84 @@ class Azure_User_Children {
         $fields = self::get_meta_fields_by_scope('family', array());
         $out = array();
         foreach ($fields as $field) {
-            if (!self::is_directory_opt_in_field($field)) {
-                $out[] = $field;
+            if (self::is_directory_opt_in_field($field)) {
+                continue;
             }
+            if (self::is_parent_contact_duplicate_field($field)) {
+                continue;
+            }
+            $out[] = $field;
         }
         return $out;
+    }
+
+    /**
+     * Family Info's parent grid is Parent 1 / Parent 2 only. Staff Info
+     * fields (First Name, Last Name, Email, Phone) are also scope=parent
+     * because they save to the purchaser, but they belong on staff
+     * membership checkout — not under every parent's profile.
+     *
+     * @param array $field
+     * @return bool
+     */
+    public static function belongs_on_parent_profile($field) {
+        if (self::is_directory_opt_in_field($field)) {
+            return true;
+        }
+        if (self::is_staff_profile_field($field)) {
+            return false;
+        }
+        $key = strtolower((string) (isset($field['key']) ? $field['key'] : ''));
+        return (bool) preg_match('/parent_[12]_/', $key);
+    }
+
+    /**
+     * @param array $field
+     * @return bool
+     */
+    public static function is_staff_profile_field($field) {
+        $key = strtolower((string) (isset($field['key']) ? $field['key'] : ''));
+        $label = strtolower((string) (isset($field['label']) ? $field['label'] : ''));
+        if (strpos($key, 'staff_') !== false || strpos($label, 'staff') !== false) {
+            return true;
+        }
+        return in_array($key, array(
+            'pta_pf_staff_first_name',
+            'pta_pf_staff_last_name',
+            'pta_pf_staff_email',
+            'pta_pf_staff_phone',
+            'pta_pf_first_name',
+            'pta_pf_last_name',
+        ), true);
+    }
+
+    /**
+     * Generic name/email/phone rows that duplicate the Parent 1 / Parent 2
+     * columns (or leftover "Parent 2 Mobile" aliases).
+     *
+     * @param array $field
+     * @return bool
+     */
+    public static function is_parent_contact_duplicate_field($field) {
+        if (self::is_directory_opt_in_field($field) || self::is_emergency_contact_field($field)) {
+            return false;
+        }
+        $key = strtolower((string) (isset($field['key']) ? $field['key'] : ''));
+        $label = strtolower((string) (isset($field['label']) ? $field['label'] : ''));
+        if (preg_match('/parent_[12]_(name|email|cell|mobile|phone)(_\d+)?$/', $key)) {
+            return true;
+        }
+        return (bool) preg_match('/^(first name|last name|email|phone|mobile|cell)$/', $label);
+    }
+
+    /**
+     * @param array $field
+     * @return bool
+     */
+    public static function is_emergency_contact_field($field) {
+        $key = strtolower((string) (isset($field['key']) ? $field['key'] : ''));
+        $label = strtolower((string) (isset($field['label']) ? $field['label'] : ''));
+        return strpos($key, 'emergency') !== false || strpos($label, 'emergency') !== false;
     }
 
     /**
@@ -1035,16 +1160,27 @@ class Azure_User_Children {
         $take_parent_field = function ($slot, $sub) use (&$by_key) {
             $suffix = 'parent_' . $slot . '_' . $sub;
             $canonical = 'pta_pf_' . $suffix;
+            $pattern = '/parent_' . $slot . '_' . preg_quote($sub, '/') . '(_\d+)?$/';
+            $picked = null;
             if (isset($by_key[$canonical])) {
-                $field = $by_key[$canonical];
+                $picked = $by_key[$canonical];
                 unset($by_key[$canonical]);
-                return $field;
-            }
-            foreach ($by_key as $key => $field) {
-                if (substr($key, -strlen($suffix)) === $suffix) {
-                    unset($by_key[$key]);
-                    return $field;
+            } else {
+                foreach ($by_key as $key => $field) {
+                    if (preg_match($pattern, $key)) {
+                        $picked = $field;
+                        unset($by_key[$key]);
+                        break;
+                    }
                 }
+            }
+            if ($picked) {
+                foreach (array_keys($by_key) as $key) {
+                    if (preg_match($pattern, $key)) {
+                        unset($by_key[$key]);
+                    }
+                }
+                return $picked;
             }
             if ($sub !== 'opt_in') {
                 return null;
@@ -1079,6 +1215,9 @@ class Azure_User_Children {
             $label = strtolower(isset($field['label']) ? $field['label'] : '');
             $key   = isset($field['key']) ? $field['key'] : '';
             if (strpos($key, 'opt_in') !== false || strpos($label, 'directory') !== false) {
+                continue;
+            }
+            if (self::is_staff_profile_field($field) || self::is_parent_contact_duplicate_field($field)) {
                 continue;
             }
             $parent_tail[] = $field;
