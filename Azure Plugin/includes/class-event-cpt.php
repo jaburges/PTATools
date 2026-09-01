@@ -213,6 +213,8 @@ class Azure_Event_CPT {
         // its rewrite rule earlier in `init`). Then load our template
         // override so the page renders with PTA-Tools markup.
         if (!is_admin() && !(defined('REST_REQUEST') && REST_REQUEST) && !wp_doing_ajax()) {
+            add_filter('request', array($this, 'map_event_permalink_request'));
+            add_filter('redirect_canonical', array($this, 'keep_event_permalink'), 10, 2);
             add_action('pre_get_posts', array($this, 'maybe_swap_to_pta_event_on_single'));
             // We use `template_include` (the last filter in the
             // template-resolution chain) at high priority so we beat
@@ -236,10 +238,19 @@ class Azure_Event_CPT {
     }
 
     public function maybe_flush_rewrite_rules() {
-        if (!get_transient('pta_event_flush_rewrite_rules')) {
+        $need = false;
+        if (get_transient('pta_event_flush_rewrite_rules')) {
+            delete_transient('pta_event_flush_rewrite_rules');
+            $need = true;
+        }
+        // After TEC left, leftover tribe_events rewrite rows 404 /event/<slug>.
+        if (get_option('pta_event_rewrite_version') !== '3.147.41') {
+            update_option('pta_event_rewrite_version', '3.147.41', false);
+            $need = true;
+        }
+        if (!$need) {
             return;
         }
-        delete_transient('pta_event_flush_rewrite_rules');
         flush_rewrite_rules(false);
         if (class_exists('Azure_Logger')) {
             Azure_Logger::info(
@@ -898,6 +909,80 @@ class Azure_Event_CPT {
     // =====================================================================
 
     /**
+     * True when this plugin should answer /event/<slug> and /events/.
+     * After TEC is gone the stored data_source may still say `tribe`,
+     * which left leftover tribe_events rewrite rows 404ing every event.
+     */
+    public static function should_own_event_urls() {
+        if (self::get_data_source() === 'pta') {
+            return true;
+        }
+        return !function_exists('post_type_exists') || !post_type_exists('tribe_events');
+    }
+
+    /**
+     * Force /event/<slug>/ onto pta_event even when rewrite_rules still
+     * point at tribe_events or fall through as a page path.
+     *
+     * @param array $vars
+     * @return array
+     */
+    public function map_event_permalink_request($vars) {
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $path = wp_parse_url($uri, PHP_URL_PATH);
+        return self::remap_event_query_vars(is_array($vars) ? $vars : array(), is_string($path) ? $path : '');
+    }
+
+    /**
+     * @param array  $vars
+     * @param string $path Request path, with or without a trailing slash.
+     * @return array
+     */
+    public static function remap_event_query_vars($vars, $path) {
+        if (!self::should_own_event_urls()) {
+            return $vars;
+        }
+        $path = trim((string) $path);
+        if ($path === '') {
+            return $vars;
+        }
+        $path = '/' . trim($path, '/');
+
+        if ($path === '/events') {
+            $vars['post_type'] = self::POST_TYPE_EVENT;
+            unset($vars['pagename'], $vars['name'], $vars['error'], $vars['tribe_events'], $vars['attachment']);
+            return $vars;
+        }
+
+        if (preg_match('#^/event/([^/]+)$#', $path, $m)) {
+            $vars['post_type'] = self::POST_TYPE_EVENT;
+            $vars['name'] = $m[1];
+            $vars['pta_event'] = $m[1];
+            unset($vars['pagename'], $vars['page'], $vars['error'], $vars['tribe_events'], $vars['attachment']);
+        }
+        return $vars;
+    }
+
+    /**
+     * Do not canonical-redirect /event/school-dance/ onto the old page
+     * at /school-dance/.
+     *
+     * @param string|false $redirect_url
+     * @param string       $requested_url
+     * @return string|false
+     */
+    public function keep_event_permalink($redirect_url, $requested_url) {
+        if (!$redirect_url || !self::should_own_event_urls()) {
+            return $redirect_url;
+        }
+        $path = wp_parse_url($requested_url, PHP_URL_PATH);
+        if (is_string($path) && preg_match('#^/event/[^/]+/?$#', $path)) {
+            return false;
+        }
+        return $redirect_url;
+    }
+
+    /**
      * Re-route singular AND archive event URLs to pta_event when
      * data_source=pta.
      *
@@ -913,7 +998,7 @@ class Azure_Event_CPT {
         if (!$query->is_main_query()) { return; }
         if ($query->is_admin) { return; }
         if ($query->is_feed()) { return; }
-        if (self::get_data_source() !== 'pta') { return; }
+        if (!self::should_own_event_urls()) { return; }
 
         $pt = $query->get('post_type');
         // The TEC rewrite-rule resolution always sets post_type to
