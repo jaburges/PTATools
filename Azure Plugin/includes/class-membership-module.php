@@ -241,7 +241,7 @@ class Azure_Membership_Module {
      * One CSV row per paid membership line item this school year —
      * Family, Individual, and Staff, including guest checkouts.
      *
-     * @return array<int, array{name:string,email:string,membership:string,paid_at:string,children:string,role_types:string[]}>
+     * @return array<int, array{name:string,email:string,parent_2_name:string,parent_2_email:string,membership:string,paid_at:string,children:string,role_types:string[]}>
      */
     public static function build_sold_membership_rows() {
         if (!function_exists('wc_get_orders')) {
@@ -260,7 +260,7 @@ class Azure_Membership_Module {
 
     /**
      * @param object[] $orders
-     * @return array<int, array{name:string,email:string,membership:string,paid_at:string,children:string,role_types:string[]}>
+     * @return array<int, array{name:string,email:string,parent_2_name:string,parent_2_email:string,membership:string,paid_at:string,children:string,role_types:string[]}>
      */
     public static function sold_membership_rows_from_orders($orders) {
         $rows = array();
@@ -421,7 +421,7 @@ class Azure_Membership_Module {
      * @param object $order
      * @param object $item
      * @param string $type
-     * @return array{name:string,email:string,membership:string,paid_at:string,children:string,role_types:string[]}
+     * @return array{name:string,email:string,parent_2_name:string,parent_2_email:string,membership:string,paid_at:string,children:string,role_types:string[]}
      */
     private static function export_row_from_order_item($order, $item, $type) {
         $name = '';
@@ -449,6 +449,10 @@ class Azure_Membership_Module {
             $email = (string) $order->get_billing_email();
         }
 
+        $p2 = ($type === 'family')
+            ? self::parent_2_from_order_item($order, $item, $user_id)
+            : array('name' => '', 'email' => '');
+
         $paid_at = '';
         if (method_exists($order, 'get_date_paid') && $order->get_date_paid()) {
             $paid = $order->get_date_paid();
@@ -463,13 +467,92 @@ class Azure_Membership_Module {
         }
 
         return array(
-            'name'       => $name,
-            'email'      => $email,
-            'membership' => $type,
-            'paid_at'    => $paid_at,
-            'children'   => self::children_label_from_item($item),
-            'role_types' => $role_types,
+            'name'           => $name,
+            'email'          => $email,
+            'parent_2_name'  => $p2['name'],
+            'parent_2_email' => $p2['email'],
+            'membership'     => $type,
+            'paid_at'        => $paid_at,
+            'children'       => self::children_label_from_item($item),
+            'role_types'     => $role_types,
         );
+    }
+
+    /**
+     * Parent 2 on a family sale: checkout fields first, then Family Info
+     * user meta, then a paired co-parent account.
+     *
+     * @return array{name:string,email:string}
+     */
+    public static function parent_2_from_order_item($order, $item, $user_id = 0) {
+        $name = self::item_product_field($item, 'parent_2_name', array('Parent 2 Name', 'Parent2 Name'));
+        $email = self::item_product_field($item, 'parent_2_email', array('Parent 2 Email', 'Parent2 Email'));
+
+        if (($name === '' || $email === '') && $user_id && function_exists('get_user_meta')) {
+            if ($name === '') {
+                $name = trim((string) get_user_meta($user_id, self::META_P2_NAME, true));
+            }
+            if ($email === '') {
+                $email = trim((string) get_user_meta($user_id, self::META_P2_EMAIL, true));
+            }
+        }
+
+        if (($name === '' || $email === '') && $user_id) {
+            $other = self::co_parent_user_id($user_id);
+            if ($other && function_exists('get_userdata')) {
+                $other_user = get_userdata($other);
+                if ($other_user) {
+                    if ($name === '') {
+                        $name = trim((string) $other_user->display_name);
+                    }
+                    if ($email === '') {
+                        $email = trim((string) $other_user->user_email);
+                    }
+                }
+            }
+        }
+
+        return array(
+            'name'  => $name,
+            'email' => $email,
+        );
+    }
+
+    /**
+     * @param object $item
+     * @param string $field_key
+     * @param string[] $labels
+     */
+    public static function item_product_field($item, $field_key, array $labels = array()) {
+        if (!is_object($item) || !method_exists($item, 'get_meta')) {
+            return '';
+        }
+        $v = trim((string) $item->get_meta('_pta_' . $field_key));
+        if ($v !== '') {
+            return $v;
+        }
+        $raw = $item->get_meta('_azure_product_fields_raw');
+        if (is_array($raw)) {
+            foreach ($raw as $field) {
+                if (!is_array($field)) {
+                    continue;
+                }
+                $f_key = isset($field['field_key']) ? (string) $field['field_key'] : '';
+                $f_label = isset($field['label']) ? (string) $field['label'] : '';
+                $matches = ($f_key !== '' && $f_key === $field_key)
+                    || ($f_label !== '' && in_array($f_label, $labels, true));
+                if ($matches && isset($field['value']) && trim((string) $field['value']) !== '') {
+                    return trim((string) $field['value']);
+                }
+            }
+        }
+        foreach ($labels as $label) {
+            $v = trim((string) $item->get_meta($label));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+        return '';
     }
 
     /**
@@ -1274,11 +1357,13 @@ class Azure_Membership_Module {
 
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-        fputcsv($out, array('Name', 'Email', 'Membership Type', 'Paid Date', 'Children', 'Role Types'));
+        fputcsv($out, array('Name', 'Email', 'Parent 2 Name', 'Parent 2 Email', 'Membership Type', 'Paid Date', 'Children', 'Role Types'));
         foreach ($rows as $row) {
             fputcsv($out, array(
                 $row['name'],
                 $row['email'],
+                $row['parent_2_name'],
+                $row['parent_2_email'],
                 ucfirst($row['membership']),
                 $row['paid_at'],
                 $row['children'],

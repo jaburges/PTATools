@@ -99,6 +99,8 @@ $family->email = 'ada@example.com';
 $family->items[] = new Azure_Test_Membership_Item(23233, 'PTSA Family Membership', array(
     '_pta_child_name' => 'Aarin Bommineni, Anika Bommineni',
     '_pta_childsgrade' => '3, K',
+    '_pta_parent_2_name' => 'William King',
+    '_pta_parent_2_email' => 'william@example.com',
 ));
 
 $guest_indiv = new Azure_Test_Membership_Order();
@@ -161,5 +163,42 @@ foreach ($rows as $row) {
 }
 $t->check($guest_row && $guest_row['name'] === 'Melanie Modrell', 'guest billing name is used');
 $t->check($guest_row && $guest_row['children'] === 'Mallory Payne (5)', 'guest child comes from the order line');
+$t->check($guest_row && $guest_row['parent_2_name'] === '' && $guest_row['parent_2_email'] === '', 'individual has no parent 2');
+
+$family_row = null;
+foreach ($rows as $row) {
+    if ($row['membership'] === 'family') {
+        $family_row = $row;
+        break;
+    }
+}
+$t->check($family_row && $family_row['parent_2_name'] === 'William King', 'family CSV includes parent 2 name from checkout');
+$t->check($family_row && $family_row['parent_2_email'] === 'william@example.com', 'family CSV includes parent 2 email from checkout');
+
+$raw_item = new Azure_Test_Membership_Item(23233, 'PTSA Family Membership', array(
+    '_azure_product_fields_raw' => array(
+        array('field_key' => 'parent_2_name', 'label' => 'Parent 2 Name', 'value' => 'Ada King'),
+        array('field_key' => 'parent_2_email', 'label' => 'Parent 2 Email', 'value' => 'ada.king@example.com'),
+    ),
+));
+$from_raw = Azure_Membership_Module::parent_2_from_order_item($family, $raw_item, 0);
+$t->equals('Ada King', $from_raw['name'], 'parent 2 name from product-fields payload');
+$t->equals('ada.king@example.com', $from_raw['email'], 'parent 2 email from product-fields payload');
+
+if (!function_exists('get_user_meta')) {
+    function get_user_meta($user_id, $key, $single = true) {
+        if ((int) $user_id === 44 && $key === Azure_Membership_Module::META_P2_NAME) {
+            return 'Charles Babbage';
+        }
+        if ((int) $user_id === 44 && $key === Azure_Membership_Module::META_P2_EMAIL) {
+            return 'charles@example.com';
+        }
+        return '';
+    }
+}
+$profile_item = new Azure_Test_Membership_Item(23233, 'PTSA Family Membership');
+$from_profile = Azure_Membership_Module::parent_2_from_order_item($family, $profile_item, 44);
+$t->equals('Charles Babbage', $from_profile['name'], 'parent 2 name falls back to Family Info meta');
+$t->equals('charles@example.com', $from_profile['email'], 'parent 2 email falls back to Family Info meta');
 
 exit($t->finish() === 0 ? 0 : 1);
