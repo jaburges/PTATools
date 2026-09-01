@@ -260,3 +260,83 @@
         gap: 6px;
     }
 }
+
+.azure-vs-table-wrap {
+    overflow-x: auto;
+    margin: 12px 0;
+}
+
+.azure-vs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+}
+
+.azure-vs-table th,
+.azure-vs-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #e2e4e7;
+    vertical-align: top;
+}
+
+.azure-vs-table th {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #646970;
+}
+
+.azure-vs-act-action {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.azure-vs-signed-badge {
+    color: #1e7e34;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.azure-vs-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.azure-vs-modal-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px 24px;
+    max-width: 420px;
+    width: 100%;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.azure-vs-modal-card h3 {
+    margin: 0 0 10px;
+}
+
+.azure-vs-modal-time {
+    color: #50575e;
+}
+
+.azure-vs-modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.pta-event-volunteer-signups {
+    margin: 8px 0 24px;
+}
+
+.pta-event-volunteer-signups > .pta-event-section {
+    margin-bottom: 12px;
+}

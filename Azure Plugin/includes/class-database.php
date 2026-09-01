@@ -457,6 +457,8 @@ class Azure_Database {
             name varchar(255) NOT NULL,
             description text,
             spots_needed int(11) NOT NULL DEFAULT 1,
+            slot_start datetime DEFAULT NULL,
+            slot_end datetime DEFAULT NULL,
             sort_order int(11) DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),

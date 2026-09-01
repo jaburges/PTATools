@@ -78,4 +78,13 @@ $found = Azure_Product_Fields_Module::find_core_field_in_groups(array($group), '
 $t->check($found && $found->field_key === 'child_teacher', 'teacher field is found on the product group');
 $t->check(Azure_Product_Fields_Module::find_core_field_in_groups(array($group), 'grade')->field_key === 'childsgrade', 'grade field is found on the product group');
 
+$parent_only = (object) array('fields' => array(
+    (object) array('field_key' => 'parent_1_name', 'label' => 'Parent 1 Name', 'scope' => 'parent'),
+    (object) array('field_key' => 'parent_1_email', 'label' => 'Parent 1 Email', 'scope' => 'parent'),
+    (object) array('field_key' => 'emergency_contact_name', 'label' => 'Emergency Contact', 'scope' => 'family'),
+));
+$t->check(!Azure_Product_Fields_Module::groups_need_child_selector(array($parent_only)), 'parent-only carnival/event groups skip Child\'s Name');
+$t->check(Azure_Product_Fields_Module::groups_need_child_selector(array($group)), 'child-info groups still show the child picker');
+$t->check(!Azure_Product_Fields_Module::groups_need_child_selector(array()), 'no groups means no child picker');
+
 exit($t->finish() === 0 ? 0 : 1);

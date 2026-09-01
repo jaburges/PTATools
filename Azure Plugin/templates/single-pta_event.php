@@ -237,6 +237,14 @@ while (have_posts()) :
         <?php endif; ?>
 
         <?php
+        if (class_exists('Azure_Volunteer_Signup')) {
+            $volunteer_html = Azure_Volunteer_Signup::render_for_event($post_id);
+            if ($volunteer_html !== '') {
+                echo '<hr class="pta-event-rule" />';
+                echo $volunteer_html; // built with escaped sheet output
+            }
+        }
+
         $related = Azure_Event_CPT::get_related_events($post_id, 3);
         if (!empty($related)) :
         ?>

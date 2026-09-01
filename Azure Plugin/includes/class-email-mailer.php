@@ -689,10 +689,17 @@ class Azure_Email_Mailer {
         foreach ($attachments as $attachment) {
             if (is_string($attachment) && file_exists($attachment)) {
                 $content = base64_encode(file_get_contents($attachment));
+                $name = basename($attachment);
+                $type = function_exists('mime_content_type') ? mime_content_type($attachment) : '';
+                if (preg_match('/\.ics$/i', $name)) {
+                    $type = 'text/calendar; method=PUBLISH';
+                } elseif (!$type) {
+                    $type = 'application/octet-stream';
+                }
                 $graph_attachments[] = array(
                     '@odata.type' => '#microsoft.graph.fileAttachment',
-                    'name' => basename($attachment),
-                    'contentType' => mime_content_type($attachment),
+                    'name' => $name,
+                    'contentType' => $type,
                     'contentBytes' => $content
                 );
             }

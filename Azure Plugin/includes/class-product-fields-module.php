@@ -367,6 +367,28 @@ class Azure_Product_Fields_Module {
     }
 
     /**
+     * True when assigned groups include at least one child-scope field.
+     * Parent-only products (carnival, events) must not show Child's Name.
+     */
+    public static function groups_need_child_selector($groups) {
+        foreach ((array) $groups as $group) {
+            if (empty($group->fields)) {
+                continue;
+            }
+            foreach ($group->fields as $field) {
+                if (self::is_child_name_field($field)) {
+                    return true;
+                }
+                $scope = isset($field->scope) ? (string) $field->scope : '';
+                if ($scope === 'child') {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Family PTSA membership uses a multi-child roster instead of the
      * single-child dropdown.
      */
@@ -495,6 +517,7 @@ class Azure_Product_Fields_Module {
         $family_children = $this->family_children_mode
             ? self::filter_family_membership_children($children)
             : $children;
+        $need_child_selector = self::groups_need_child_selector($groups);
         $this->family_grade_field = self::find_core_field_in_groups($groups, 'grade');
         $this->family_teacher_field = self::find_core_field_in_groups($groups, 'teacher');
 
@@ -511,12 +534,11 @@ class Azure_Product_Fields_Module {
         if ($this->family_children_mode) {
             $this->child_selector_rendered = true;
             $this->render_family_children_block($user_id, $family_children);
-        } elseif ($user_id) {
-            // Child picker — always rendered for logged-in parents so the
-            // "Child's Name" input is *always* a dropdown choice (not free
-            // text). Guests still fall through to the regular text-field
-            // renderer at the bottom because they have no family/children
-            // to bind a dropdown to.
+        } elseif ($user_id && $need_child_selector) {
+            // Child picker only when this product actually collects child
+            // fields. Parent-only groups (carnival, events) skip it.
+            // Guests still get the regular child_name text field if that
+            // field is in the assigned group.
             $this->child_selector_rendered = true;
             echo '<div class="azure-pf-child-selector">';
             echo '<label for="azure-pf-select-child">' . esc_html__("Child's Name", 'azure-plugin') . ' <span class="required">*</span></label>';
@@ -564,7 +586,7 @@ class Azure_Product_Fields_Module {
         // Quick-add child modal. Hidden by default, opened by the
         // "+ Child" button. Logged-in users save to their profile.
         // Guests on family membership add a card in JS instead.
-        if ($user_id) {
+        if ($user_id && ($this->family_children_mode || $need_child_selector)) {
             ?>
             <div id="azure-pf-add-child-modal" class="azure-pf-modal" style="display:none;" aria-hidden="true">
                 <div class="azure-pf-modal-backdrop"></div>
