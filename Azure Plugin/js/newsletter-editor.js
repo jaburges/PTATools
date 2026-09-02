@@ -3324,4 +3324,9 @@
         });
     }
 
+    window.azureNewsletterEditorApi = {
+        getEditor: function() { return editor; },
+        getEmailReadyHtml: getEmailReadyHtml
+    };
+
 })(jQuery);

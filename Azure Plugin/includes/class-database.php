@@ -500,6 +500,25 @@ class Azure_Database {
             KEY created_at (created_at)
         ) $charset_collate;";
 
+        $table_order_rules = $wpdb->prefix . 'azure_order_rules';
+        $sql_order_rules = "CREATE TABLE $table_order_rules (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            name varchar(190) NOT NULL DEFAULT '',
+            enabled tinyint(1) NOT NULL DEFAULT 1,
+            trigger_type varchar(50) NOT NULL DEFAULT 'product_ordered',
+            trigger_value varchar(100) NOT NULL DEFAULT '',
+            action_type varchar(50) NOT NULL DEFAULT 'send_email',
+            to_emails text,
+            email_subject varchar(255) NOT NULL DEFAULT '',
+            content_html longtext,
+            content_json longtext,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY enabled (enabled),
+            KEY trigger_lookup (trigger_type, trigger_value)
+        ) $charset_collate;";
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         
         // Create all tables
@@ -529,6 +548,7 @@ class Azure_Database {
         dbDelta($sql_volunteer_signups);
         dbDelta($sql_donation_campaigns);
         dbDelta($sql_donation_records);
+        dbDelta($sql_order_rules);
         
         // One-time back-fill of new columns on the product fields table.
         // Safe to run on every dbDelta call: the option flag prevents repeats.
@@ -1188,7 +1208,8 @@ class Azure_Database {
             'volunteer_activities' => $wpdb->prefix . 'azure_volunteer_activities',
             'volunteer_signups' => $wpdb->prefix . 'azure_volunteer_signups',
             'donation_campaigns' => $wpdb->prefix . 'azure_donation_campaigns',
-            'donation_records' => $wpdb->prefix . 'azure_donation_records'
+            'donation_records' => $wpdb->prefix . 'azure_donation_records',
+            'order_rules' => $wpdb->prefix . 'azure_order_rules',
         );
         
         return isset($tables[$table]) ? $tables[$table] : false;

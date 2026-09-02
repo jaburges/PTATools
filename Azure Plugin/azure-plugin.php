@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.41
+ * Version: 3.147.42
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.41');
+define('AZURE_PLUGIN_VERSION', '3.147.42');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -1013,6 +1013,8 @@ class AzurePlugin {
             if (class_exists('WooCommerce')) {
                 PTA_Trace::module('orders_reports');
                 $this->init_orders_reports_components($ctx);
+                PTA_Trace::module('order_rules');
+                $this->init_order_rules_components($ctx);
             }
 
             if (!empty($settings['enable_product_fields'])) {
@@ -1696,6 +1698,23 @@ class AzurePlugin {
         } catch (\Throwable $e) {
             Azure_Logger::error('Orders Reports init failed: ' . $e->getMessage(), array('module' => 'OrdersReports', 'file' => $e->getFile(), 'line' => $e->getLine()));
             error_log('Azure Plugin: Orders Reports init error - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Order rules: product-ordered → send email (Selling → Rules).
+     * Hooks WooCommerce order status so they must load on storefront checkout
+     * as well as admin/AJAX.
+     */
+    private function init_order_rules_components($ctx) {
+        try {
+            $this->require_module_files(array('class-order-rules-module.php'));
+            if (class_exists('Azure_Order_Rules_Module')) {
+                Azure_Order_Rules_Module::get_instance();
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('Order rules init failed: ' . $e->getMessage(), array('module' => 'OrderRules', 'file' => $e->getFile(), 'line' => $e->getLine()));
+            error_log('Azure Plugin: Order rules init error - ' . $e->getMessage());
         }
     }
 

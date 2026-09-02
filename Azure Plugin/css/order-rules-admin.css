@@ -1,0 +1,70 @@
+.azure-order-rules-page {
+    max-width: 1100px;
+}
+
+.azure-order-rules-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    padding: 20px 22px;
+    margin: 16px 0;
+}
+
+.azure-order-rules-card h2 {
+    margin: 0 0 8px;
+}
+
+.azure-order-rule-form .button {
+    margin-right: 8px;
+}
+
+.azure-order-rules-table td {
+    vertical-align: middle;
+}
+
+.azure-order-rule-editor-wrap .azure-order-rule-editor-title {
+    margin-left: 12px;
+    font-size: 14px;
+}
+
+.azure-order-rule-subject-bar {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-bottom: 0;
+    padding: 12px 16px;
+}
+
+.azure-order-rule-subject-bar label {
+    display: inline-block;
+    min-width: 70px;
+    font-weight: 600;
+}
+
+.azure-order-rule-subject-bar input[type="text"] {
+    width: min(640px, 70%);
+}
+
+.azure-order-rule-tokens {
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+}
+
+.azure-order-rule-tokens li {
+    margin: 0 0 10px;
+}
+
+.azure-order-rule-tokens .button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-family: Consolas, Monaco, monospace;
+    margin-bottom: 2px;
+}
+
+.azure-order-rule-tokens span {
+    display: block;
+    color: #646970;
+    font-size: 12px;
+    line-height: 1.35;
+}

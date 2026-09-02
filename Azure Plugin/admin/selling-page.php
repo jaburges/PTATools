@@ -1,7 +1,7 @@
 <?php
 /**
  * Combined Selling Module Page
- * Tabs: Auction | Classes | Product Fields
+ * Tabs: Auction | Classes | Product Fields | Donations | Reports | Rules
  */
 if (!defined('ABSPATH')) {
     exit;
@@ -15,7 +15,7 @@ if (in_array($active_tab, array('parent-tools', 'parent-children-import', 'produ
     wp_safe_redirect(admin_url('admin.php?page=azure-plugin-user-management&tab=role-editor'));
     exit;
 }
-$valid_tabs = array('auction', 'classes', 'product-fields', 'donations', 'reports');
+$valid_tabs = array('auction', 'classes', 'product-fields', 'donations', 'reports', 'rules');
 if (!in_array($active_tab, $valid_tabs)) {
     $active_tab = 'auction';
 }
@@ -46,6 +46,10 @@ $GLOBALS['azure_tab_mode'] = true;
            class="azure-tab-link <?php echo $active_tab === 'reports' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-media-spreadsheet"></span> Reports
         </a>
+        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-selling&tab=rules')); ?>"
+           class="azure-tab-link <?php echo $active_tab === 'rules' ? 'active' : ''; ?>">
+            <span class="dashicons dashicons-randomize"></span> Rules
+        </a>
     </nav>
 
     <?php
@@ -64,6 +68,9 @@ $GLOBALS['azure_tab_mode'] = true;
             break;
         case 'reports':
             include AZURE_PLUGIN_PATH . 'admin/orders-reports-page.php';
+            break;
+        case 'rules':
+            include AZURE_PLUGIN_PATH . 'admin/order-rules-page.php';
             break;
     }
     ?>

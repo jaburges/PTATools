@@ -211,6 +211,15 @@ class Azure_Admin {
             'azure-plugin-selling',
             array($this, 'admin_page_selling')
         );
+
+        add_submenu_page(
+            null,
+            'PTA Tools - Rule email',
+            'Rule email',
+            'manage_woocommerce',
+            'azure-plugin-selling-rule-email',
+            array($this, 'admin_page_selling_rule_email')
+        );
         
         // Tickets sub-pages (hidden from menu)
         add_submenu_page(
@@ -325,6 +334,17 @@ class Azure_Admin {
                     'ajaxUrl' => admin_url('admin-ajax.php'),
                     'nonce'   => wp_create_nonce('azure_plugin_nonce'),
                 ));
+                break;
+            case 'azure-plugin-selling':
+                if (isset($_GET['tab']) && $_GET['tab'] === 'rules') {
+                    wp_enqueue_style('azure-order-rules-admin', AZURE_PLUGIN_URL . 'css/order-rules-admin.css', array(), $cache_version);
+                    wp_enqueue_script('azure-order-rules-admin', AZURE_PLUGIN_URL . 'js/order-rules-admin.js', array('jquery'), $cache_version, true);
+                    wp_localize_script('azure-order-rules-admin', 'azureOrderRules', array(
+                        'ajaxUrl' => admin_url('admin-ajax.php'),
+                        'nonce' => wp_create_nonce('azure_order_rules'),
+                        'confirmDelete' => __('Delete this rule? The email design will be removed too.', 'azure-plugin'),
+                    ));
+                }
                 break;
             case 'azure-plugin-newsletter':
                 // Newsletter admin styles and scripts
@@ -891,6 +911,14 @@ class Azure_Admin {
             include AZURE_PLUGIN_PATH . 'admin/selling-page.php';
         } catch (Exception $e) {
             $this->render_error_page('Selling', $e);
+        }
+    }
+
+    public function admin_page_selling_rule_email() {
+        try {
+            include AZURE_PLUGIN_PATH . 'admin/order-rule-email-editor.php';
+        } catch (Exception $e) {
+            $this->render_error_page('Rule email', $e);
         }
     }
 
