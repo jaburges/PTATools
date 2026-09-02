@@ -50,8 +50,116 @@
         $('#mapping-id').val('');
         $('#new-category-name').val('');
         $('#schedule-frequency-row, #schedule-daterange-row').hide();
+        $('#mapping-mode-single').prop('checked', true);
+        $('#category-rules-list').empty();
+        setMappingMode('single');
         $('#mapping-modal-title').text('Add Calendar Mapping');
         $('#save-mapping-btn').prop('disabled', false).html('<span class="dashicons dashicons-saved"></span> Save Mapping');
+    }
+
+    function setMappingMode(mode) {
+        var isRules = mode === 'rules';
+        $('#mapping-mode-single').prop('checked', !isRules);
+        $('#mapping-mode-rules').prop('checked', isRules);
+        $('#single-category-row').toggle(!isRules);
+        $('#rules-category-row').toggle(isRules);
+        if (isRules && $('#category-rules-list .azure-category-rule').length === 0) {
+            addCategoryRuleRow();
+        }
+    }
+
+    function categoryOptionsHtml(includeBlank) {
+        var html = includeBlank ? '<option value="">— Select category —</option>' : '';
+        $('#pta-category-select option').each(function () {
+            var val = $(this).val();
+            var text = $(this).text();
+            if (val === '') {
+                return;
+            }
+            html += '<option value="' + escapeHtml(val) + '">' + escapeHtml(text) + '</option>';
+        });
+        return html;
+    }
+
+    function syncFallbackCategoryOptions() {
+        var current = $('#fallback-category-select').val();
+        $('#fallback-category-select').html(
+            '<option value="">None — leave unmatched events uncategorized</option>' + categoryOptionsHtml(false)
+        );
+        if (current) {
+            $('#fallback-category-select').val(current);
+        }
+        $('#category-rules-list .rule-category-select').each(function () {
+            var $sel = $(this);
+            var val = $sel.val();
+            $sel.html(categoryOptionsHtml(true));
+            $sel.val(val);
+        });
+    }
+
+    function addCategoryRuleRow(rule) {
+        rule = rule || {};
+        var $row = $(
+            '<div class="azure-category-rule" style="border:1px solid #dcdcde;padding:10px;margin:0 0 8px;border-radius:4px;">' +
+                '<p style="margin:0 0 6px;"><label>Look for <input type="text" class="rule-term regular-text" placeholder="WAPTA"></label></p>' +
+                '<p style="margin:0 0 6px;"><label>In ' +
+                    '<select class="rule-look-in">' +
+                        '<option value="subject">subject of calendar event</option>' +
+                        '<option value="body">body of calendar event</option>' +
+                        '<option value="subject_or_body">subject or body</option>' +
+                    '</select></label></p>' +
+                '<p style="margin:0 0 6px;"><label>Assign category ' +
+                    '<select class="rule-category-select regular-text"></select></label></p>' +
+                '<p style="margin:0 0 6px;"><input type="text" class="rule-new-category regular-text" placeholder="Or create a new category…"></p>' +
+                '<p style="margin:0;"><button type="button" class="button-link-delete remove-category-rule">Remove rule</button></p>' +
+            '</div>'
+        );
+        $row.find('.rule-category-select').html(categoryOptionsHtml(true));
+        if (rule.term) {
+            $row.find('.rule-term').val(rule.term);
+        }
+        if (rule.look_in) {
+            $row.find('.rule-look-in').val(rule.look_in);
+        }
+        if (rule.category_id) {
+            $row.find('.rule-category-select').val(String(rule.category_id));
+        }
+        $('#category-rules-list').append($row);
+    }
+
+    function collectCategoryRules() {
+        var rules = [];
+        var errors = [];
+        $('#category-rules-list .azure-category-rule').each(function () {
+            var $row = $(this);
+            var term = ($row.find('.rule-term').val() || '').trim();
+            var lookIn = $row.find('.rule-look-in').val() || 'subject';
+            var categoryId = parseInt($row.find('.rule-category-select').val(), 10) || 0;
+            var categoryName = $row.find('.rule-category-select option:selected').text();
+            var newName = ($row.find('.rule-new-category').val() || '').trim();
+            if (!term && !categoryId && !newName) {
+                return;
+            }
+            if (!term) {
+                errors.push('Each rule needs a term to look for.');
+                return;
+            }
+            if (categoryId && newName) {
+                errors.push('Pick an existing category OR type a new one for “' + term + '”, not both.');
+                return;
+            }
+            if (!categoryId && !newName) {
+                errors.push('Choose a category for the term “' + term + '”.');
+                return;
+            }
+            rules.push({
+                term: term,
+                look_in: lookIn,
+                category_id: newName ? 0 : categoryId,
+                category_name: newName || categoryName
+            });
+        });
+        return { rules: rules, errors: errors };
     }
 
     function openMappingModal() {
@@ -98,6 +206,7 @@
             (response.data || []).forEach(function (term) {
                 $('<option/>').val(term.term_id).text(term.name).appendTo(select);
             });
+            syncFallbackCategoryOptions();
         }).fail(function () {
             select.html('<option value="">Failed to load categories</option>');
         });
@@ -260,6 +369,18 @@
                     var m = response.data || {};
                     $('#outlook-calendar-select').val(m.outlook_calendar_id || '');
                     $('#pta-category-select').val(m.category_id || '');
+                    var mode = m.mapping_mode === 'rules' ? 'rules' : 'single';
+                    setMappingMode(mode);
+                    $('#category-rules-list').empty();
+                    var rules = Array.isArray(m.category_rules) ? m.category_rules : [];
+                    if (mode === 'rules') {
+                        if (rules.length) {
+                            rules.forEach(function (rule) { addCategoryRuleRow(rule); });
+                        } else {
+                            addCategoryRuleRow();
+                        }
+                    }
+                    $('#fallback-category-select').val(m.category_id || '');
                     $('#sync-enabled-checkbox').prop('checked', parseInt(m.sync_enabled, 10) === 1);
                     $('#schedule-enabled-checkbox').prop('checked', parseInt(m.schedule_enabled, 10) === 1);
                     $('#schedule-frequency-select').val(m.schedule_frequency || 'hourly');
@@ -311,6 +432,21 @@
         });
 
         // Schedule expander
+        $(document).on('change', 'input[name="mapping_mode"]', function () {
+            setMappingMode($(this).val());
+        });
+
+        $(document).on('click', '#add-category-rule', function () {
+            addCategoryRuleRow();
+        });
+
+        $(document).on('click', '.remove-category-rule', function () {
+            $(this).closest('.azure-category-rule').remove();
+            if ($('#category-rules-list .azure-category-rule').length === 0) {
+                addCategoryRuleRow();
+            }
+        });
+
         $(document).on('change', '#schedule-enabled-checkbox', function () {
             if ($(this).is(':checked')) {
                 $('#schedule-frequency-row, #schedule-daterange-row').show();
@@ -328,10 +464,18 @@
             var $outlookSelect = $('#outlook-calendar-select');
             var outlookCalendarId = $outlookSelect.val();
             var outlookCalendarName = $outlookSelect.find('option:selected').text();
+            var mappingMode = $('#mapping-mode-rules').is(':checked') ? 'rules' : 'single';
             var $catSelect = $('#pta-category-select');
             var categoryId = parseInt($catSelect.val(), 10) || 0;
             var categoryName = $catSelect.find('option:selected').text();
             var newCategoryName = ($('#new-category-name').val() || '').trim();
+            var collected = { rules: [], errors: [] };
+            if (mappingMode === 'rules') {
+                collected = collectCategoryRules();
+                categoryId = parseInt($('#fallback-category-select').val(), 10) || 0;
+                categoryName = categoryId ? $('#fallback-category-select option:selected').text() : '';
+                newCategoryName = '';
+            }
             var syncEnabled = $('#sync-enabled-checkbox').is(':checked') ? 1 : 0;
             var scheduleEnabled = $('#schedule-enabled-checkbox').is(':checked') ? 1 : 0;
             var scheduleFrequency = $('#schedule-frequency-select').val() || 'hourly';
@@ -343,15 +487,26 @@
                 return;
             }
 
-            var hasExistingCategory = categoryId > 0;
-            var hasNewCategory = newCategoryName !== '';
-            if (!hasExistingCategory && !hasNewCategory) {
-                alert('Pick an existing category or type a new category name.');
-                return;
-            }
-            if (hasExistingCategory && hasNewCategory) {
-                alert('Pick an existing category OR type a new one, not both.');
-                return;
+            if (mappingMode === 'rules') {
+                if (collected.errors.length) {
+                    alert(collected.errors[0]);
+                    return;
+                }
+                if (!collected.rules.length) {
+                    alert('Add at least one term → category rule.');
+                    return;
+                }
+            } else {
+                var hasExistingCategory = categoryId > 0;
+                var hasNewCategory = newCategoryName !== '';
+                if (!hasExistingCategory && !hasNewCategory) {
+                    alert('Pick an existing category or type a new category name.');
+                    return;
+                }
+                if (hasExistingCategory && hasNewCategory) {
+                    alert('Pick an existing category OR type a new one, not both.');
+                    return;
+                }
             }
 
             $button.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span> Saving...');
@@ -360,6 +515,8 @@
                 mapping_id: mappingId,
                 outlook_calendar_id: outlookCalendarId,
                 outlook_calendar_name: outlookCalendarName,
+                mapping_mode: mappingMode,
+                category_rules: JSON.stringify(collected.rules),
                 sync_enabled: syncEnabled,
                 schedule_enabled: scheduleEnabled,
                 schedule_frequency: scheduleFrequency,

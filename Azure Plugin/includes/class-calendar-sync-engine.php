@@ -3,11 +3,9 @@
  * Calendar Sync Engine
  *
  * Pulls events from Outlook calendars (via Microsoft Graph) and writes
- * them into native `pta_event` posts. Adapted from the v3.97-retired
- * `class-tec-sync-engine.php`, but drops every `tribe_events` write,
- * the Phase-2 dual-write mirror, the bidirectional TEC->Outlook path,
- * and any `Tribe__*` dependency. Outlook is the system of record;
- * `pta_event` is the only WP target.
+ * them into the configured event store. Default is native `pta_event`.
+ * Sites that still run The Events Calendar can stay on `tribe_events`,
+ * or dual-write both while they migrate. Outlook is the system of record.
  *
  * Wired into init_calendar_components() in azure-plugin.php (backend
  * only). Cron handler (`azure_calendar_sync_events`) is registered in
@@ -114,7 +112,7 @@ class Azure_Calendar_Sync_Engine {
 
         $result = $this->sync_single_calendar(
             $mapping->outlook_calendar_id,
-            $mapping->category_name,
+            $mapping,
             $start,
             $end,
             $user_email,
@@ -207,7 +205,7 @@ class Azure_Calendar_Sync_Engine {
         foreach ($mappings as $mapping) {
             $result = $this->sync_single_calendar(
                 $mapping->outlook_calendar_id,
-                $mapping->category_name,
+                $mapping,
                 $start_date,
                 $end_date,
                 $user_email,
@@ -238,14 +236,14 @@ class Azure_Calendar_Sync_Engine {
      * Sync a single Outlook calendar into pta_event posts.
      *
      * @param string      $calendar_id        Outlook calendar ID.
-     * @param string      $category_name      pta_event_category name to assign.
+     * @param string|object $category_or_mapping Category name, or mapping row (single vs rules).
      * @param string|null $start_date         ISO 8601 (Z) range start.
      * @param string|null $end_date           ISO 8601 (Z) range end.
      * @param string|null $user_email         Authenticated M365 user email.
      * @param string|null $mailbox_email      Shared mailbox to read from.
      * @return array { success, calendar_id, events_synced, events_deleted, errors, error_message? }
      */
-    public function sync_single_calendar($calendar_id, $category_name, $start_date = null, $end_date = null, $user_email = null, $mailbox_email = null) {
+    public function sync_single_calendar($calendar_id, $category_or_mapping, $start_date = null, $end_date = null, $user_email = null, $mailbox_email = null) {
         if (!$this->graph_api) {
             return array(
                 'success'        => false,
@@ -324,10 +322,22 @@ class Azure_Calendar_Sync_Engine {
         $errors       = 0;
         $seen_ids     = array();
 
+        $write_types = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::write_post_types()
+            : array('pta_event');
+
         foreach ($events as $event) {
             try {
-                $result = $this->upsert_event($event, $calendar_id, $category_name);
-                if ($result) {
+                $categories = class_exists('Azure_Calendar_Mapping_Manager')
+                    ? Azure_Calendar_Mapping_Manager::categories_for_event($event, $category_or_mapping)
+                    : (is_string($category_or_mapping) ? array($category_or_mapping) : array());
+                $wrote = false;
+                foreach ($write_types as $post_type) {
+                    if ($this->upsert_event($event, $calendar_id, $categories, $post_type)) {
+                        $wrote = true;
+                    }
+                }
+                if ($wrote) {
                     $synced++;
                     if (!empty($event['id'])) {
                         $seen_ids[(string) $event['id']] = true;
@@ -342,11 +352,13 @@ class Azure_Calendar_Sync_Engine {
             }
         }
 
-        // Prune pta_event posts whose Outlook source has been deleted.
-        // Scoped to (a) this calendar and (b) the same date window we
-        // just asked Graph about, so absence-from-response is a
-        // genuine deletion signal and not a query-window artefact.
-        $deleted = $this->prune_deleted_events($calendar_id, $seen_ids, $start_date, $end_date);
+        // Prune posts whose Outlook source has been deleted.
+        // Scoped to (a) this calendar, (b) each write post type, and
+        // (c) the same date window we just asked Graph about.
+        $deleted = 0;
+        foreach ($write_types as $post_type) {
+            $deleted += $this->prune_deleted_events($calendar_id, $seen_ids, $start_date, $end_date, $post_type);
+        }
 
         Azure_Logger::info(
             "Calendar Sync Engine: {$calendar_id} done. synced={$synced}, deleted={$deleted}, errors={$errors}",
@@ -385,9 +397,10 @@ class Azure_Calendar_Sync_Engine {
      * @param array  $seen_ids       map of outlook_event_id => true that came back from Graph.
      * @param string $start_date_iso ISO 8601 window start (UTC, e.g. `2026-05-01T00:00:00Z`).
      * @param string $end_date_iso   ISO 8601 window end.
-     * @return int Count of pta_event posts trashed.
+     * @param string $post_type      Event store post type.
+     * @return int Count of posts trashed.
      */
-    private function prune_deleted_events($calendar_id, array $seen_ids, $start_date_iso, $end_date_iso) {
+    private function prune_deleted_events($calendar_id, array $seen_ids, $start_date_iso, $end_date_iso, $post_type = 'pta_event') {
         global $wpdb;
 
         // Convert ISO-Z to WP-local 'Y-m-d H:i:s' to compare against
@@ -415,13 +428,14 @@ class Azure_Calendar_Sync_Engine {
                  ON p.ID = oeid.post_id AND oeid.meta_key = '_outlook_event_id'
              INNER JOIN {$wpdb->postmeta} start
                  ON p.ID = start.post_id AND start.meta_key = '_EventStartDate'
-             WHERE p.post_type   = 'pta_event'
+             WHERE p.post_type   = %s
                AND p.post_status IN ('publish','future','draft','private')
                AND cal.meta_value = %s
                AND oeid.meta_value <> ''
                AND start.meta_value >= %s
                AND start.meta_value <= %s
              LIMIT 2000",
+            (string) $post_type,
             (string) $calendar_id,
             $window_start,
             $window_end
@@ -444,12 +458,12 @@ class Azure_Calendar_Sync_Engine {
             if ($result) {
                 $deleted++;
                 Azure_Logger::info(
-                    "Calendar Sync Engine: trashed orphan pta_event #{$post_id} (outlook_event_id={$outlook_id})",
+                    "Calendar Sync Engine: trashed orphan {$post_type} #{$post_id} (outlook_event_id={$outlook_id})",
                     'Calendar'
                 );
             } else {
                 Azure_Logger::warning(
-                    "Calendar Sync Engine: failed to trash orphan pta_event #{$post_id} (outlook_event_id={$outlook_id})",
+                    "Calendar Sync Engine: failed to trash orphan {$post_type} #{$post_id} (outlook_event_id={$outlook_id})",
                     'Calendar'
                 );
             }
@@ -482,16 +496,24 @@ class Azure_Calendar_Sync_Engine {
      *
      * @param array  $event         Processed event ({id,title,start,end,allDay,location,description,categories}).
      * @param string $calendar_id   Outlook calendar ID (stored in _outlook_calendar_id).
-     * @param string $category_name pta_event_category term to assign.
+     * @param string|string[] $category_name Category term(s) to assign.
+     * @param string $post_type Event store post type (pta_event or tribe_events).
      * @return int|false post ID on success, false on failure.
      */
-    private function upsert_event(array $event, $calendar_id, $category_name) {
+    private function upsert_event(array $event, $calendar_id, $category_name, $post_type = 'pta_event') {
         if (empty($event['id'])) {
             return false;
         }
 
+        $allowed_types = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::write_post_types()
+            : array('pta_event');
+        if (!in_array($post_type, $allowed_types, true) && $post_type !== 'pta_event' && $post_type !== 'tribe_events') {
+            $post_type = 'pta_event';
+        }
+
         $outlook_event_id = (string) $event['id'];
-        $existing_id      = $this->find_pta_event_by_outlook_id($outlook_event_id);
+        $existing_id      = $this->find_event_by_outlook_id($outlook_event_id, $post_type);
 
         // Resolve TZ + dates in WP-local form
         $wp_timezone = azure_wp_timezone_string();
@@ -509,7 +531,7 @@ class Azure_Calendar_Sync_Engine {
         $venue       = isset($event['location']) ? (string) $event['location'] : '';
 
         $post_data = array(
-            'post_type'    => 'pta_event',
+            'post_type'    => $post_type,
             'post_status'  => 'publish',
             'post_title'   => $title !== '' ? $title : '(Untitled event)',
             'post_content' => $description,
@@ -590,13 +612,18 @@ class Azure_Calendar_Sync_Engine {
         // the title is a Board / General meeting so the next sync does not
         // wipe the shortcode's discovery category.
         $terms = array();
-        if ($category_name !== '') {
-            update_post_meta($post_id, '_pta_event_category_name', $category_name);
-            $terms[] = $category_name;
+        $category_names = is_array($category_name) ? $category_name : array($category_name);
+        $category_names = array_values(array_unique(array_filter(array_map('trim', $category_names))));
+        if (!empty($category_names)) {
+            update_post_meta($post_id, '_pta_event_category_name', $category_names[0]);
+            $terms = array_merge($terms, $category_names);
         }
-        if (taxonomy_exists('pta_event_category')) {
+        $taxonomy = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::write_taxonomy($post_type)
+            : 'pta_event_category';
+        if (taxonomy_exists($taxonomy)) {
             if (class_exists('Azure_PTSA_Meetings')) {
-                $existing = wp_get_object_terms($post_id, 'pta_event_category', array('fields' => 'names'));
+                $existing = wp_get_object_terms($post_id, $taxonomy, array('fields' => 'names'));
                 if (!is_wp_error($existing)) {
                     $terms = array_merge($terms, Azure_PTSA_Meetings::preserved_category_names($existing));
                 }
@@ -606,7 +633,7 @@ class Azure_Calendar_Sync_Engine {
             }
             $terms = array_values(array_unique(array_filter($terms)));
             if (!empty($terms)) {
-                wp_set_object_terms($post_id, $terms, 'pta_event_category', false);
+                wp_set_object_terms($post_id, $terms, $taxonomy, false);
             }
         }
 
@@ -614,12 +641,13 @@ class Azure_Calendar_Sync_Engine {
     }
 
     /**
-     * Look up an existing pta_event by its stored `_outlook_event_id`.
+     * Look up an existing synced event by `_outlook_event_id` + post type.
      *
      * @param string $outlook_event_id
+     * @param string $post_type
      * @return int|false
      */
-    private function find_pta_event_by_outlook_id($outlook_event_id) {
+    private function find_event_by_outlook_id($outlook_event_id, $post_type = 'pta_event') {
         global $wpdb;
 
         if ($outlook_event_id === '') {
@@ -631,9 +659,10 @@ class Azure_Calendar_Sync_Engine {
              INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
              WHERE pm.meta_key = '_outlook_event_id'
                AND pm.meta_value = %s
-               AND p.post_type = 'pta_event'
+               AND p.post_type = %s
              LIMIT 1",
-            $outlook_event_id
+            $outlook_event_id,
+            $post_type
         ));
 
         return $post_id ? (int) $post_id : false;
@@ -716,7 +745,7 @@ class Azure_Calendar_Sync_Engine {
                  ON p.ID = pm_start.post_id AND pm_start.meta_key = '_EventStartDate'
              LEFT JOIN {$wpdb->postmeta} pm_end
                  ON p.ID = pm_end.post_id AND pm_end.meta_key = '_EventEndDate'
-             WHERE p.post_type = 'pta_event'
+             WHERE p.post_type IN ('pta_event','tribe_events')
                AND p.post_status = 'publish'"
         );
 

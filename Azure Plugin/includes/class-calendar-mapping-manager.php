@@ -79,15 +79,20 @@ class Azure_Calendar_Mapping_Manager {
      *
      * @return int|false
      */
-    public function create_mapping($outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365) {
+    public function create_mapping($outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '') {
         global $wpdb;
         if (!$this->table_name) return false;
+
+        $mode  = self::sanitize_mapping_mode($mapping_mode);
+        $rules = self::encode_category_rules($category_rules);
 
         $data = array(
             'outlook_calendar_id'     => $outlook_calendar_id,
             'outlook_calendar_name'   => $outlook_calendar_name,
             'category_id'             => (int) $category_id,
             'category_name'           => $category_name,
+            'mapping_mode'            => $mode,
+            'category_rules'          => $rules,
             'sync_enabled'            => (int) $sync_enabled,
             'schedule_enabled'        => (int) $schedule_enabled,
             'schedule_frequency'      => $schedule_frequency,
@@ -96,7 +101,7 @@ class Azure_Calendar_Mapping_Manager {
             'created_at'              => current_time('mysql'),
             'updated_at'              => current_time('mysql'),
         );
-        $formats = array('%s', '%s', '%d', '%s', '%d', '%d', '%s', '%d', '%d', '%s', '%s');
+        $formats = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s', '%s');
 
         $result = $wpdb->insert($this->table_name, $data, $formats);
         if (!$result) {
@@ -119,17 +124,21 @@ class Azure_Calendar_Mapping_Manager {
      *
      * @return bool
      */
-    public function update_mapping($mapping_id, $outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365) {
+    public function update_mapping($mapping_id, $outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '') {
         global $wpdb;
         if (!$this->table_name) return false;
 
         $old = $this->get_mapping_by_id($mapping_id);
+        $mode  = self::sanitize_mapping_mode($mapping_mode);
+        $rules = self::encode_category_rules($category_rules);
 
         $data = array(
             'outlook_calendar_id'     => $outlook_calendar_id,
             'outlook_calendar_name'   => $outlook_calendar_name,
             'category_id'             => (int) $category_id,
             'category_name'           => $category_name,
+            'mapping_mode'            => $mode,
+            'category_rules'          => $rules,
             'sync_enabled'            => (int) $sync_enabled,
             'schedule_enabled'        => (int) $schedule_enabled,
             'schedule_frequency'      => $schedule_frequency,
@@ -137,7 +146,7 @@ class Azure_Calendar_Mapping_Manager {
             'schedule_lookahead_days' => (int) $schedule_lookahead_days,
             'updated_at'              => current_time('mysql'),
         );
-        $formats = array('%s', '%s', '%d', '%s', '%d', '%d', '%s', '%d', '%d', '%s');
+        $formats = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s');
 
         $result = $wpdb->update($this->table_name, $data, array('id' => (int) $mapping_id), $formats, array('%d'));
         if ($result === false) {
@@ -212,19 +221,24 @@ class Azure_Calendar_Mapping_Manager {
     }
 
     /**
-     * Idempotently ensure a `pta_event_category` term with the given
-     * name exists, returning its term_id.
+     * Idempotently ensure a category term with the given name exists.
+     * Uses the Event store taxonomy (pta_event_category or tribe_events_cat).
      *
-     * @param string $category_name
+     * @param string      $category_name
+     * @param string|null $taxonomy
      * @return int|false
      */
-    public function ensure_category_exists($category_name) {
+    public function ensure_category_exists($category_name, $taxonomy = null) {
         $category_name = trim((string) $category_name);
         if ($category_name === '') {
             return false;
         }
 
-        $taxonomy = 'pta_event_category';
+        if ($taxonomy === null) {
+            $taxonomy = class_exists('Azure_Event_CPT')
+                ? Azure_Event_CPT::write_taxonomy()
+                : 'pta_event_category';
+        }
         if (!taxonomy_exists($taxonomy)) {
             Azure_Logger::error("Calendar Mapping Manager: taxonomy '{$taxonomy}' is not registered", 'Calendar');
             return false;
@@ -304,6 +318,137 @@ class Azure_Calendar_Mapping_Manager {
      * Map UI frequency labels to actual cron schedule slugs registered
      * by Azure_PTA_Cron::register_cron_schedules().
      */
+    public static function sanitize_mapping_mode($mode) {
+        $mode = is_string($mode) ? strtolower(trim($mode)) : 'single';
+        return $mode === 'rules' ? 'rules' : 'single';
+    }
+
+    public static function look_in_options() {
+        return array(
+            'subject'          => __('Subject of calendar event', 'azure-plugin'),
+            'body'             => __('Body of calendar event', 'azure-plugin'),
+            'subject_or_body'  => __('Subject or body', 'azure-plugin'),
+        );
+    }
+
+    /**
+     * @param mixed $raw JSON string or array
+     * @return array<int,array{term:string,look_in:string,category_name:string,category_id:int}>
+     */
+    public static function sanitize_category_rules($raw) {
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : array();
+        }
+        if (!is_array($raw)) {
+            return array();
+        }
+        $look_ins = array_keys(self::look_in_options());
+        $out = array();
+        foreach ($raw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $term = trim((string) ($row['term'] ?? ''));
+            $name = trim((string) ($row['category_name'] ?? ''));
+            if ($term === '' || $name === '') {
+                continue;
+            }
+            $look_in = strtolower(trim((string) ($row['look_in'] ?? 'subject')));
+            if (!in_array($look_in, $look_ins, true)) {
+                $look_in = 'subject';
+            }
+            $out[] = array(
+                'term'          => $term,
+                'look_in'       => $look_in,
+                'category_name' => $name,
+                'category_id'   => (int) ($row['category_id'] ?? 0),
+            );
+        }
+        return $out;
+    }
+
+    public static function encode_category_rules($raw) {
+        $rules = self::sanitize_category_rules($raw);
+        return wp_json_encode($rules);
+    }
+
+    public static function decode_category_rules($stored) {
+        return self::sanitize_category_rules($stored);
+    }
+
+    /**
+     * Which pta_event_category names an Outlook event should receive.
+     *
+     * @param array       $event   Processed Graph event (title, description).
+     * @param object|null $mapping Mapping row, or null for no categories.
+     * @return string[]
+     */
+    public static function categories_for_event($event, $mapping) {
+        if (is_string($mapping) || is_numeric($mapping)) {
+            $name = trim((string) $mapping);
+            return $name !== '' ? array($name) : array();
+        }
+        if (!is_object($mapping)) {
+            return array();
+        }
+        $mode = self::sanitize_mapping_mode($mapping->mapping_mode ?? 'single');
+        if ($mode !== 'rules') {
+            $name = trim((string) ($mapping->category_name ?? ''));
+            return $name !== '' ? array($name) : array();
+        }
+        $matched = array();
+        foreach (self::decode_category_rules($mapping->category_rules ?? '') as $rule) {
+            if (self::event_matches_rule($event, $rule)) {
+                $matched[] = $rule['category_name'];
+            }
+        }
+        $matched = array_values(array_unique(array_filter($matched)));
+        if (empty($matched)) {
+            $fallback = trim((string) ($mapping->category_name ?? ''));
+            if ($fallback !== '') {
+                $matched[] = $fallback;
+            }
+        }
+        return $matched;
+    }
+
+    /**
+     * @param array $event
+     * @param array $rule
+     */
+    public static function event_matches_rule($event, array $rule) {
+        $term = trim((string) ($rule['term'] ?? ''));
+        if ($term === '') {
+            return false;
+        }
+        $haystack = self::event_haystack($event, $rule['look_in'] ?? 'subject');
+        if ($haystack === '') {
+            return false;
+        }
+        if (function_exists('mb_stripos')) {
+            return mb_stripos($haystack, $term, 0, 'UTF-8') !== false;
+        }
+        return stripos($haystack, $term) !== false;
+    }
+
+    public static function event_haystack($event, $look_in) {
+        $title = is_array($event) ? (string) ($event['title'] ?? $event['subject'] ?? '') : '';
+        $body  = is_array($event) ? (string) ($event['description'] ?? $event['body'] ?? '') : '';
+        if (function_exists('wp_strip_all_tags')) {
+            $title = wp_strip_all_tags($title);
+            $body  = wp_strip_all_tags($body);
+        }
+        $look_in = strtolower((string) $look_in);
+        if ($look_in === 'body') {
+            return $body;
+        }
+        if ($look_in === 'subject_or_body') {
+            return trim($title . "\n" . $body);
+        }
+        return $title;
+    }
+
     private function resolve_cron_schedule($frequency) {
         switch ($frequency) {
             case '15min':

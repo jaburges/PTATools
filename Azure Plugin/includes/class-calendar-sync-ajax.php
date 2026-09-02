@@ -111,9 +111,11 @@ class Azure_Calendar_Sync_Ajax {
     public function ajax_get_categories() {
         if (!$this->guard()) return;
 
-        $taxonomy = 'pta_event_category';
+        $taxonomy = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::write_taxonomy()
+            : 'pta_event_category';
         if (!taxonomy_exists($taxonomy)) {
-            wp_send_json_error('The pta_event_category taxonomy is not registered. Enable the Calendar module first.');
+            wp_send_json_error('The event category taxonomy is not registered. Enable the Calendar module (and The Events Calendar if you are staying on TEC).');
             return;
         }
 
@@ -144,7 +146,9 @@ class Azure_Calendar_Sync_Ajax {
     public function ajax_create_category() {
         if (!$this->guard()) return;
 
-        $taxonomy      = 'pta_event_category';
+        $taxonomy      = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::write_taxonomy()
+            : 'pta_event_category';
         $category_name = sanitize_text_field($_POST['category_name'] ?? '');
 
         if ($category_name === '') {
@@ -152,7 +156,7 @@ class Azure_Calendar_Sync_Ajax {
             return;
         }
         if (!taxonomy_exists($taxonomy)) {
-            wp_send_json_error('The pta_event_category taxonomy is not registered.');
+            wp_send_json_error('The event category taxonomy is not registered.');
             return;
         }
 
@@ -203,7 +207,10 @@ class Azure_Calendar_Sync_Ajax {
             return;
         }
 
-        wp_send_json_success((array) $mapping);
+        $payload = (array) $mapping;
+        $payload['mapping_mode'] = Azure_Calendar_Mapping_Manager::sanitize_mapping_mode($mapping->mapping_mode ?? 'single');
+        $payload['category_rules'] = Azure_Calendar_Mapping_Manager::decode_category_rules($mapping->category_rules ?? '');
+        wp_send_json_success($payload);
     }
 
     public function ajax_save_calendar_mapping() {
@@ -218,27 +225,50 @@ class Azure_Calendar_Sync_Ajax {
         $outlook_calendar_name   = sanitize_text_field($_POST['outlook_calendar_name'] ?? '');
         $category_id             = (int) ($_POST['category_id'] ?? 0);
         $category_name           = sanitize_text_field($_POST['category_name'] ?? '');
+        $mapping_mode            = Azure_Calendar_Mapping_Manager::sanitize_mapping_mode($_POST['mapping_mode'] ?? 'single');
+        $category_rules          = Azure_Calendar_Mapping_Manager::sanitize_category_rules(wp_unslash($_POST['category_rules'] ?? array()));
         $sync_enabled            = (int) ($_POST['sync_enabled'] ?? 1);
         $schedule_enabled        = (int) ($_POST['schedule_enabled'] ?? 0);
         $schedule_frequency      = sanitize_text_field($_POST['schedule_frequency'] ?? 'hourly');
         $schedule_lookback_days  = (int) ($_POST['schedule_lookback_days'] ?? 30);
         $schedule_lookahead_days = (int) ($_POST['schedule_lookahead_days'] ?? 365);
 
-        if ($outlook_calendar_id === '' || $outlook_calendar_name === '' || $category_name === '') {
-            wp_send_json_error('Missing required fields (calendar + category required).');
+        if ($outlook_calendar_id === '' || $outlook_calendar_name === '') {
+            wp_send_json_error('Missing required fields (calendar required).');
             return;
         }
 
         $manager = new Azure_Calendar_Mapping_Manager();
 
-        // If no category_id, auto-create the term so the user can type
-        // a brand new category right in the modal without having to
-        // create it separately first.
-        if (!$category_id) {
-            $category_id = (int) $manager->ensure_category_exists($category_name);
-            if (!$category_id) {
-                wp_send_json_error('Could not create or resolve category.');
+        if ($mapping_mode === 'rules') {
+            if (empty($category_rules)) {
+                wp_send_json_error('Add at least one term → category rule.');
                 return;
+            }
+            foreach ($category_rules as $i => $rule) {
+                if (empty($rule['category_id'])) {
+                    $cid = (int) $manager->ensure_category_exists($rule['category_name']);
+                    if (!$cid) {
+                        wp_send_json_error('Could not create category for rule: ' . $rule['category_name']);
+                        return;
+                    }
+                    $category_rules[$i]['category_id'] = $cid;
+                }
+            }
+            if ($category_name !== '' && !$category_id) {
+                $category_id = (int) $manager->ensure_category_exists($category_name);
+            }
+        } else {
+            if ($category_name === '') {
+                wp_send_json_error('Missing required fields (calendar + category required).');
+                return;
+            }
+            if (!$category_id) {
+                $category_id = (int) $manager->ensure_category_exists($category_name);
+                if (!$category_id) {
+                    wp_send_json_error('Could not create or resolve category.');
+                    return;
+                }
             }
         }
 
@@ -253,7 +283,9 @@ class Azure_Calendar_Sync_Ajax {
                 $schedule_enabled,
                 $schedule_frequency,
                 $schedule_lookback_days,
-                $schedule_lookahead_days
+                $schedule_lookahead_days,
+                $mapping_mode,
+                $category_rules
             );
             if ($ok) {
                 wp_send_json_success(array('mapping_id' => $mapping_id, 'action' => 'updated'));
@@ -273,7 +305,9 @@ class Azure_Calendar_Sync_Ajax {
             $schedule_enabled,
             $schedule_frequency,
             $schedule_lookback_days,
-            $schedule_lookahead_days
+            $schedule_lookahead_days,
+            $mapping_mode,
+            $category_rules
         );
         if ($new_id) {
             wp_send_json_success(array('mapping_id' => $new_id, 'action' => 'created'));

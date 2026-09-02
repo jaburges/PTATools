@@ -61,6 +61,13 @@ $frequency_labels = array(
     'twicedaily' => __('Twice daily', 'azure-plugin'),
     'daily'      => __('Daily', 'azure-plugin'),
 );
+
+$tec_active = class_exists('Azure_Event_CPT') && Azure_Event_CPT::tec_plugin_active();
+$event_owner = class_exists('Azure_Event_CPT') ? Azure_Event_CPT::get_owner() : 'pta';
+$event_source = class_exists('Azure_Event_CPT') ? Azure_Event_CPT::get_data_source() : 'pta';
+if (!in_array($event_source, array('tribe', 'pta'), true)) {
+    $event_source = $event_owner === 'pta' ? 'pta' : 'tribe';
+}
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -87,6 +94,89 @@ $frequency_labels = array(
             <p><strong><?php esc_html_e('Success!', 'azure-plugin'); ?></strong> <?php esc_html_e('Calendar authorization completed. You can now configure Embed and Sync.', 'azure-plugin'); ?></p>
         </div>
     <?php endif; ?>
+
+    <!-- =========================================================
+         0) Event store — PTA Tools, TEC, or both while migrating
+         ========================================================= -->
+    <div class="azure-card">
+        <h2 style="display:flex; align-items:center; gap:8px;">
+            <span class="dashicons dashicons-database"></span>
+            <?php esc_html_e('Event store', 'azure-plugin'); ?>
+        </h2>
+        <p class="description">
+            <?php esc_html_e('Outlook calendar sync writes events into WordPress. You can keep using The Events Calendar, switch to PTA Tools events, or dual-write both while you migrate.', 'azure-plugin'); ?>
+        </p>
+        <?php if ($tec_active): ?>
+            <div class="notice notice-info inline" style="margin:0 0 12px; padding:10px 14px;">
+                <p style="margin:0;">
+                    <strong><?php esc_html_e('The Events Calendar is installed.', 'azure-plugin'); ?></strong>
+                    <?php esc_html_e('You can stay on it. Migration to PTA Tools is optional.', 'azure-plugin'); ?>
+                </p>
+            </div>
+        <?php else: ?>
+            <div class="notice notice-success inline" style="margin:0 0 12px; padding:10px 14px;">
+                <p style="margin:0;"><?php esc_html_e('The Events Calendar is not active. Outlook sync uses PTA Tools events.', 'azure-plugin'); ?></p>
+            </div>
+        <?php endif; ?>
+
+        <form method="post" action="">
+            <?php wp_nonce_field('azure_plugin_settings'); ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><?php esc_html_e('Where should Outlook events live?', 'azure-plugin'); ?></th>
+                    <td>
+                        <fieldset>
+                            <label style="display:block; margin-bottom:10px;">
+                                <input type="radio" name="pta_calendar_owner" value="pta" <?php checked($event_owner, 'pta'); ?>>
+                                <strong><?php esc_html_e('PTA Tools events', 'azure-plugin'); ?></strong>
+                                <span class="description" style="display:block; margin-left:22px;">
+                                    <?php esc_html_e('Recommended. Calendar, Upcoming, and /event/ URLs use the native PTA Tools store.', 'azure-plugin'); ?>
+                                </span>
+                            </label>
+                            <label style="display:block; margin-bottom:10px;">
+                                <input type="radio" name="pta_calendar_owner" value="tec" <?php checked($event_owner, 'tec'); ?> <?php disabled(!$tec_active && $event_owner !== 'tec'); ?>>
+                                <strong><?php esc_html_e('The Events Calendar', 'azure-plugin'); ?></strong>
+                                <span class="description" style="display:block; margin-left:22px;">
+                                    <?php if ($tec_active): ?>
+                                        <?php esc_html_e('Stay on TEC. Outlook sync keeps writing tribe_events. PTA Tools will not take over /event/ URLs.', 'azure-plugin'); ?>
+                                    <?php else: ?>
+                                        <?php esc_html_e('Activate The Events Calendar first if you want to stay on it.', 'azure-plugin'); ?>
+                                    <?php endif; ?>
+                                </span>
+                            </label>
+                            <label style="display:block; margin-bottom:10px;">
+                                <input type="radio" name="pta_calendar_owner" value="both" class="azure-event-store-both" <?php checked($event_owner, 'both'); ?> <?php disabled(!$tec_active && $event_owner !== 'both'); ?>>
+                                <strong><?php esc_html_e('Both (migration)', 'azure-plugin'); ?></strong>
+                                <span class="description" style="display:block; margin-left:22px;">
+                                    <?php esc_html_e('Dual-write Outlook events to TEC and PTA Tools. Use this while you compare, then switch the site to PTA Tools and deactivate TEC.', 'azure-plugin'); ?>
+                                </span>
+                            </label>
+                        </fieldset>
+                    </td>
+                </tr>
+                <tr class="azure-event-store-reader" <?php echo $event_owner === 'both' ? '' : 'style="display:none;"'; ?>>
+                    <th scope="row"><?php esc_html_e('Show events on the site from', 'azure-plugin'); ?></th>
+                    <td>
+                        <fieldset>
+                            <label style="display:block; margin-bottom:8px;">
+                                <input type="radio" name="pta_calendar_data_source" value="tribe" <?php checked($event_source, 'tribe'); ?>>
+                                <?php esc_html_e('The Events Calendar (until you are ready to cut over)', 'azure-plugin'); ?>
+                            </label>
+                            <label style="display:block;">
+                                <input type="radio" name="pta_calendar_data_source" value="pta" <?php checked($event_source, 'pta'); ?>>
+                                <?php esc_html_e('PTA Tools events', 'azure-plugin'); ?>
+                            </label>
+                        </fieldset>
+                    </td>
+                </tr>
+            </table>
+            <p class="submit">
+                <button type="submit" name="azure_plugin_submit" class="button button-primary">
+                    <?php esc_html_e('Save Event Store', 'azure-plugin'); ?>
+                </button>
+            </p>
+        </form>
+    </div>
 
     <!-- =========================================================
          1) Microsoft 365 connection
@@ -285,7 +375,7 @@ $frequency_labels = array(
             <?php esc_html_e('Sync Defaults', 'azure-plugin'); ?>
         </h2>
         <p class="description">
-            <?php esc_html_e('These defaults drive the global Outlook → pta_event cron when at least one mapping has Sync enabled. Per-mapping schedules on the Sync tab override the global cadence.', 'azure-plugin'); ?>
+            <?php esc_html_e('These defaults drive the global Outlook → WordPress cron when at least one mapping has Sync enabled. Per-mapping schedules on the Sync tab override the global cadence.', 'azure-plugin'); ?>
         </p>
         <form method="post" action="">
             <?php wp_nonce_field('azure_plugin_settings'); ?>
@@ -397,6 +487,10 @@ jQuery(function ($) {
             alert('Network error starting authorization.');
             $btn.prop('disabled', false).html('<span class="dashicons dashicons-admin-network"></span> Authenticate Calendar');
         });
+    });
+
+    $('input[name="pta_calendar_owner"]').on('change', function () {
+        $('.azure-event-store-reader').toggle($(this).val() === 'both');
     });
 
     $('#revoke-calendar-auth').on('click', function () {

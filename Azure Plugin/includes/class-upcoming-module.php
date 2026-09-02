@@ -691,8 +691,14 @@ class Azure_Upcoming_Module {
      * @return array Array of category names
      */
     public static function get_event_categories() {
+        $taxonomy = class_exists('Azure_Event_CPT')
+            ? Azure_Event_CPT::query_taxonomy()
+            : 'pta_event_category';
+        if (!taxonomy_exists($taxonomy)) {
+            $taxonomy = taxonomy_exists('pta_event_category') ? 'pta_event_category' : 'tribe_events_cat';
+        }
         $categories = get_terms(array(
-            'taxonomy'   => 'tribe_events_cat',
+            'taxonomy'   => $taxonomy,
             'hide_empty' => false,
         ));
         

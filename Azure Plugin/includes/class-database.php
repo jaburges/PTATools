@@ -215,6 +215,8 @@ class Azure_Database {
             outlook_calendar_name varchar(255) NOT NULL,
             category_id bigint(20) UNSIGNED,
             category_name varchar(255) NOT NULL,
+            mapping_mode varchar(20) DEFAULT 'single',
+            category_rules longtext,
             sync_enabled tinyint(1) DEFAULT 1,
             schedule_enabled tinyint(1) DEFAULT 0,
             schedule_frequency varchar(20) DEFAULT 'hourly',

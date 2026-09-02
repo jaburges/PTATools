@@ -176,7 +176,7 @@ $frequency_labels = array(
             <?php esc_html_e('Calendar Mappings', 'azure-plugin'); ?>
         </h2>
         <p class="description">
-            <?php esc_html_e('Each row maps one Outlook calendar to one pta_event_category. Events pulled from that calendar are tagged with the chosen category.', 'azure-plugin'); ?>
+            <?php esc_html_e('Each row maps one Outlook calendar to one or more event categories. Events pulled from that calendar are tagged with the chosen category.', 'azure-plugin'); ?>
         </p>
 
         <div class="calendar-mappings-actions" style="display:flex; gap:8px; flex-wrap:wrap; margin:12px 0;">
@@ -232,9 +232,31 @@ $frequency_labels = array(
                                 </div>
                             </td>
                             <td>
+                                <?php
+                                $mode = isset($mapping->mapping_mode) ? $mapping->mapping_mode : 'single';
+                                if ($mode === 'rules') {
+                                    $rules = Azure_Calendar_Mapping_Manager::decode_category_rules($mapping->category_rules ?? '');
+                                    if (empty($rules)) {
+                                        echo '<em>' . esc_html__('Many categories (no rules yet)', 'azure-plugin') . '</em>';
+                                    } else {
+                                        foreach ($rules as $rule) {
+                                            $look = $rule['look_in'] === 'body' ? __('body', 'azure-plugin') : ($rule['look_in'] === 'subject_or_body' ? __('subject or body', 'azure-plugin') : __('subject', 'azure-plugin'));
+                                            echo '<div style="margin-bottom:4px;"><span class="azure-category-badge" style="display:inline-block;background:#2271b1;color:#fff;padding:2px 8px;border-radius:3px;font-size:12px;">';
+                                            echo esc_html($rule['category_name']);
+                                            echo '</span> <small style="color:#646970;">';
+                                            printf(esc_html__('if “%1$s” in %2$s', 'azure-plugin'), esc_html($rule['term']), esc_html($look));
+                                            echo '</small></div>';
+                                        }
+                                        if (!empty($mapping->category_name)) {
+                                            echo '<div><small style="color:#646970;">' . esc_html(sprintf(__('Fallback: %s', 'azure-plugin'), $mapping->category_name)) . '</small></div>';
+                                        }
+                                    }
+                                } else {
+                                    ?>
                                 <span class="azure-category-badge" style="display:inline-block;background:#2271b1;color:#fff;padding:2px 10px;border-radius:3px;font-size:12px;">
                                     <?php echo esc_html($mapping->category_name); ?>
                                 </span>
+                                <?php } ?>
                             </td>
                             <td>
                                 <?php if (!empty($mapping->schedule_enabled)): ?>
@@ -319,7 +341,7 @@ $frequency_labels = array(
 <!-- Calendar Mapping Modal -->
 <div id="calendar-mapping-modal" class="azure-modal" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.45);">
     <div class="modal-overlay" style="position:absolute; inset:0;"></div>
-    <div class="modal-content" style="position:relative; max-width:540px; margin:80px auto; background:#fff; border-radius:6px; padding:0; box-shadow:0 10px 40px rgba(0,0,0,0.2);">
+    <div class="modal-content" style="position:relative; max-width:680px; margin:80px auto; background:#fff; border-radius:6px; padding:0; box-shadow:0 10px 40px rgba(0,0,0,0.2);">
         <div class="modal-header" style="display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid #dcdcde;">
             <h2 id="mapping-modal-title" style="margin:0; font-size:16px;"><?php esc_html_e('Add Calendar Mapping', 'azure-plugin'); ?></h2>
             <button type="button" class="modal-close button-link" style="font-size:22px; line-height:1;">&times;</button>
@@ -337,14 +359,42 @@ $frequency_labels = array(
                     </td>
                 </tr>
                 <tr>
+                    <th scope="row"><?php esc_html_e('How to categorize', 'azure-plugin'); ?></th>
+                    <td>
+                        <label style="display:block;margin-bottom:6px;">
+                            <input type="radio" name="mapping_mode" id="mapping-mode-single" value="single" checked>
+                            <?php esc_html_e('Map calendar to a single category', 'azure-plugin'); ?>
+                        </label>
+                        <label style="display:block;">
+                            <input type="radio" name="mapping_mode" id="mapping-mode-rules" value="rules">
+                            <?php esc_html_e('Map calendar to many categories', 'azure-plugin'); ?>
+                        </label>
+                        <p class="description"><?php esc_html_e('Many-categories looks for a term in each event’s subject or body, then assigns that category.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
+                <tr id="single-category-row">
                     <th scope="row"><label for="pta-category-select"><?php esc_html_e('PTA Category', 'azure-plugin'); ?></label></th>
                     <td>
                         <select id="pta-category-select" name="category_id" class="regular-text">
                             <option value=""><?php esc_html_e('Loading categories...', 'azure-plugin'); ?></option>
                         </select>
-                        <p class="description"><?php esc_html_e('Pick an existing pta_event_category, or type a new one below.', 'azure-plugin'); ?></p>
+                        <p class="description"><?php esc_html_e('Pick an existing event category, or type a new one below.', 'azure-plugin'); ?></p>
                         <input type="text" id="new-category-name" name="new_category_name" class="regular-text" style="margin-top:6px;"
                                placeholder="<?php esc_attr_e('Or create a new category…', 'azure-plugin'); ?>">
+                    </td>
+                </tr>
+                <tr id="rules-category-row" style="display:none;">
+                    <th scope="row"><?php esc_html_e('Term rules', 'azure-plugin'); ?></th>
+                    <td>
+                        <p class="description"><?php esc_html_e('If an event matches more than one term, it gets every matching category. If none match, the fallback below is used (optional).', 'azure-plugin'); ?></p>
+                        <div id="category-rules-list"></div>
+                        <p>
+                            <button type="button" class="button" id="add-category-rule"><?php esc_html_e('Add rule', 'azure-plugin'); ?></button>
+                        </p>
+                        <label for="fallback-category-select"><strong><?php esc_html_e('Fallback category', 'azure-plugin'); ?></strong></label>
+                        <select id="fallback-category-select" class="regular-text" style="display:block;margin-top:4px;">
+                            <option value=""><?php esc_html_e('None — leave unmatched events uncategorized', 'azure-plugin'); ?></option>
+                        </select>
                     </td>
                 </tr>
                 <tr>

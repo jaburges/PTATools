@@ -614,6 +614,24 @@ class Azure_Admin {
             // Defer to after Azure_Settings::update_settings() runs.
             add_action('shutdown', array('Azure_PTA_Cron', 'ensure_events_scheduled'));
         }
+
+        // Config tab > Event store. Own form so Sync Defaults / credentials
+        // saves do not reset these flags.
+        if (isset($_POST['pta_calendar_owner']) && class_exists('Azure_Event_CPT')) {
+            $owner = Azure_Event_CPT::sanitize_owner(wp_unslash($_POST['pta_calendar_owner']));
+            $settings[Azure_Event_CPT::FLAG_OWNER] = $owner;
+            if ($owner === 'pta') {
+                $settings[Azure_Event_CPT::FLAG_DATA_SOURCE] = 'pta';
+            } elseif ($owner === 'tec') {
+                $settings[Azure_Event_CPT::FLAG_DATA_SOURCE] = 'tribe';
+            } else {
+                $reader = isset($_POST['pta_calendar_data_source'])
+                    ? Azure_Event_CPT::sanitize_data_source(wp_unslash($_POST['pta_calendar_data_source']))
+                    : 'tribe';
+                $settings[Azure_Event_CPT::FLAG_DATA_SOURCE] = $reader === 'both' ? 'tribe' : $reader;
+            }
+            set_transient('pta_event_flush_rewrite_rules', 1, 5 * MINUTE_IN_SECONDS);
+        }
     }
     
     private function save_email_settings(&$settings) {

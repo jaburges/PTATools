@@ -217,7 +217,7 @@ $available_roles = $wp_roles->get_names();
                             <div class="module-content">
                                 <span class="dashicons dashicons-calendar-alt"></span>
                                 <h3><?php _e('Calendar Integration', 'azure-plugin'); ?></h3>
-                                <p><?php _e('Embed Outlook calendars and sync with TEC', 'azure-plugin'); ?></p>
+                                <p><?php _e('Embed Outlook calendars and sync events', 'azure-plugin'); ?></p>
                             </div>
                         </label>
                         

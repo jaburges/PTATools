@@ -7,13 +7,16 @@
  * the legacy The Events Calendar (TEC) integration retired in v3.97. See
  * docs/tec-retirement-audit-2026-05-22.md for the migration audit.
  *
- * The `pta_calendar_owner` flag still exists for back-compat with installs
- * mid-migration, but new installs default to `pta`. Recognized values:
- *   - `pta`   -> registers pta_event/pta_venue/pta_organizer only (default)
- *   - `both`  -> also registers tribe_events alongside, for sites still
- *                mid-migration. The retire-tec.php one-shot flips this to
- *                `pta` once the post-type rename is complete.
- *   - `tec`   -> historical only; nothing registers. Pre-3.95 setting.
+ * The `pta_calendar_owner` flag chooses the Outlook sync write target.
+ * Sites that never saved it default to `pta` unless The Events Calendar
+ * is still active, in which case they stay on `tec` until an admin
+ * picks PTA Tools or a dual-write migration. Recognized values:
+ *   - `pta`   -> registers pta_event/pta_venue/pta_organizer only (default
+ *                when TEC is not installed)
+ *   - `both`  -> dual-write Outlook events to pta_event and tribe_events
+ *                while a site migrates
+ *   - `tec`   -> stay on TEC: do not register pta_event; Outlook sync
+ *                writes tribe_events. Offered when TEC is active.
  *
  * Meta key compatibility:
  *   pta_event deliberately reuses TEC's meta key names (_EventStartDate,
@@ -52,6 +55,13 @@ class Azure_Event_CPT {
     const FLAG_OWNER       = 'pta_calendar_owner';
     const FLAG_DATA_SOURCE = 'pta_calendar_data_source';
 
+    /**
+     * Test-only override for tec_plugin_active(). Null means detect normally.
+     *
+     * @var bool|null
+     */
+    public static $tec_active_override = null;
+
     // Media filename used when an event has no featured image of its own.
     // Looked up in the Media Library (not a hardcoded site URL) so a
     // fresh install is not branded with another PTA's calendar art.
@@ -66,30 +76,121 @@ class Azure_Event_CPT {
     }
 
     /**
-     * Returns the current owner flag. Reads from Azure_Settings if
-     * available (cached per-request), falls back to raw get_option()
-     * otherwise. Defaults to 'pta' (post-v3.97 default).
+     * Whether The Events Calendar plugin is loaded.
      *
+     * @return bool
+     */
+    public static function tec_plugin_active() {
+        if (self::$tec_active_override !== null) {
+            return (bool) self::$tec_active_override;
+        }
+        if (class_exists('Tribe__Events__Main')) {
+            return true;
+        }
+        return function_exists('post_type_exists') && post_type_exists('tribe_events');
+    }
+
+    /**
+     * Raw settings array used by owner / data-source getters.
+     *
+     * @return array
+     */
+    private static function settings_array() {
+        if (class_exists('Azure_Settings')) {
+            $opts = Azure_Settings::get_all_settings();
+            return is_array($opts) ? $opts : array();
+        }
+        $opts = get_option('azure_plugin_settings', array());
+        return is_array($opts) ? $opts : array();
+    }
+
+    /**
+     * @param mixed $val
      * @return string One of 'tec', 'both', 'pta'.
      */
-    public static function get_owner() {
-        if (class_exists('Azure_Settings')) {
-            $val = Azure_Settings::get_setting(self::FLAG_OWNER, 'pta');
-        } else {
-            $opts = get_option('azure_plugin_settings', array());
-            $val = is_array($opts) && isset($opts[self::FLAG_OWNER])
-                ? $opts[self::FLAG_OWNER]
-                : 'pta';
-        }
-        $val = is_string($val) ? strtolower(trim($val)) : 'pta';
+    public static function sanitize_owner($val) {
+        $val = is_string($val) ? strtolower(trim($val)) : '';
         if (!in_array($val, array('tec', 'both', 'pta'), true)) {
-            $val = 'pta';
+            return self::tec_plugin_active() ? 'tec' : 'pta';
+        }
+        if ($val === 'tec' && !self::tec_plugin_active()) {
+            return 'pta';
+        }
+        if ($val === 'both' && !self::tec_plugin_active()) {
+            return 'pta';
         }
         return $val;
     }
 
+    /**
+     * @param mixed $val
+     * @return string One of 'tribe', 'both', 'pta'.
+     */
+    public static function sanitize_data_source($val) {
+        $val = is_string($val) ? strtolower(trim($val)) : '';
+        return in_array($val, array('tribe', 'both', 'pta'), true) ? $val : 'pta';
+    }
+
+    /**
+     * Returns the current owner flag.
+     *
+     * Unset: stay on TEC if that plugin is active, otherwise PTA Tools.
+     * An explicit saved value wins, except `tec`/`both` degrade to `pta`
+     * when TEC is no longer installed.
+     *
+     * @return string One of 'tec', 'both', 'pta'.
+     */
+    public static function get_owner() {
+        $opts = self::settings_array();
+        if (!array_key_exists(self::FLAG_OWNER, $opts) || $opts[self::FLAG_OWNER] === '' || $opts[self::FLAG_OWNER] === null) {
+            return self::tec_plugin_active() ? 'tec' : 'pta';
+        }
+        return self::sanitize_owner($opts[self::FLAG_OWNER]);
+    }
+
+    /**
+     * True when this plugin should register pta_event (and related types).
+     * Stay-on-TEC sites skip registration so TEC keeps the Events menu.
+     * If TEC was removed but the flag still says tec, register ours so
+     * Outlook sync has a place to write.
+     */
     public static function is_pta_owner_active() {
-        return self::get_owner() !== 'tec';
+        return self::get_owner() !== 'tec' || !self::tec_plugin_active();
+    }
+
+    /**
+     * Post types Outlook sync should upsert into.
+     *
+     * @return string[]
+     */
+    public static function write_post_types() {
+        $owner = self::get_owner();
+        $tec_ok = self::tec_plugin_active();
+        if ($owner === 'tec') {
+            return $tec_ok ? array('tribe_events') : array(self::POST_TYPE_EVENT);
+        }
+        if ($owner === 'both') {
+            $types = array(self::POST_TYPE_EVENT);
+            if ($tec_ok) {
+                $types[] = 'tribe_events';
+            }
+            return $types;
+        }
+        return array(self::POST_TYPE_EVENT);
+    }
+
+    /**
+     * Category taxonomy for a write target (or the primary write type).
+     *
+     * @param string|null $post_type
+     * @return string
+     */
+    public static function write_taxonomy($post_type = null) {
+        if ($post_type === null) {
+            $types = self::write_post_types();
+            $post_type = isset($types[0]) ? $types[0] : self::POST_TYPE_EVENT;
+        }
+        return $post_type === 'tribe_events' ? self::TAXONOMY_PUBLIC_SLUG : self::TAXONOMY_CATEGORY;
     }
 
     /**
@@ -100,22 +201,14 @@ class Azure_Event_CPT {
      * keep dual-writing while still reading the old data, then flip to
      * `pta` only when we're confident the new data path works.
      *
-     * @return string One of 'tribe' (default), 'both', 'pta'.
+     * @return string One of 'tribe', 'both', 'pta'.
      */
     public static function get_data_source() {
-        if (class_exists('Azure_Settings')) {
-            $val = Azure_Settings::get_setting(self::FLAG_DATA_SOURCE, 'tribe');
-        } else {
-            $opts = get_option('azure_plugin_settings', array());
-            $val = is_array($opts) && isset($opts[self::FLAG_DATA_SOURCE])
-                ? $opts[self::FLAG_DATA_SOURCE]
-                : 'tribe';
+        $opts = self::settings_array();
+        if (!array_key_exists(self::FLAG_DATA_SOURCE, $opts) || $opts[self::FLAG_DATA_SOURCE] === '' || $opts[self::FLAG_DATA_SOURCE] === null) {
+            return self::get_owner() === 'pta' ? 'pta' : 'tribe';
         }
-        $val = is_string($val) ? strtolower(trim($val)) : 'tribe';
-        if (!in_array($val, array('tribe', 'both', 'pta'), true)) {
-            $val = 'tribe';
-        }
-        return $val;
+        return self::sanitize_data_source($opts[self::FLAG_DATA_SOURCE]);
     }
 
     /**
@@ -914,10 +1007,13 @@ class Azure_Event_CPT {
      * which left leftover tribe_events rewrite rows 404ing every event.
      */
     public static function should_own_event_urls() {
-        if (self::get_data_source() === 'pta') {
-            return true;
+        if (self::get_owner() === 'tec' && self::tec_plugin_active()) {
+            return false;
         }
-        return !function_exists('post_type_exists') || !post_type_exists('tribe_events');
+        if (self::tec_plugin_active() && self::get_data_source() !== 'pta') {
+            return false;
+        }
+        return true;
     }
 
     /**
