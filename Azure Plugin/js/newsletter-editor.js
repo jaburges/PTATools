@@ -1139,12 +1139,9 @@
                 <table class="nl-now-next" width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
                         <td style="padding: 16px; background: #f0f6fc; border: 2px dashed #2271b1; text-align: center;">
-                            <p style="margin: 0; font-family: monospace; font-size: 14px; color: #2271b1;">
-                                [nl-now-next]
-                            </p>
-                            <p style="margin: 10px 0 0; font-size: 12px; color: #666;">
-                                This Week and Next Week events — compact 2-column list
-                            </p>
+                                <p style="margin: 0; font-family: monospace; font-size: 14px; color: #2271b1;">
+                                    [nl-now-next]
+                                </p>
                         </td>
                     </tr>
                 </table>
@@ -2656,41 +2653,75 @@
         'text-decoration': 1,
         'font-style': 1
     };
+    var NL_DEFAULT_FONT = 'Arial, Helvetica, sans-serif';
+    var NL_DEFAULT_SIZE = '14px';
+    var lastTextStyleHost = null;
 
-    function applyComponentStyle(comp, style) {
+    function undoManagerBusy() {
+        var um = editor && editor.UndoManager;
+        if (!um) {
+            return false;
+        }
+        return !!(um.undoing || um.redoing || um.skipping || um._doing);
+    }
+
+    function selectQuiet(comp) {
+        if (!comp || !editor) {
+            return;
+        }
+        var um = editor.UndoManager;
+        if (um && typeof um.skip === 'function') {
+            um.skip(function() {
+                editor.select(comp);
+            });
+            return;
+        }
+        editor.select(comp);
+    }
+
+    function applyComponentStyle(comp, style, quiet) {
         if (!comp || !style) {
             return;
         }
+        var opts = quiet ? { avoidStore: true } : {};
         if (typeof comp.addStyle === 'function') {
-            comp.addStyle(style);
+            comp.addStyle(style, opts);
         } else if (typeof comp.setStyle === 'function') {
             var cur = comp.getStyle() || {};
             Object.keys(style).forEach(function(k) {
                 cur[k] = style[k];
             });
-            comp.setStyle(cur);
+            comp.setStyle(cur, opts);
         }
     }
 
     /**
-     * Style Manager writes to the selected component. Text lives on
-     * inner p/h1 tags that already have inline fonts, so a table-level
-     * change is invisible. Push typography onto every text descendant
-     * and keep spacing on the block cell only.
+     * Style Manager already records the selected component. Copy that
+     * value onto the text host and descendants without extra undo
+     * steps so Undo reverts the block in one click.
      */
     function applyBlockStyle(comp, name, val) {
         if (!comp || !name || val == null || val === '') {
             return;
         }
-        var root = findTextBlockStyleRoot(comp) || comp;
+        var root = findTextStyleHost(comp) || findTextBlockStyleRoot(comp) || lastTextStyleHost || comp;
+        if (root) {
+            lastTextStyleHost = root;
+        }
         var style = {};
         style[name] = val;
-        applyComponentStyle(root, style);
+        var selected = editor && editor.getSelected && editor.getSelected();
+        if (root && root !== selected) {
+            applyComponentStyle(root, style, true);
+        }
         if (!NL_TYPO_PROPS[name]) {
             return;
         }
         collectTextTargets(root, [], 0).forEach(function(textComp) {
-            applyComponentStyle(textComp, style);
+            if (isHeadingText(textComp) || textComp === selected) {
+                return;
+            }
+            applyComponentStyle(textComp, style, true);
         });
     }
 
@@ -2699,13 +2730,19 @@
             return;
         }
         editor.on('style:property:update', function(prop) {
-            var comp = editor.getSelected();
+            var comp = editor.getSelected() || lastTextStyleHost;
             if (!comp || !prop) {
                 return;
             }
             var name = (prop.get && prop.get('property')) || (prop.getName && prop.getName()) || '';
             var val = prop.get && prop.get('value');
             applyBlockStyle(comp, name, val);
+        });
+        $('#styles-container, #traits-container').on('mousedown.ptaKeepBlock', function(e) {
+            if ($(e.target).is('input, textarea, select, option')) {
+                return;
+            }
+            e.preventDefault();
         });
     }
 
@@ -3641,7 +3678,7 @@
         if (!component) {
             return null;
         }
-        if (isColumnFrame(component) || isRowGap(component)) {
+        if (isRowGap(component)) {
             return null;
         }
         if (isEditableTextComponent(component)) {
@@ -3649,6 +3686,71 @@
         }
         var targets = collectTextTargets(component, [], 0);
         return targets.length >= 1 ? targets[0] : null;
+    }
+
+    function isHeadingText(component) {
+        var tag = String(component && component.get ? component.get('tagName') || '' : '').toLowerCase();
+        return /^h[1-6]$/.test(tag);
+    }
+
+    function findAncestorColumnCell(component) {
+        var p = component;
+        while (p) {
+            if (p.get && p.get('type') === 'nl-column') {
+                return p;
+            }
+            var tag = String(p.get && p.get('tagName') || '').toLowerCase();
+            var cls = String((p.getAttributes && p.getAttributes() || {}).class || '');
+            if (tag === 'td' && cls.indexOf('nl-column') !== -1) {
+                return p;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        return null;
+    }
+
+    function isProtectedTextHost(component) {
+        if (!component || !component.get) {
+            return true;
+        }
+        var type = component.get('type');
+        if (type === 'nl-section' || type === 'nl-section-body' || type === 'nl-columns') {
+            return true;
+        }
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        if (cls.indexOf('nl-now-next') !== -1 || cls.indexOf('nl-button') !== -1 || cls.indexOf('nl-divider') !== -1) {
+            return true;
+        }
+        var html = '';
+        try {
+            html = component.toHTML ? String(component.toHTML()) : '';
+        } catch (e) {
+            html = '';
+        }
+        return html.indexOf('[nl-now-next]') !== -1
+            || html.indexOf('[your_shortcode]') !== -1
+            || html.indexOf('[newsletter_posts') !== -1;
+    }
+
+    /**
+     * The box Settings typography should style: a text-block cell,
+     * or the column cell when Outlook-pasted text sits directly in it.
+     */
+    function findTextStyleHost(component) {
+        if (!component || isRowGap(component) || isSectionHint(component)) {
+            return null;
+        }
+        var blockTd = findTextBlockStyleRoot(component);
+        if (blockTd) {
+            return blockTd;
+        }
+        if (component.get && component.get('type') === 'nl-column' && blockHasTypographicText(component)) {
+            return component;
+        }
+        if (isEditableTextComponent(component) || blockHasTypographicText(component)) {
+            return findAncestorColumnCell(component);
+        }
+        return null;
     }
 
     function walkChildTds(component, acc, depth) {
@@ -3713,6 +3815,78 @@
         return tds.length === 1 ? tds[0] : null;
     }
 
+    function findAllTextStyleHosts() {
+        var seen = [];
+        function walk(c) {
+            if (!c) {
+                return;
+            }
+            if (isEditableTextComponent(c) && !isHeadingText(c)) {
+                var host = findTextStyleHost(c);
+                if (host && seen.indexOf(host) === -1 && !isProtectedTextHost(host)) {
+                    seen.push(host);
+                }
+            }
+            wrapperChildList(c).forEach(walk);
+        }
+        walk(editor && editor.getWrapper && editor.getWrapper());
+        return seen;
+    }
+
+    function normalizeTextHost(host) {
+        if (!host || isProtectedTextHost(host)) {
+            return;
+        }
+        var style = { 'font-family': NL_DEFAULT_FONT, 'font-size': NL_DEFAULT_SIZE };
+        applyComponentStyle(host, style);
+        collectTextTargets(host, [], 0).forEach(function(textComp) {
+            if (isHeadingText(textComp) || textComp === host) {
+                return;
+            }
+            applyComponentStyle(textComp, style, true);
+            var cur = (textComp.getStyle && textComp.getStyle()) || {};
+            if (cur['font-size'] && /pt$/i.test(String(cur['font-size']))) {
+                cur['font-size'] = NL_DEFAULT_SIZE;
+                cur['font-family'] = NL_DEFAULT_FONT;
+                if (textComp.setStyle) {
+                    textComp.setStyle(cur);
+                }
+            }
+        });
+        var el = host.getEl && host.getEl();
+        if (!el || !el.querySelectorAll) {
+            return;
+        }
+        var nodes = el.querySelectorAll('[style]');
+        for (var i = 0; i < nodes.length; i++) {
+            var tag = String(nodes[i].tagName || '').toLowerCase();
+            if (/^h[1-6]$/.test(tag)) {
+                continue;
+            }
+            if (nodes[i].closest && nodes[i].closest('.nl-button, .nl-now-next, .nl-divider')) {
+                continue;
+            }
+            nodes[i].style.fontFamily = '';
+            nodes[i].style.fontSize = '';
+            if (nodes[i].getAttribute('style') === '') {
+                nodes[i].removeAttribute('style');
+            }
+        }
+        applyComponentStyle(host, style);
+    }
+
+    function formatTextToDefault() {
+        var selected = editor && editor.getSelected && editor.getSelected();
+        var host = findTextStyleHost(selected) || lastTextStyleHost;
+        if (host && !isProtectedTextHost(host)) {
+            normalizeTextHost(host);
+            lastTextStyleHost = host;
+            selectQuiet(host);
+            return;
+        }
+        findAllTextStyleHosts().forEach(normalizeTextHost);
+    }
+
     function traitNames(component) {
         var traits = component.getTraits ? component.getTraits() : [];
         var names = [];
@@ -3747,7 +3921,7 @@
         if (!component) {
             return false;
         }
-        return isEditableTextComponent(component) || !!findTextBlockStyleRoot(component);
+        return isEditableTextComponent(component) || !!findTextStyleHost(component) || !!findTextBlockStyleRoot(component);
     }
 
     function syncSettingsTextFromCanvas(component) {
@@ -3790,6 +3964,18 @@
                 editor.RichTextEditor.enable(view.el, textComp);
             } catch (e) { /* RTE optional */ }
         }
+    }
+
+    function bindTextHostDblClick(host) {
+        var el = host && host.getEl && host.getEl();
+        if (!el || el._ptaDblBound) {
+            return;
+        }
+        el._ptaDblBound = true;
+        el.addEventListener('dblclick', function() {
+            var target = findTextEditTarget(host) || host;
+            enableCanvasTextEdit(target);
+        });
     }
 
     /**
@@ -3856,11 +4042,22 @@
                 return;
             }
 
+            if (undoManagerBusy()) {
+                lastTextStyleHost = findTextStyleHost(component) || lastTextStyleHost;
+                updateElementIndicator(component);
+                updateMoveButtons(getMovableRow(component));
+                return;
+            }
+
             if (component.get('type') === 'nl-column') {
-                var row = findAncestorColumns(component);
-                if (row && row !== component) {
-                    editor.select(row);
-                    return;
+                if (blockHasTypographicText(component)) {
+                    lastTextStyleHost = component;
+                } else {
+                    var row = findAncestorColumns(component);
+                    if (row && row !== component) {
+                        selectQuiet(row);
+                        return;
+                    }
                 }
             }
 
@@ -3869,21 +4066,25 @@
                     ? component
                     : findAncestorSection(component);
                 if (owningSection && owningSection !== component) {
-                    editor.select(owningSection);
+                    selectQuiet(owningSection);
                     return;
                 }
             }
 
-            var styleRoot = findTextBlockStyleRoot(component);
+            var styleRoot = findTextStyleHost(component) || findTextBlockStyleRoot(component);
             if (styleRoot && styleRoot !== component) {
+                lastTextStyleHost = styleRoot;
                 styleRoot._ptaRteTarget = isEditableTextComponent(component)
                     ? component
                     : findTextEditTarget(component);
-                editor.select(styleRoot);
+                selectQuiet(styleRoot);
                 return;
             }
+            if (styleRoot) {
+                lastTextStyleHost = styleRoot;
+            }
 
-            var textTarget = component._ptaRteTarget || findTextEditTarget(component);
+            var textTarget = component._ptaRteTarget || null;
             component._ptaRteTarget = null;
             ensureTextContentTrait(component);
 
@@ -3902,9 +4103,9 @@
             updateElementIndicator(component);
             updateMoveButtons(getMovableRow(component));
 
+            bindTextHostDblClick(component);
             if (textTarget) {
                 window.setTimeout(function() {
-                    enableCanvasTextEdit(textTarget);
                     syncSettingsTextFromCanvas(component);
                 }, 0);
             }
@@ -4155,14 +4356,27 @@
     function setupToolbarButtons() {
         // Undo
         $('#btn-undo').on('click', function() {
-            if (editor) {
+            if (!editor) {
+                return;
+            }
+            if (editor.Commands && editor.Commands.isActive && editor.Commands.isActive('core:undo')) {
+                return;
+            }
+            if (typeof editor.runCommand === 'function') {
+                editor.runCommand('core:undo');
+            } else {
                 editor.UndoManager.undo();
             }
         });
         
         // Redo
         $('#btn-redo').on('click', function() {
-            if (editor) {
+            if (!editor) {
+                return;
+            }
+            if (typeof editor.runCommand === 'function') {
+                editor.runCommand('core:redo');
+            } else {
                 editor.UndoManager.redo();
             }
         });
@@ -4178,6 +4392,9 @@
         });
         $('#btn-delete-section').on('click', function() {
             deleteSelectedSection();
+        });
+        $('#btn-format-text').on('click', function() {
+            formatTextToDefault();
         });
 
         // View/Edit code

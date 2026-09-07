@@ -94,6 +94,18 @@ $t->check(strpos($js, 'function getSwappableColumnRow') !== false, 'swap finds t
 $t->check(strpos($js, 'pta-swap-columns') !== false, 'swap-columns command is registered');
 $t->check(strpos($js, '#btn-swap-cols') !== false, 'toolbar swap button is wired');
 $t->check(strpos($js, '#btn-delete-section') !== false, 'toolbar delete-section button is wired');
+$t->check(strpos($js, '#btn-format-text') !== false, 'toolbar Format text button is wired');
+$t->check(strpos($js, 'function formatTextToDefault') !== false, 'Format text helper exists');
+$t->check(strpos($js, 'function findTextStyleHost') !== false, 'typography targets the text block or column cell');
+$t->check(strpos($js, 'function normalizeTextHost') !== false, 'Format text resets body font and size');
+$t->check(strpos($js, "NL_DEFAULT_FONT = 'Arial, Helvetica, sans-serif'") !== false, 'default body font is Arial');
+$t->check(strpos($js, "NL_DEFAULT_SIZE = '14px'") !== false, 'default body size is 14px');
+$t->check(strpos($js, 'lastTextStyleHost') !== false, 'sidebar font changes keep the last text block');
+$t->check(strpos($js, 'bindTextHostDblClick') !== false, 'double-click edits words without needing a tight text selection');
+$t->check(strpos($js, 'mousedown.ptaKeepBlock') !== false, 'clicking Settings does not steal the canvas selection');
+$t->check(strpos($js, 'function undoManagerBusy') !== false, 'style/selection hooks do not run during undo');
+$t->check(strpos($js, 'function selectQuiet') !== false, 'promoting a text click to the block is not an undo step');
+$t->check(strpos($js, "runCommand('core:undo')") !== false, 'toolbar Undo uses the GrapesJS undo command');
 $t->check(strpos($js, "bm.add('now-next'") !== false, 'registers Now and Next block');
 $t->check(strpos($js, '[nl-now-next]') !== false, 'Now and Next placeholder uses nl-now-next');
 $t->check(!preg_match("/bm\\.add\\('section'\\s*,/", $js), 'Now and Next is not registered as a generic section id');
@@ -111,9 +123,10 @@ $t->check(strpos($editor_php, 'id="btn-row-up"') !== false, 'designer toolbar ha
 $t->check(strpos($editor_php, 'id="btn-row-down"') !== false, 'designer toolbar has Move row down');
 $t->check(strpos($editor_php, 'id="btn-swap-cols"') !== false, 'designer toolbar has Swap columns');
 $t->check(strpos($editor_php, 'id="btn-delete-section"') !== false, 'designer toolbar has Delete section');
-$t->check(strpos($editor_php, 'drop a Section around') !== false, 'help bar mentions Section groups');
-$t->check(strpos($editor_php, 'Swap flips a 2-column') !== false, 'help bar mentions column swap');
-$t->check(strpos($editor_php, 'Now and Next') !== false, 'help bar mentions Now and Next');
+$t->check(strpos($editor_php, 'id="btn-format-text"') !== false, 'designer toolbar has Format text');
+$t->check(strpos($editor_php, 'click a text block to style it') !== false, 'help bar explains block-level typography');
+$t->check(strpos($editor_php, 'Double-click to edit') !== false, 'help bar explains double-click to edit words');
+$t->check(strpos($editor_php, 'Format text') !== false, 'help bar mentions Format text');
 $t->check(strpos($editor_php, 'data-panel="styles"') === false, 'Styles tab is merged into Settings');
 $t->check(strpos($editor_php, 'id="styles-panel"') === false, 'separate styles panel is gone');
 $t->check(strpos($editor_php, 'id="styles-container"') !== false, 'style manager still mounts in Settings');
@@ -236,6 +249,34 @@ $t->equals(array('text', 'image'), test_rotate_list_left(array('image', 'text'))
 $t->equals(array('B', 'C', 'A'), test_rotate_list_left(array('A', 'B', 'C')), '3-column cycle keeps each cell together');
 $t->equals(array('A', 'B', 'C'), test_rotate_list_left(test_rotate_list_left(test_rotate_list_left(array('A', 'B', 'C')))), '3-column cycle returns to original after three clicks');
 $t->equals(array('only'), test_rotate_list_left(array('only')), '1-column row is left alone');
+
+/**
+ * Mirror of the Format text DOM cleanup: drop pasted font-family / font-size
+ * but keep bold and links.
+ */
+function test_strip_inline_fonts($html) {
+    return preg_replace_callback('/style="([^"]*)"/i', function ($m) {
+        $parts = array_filter(array_map('trim', explode(';', $m[1])), function ($part) {
+            if ($part === '') {
+                return false;
+            }
+            return !preg_match('/^font-family\s*:/i', $part) && !preg_match('/^font-size\s*:/i', $part);
+        });
+        if (!$parts) {
+            return '';
+        }
+        return 'style="' . implode('; ', $parts) . '"';
+    }, $html);
+}
+
+$pasted = '<span style="font-family:Aptos, sans-serif;font-size:12pt;"><b>When:</b> Friday</span>'
+    . '<a href="https://example.com" style="color:#2271b1;font-size:12pt;">Link</a>';
+$cleaned = test_strip_inline_fonts($pasted);
+$t->check(strpos($cleaned, 'Aptos') === false, 'Format text drops Outlook Aptos');
+$t->check(strpos($cleaned, '12pt') === false, 'Format text drops pasted 12pt sizes');
+$t->check(strpos($cleaned, '<b>When:</b>') !== false, 'Format text keeps bold');
+$t->check(strpos($cleaned, 'https://example.com') !== false, 'Format text keeps links');
+$t->check(strpos($cleaned, 'color:#2271b1') !== false, 'Format text keeps link color');
 
 /**
  * Mirror of extractBalancedTable + sectionTableIsEmpty + stripEmptySections.

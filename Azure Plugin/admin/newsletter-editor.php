@@ -442,6 +442,9 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                         <button type="button" class="device-btn" id="btn-delete-section" disabled title="<?php esc_attr_e('Delete section', 'azure-plugin'); ?>">
                             <span class="dashicons dashicons-trash"></span>
                         </button>
+                        <button type="button" class="device-btn" id="btn-format-text" title="<?php esc_attr_e('Format text to Arial 14. Formats the selected text block, or every text block if none is selected.', 'azure-plugin'); ?>">
+                            <span class="dashicons dashicons-editor-removeformatting"></span>
+                        </button>
                     </div>
                 </div>
                 <div class="toolbar-right">
@@ -484,7 +487,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                     <div class="editor-help-bar" id="editor-help-bar">
                         <span class="dashicons dashicons-info-outline" aria-hidden="true"></span>
                         <span class="editor-help-text">
-                            <?php _e('Tip: drop a Section around a heading + columns + button, then Move up/down to reorder the whole group. Swap flips a 2-column row (or cycles a 3-column row) while keeping each cell together. Now and Next inserts a compact This Week / Next Week event list.', 'azure-plugin'); ?>
+                            <?php _e('Tip: click a text block to style it in Settings (font applies to the whole block). Double-click to edit the words. Format text in the header bar resets body text to Arial 14. Headings and buttons stay as they are.', 'azure-plugin'); ?>
                         </span>
                         <button type="button" class="editor-help-dismiss" aria-label="<?php esc_attr_e('Dismiss tip', 'azure-plugin'); ?>">&times;</button>
                     </div>
