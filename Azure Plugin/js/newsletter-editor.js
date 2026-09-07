@@ -687,7 +687,7 @@
             content: `
                 <table width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">
+                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">
                             <p style="margin: 0;">Add your text content here. You can style this text in Settings.</p>
                         </td>
                     </tr>
@@ -1153,7 +1153,7 @@
             content: `
                 <table class="nl-now-next" width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">
+                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">
                             <p style="margin: 0;">[nl-now-next enable_links="false"]</p>
                         </td>
                     </tr>
@@ -1824,7 +1824,7 @@
                 'text-align': 'left',
                 'font-family': 'Arial, sans-serif',
                 'font-size': '14px',
-                'line-height': '1.6',
+                'line-height': '22px',
                 color: '#333333'
             };
             if (typeof comp.addStyle === 'function') {
@@ -2011,7 +2011,9 @@
                 return;
             }
             if (body.components && body.components()) {
-                body.components().add({ type: 'nl-section-handle' }, { at: 0 });
+                withoutUndo(function() {
+                    body.components().add({ type: 'nl-section-handle' }, { at: 0, avoidStore: true, noUndo: true });
+                });
             }
         });
     }
@@ -2781,10 +2783,42 @@
     };
     var NL_DEFAULT_FONT = 'Arial, Helvetica, sans-serif';
     var NL_DEFAULT_SIZE = '14px';
+
+    function cssLineHeightToPx(val, fontSizePx) {
+        val = String(val || '').trim().toLowerCase();
+        if (!val || val === 'normal' || val === 'inherit' || val === '100%') {
+            return '';
+        }
+        var pxMatch = val.match(/^(\d+(?:\.\d+)?)px$/);
+        if (pxMatch) {
+            return parseFloat(pxMatch[1]) < 4 ? '' : Math.round(parseFloat(pxMatch[1])) + 'px';
+        }
+        var numMatch = val.match(/^(\d+(?:\.\d+)?)$/);
+        if (!numMatch) {
+            return '';
+        }
+        var num = parseFloat(numMatch[1]);
+        if (!(num > 0)) {
+            return '';
+        }
+        var font = parseFloat(fontSizePx);
+        if (!font) {
+            font = 14;
+        }
+        if (num <= 4) {
+            return Math.round(font * num) + 'px';
+        }
+        return Math.round(num) + 'px';
+    }
     var lastTextStyleHost = null;
     var holdingSettingsSelection = false;
 
+    var ptaUndoBusy = false;
+
     function undoManagerBusy() {
+        if (ptaUndoBusy) {
+            return true;
+        }
         var um = editor && editor.UndoManager;
         if (!um) {
             return false;
@@ -2792,34 +2826,65 @@
         return !!(um.undoing || um.redoing || um.skipping || um._doing);
     }
 
+    function withoutUndo(fn) {
+        if (typeof fn !== 'function') {
+            return;
+        }
+        var wasBusy = ptaUndoBusy;
+        ptaUndoBusy = true;
+        try {
+            var um = editor && editor.UndoManager;
+            if (um && typeof um.skip === 'function') {
+                um.skip(fn);
+                return;
+            }
+            if (um && typeof um.stop === 'function') {
+                um.stop();
+                try {
+                    fn();
+                } finally {
+                    if (typeof um.start === 'function') {
+                        um.start();
+                    }
+                }
+                return;
+            }
+            fn();
+        } finally {
+            ptaUndoBusy = wasBusy;
+        }
+    }
+
     function selectQuiet(comp) {
         if (!comp || !editor) {
             return;
         }
-        var um = editor.UndoManager;
-        if (um && typeof um.skip === 'function') {
-            um.skip(function() {
-                editor.select(comp);
-            });
-            return;
-        }
-        editor.select(comp);
+        withoutUndo(function() {
+            editor.select(comp);
+        });
     }
 
     function applyComponentStyle(comp, style, quiet) {
         if (!comp || !style) {
             return;
         }
-        var opts = quiet ? { avoidStore: true } : {};
-        if (typeof comp.addStyle === 'function') {
-            comp.addStyle(style, opts);
-        } else if (typeof comp.setStyle === 'function') {
-            var cur = comp.getStyle() || {};
-            Object.keys(style).forEach(function(k) {
-                cur[k] = style[k];
-            });
-            comp.setStyle(cur, opts);
+        var write = function() {
+            var opts = quiet ? { avoidStore: true, noUndo: true } : {};
+            if (typeof comp.addStyle === 'function') {
+                comp.addStyle(style, opts);
+            } else if (typeof comp.setStyle === 'function') {
+                var cur = comp.getStyle() || {};
+                Object.keys(style).forEach(function(k) {
+                    cur[k] = style[k];
+                });
+                comp.setStyle(cur, opts);
+            }
+        };
+        if (quiet) {
+            withoutUndo(write);
+            return;
         }
+        write();
     }
 
     /**
@@ -2828,10 +2893,27 @@
      * steps so Undo reverts the block in one click.
      */
     function applyBlockStyle(comp, name, val) {
+        if (undoManagerBusy()) {
+            return;
+        }
         if (!comp || !name || val == null || val === '') {
             return;
         }
+        if (name === 'line-height') {
+            var hostForLh = findTextStyleHost(comp) || findTextBlockStyleRoot(comp) || lastTextStyleHost || comp;
+            var hostStyle = (hostForLh && hostForLh.getStyle && hostForLh.getStyle()) || {};
+            var safeLh = cssLineHeightToPx(val, hostStyle['font-size'] || NL_DEFAULT_SIZE);
+            if (safeLh) {
+                val = safeLh;
+            }
+        }
+        if (findAncestorButton(comp)) {
+            return;
+        }
         var root = findTextStyleHost(comp) || findTextBlockStyleRoot(comp) || lastTextStyleHost || comp;
+        if (findAncestorButton(root)) {
+            return;
+        }
         if (root) {
             lastTextStyleHost = root;
         }
@@ -2897,7 +2979,22 @@
         if (!editor) {
             return;
         }
+        editor.on('undo', function() {
+            ptaUndoBusy = true;
+            window.setTimeout(function() {
+                ptaUndoBusy = false;
+            }, 0);
+        });
+        editor.on('redo', function() {
+            ptaUndoBusy = true;
+            window.setTimeout(function() {
+                ptaUndoBusy = false;
+            }, 0);
+        });
         editor.on('style:property:update', function(prop) {
+            if (undoManagerBusy()) {
+                return;
+            }
             var comp = (editor.getSelected && editor.getSelected()) || lastTextStyleHost;
             if (!comp || !prop) {
                 return;
@@ -2916,7 +3013,7 @@
                 return;
             }
             holdingSettingsSelection = true;
-            if (lastTextStyleHost) {
+            if (lastTextStyleHost && !undoManagerBusy()) {
                 restoreStyleHost();
             }
         };
@@ -3133,7 +3230,58 @@
         var buttons = wrapper.findType('email-button') || [];
         buttons.forEach(function(btn) {
             syncButtonFromLink(btn);
+            restoreButtonCellChrome(btn);
         });
+    }
+
+    function findAncestorButton(component) {
+        var p = component;
+        while (p) {
+            if (p.get && p.get('type') === 'email-button') {
+                return p;
+            }
+            var cls = String((p.getAttributes && p.getAttributes() || {}).class || '');
+            var tag = String(p.get && p.get('tagName') || '').toLowerCase();
+            if (tag === 'table' && cls.indexOf('nl-button') !== -1) {
+                return p;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        return null;
+    }
+
+    /**
+     * Settings Border defaults to 0. Selecting the inner <a> used to
+     * copy that onto the colored td and flatten border-radius.
+     */
+    function restoreButtonCellChrome(button) {
+        if (!button) {
+            return;
+        }
+        function walk(c) {
+            if (!c || !c.get) {
+                return;
+            }
+            var tag = String(c.get('tagName') || '').toLowerCase();
+            if (tag === 'td') {
+                var st = (c.getStyle && c.getStyle()) || {};
+                var radius = String(st['border-radius'] || st.borderRadius || '');
+                var width = String(st['border-width'] || st.borderWidth || st.border || '');
+                var next = {};
+                if (radius === '0' || radius === '0px') {
+                    next['border-radius'] = '4px';
+                }
+                if (/^0(px)?$/.test(width) || width === '0 none' || width === 'none') {
+                    next['border-width'] = '';
+                    next.border = '';
+                }
+                if (Object.keys(next).length) {
+                    applyComponentStyle(c, next, true);
+                }
+            }
+            wrapperChildList(c).forEach(walk);
+        }
+        walk(button);
     }
 
     /**
@@ -3947,7 +4095,7 @@
      * or the column cell when Outlook-pasted text sits directly in it.
      */
     function findTextStyleHost(component) {
-        if (!component || isRowGap(component) || isSectionHint(component) || isSectionHandle(component)) {
+        if (!component || isRowGap(component) || isSectionHint(component) || isSectionHandle(component) || findAncestorButton(component)) {
             return null;
         }
         var blockTd = findTextBlockStyleRoot(component);
@@ -4001,7 +4149,7 @@
      * belongs here, not on the first <p> or a text node.
      */
     function findTextBlockStyleRoot(component) {
-        if (!component || isColumnFrame(component) || isRowGap(component)) {
+        if (!component || isColumnFrame(component) || isRowGap(component) || findAncestorButton(component)) {
             return null;
         }
         if (!blockHasTypographicText(component)) {
@@ -4271,6 +4419,17 @@
                 }
             }
 
+            var button = findAncestorButton(component);
+            if (button) {
+                withoutUndo(function() {
+                    restoreButtonCellChrome(button);
+                });
+                if (button !== component) {
+                    selectQuiet(button);
+                    return;
+                }
+            }
+
             if (isSectionHandle(component) || isSectionBody(component) || parentIsSectionChrome(component)) {
                 var owningSection = component.get('type') === 'nl-section'
                     ? component
@@ -4515,7 +4674,7 @@
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 30px 20px; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">
+                                    <td style="padding: 30px 20px; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">
                                         <p>Hello {{first_name}},</p>
                                         <p>Start creating your newsletter by dragging blocks from the left panel. You can add text, images, buttons, and more.</p>
                                         <p>Use Settings to customize colors, fonts, and spacing.</p>
@@ -4591,10 +4750,17 @@
             if (editor.Commands && editor.Commands.isActive && editor.Commands.isActive('core:undo')) {
                 return;
             }
-            if (typeof editor.runCommand === 'function') {
-                editor.runCommand('core:undo');
-            } else {
-                editor.UndoManager.undo();
+            ptaUndoBusy = true;
+            try {
+                if (typeof editor.runCommand === 'function') {
+                    editor.runCommand('core:undo');
+                } else {
+                    editor.UndoManager.undo();
+                }
+            } finally {
+                window.setTimeout(function() {
+                    ptaUndoBusy = false;
+                }, 0);
             }
         });
         
@@ -4603,10 +4769,17 @@
             if (!editor) {
                 return;
             }
-            if (typeof editor.runCommand === 'function') {
-                editor.runCommand('core:redo');
-            } else {
-                editor.UndoManager.redo();
+            ptaUndoBusy = true;
+            try {
+                if (typeof editor.runCommand === 'function') {
+                    editor.runCommand('core:redo');
+                } else {
+                    editor.UndoManager.redo();
+                }
+            } finally {
+                window.setTimeout(function() {
+                    ptaUndoBusy = false;
+                }, 0);
             }
         });
 

@@ -18,6 +18,7 @@ class Azure_Newsletter_Email_Css {
     const MARKER = '/* pta-nl-stack-cols */';
     const GAP_MARKER = '/* pta-nl-col-gap */';
     const DIVIDER_MARKER = '/* pta-nl-divider */';
+    const OUTLOOK_LH_MARKER = '/* pta-nl-outlook-lh */';
     const COLUMN_GAP_PX = 10;
 
     /**
@@ -70,6 +71,10 @@ class Azure_Newsletter_Email_Css {
         }
         $html = self::ensure_column_cell_padding($html);
         $html = self::wrap_image_hrefs($html);
+        $html = self::outlook_safe_line_heights($html);
+        if (strpos($html, self::OUTLOOK_LH_MARKER) === false) {
+            $html = self::append_style($html, self::outlook_block_css());
+        }
         if (strpos($html, self::GAP_MARKER) === false) {
             $html = self::append_style($html, self::column_gap_css());
         }
@@ -108,6 +113,124 @@ class Azure_Newsletter_Email_Css {
         }
         $attrs = preg_replace('/\s*href\s*=\s*(["\'])([^"\']*)\1/i', '', $attrs);
         return '<a href="' . $url . '" target="_blank" style="text-decoration:none;border:0;"><img' . $attrs . '></a>';
+    }
+
+    /**
+     * Outlook iOS/Android honour <style> and treat <div> as inline.
+     * Keep text wrappers in the block flow so a collapsed line box
+     * cannot paint every child at the same Y.
+     */
+    public static function outlook_block_css() {
+        return self::OUTLOOK_LH_MARKER
+            . ' p, h1, h2, h3, h4, h5, h6, li { display: block; }'
+            . ' div { display: block; }';
+    }
+
+    /**
+     * Word-based Outlook (Windows + mobile) treats unitless line-height
+     * as pt (1.6 → 1.6pt), so 14px text paints on top of itself and the
+     * next block starts at that collapsed height. Convert multipliers
+     * in both inline styles and <style> rules (mobile honours the latter).
+     *
+     * @param string $html
+     * @return string
+     */
+    public static function outlook_safe_line_heights($html) {
+        if ($html === '' || $html === null || stripos($html, 'line-height') === false) {
+            return $html;
+        }
+        $html = preg_replace_callback(
+            '/(<style\b[^>]*>)(.*?)(<\/style>)/is',
+            array(__CLASS__, 'outlook_safe_line_height_style_tag'),
+            $html
+        );
+        return preg_replace_callback(
+            '/style\s*=\s*(["\'])(.*?)\1/is',
+            array(__CLASS__, 'outlook_safe_line_height_attr'),
+            $html
+        );
+    }
+
+    /**
+     * @param string $raw   line-height token
+     * @param string $style full style attribute
+     * @return int|null px value, or null to leave the token alone
+     */
+    public static function line_height_to_px($raw, $style = '') {
+        $raw = strtolower(trim((string) $raw));
+        if ($raw === '' || $raw === 'normal' || $raw === 'inherit' || $raw === '100%') {
+            return null;
+        }
+        if (preg_match('/^(\d+(?:\.\d+)?)px$/', $raw, $m)) {
+            $px = (float) $m[1];
+            return $px < 4 ? null : (int) round($px);
+        }
+        if (preg_match('/^(\d+(?:\.\d+)?)pt$/', $raw, $m)) {
+            return (int) max(1, round(((float) $m[1]) * 96 / 72));
+        }
+        $font = 14.0;
+        if (preg_match('/font-size\s*:\s*(\d+(?:\.\d+)?)px/i', $style, $fs)) {
+            $font = (float) $fs[1];
+        } elseif (preg_match('/font-size\s*:\s*(\d+(?:\.\d+)?)pt/i', $style, $fs)) {
+            $font = ((float) $fs[1]) * 96 / 72;
+        }
+        if (preg_match('/^(\d+(?:\.\d+)?)%$/', $raw, $m)) {
+            return (int) max(1, round($font * ((float) $m[1]) / 100));
+        }
+        if (!preg_match('/^(\d+(?:\.\d+)?)$/', $raw, $m)) {
+            return null;
+        }
+        $num = (float) $m[1];
+        if ($num <= 0) {
+            return null;
+        }
+        if ($num <= 4) {
+            return (int) max(1, round($font * $num));
+        }
+        return (int) round($num);
+    }
+
+    private static function outlook_safe_line_height_style_tag($match) {
+        return $match[1] . self::rewrite_line_height_blocks($match[2]) . $match[3];
+    }
+
+    public static function rewrite_line_height_blocks($css) {
+        if ($css === '' || $css === null || stripos($css, 'line-height') === false) {
+            return $css;
+        }
+        return preg_replace_callback(
+            '/\{([^{}]*)\}/',
+            array(__CLASS__, 'outlook_safe_line_height_block'),
+            $css
+        );
+    }
+
+    private static function outlook_safe_line_height_block($match) {
+        $rewritten = self::rewrite_line_height_decls($match[1]);
+        return $rewritten === $match[1] ? $match[0] : '{' . $rewritten . '}';
+    }
+
+    private static function outlook_safe_line_height_attr($match) {
+        $rewritten = self::rewrite_line_height_decls($match[2]);
+        if ($rewritten === $match[2]) {
+            return $match[0];
+        }
+        return 'style=' . $match[1] . $rewritten . $match[1];
+    }
+
+    private static function rewrite_line_height_decls($css) {
+        if (!preg_match('/line-height\s*:\s*([^;]+)/i', $css, $lh)) {
+            return $css;
+        }
+        $px = self::line_height_to_px(trim($lh[1]), $css);
+        if ($px === null) {
+            return $css;
+        }
+        $css = preg_replace('/line-height\s*:\s*[^;]+/i', 'line-height: ' . $px . 'px', $css, 1);
+        if (stripos($css, 'mso-line-height-rule') === false) {
+            $css = rtrim($css, "; \n\t") . '; mso-line-height-rule: exactly';
+        }
+        return $css;
     }
 
     /**

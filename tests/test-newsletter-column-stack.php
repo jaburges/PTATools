@@ -81,4 +81,35 @@ $t->check(strpos($divider_css, 'nl-divider-rule') !== false, 'divider CSS paints
 $with_div = Azure_Newsletter_Email_Css::ensure_column_stack_style('<table class="nl-divider"><tr><td><hr></td></tr></table>');
 $t->check(strpos($with_div, Azure_Newsletter_Email_Css::DIVIDER_MARKER) !== false, 'send path injects divider CSS');
 
+$t->equals(Azure_Newsletter_Email_Css::line_height_to_px('1.6', 'font-size: 14px'), 22, 'unitless 1.6 at 14px becomes 22px');
+$t->equals(Azure_Newsletter_Email_Css::line_height_to_px('1.45', 'font-size: 13px'), 19, 'unitless 1.45 at 13px becomes 19px');
+$t->equals(Azure_Newsletter_Email_Css::line_height_to_px('22', ''), 22, 'unitless 22 is treated as already-px');
+$t->equals(Azure_Newsletter_Email_Css::line_height_to_px('2px', ''), null, 'divider 2px line-height is left alone');
+$t->equals(Azure_Newsletter_Email_Css::line_height_to_px('100%', ''), null, 'image reset 100% line-height is left alone');
+
+$overlap = '<td style="font-family:Arial;font-size:14px;line-height:1.6;color:#333">Hello</td>';
+$fixed = Azure_Newsletter_Email_Css::ensure_column_stack_style($overlap);
+$t->check(strpos($fixed, 'line-height: 22px') !== false, 'send path converts unitless 1.6 to 22px');
+$t->check(strpos($fixed, 'mso-line-height-rule: exactly') !== false, 'send path pins Outlook to the px height');
+$t->check(strpos($fixed, 'line-height:1.6') === false, 'send path does not leave unitless 1.6 for Word Outlook');
+
+$hairline = Azure_Newsletter_Email_Css::outlook_safe_line_heights(
+    '<td style="line-height: 2px; font-size: 1px; height: 2px;">&nbsp;</td>'
+);
+$t->check(strpos($hairline, 'line-height: 2px') !== false, 'divider hairline line-height stays 2px');
+$t->check(strpos($hairline, 'mso-line-height-rule') === false, 'divider hairline does not get mso-line-height-rule');
+
+$sheet = '<html><head><style type="text/css">#iabc{font-size:14px;line-height:1.6;color:#333}</style></head>'
+    . '<body><td id="iabc">Hello</td></body></html>';
+$sheet_fixed = Azure_Newsletter_Email_Css::outlook_safe_line_heights($sheet);
+$t->check(strpos($sheet_fixed, 'line-height: 22px') !== false, 'GrapesJS stylesheet 1.6 becomes 22px for Outlook mobile');
+$t->check(strpos($sheet_fixed, 'line-height:1.6') === false, 'stylesheet does not keep unitless 1.6');
+
+$ensured_sheet = Azure_Newsletter_Email_Css::ensure_column_stack_style($sheet);
+$t->check(strpos($ensured_sheet, Azure_Newsletter_Email_Css::OUTLOOK_LH_MARKER) !== false, 'send path injects Outlook block-flow CSS');
+$t->check(strpos($ensured_sheet, 'div { display: block; }') !== false, 'Outlook mobile keeps wrapping divs in block flow');
+
+$img_reset = Azure_Newsletter_Email_Css::rewrite_line_height_blocks('img { border: 0; line-height: 100%; }');
+$t->check(strpos($img_reset, 'line-height: 100%') !== false, 'image reset 100% in a stylesheet is left alone');
+
 exit($t->finish() === 0 ? 0 : 1);

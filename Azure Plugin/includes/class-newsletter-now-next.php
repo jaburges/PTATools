@@ -100,7 +100,7 @@ class Azure_Newsletter_Now_Next {
             $parts[] = '<span style="color:#666666;">' . esc_html($time) . '</span>';
         }
 
-        return '<p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.45;color:#333333;">'
+        return '<p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:#333333;">'
             . implode(' · ', $parts)
             . '</p>';
     }
@@ -113,7 +113,7 @@ class Azure_Newsletter_Now_Next {
      * @return string
      */
     private static function render_column($title, $events, $empty, $enable_links = false) {
-        $html = '<p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.3;font-weight:bold;color:#2271b1;">'
+        $html = '<p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:18px;mso-line-height-rule:exactly;font-weight:bold;color:#2271b1;">'
             . esc_html($title)
             . '</p>';
 
@@ -122,7 +122,7 @@ class Azure_Newsletter_Now_Next {
             $lines .= self::format_line($event, $enable_links);
         }
         if ($lines === '') {
-            $lines = '<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.45;color:#888888;">'
+            $lines = '<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:#888888;">'
                 . esc_html($empty)
                 . '</p>';
         }
