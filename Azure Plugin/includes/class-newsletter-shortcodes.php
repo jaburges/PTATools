@@ -97,7 +97,8 @@ class Azure_Newsletter_Shortcodes {
         if (stripos($inner, '<table') !== false) {
             return null;
         }
-        if (stripos($table_html, 'dashed') === false) {
+        $is_now_next = (bool) preg_match('/class=["\'][^"\']*\bnl-now-next\b/i', $table_html);
+        if (stripos($table_html, 'dashed') === false && !$is_now_next) {
             return null;
         }
 

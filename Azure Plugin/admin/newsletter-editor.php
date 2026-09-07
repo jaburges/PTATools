@@ -487,7 +487,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                     <div class="editor-help-bar" id="editor-help-bar">
                         <span class="dashicons dashicons-info-outline" aria-hidden="true"></span>
                         <span class="editor-help-text">
-                            <?php _e('Tip: click a text block to style it in Settings (font applies to the whole block). Double-click to edit the words. Format text in the header bar resets body text to Arial 14. Headings and buttons stay as they are.', 'azure-plugin'); ?>
+                            <?php _e('Tip: click the left bar on a Section to select the whole group. Click a text block to style it in Settings. Double-click to edit the words. Format text resets body text to Arial 14.', 'azure-plugin'); ?>
                         </span>
                         <button type="button" class="editor-help-dismiss" aria-label="<?php esc_attr_e('Dismiss tip', 'azure-plugin'); ?>">&times;</button>
                     </div>

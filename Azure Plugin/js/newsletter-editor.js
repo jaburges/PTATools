@@ -97,6 +97,7 @@
         html = stripFaqOpenAttr(html);
         html = stripRowGaps(html);
         html = stripSectionHints(html);
+        html = stripSectionHandles(html);
         html = stripEmptySections(html);
         
         // Build proper email HTML structure
@@ -466,8 +467,12 @@
             'body.pta-nl-dragging .nl-row-gap{border-color:#2271b1;background:rgba(34,113,177,.10);}',
             'body.pta-nl-dragging .nl-row-gap::after{color:#2271b1;}',
             '.nl-row-gap.gjs-hovered,.nl-row-gap.gjs-selected{border-color:#2271b1;background:rgba(34,113,177,.14);}',
-            'table.nl-section{outline:1px dashed #c3c4c7;outline-offset:3px;box-sizing:border-box;}',
+            'table.nl-section{position:relative;outline:1px dashed #c3c4c7;outline-offset:3px;box-sizing:border-box;}',
             'table.nl-section.gjs-selected,table.nl-section.gjs-hovered{outline-color:#2271b1;}',
+            '.nl-section-handle{position:absolute;left:0;top:0;bottom:0;width:14px;margin:0;padding:0;border:0;border-radius:0 4px 4px 0;background:#dcdcde;cursor:pointer;z-index:8;box-sizing:border-box;}',
+            '.nl-section-handle::after{content:"";position:absolute;left:5px;top:50%;width:4px;height:28px;margin-top:-14px;border-radius:2px;background:repeating-linear-gradient(to bottom,#8c8f94 0 2px,transparent 2px 4px);}',
+            'table.nl-section.gjs-hovered .nl-section-handle,table.nl-section.gjs-selected .nl-section-handle,.nl-section-handle.gjs-hovered,.nl-section-handle.gjs-selected{background:#2271b1;}',
+            'table.nl-section.gjs-hovered .nl-section-handle::after,table.nl-section.gjs-selected .nl-section-handle::after,.nl-section-handle.gjs-hovered::after,.nl-section-handle.gjs-selected::after{background:repeating-linear-gradient(to bottom,#fff 0 2px,transparent 2px 4px);}',
             'table.nl-section-empty{height:260px !important;}',
             'table.nl-section-empty td.nl-section-body{height:260px !important;padding:56px 24px !important;vertical-align:middle !important;box-sizing:border-box;}',
             'td.nl-section-body{vertical-align:top;}',
@@ -487,6 +492,15 @@
             return html;
         }
         return html.replace(/<(p|div)[^>]*class="[^"]*nl-section-hint[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '');
+    }
+
+    function stripSectionHandles(html) {
+        if (!html || typeof html !== 'string') {
+            return html;
+        }
+        return html
+            .replace(/<(p|div)[^>]*class="[^"]*nl-section-handle[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '')
+            .replace(/<(p|div)[^>]*class='[^']*nl-section-handle[^']*'[^>]*>[\s\S]*?<\/\1>/gi, '');
     }
 
     function extractBalancedTable(html, start) {
@@ -522,6 +536,7 @@
         }
         var inner = table
             .replace(/<(p|div)[^>]*class="[^"]*nl-section-hint[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '')
+            .replace(/<(p|div)[^>]*class="[^"]*nl-section-handle[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '')
             .replace(/<[^>]+>/g, '')
             .replace(/&nbsp;/gi, '')
             .replace(/\s+/g, '');
@@ -1138,10 +1153,8 @@
             content: `
                 <table class="nl-now-next" width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td style="padding: 16px; background: #f0f6fc; border: 2px dashed #2271b1; text-align: center;">
-                                <p style="margin: 0; font-family: monospace; font-size: 14px; color: #2271b1;">
-                                    [nl-now-next]
-                                </p>
+                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">
+                            <p style="margin: 0;">[nl-now-next enable_links="false"]</p>
                         </td>
                     </tr>
                 </table>
@@ -1377,6 +1390,7 @@
     function sectionGroupHtml() {
         return '<table class="nl-section nl-section-empty" width="100%" height="260" cellpadding="0" cellspacing="0" border="0" style="height: 260px;">'
             + '<tr><td class="nl-section-body" height="260" valign="middle" style="height: 260px; padding: 56px 24px;">'
+            + '<div class="nl-section-handle" title="Select section"></div>'
             + '<div class="nl-section-hint"></div>'
             + '</td></tr></table>';
     }
@@ -1706,7 +1720,7 @@
 
     function clearSectionHint(component) {
         var parent = component && component.parent ? component.parent() : null;
-        if (!parent || (component.getAttributes && String((component.getAttributes() || {}).class || '').indexOf('nl-section-hint') !== -1)) {
+        if (!parent || isSectionHint(component) || isSectionHandle(component) || isRowGap(component)) {
             return;
         }
         var type = parent.get ? parent.get('type') : '';
@@ -1773,6 +1787,81 @@
                 dest.components().add(json, { at: at });
             }
         } catch (e) { /* drop already rejected */ }
+    }
+
+    function stripNowNextDesignerChrome(component) {
+        if (!component || !component.get) {
+            return;
+        }
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        var isHost = cls.indexOf('nl-now-next') !== -1 || component.get('type') === 'nl-now-next';
+        if (isHost) {
+            walkNowNextChrome(component);
+            return;
+        }
+        var kids = component.components && component.components();
+        if (kids && kids.each) {
+            kids.each(function(child) {
+                stripNowNextDesignerChrome(child);
+            });
+        }
+    }
+
+    function walkNowNextChrome(comp) {
+        if (!comp || !comp.get) {
+            return;
+        }
+        var tag = String(comp.get('tagName') || '').toLowerCase();
+        var style = (comp.getStyle && comp.getStyle()) || {};
+        var bg = String(style.background || style['background-color'] || '');
+        var border = String(style.border || '');
+        if (tag === 'td' && (bg.indexOf('f0f6fc') !== -1 || border.indexOf('dashed') !== -1)) {
+            var next = {
+                padding: '0',
+                background: 'transparent',
+                'background-color': 'transparent',
+                border: '0',
+                'text-align': 'left',
+                'font-family': 'Arial, sans-serif',
+                'font-size': '14px',
+                'line-height': '1.6',
+                color: '#333333'
+            };
+            if (typeof comp.addStyle === 'function') {
+                comp.addStyle(next, { avoidStore: true });
+            } else if (typeof comp.setStyle === 'function') {
+                var cur = style;
+                Object.keys(next).forEach(function(k) {
+                    cur[k] = next[k];
+                });
+                comp.setStyle(cur, { avoidStore: true });
+            }
+        }
+        if (tag === 'p') {
+            var pStyle = style;
+            var family = String(pStyle['font-family'] || '');
+            var color = String(pStyle.color || '');
+            if (family.indexOf('monospace') !== -1 || color.indexOf('2271b1') !== -1) {
+                var pNext = {
+                    margin: '0',
+                    'font-family': 'Arial, sans-serif',
+                    'font-size': '14px',
+                    color: '#333333'
+                };
+                if (typeof comp.addStyle === 'function') {
+                    comp.addStyle(pNext, { avoidStore: true });
+                } else if (typeof comp.setStyle === 'function') {
+                    Object.keys(pNext).forEach(function(k) {
+                        pStyle[k] = pNext[k];
+                    });
+                    comp.setStyle(pStyle, { avoidStore: true });
+                }
+            }
+        }
+        var kids = comp.components && comp.components();
+        if (kids && kids.each) {
+            kids.each(walkNowNextChrome);
+        }
     }
 
     function hoistNowNext(component) {
@@ -1895,6 +1984,38 @@
         return cls.indexOf('nl-section-hint') !== -1;
     }
 
+    function isSectionHandle(component) {
+        if (!component || !component.get) {
+            return false;
+        }
+        if (component.get('type') === 'nl-section-handle') {
+            return true;
+        }
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        return cls.indexOf('nl-section-handle') !== -1;
+    }
+
+    function findSectionHandle(body) {
+        var found = null;
+        wrapperChildList(body).forEach(function(c) {
+            if (!found && isSectionHandle(c)) {
+                found = c;
+            }
+        });
+        return found;
+    }
+
+    function syncSectionHandles() {
+        findAllSectionBodies().forEach(function(body) {
+            if (!body || findSectionHandle(body)) {
+                return;
+            }
+            if (body.components && body.components()) {
+                body.components().add({ type: 'nl-section-handle' }, { at: 0 });
+            }
+        });
+    }
+
     function isSectionBody(component) {
         if (!component || !component.get) {
             return false;
@@ -1959,7 +2080,7 @@
             return false;
         }
         var type = component.get('type');
-        if (type === 'nl-section' || type === 'nl-section-body' || type === 'nl-section-hint') {
+        if (type === 'nl-section' || type === 'nl-section-body' || type === 'nl-section-hint' || type === 'nl-section-handle') {
             return true;
         }
         var tag = String(component.get('tagName') || '').toLowerCase();
@@ -1967,7 +2088,7 @@
             return true;
         }
         var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
-        return cls.indexOf('nl-section-hint') !== -1 || cls.indexOf('nl-section-body') !== -1;
+        return cls.indexOf('nl-section-hint') !== -1 || cls.indexOf('nl-section-handle') !== -1 || cls.indexOf('nl-section-body') !== -1;
     }
 
     function setComponentAttr(comp, name, value) {
@@ -2270,7 +2391,7 @@
     }
 
     function isCanvasBlock(component) {
-        if (!component || !component.get || isRowGap(component) || isSectionHint(component)) {
+        if (!component || !component.get || isRowGap(component) || isSectionHint(component) || isSectionHandle(component)) {
             return false;
         }
         var type = component.get('type');
@@ -2532,12 +2653,15 @@
         }
         editor.on('load', function() {
             window.setTimeout(function() {
+                var wrapper = editor.getWrapper && editor.getWrapper();
+                stripNowNextDesignerChrome(wrapper);
                 hoistEscapedBlocksIntoCanvas();
+                syncSectionHandles();
                 syncRowGaps();
             }, 0);
         });
         editor.on('component:add', function(component) {
-            if (syncingRowGaps || !component || isRowGap(component)) {
+            if (syncingRowGaps || !component || isRowGap(component) || isSectionHandle(component)) {
                 return;
             }
             var parent = component.parent && component.parent();
@@ -2565,6 +2689,7 @@
             if (component.get('type') === 'nl-section') {
                 window.setTimeout(function() {
                     hoistNestedSection(component);
+                    syncSectionHandles();
                 }, 0);
             }
             window.setTimeout(function() {
@@ -2594,6 +2719,7 @@
             }
             if (component && component.get('type') === 'nl-section') {
                 hoistNestedSection(component);
+                syncSectionHandles();
             }
             hoistNowNext(component);
             hoistEscapedBlocksIntoCanvas();
@@ -2656,6 +2782,7 @@
     var NL_DEFAULT_FONT = 'Arial, Helvetica, sans-serif';
     var NL_DEFAULT_SIZE = '14px';
     var lastTextStyleHost = null;
+    var holdingSettingsSelection = false;
 
     function undoManagerBusy() {
         var um = editor && editor.UndoManager;
@@ -2725,12 +2852,53 @@
         });
     }
 
+    function isSettingsUi(el) {
+        if (!el || !el.closest) {
+            return false;
+        }
+        return !!(el.closest('.editor-sidebar-right')
+            || el.closest('#settings-panel')
+            || el.closest('#styles-container')
+            || el.closest('#traits-container')
+            || el.closest('.gjs-sm-sector')
+            || el.closest('.gjs-sm-properties')
+            || el.closest('.gjs-sm-property')
+            || el.closest('.gjs-field')
+            || el.closest('.gjs-select')
+            || el.closest('.gjs-sm-select')
+            || el.closest('.gjs-clm-tags')
+            || el.closest('.gjs-trt-traits')
+            || el.closest('.sp-container'));
+    }
+
+    function pinStyleManager(comp) {
+        if (!comp || !editor || !editor.StyleManager) {
+            return;
+        }
+        try {
+            if (typeof editor.StyleManager.select === 'function') {
+                editor.StyleManager.select(comp);
+            }
+        } catch (e) { /* Style Manager optional */ }
+    }
+
+    function restoreStyleHost() {
+        if (!editor || !lastTextStyleHost) {
+            return;
+        }
+        var sel = editor.getSelected && editor.getSelected();
+        if (sel !== lastTextStyleHost) {
+            selectQuiet(lastTextStyleHost);
+        }
+        pinStyleManager(lastTextStyleHost);
+    }
+
     function setupStyleApply() {
         if (!editor) {
             return;
         }
         editor.on('style:property:update', function(prop) {
-            var comp = editor.getSelected() || lastTextStyleHost;
+            var comp = (editor.getSelected && editor.getSelected()) || lastTextStyleHost;
             if (!comp || !prop) {
                 return;
             }
@@ -2738,12 +2906,27 @@
             var val = prop.get && prop.get('value');
             applyBlockStyle(comp, name, val);
         });
-        $('#styles-container, #traits-container').on('mousedown.ptaKeepBlock', function(e) {
-            if ($(e.target).is('input, textarea, select, option')) {
+
+        // Capture-phase: Settings lives outside the canvas iframe, so a
+        // click there blurs the frame and GrapesJS drops the selection
+        // before Font/Size can write. Re-select the last text block first
+        // and do not preventDefault — GrapesJS selects are custom divs.
+        var onSettingsPointer = function(e) {
+            if (!isSettingsUi(e.target)) {
                 return;
             }
-            e.preventDefault();
-        });
+            holdingSettingsSelection = true;
+            if (lastTextStyleHost) {
+                restoreStyleHost();
+            }
+        };
+        document.addEventListener('pointerdown', onSettingsPointer, true);
+        document.addEventListener('mousedown', onSettingsPointer, true);
+        document.addEventListener('pointerup', function() {
+            window.setTimeout(function() {
+                holdingSettingsSelection = false;
+            }, 50);
+        }, true);
     }
 
     /**
@@ -3065,6 +3248,33 @@
                         padding: '0',
                         'vertical-align': 'top'
                     }
+                }
+            }
+        });
+
+        dc.addType('nl-section-handle', {
+            isComponent: function(el) {
+                return el && el.classList && el.classList.contains('nl-section-handle');
+            },
+            model: {
+                defaults: {
+                    tagName: 'div',
+                    droppable: false,
+                    draggable: false,
+                    copyable: false,
+                    removable: false,
+                    selectable: true,
+                    hoverable: true,
+                    highlightable: true,
+                    layerable: false,
+                    badgable: false,
+                    attributes: {
+                        class: 'nl-section-handle',
+                        title: 'Select section'
+                    }
+                },
+                toHTML: function() {
+                    return '';
                 }
             }
         });
@@ -3714,7 +3924,7 @@
             return true;
         }
         var type = component.get('type');
-        if (type === 'nl-section' || type === 'nl-section-body' || type === 'nl-columns') {
+        if (type === 'nl-section' || type === 'nl-section-body' || type === 'nl-section-handle' || type === 'nl-columns') {
             return true;
         }
         var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
@@ -3737,7 +3947,7 @@
      * or the column cell when Outlook-pasted text sits directly in it.
      */
     function findTextStyleHost(component) {
-        if (!component || isRowGap(component) || isSectionHint(component)) {
+        if (!component || isRowGap(component) || isSectionHint(component) || isSectionHandle(component)) {
             return null;
         }
         var blockTd = findTextBlockStyleRoot(component);
@@ -4061,7 +4271,7 @@
                 }
             }
 
-            if (isSectionBody(component) || parentIsSectionChrome(component)) {
+            if (isSectionHandle(component) || isSectionBody(component) || parentIsSectionChrome(component)) {
                 var owningSection = component.get('type') === 'nl-section'
                     ? component
                     : findAncestorSection(component);
@@ -4082,6 +4292,7 @@
             }
             if (styleRoot) {
                 lastTextStyleHost = styleRoot;
+                pinStyleManager(styleRoot);
             }
 
             var textTarget = component._ptaRteTarget || null;
@@ -4171,11 +4382,29 @@
             if (rteInputCleanup) {
                 rteInputCleanup();
             }
-            $('.settings-placeholder').show();
-            $('#traits-container').hide();
-            $('#styles-container').hide();
-            $('#selected-element-name .element-name').text('No element selected');
-            updateMoveButtons(null);
+            if (holdingSettingsSelection || isSettingsUi(document.activeElement)) {
+                window.setTimeout(function() {
+                    if (lastTextStyleHost && !(editor.getSelected && editor.getSelected())) {
+                        restoreStyleHost();
+                    }
+                }, 0);
+                return;
+            }
+            window.setTimeout(function() {
+                if (holdingSettingsSelection || (editor.getSelected && editor.getSelected())) {
+                    return;
+                }
+                if (lastTextStyleHost && isSettingsUi(document.activeElement)) {
+                    restoreStyleHost();
+                    return;
+                }
+                lastTextStyleHost = null;
+                $('.settings-placeholder').show();
+                $('#traits-container').hide();
+                $('#styles-container').hide();
+                $('#selected-element-name .element-name').text('No element selected');
+                updateMoveButtons(null);
+            }, 0);
         });
 
         editor.on('component:dblclick', function(component) {

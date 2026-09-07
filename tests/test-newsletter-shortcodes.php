@@ -116,4 +116,13 @@ $t->check(strpos($nn_out, 'This Week') !== false && strpos($nn_out, 'Next Week')
 $t->check(strpos($nn_out, '[nl-now-next]') === false, 'raw [nl-now-next] token is gone');
 $t->check(strpos($nn_out, '2px dashed') === false, 'Now and Next designer chrome is not sent');
 
+$plain_nn = '<table class="nl-now-next" width="100%" cellpadding="0" cellspacing="0" border="0">'
+    . '<tr><td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; color: #333333;">'
+    . '<p style="margin: 0;">[nl-now-next enable_links="false"]</p>'
+    . '</td></tr></table>';
+$plain_out = Azure_Newsletter_Shortcodes::expand($plain_nn);
+$t->check(strpos($plain_out, 'This Week') !== false, 'plain Now and Next block still expands');
+$t->check(strpos($plain_out, '[nl-now-next') === false, 'plain Now and Next token is gone');
+$t->check(substr_count(strtolower($plain_out), '<table') === 1, 'plain Now and Next wrapper is replaced, not nested');
+
 exit($t->finish() === 0 ? 0 : 1);

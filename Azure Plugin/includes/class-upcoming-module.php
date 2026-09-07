@@ -330,6 +330,10 @@ class Azure_Upcoming_Module {
             return '';
         }
 
+        if (is_array($atts) && isset($atts['enable-links']) && !isset($atts['enable_links'])) {
+            $atts['enable_links'] = $atts['enable-links'];
+        }
+
         $atts = shortcode_atts(array(
             'week-start'         => 'monday',
             'exclude-categories' => '',
@@ -337,6 +341,7 @@ class Azure_Upcoming_Module {
             'next-week-title'    => __('Next Week', 'azure-plugin'),
             'empty-message'      => __('No events', 'azure-plugin'),
             'limit'              => (string) Azure_Newsletter_Now_Next::LIMIT,
+            'enable_links'       => 'false',
         ), $atts, 'nl-now-next');
 
         $exclude = array_filter(array_map('trim', explode(',', $atts['exclude-categories'])));
@@ -356,6 +361,7 @@ class Azure_Upcoming_Module {
             'next_week_title'  => $atts['next-week-title'],
             'empty_message'    => $atts['empty-message'],
             'limit'            => $limit,
+            'enable_links'     => Azure_Newsletter_Now_Next::parse_enable_links($atts['enable_links']),
         ));
     }
 
