@@ -521,13 +521,14 @@ class Azure_Newsletter_Sender {
                     return $matches[0];
                 }
                 
-                // add_query_arg() encodes for us; urlencode() here meant the
-                // destination arrived double-encoded and the redirect landed on
-                // a mangled URL. The signature lets the public click route
-                // prove this destination came from a real send.
+                // Sign the real destination (including any #fragment). Put
+                // the fragment in the query as %23 so Mailgun/SafeLinks
+                // cannot turn it into the tracking URL's own fragment and
+                // drop `sig`. Signature first so a leftover '#' still
+                // leaves the HMAC on the request.
                 $tracked_url = add_query_arg(array(
-                    'url' => $url,
                     'sig' => Azure_Newsletter_Module::click_signature($url),
+                    'url' => Azure_Newsletter_Module::click_query_destination($url),
                 ), rest_url('azure-plugin/v1/newsletter/track/click/' . $token));
                 
                 return '<a ' . $matches[1] . 'href="' . esc_url($tracked_url) . '"' . $matches[3] . '>';

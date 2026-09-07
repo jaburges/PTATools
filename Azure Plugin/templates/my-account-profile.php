@@ -27,7 +27,12 @@ if (!defined('ABSPATH')) {
         $parent_tail  = $paired['tail'];
     ?>
     <div class="azure-uc-section">
-        <h3 style="margin: 0 0 15px;"><?php _e('My Profile', 'azure-plugin'); ?></h3>
+        <h3 class="pta-member-heading" style="margin: 0 0 15px;"><?php
+            _e('My Profile', 'azure-plugin');
+            if (class_exists('Azure_Membership_Module')) {
+                echo Azure_Membership_Module::member_badge_html(get_current_user_id(), 'pill');
+            }
+        ?></h3>
         <p class="description" style="margin-bottom: 15px;"><?php _e('Information that applies to you. Saved values auto-fill on every product page.', 'azure-plugin'); ?></p>
         <form id="azure-uc-profile-form">
             <?php if (!empty($parent_pairs)): ?>
@@ -68,7 +73,12 @@ if (!defined('ABSPATH')) {
 
     <?php if (!empty($family_meta)): ?>
     <div class="azure-uc-section" style="margin-top:30px;">
-        <h3 style="margin: 0 0 15px;"><?php _e('My Family', 'azure-plugin'); ?></h3>
+        <h3 class="pta-member-heading" style="margin: 0 0 15px;"><?php
+            _e('My Family', 'azure-plugin');
+            if (class_exists('Azure_Membership_Module')) {
+                echo Azure_Membership_Module::member_badge_html(get_current_user_id(), 'pill');
+            }
+        ?></h3>
         <p class="description" style="margin-bottom: 15px;">
             <?php _e('Shared with your co-parent on this account. Used when emergency contact info is required at checkout.', 'azure-plugin'); ?>
         </p>

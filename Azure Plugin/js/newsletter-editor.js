@@ -77,12 +77,16 @@
     function getEmailReadyHtml() {
         if (!editor) return '';
         
+        applyAllImageLinks();
+        hoistEscapedBlocksIntoCanvas();
+
         // Get HTML and CSS separately from GrapesJS
         var html = editor.getHtml();
         var css = editor.getCss();
         
         // Aggressively clean up the HTML - remove any CSS text that leaked in
         html = cleanHtmlContent(html);
+        html = wrapImgHrefInHtml(html);
 
         // FAQ blocks are authored with <details open> so the answer is
         // visible/editable in the canvas. Strip the `open` attribute on
@@ -91,6 +95,9 @@
         // HTML rather than the live model, so editor state is not
         // mutated.
         html = stripFaqOpenAttr(html);
+        html = stripRowGaps(html);
+        html = stripSectionHints(html);
+        html = stripEmptySections(html);
         
         // Build proper email HTML structure
         var emailHtml = '<!DOCTYPE html>\n';
@@ -109,6 +116,8 @@
         if (css) {
             emailHtml += css + '\n';
         }
+        emailHtml += (newsletterEditorConfig.columnGapCss || '') + '\n';
+        emailHtml += (newsletterEditorConfig.dividerCss || '') + '\n';
         emailHtml += '/* pta-nl-stack-cols */\n';
         emailHtml += (newsletterEditorConfig.columnStackCss || '') + '\n';
         emailHtml += '</style>\n';
@@ -155,6 +164,7 @@
                 height: '100%',
                 width: 'auto',
                 storageManager: false,
+                avoidInlineStyle: false,
                 
                 // Panels configuration
                 panels: { defaults: [] },
@@ -193,6 +203,9 @@
                         modalTitleImport: 'Import HTML',
                         modalBtnImport: 'Import',
                         importPlaceholder: '<table>...</table>',
+                        updateStyleManager: false,
+                        showStylesOnChange: false,
+                        showBlocksOnLoad: false,
                         cellStyle: {
                             'font-family': 'Arial, sans-serif',
                             'font-size': '14px',
@@ -209,7 +222,20 @@
                             name: 'Typography',
                             open: true,
                             properties: [
-                                'font-family',
+                                {
+                                    property: 'font-family',
+                                    type: 'select',
+                                    default: 'Arial, Helvetica, sans-serif',
+                                    options: [
+                                        { id: 'Arial, Helvetica, sans-serif', label: 'Arial' },
+                                        { id: 'Georgia, serif', label: 'Georgia' },
+                                        { id: 'Tahoma, Geneva, sans-serif', label: 'Tahoma' },
+                                        { id: "'Times New Roman', Times, serif", label: 'Times New Roman' },
+                                        { id: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
+                                        { id: "'Trebuchet MS', Helvetica, sans-serif", label: 'Trebuchet MS' },
+                                        { id: "'Courier New', Courier, monospace", label: 'Courier New' }
+                                    ]
+                                },
                                 {
                                     property: 'font-size',
                                     type: 'select',
@@ -320,23 +346,24 @@
 
             editor.on('load', injectColumnStackCss);
             editor.on('canvas:frame:load', injectColumnStackCss);
-
-            // Add custom email blocks
-            addEmailBlocks();
-            
-            // Register custom component types with traits
-            registerComponentTypes();
-
-            // grapesjs-preset-newsletter adds its own device-switcher
-            // panel ('devices-c') on the left side of the toolbar that
-            // duplicates the device buttons we render in our top
-            // toolbar (.device-buttons). Remove it so users don't see
-            // two sets of identical Desktop/Tablet/Mobile controls.
-            try {
-                if (editor.Panels && editor.Panels.removePanel) {
-                    editor.Panels.removePanel('devices-c');
+            editor.on('load', function() {
+                window.setTimeout(function() {
+                    syncAllEmailButtons();
+                    applyAllImageLinks();
+                }, 0);
+            });
+            editor.on('component:update', function(component) {
+                if (component && component.changed && Object.prototype.hasOwnProperty.call(component.changed, 'href')) {
+                    applyImageLink(component);
                 }
-            } catch (e) { /* not critical */ }
+            });
+
+            registerComponentTypes();
+            addEmailBlocks();
+            setupColumnFramework();
+            setupStyleApply();
+            stripGrapesPanels();
+            editor.on('load', stripGrapesPanels);
 
             // Make sure the inline rich-text toolbar includes a clearly
             // labelled Link action. GrapesJS ships with bold/italic/
@@ -377,6 +404,24 @@
     }
 
     /**
+     * grapesjs-preset-newsletter resets the panel set to devices,
+     * undo/redo/code, and a views header (styles/traits/blocks).
+     * Those duplicate our design toolbar and Settings sidebar.
+     */
+    function stripGrapesPanels() {
+        if (!editor || !editor.Panels) {
+            return;
+        }
+        ['commands', 'devices-c', 'options', 'views', 'views-container'].forEach(function(id) {
+            try {
+                if (editor.Panels.getPanel && editor.Panels.getPanel(id) && editor.Panels.removePanel) {
+                    editor.Panels.removePanel(id);
+                }
+            } catch (e) { /* already gone */ }
+        });
+    }
+
+    /**
      * Stack 2/3-column tables in the GrapesJS canvas when the
      * Mobile device preview shrinks the iframe below 600px.
      */
@@ -388,13 +433,135 @@
         if (!doc || !doc.head) {
             return;
         }
-        if (doc.getElementById('pta-nl-stack-cols')) {
-            return;
+        if (!doc.getElementById('pta-nl-stack-cols')) {
+            var style = doc.createElement('style');
+            style.id = 'pta-nl-stack-cols';
+            style.textContent = newsletterEditorConfig.columnStackCss || '';
+            doc.head.appendChild(style);
         }
-        var style = doc.createElement('style');
-        style.id = 'pta-nl-stack-cols';
-        style.textContent = newsletterEditorConfig.columnStackCss || '';
-        doc.head.appendChild(style);
+        if (!doc.getElementById('pta-nl-col-gap')) {
+            var gapCss = doc.createElement('style');
+            gapCss.id = 'pta-nl-col-gap';
+            gapCss.textContent = newsletterEditorConfig.columnGapCss || '';
+            doc.head.appendChild(gapCss);
+        }
+        if (!doc.getElementById('pta-nl-divider')) {
+            var dividerCss = doc.createElement('style');
+            dividerCss.id = 'pta-nl-divider';
+            dividerCss.textContent = newsletterEditorConfig.dividerCss || '';
+            doc.head.appendChild(dividerCss);
+        }
+        if (!doc.getElementById('pta-nl-row-gaps')) {
+            var gapStyle = doc.createElement('style');
+            gapStyle.id = 'pta-nl-row-gaps';
+            gapStyle.textContent = rowGapCanvasCss();
+            doc.head.appendChild(gapStyle);
+        }
+    }
+
+    function rowGapCanvasCss() {
+        return [
+            '.nl-row-gap{height:32px;margin:4px 0;border:2px dashed #c3c4c7;border-radius:4px;background:#f6f7f7;box-sizing:border-box;position:relative;}',
+            '.nl-row-gap::after{content:"Drop here for full width";display:flex;align-items:center;justify-content:center;height:100%;font:12px/1 Arial,Helvetica,sans-serif;color:#8c8f94;}',
+            'body.pta-nl-dragging .nl-row-gap{border-color:#2271b1;background:rgba(34,113,177,.10);}',
+            'body.pta-nl-dragging .nl-row-gap::after{color:#2271b1;}',
+            '.nl-row-gap.gjs-hovered,.nl-row-gap.gjs-selected{border-color:#2271b1;background:rgba(34,113,177,.14);}',
+            'table.nl-section{outline:1px dashed #c3c4c7;outline-offset:3px;box-sizing:border-box;}',
+            'table.nl-section.gjs-selected,table.nl-section.gjs-hovered{outline-color:#2271b1;}',
+            'table.nl-section-empty{height:260px !important;}',
+            'table.nl-section-empty td.nl-section-body{height:260px !important;padding:56px 24px !important;vertical-align:middle !important;box-sizing:border-box;}',
+            'td.nl-section-body{vertical-align:top;}',
+            'td.nl-section-body > .nl-section-hint{display:flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:140px;margin:0 auto;padding:0;border:2px dashed #c3c4c7;border-radius:4px;background:#f6f7f7;font:13px/1.45 Arial,Helvetica,sans-serif;color:#6d7882;}',
+            'td.nl-section-body > .nl-section-hint::after{content:"Drop here";}',
+            'body.pta-nl-dragging td.nl-section-body > .nl-section-hint{border-color:#2271b1;background:rgba(34,113,177,.10);color:#2271b1;}',
+            'td.nl-section-body > .nl-row-gap{display:none;}',
+            'body.pta-nl-dragging table.nl-section:not(.nl-section-empty) td.nl-section-body{background:rgba(34,113,177,.06);}',
+            'table[width="600"]{width:600px !important;max-width:600px !important;}',
+            'table.nl-divider hr,.nl-divider hr{display:block !important;width:100% !important;height:0 !important;margin:0 !important;border:0 !important;border-top:2px solid #dddddd !important;}',
+            'table.nl-divider .nl-divider-rule{height:2px !important;line-height:2px !important;font-size:1px !important;background-color:#dddddd !important;border:0 !important;}'
+        ].join('');
+    }
+
+    function stripSectionHints(html) {
+        if (!html || typeof html !== 'string') {
+            return html;
+        }
+        return html.replace(/<(p|div)[^>]*class="[^"]*nl-section-hint[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '');
+    }
+
+    function extractBalancedTable(html, start) {
+        if (!html || start < 0) {
+            return null;
+        }
+        var depth = 0;
+        var re = /<\/?table\b[^>]*>/gi;
+        re.lastIndex = start;
+        var m;
+        while ((m = re.exec(html))) {
+            if (m.index < start) {
+                continue;
+            }
+            if (m[0].charAt(1) === '/') {
+                depth--;
+                if (depth === 0) {
+                    return html.substring(start, m.index + m[0].length);
+                }
+            } else {
+                depth++;
+            }
+        }
+        return null;
+    }
+
+    function sectionTableIsEmpty(table) {
+        if (!table) {
+            return true;
+        }
+        if (/<hr\b|<img\b|nl-divider|nl-button|nl-now-next|nl-stack-cols/i.test(table)) {
+            return false;
+        }
+        var inner = table
+            .replace(/<(p|div)[^>]*class="[^"]*nl-section-hint[^"]*"[^>]*>[\s\S]*?<\/\1>/gi, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&nbsp;/gi, '')
+            .replace(/\s+/g, '');
+        return !inner;
+    }
+
+    function stripEmptySections(html) {
+        if (!html || typeof html !== 'string') {
+            return html;
+        }
+        var out = '';
+        var i = 0;
+        var re = /<table\b[^>]*nl-section[^>]*>/gi;
+        var m;
+        while ((m = re.exec(html))) {
+            var full = extractBalancedTable(html, m.index);
+            if (!full) {
+                break;
+            }
+            out += html.substring(i, m.index);
+            if (!sectionTableIsEmpty(full)) {
+                out += full
+                    .replace(/\sclass="([^"]*)nl-section-empty([^"]*)"/gi, ' class="$1$2"')
+                    .replace(/\sheight="260"/gi, '')
+                    .replace(/height:\s*260px;?\s*/gi, '');
+            }
+            i = m.index + full.length;
+            re.lastIndex = i;
+        }
+        out += html.substring(i);
+        return out;
+    }
+
+    function stripRowGaps(html) {
+        if (!html || typeof html !== 'string') {
+            return html;
+        }
+        return html
+            .replace(/<div[^>]*class="[^"]*nl-row-gap[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+            .replace(/<div[^>]*class='[^']*nl-row-gap[^']*'[^>]*>[\s\S]*?<\/div>/gi, '');
     }
 
     /**
@@ -405,23 +572,26 @@
 
         var bm = editor.BlockManager;
 
-        // The grapesjs-preset-newsletter plugin pre-registers its own
-        // 'button' block whose content is `<a class="button">Button</a>`
-        // — i.e. an unstyled link that renders as plain blue underlined
-        // text in our canvas because we don't ship that .button class.
-        // Remove it before our richer table-based replacement is added,
-        // otherwise users dragging the (visually identical) icon into
-        // the page get the preset's bare link instead of our styled
-        // button.
-        if (bm.get('button')) {
-            bm.remove('button');
-        }
+        // grapesjs-preset-newsletter registers its own 1/2/3-column
+        // sections, text, image, divider, etc. Those sit next to ours
+        // as duplicates and the preset columns nest as tables-in-cells.
+        // Keep the preset for inlining/email helpers; drop its blocks.
+        [
+            'sect100', 'sect50', 'sect30', 'sect37',
+            'button', 'divider', 'text', 'text-sect',
+            'image', 'quote', 'link', 'grid-items', 'list-items'
+        ].forEach(function(id) {
+            if (bm.get(id)) {
+                bm.remove(id);
+            }
+        });
 
         // Clean Elementor-style SVG icons
         var c = '#6d7882'; // Icon color
         var icons = {
             // Layout
             section: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="8" width="40" height="32" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="4" y1="18" x2="44" y2="18" stroke="'+c+'" stroke-width="2"/></svg>',
+            sectionGroup: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="8" y="6" width="32" height="14" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><rect x="8" y="24" width="32" height="18" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="14" y1="31" x2="34" y2="31" stroke="'+c+'" stroke-width="2"/><line x1="14" y1="36" x2="28" y2="36" stroke="'+c+'" stroke-width="2"/></svg>',
             columns2: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="8" width="18" height="32" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><rect x="26" y="8" width="18" height="32" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/></svg>',
             columns3: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="3" y="8" width="12" height="32" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><rect x="18" y="8" width="12" height="32" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><rect x="33" y="8" width="12" height="32" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/></svg>',
             
@@ -458,62 +628,40 @@
             posts: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="6" width="16" height="16" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="10" x2="44" y2="10" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="18" x2="38" y2="18" stroke="'+c+'" stroke-width="2"/><rect x="4" y="26" width="16" height="16" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="30" x2="44" y2="30" stroke="'+c+'" stroke-width="2"/><line x1="24" y1="38" x2="38" y2="38" stroke="'+c+'" stroke-width="2"/></svg>',
             pta: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle cx="16" cy="14" r="6" fill="none" stroke="'+c+'" stroke-width="2"/><circle cx="32" cy="14" r="6" fill="none" stroke="'+c+'" stroke-width="2"/><circle cx="24" cy="30" r="6" fill="none" stroke="'+c+'" stroke-width="2"/><path d="M10,26 C10,22 12,20 16,20 C18,20 20,21 21,22" fill="none" stroke="'+c+'" stroke-width="2"/><path d="M38,26 C38,22 36,20 32,20 C30,20 28,21 27,22" fill="none" stroke="'+c+'" stroke-width="2"/><path d="M18,40 C18,38 20,36 24,36 C28,36 30,38 30,40" fill="none" stroke="'+c+'" stroke-width="2"/></svg>',
             shortcode: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><text x="4" y="32" font-family="monospace" font-size="14" fill="'+c+'">[...]</text></svg>',
-            faq: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="6" width="40" height="10" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><polyline points="36,10 39,13 42,10" fill="none" stroke="'+c+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="20" width="40" height="22" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="27" x2="39" y2="27" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="33" x2="35" y2="33" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="39" x2="30" y2="39" stroke="'+c+'" stroke-width="2"/></svg>'
+            faq: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="6" width="40" height="10" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><polyline points="36,10 39,13 42,10" fill="none" stroke="'+c+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="20" width="40" height="22" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="27" x2="39" y2="27" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="33" x2="35" y2="33" stroke="'+c+'" stroke-width="2"/><line x1="9" y1="39" x2="30" y2="39" stroke="'+c+'" stroke-width="2"/></svg>',
+            calendar: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="6" y="10" width="36" height="32" rx="2" fill="none" stroke="'+c+'" stroke-width="2"/><line x1="6" y1="18" x2="42" y2="18" stroke="'+c+'" stroke-width="2"/><line x1="16" y1="6" x2="16" y2="14" stroke="'+c+'" stroke-width="2" stroke-linecap="round"/><line x1="32" y1="6" x2="32" y2="14" stroke="'+c+'" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="26" x2="22" y2="26" stroke="'+c+'" stroke-width="2"/><line x1="12" y1="34" x2="20" y2="34" stroke="'+c+'" stroke-width="2"/><line x1="28" y1="26" x2="38" y2="26" stroke="'+c+'" stroke-width="2"/><line x1="28" y1="34" x2="36" y2="34" stroke="'+c+'" stroke-width="2"/></svg>'
         };
 
         // === LAYOUT BLOCKS ===
-        bm.add('section', {
+        // Section is a movable group. 1/2/3 Columns stay single-level
+        // inside a section (or at the top of the canvas) — never nest
+        // a column row inside another column cell.
+        bm.add('section-group', {
             label: 'Section',
             category: 'Layout',
+            media: icons.sectionGroup,
+            content: sectionGroupHtml()
+        });
+
+        bm.add('columns-1', {
+            label: '1 Column',
+            category: 'Layout',
             media: icons.section,
-            content: `
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <tr>
-                        <td style="padding: 20px; background-color: #ffffff;">
-                            <p>Section content here...</p>
-                        </td>
-                    </tr>
-                </table>
-            `
+            content: columnRowHtml(1)
         });
 
         bm.add('columns-2', {
             label: '2 Columns',
             category: 'Layout',
             media: icons.columns2,
-            content: `
-                <table class="nl-stack-cols" width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <tr>
-                        <td class="nl-stack-col" width="50%" valign="top" style="padding: 10px;">
-                            <p>Left column</p>
-                        </td>
-                        <td class="nl-stack-col" width="50%" valign="top" style="padding: 10px;">
-                            <p>Right column</p>
-                        </td>
-                    </tr>
-                </table>
-            `
+            content: columnRowHtml(2)
         });
 
         bm.add('columns-3', {
             label: '3 Columns',
             category: 'Layout',
             media: icons.columns3,
-            content: `
-                <table class="nl-stack-cols" width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <tr>
-                        <td class="nl-stack-col" width="33%" valign="top" style="padding: 10px;">
-                            <p>Column 1</p>
-                        </td>
-                        <td class="nl-stack-col" width="34%" valign="top" style="padding: 10px;">
-                            <p>Column 2</p>
-                        </td>
-                        <td class="nl-stack-col" width="33%" valign="top" style="padding: 10px;">
-                            <p>Column 3</p>
-                        </td>
-                    </tr>
-                </table>
-            `
+            content: columnRowHtml(3)
         });
 
         // === CONTENT BLOCKS ===
@@ -524,8 +672,8 @@
             content: `
                 <table width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td style="padding: 10px 20px; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">
-                            <p>Add your text content here. You can style this text using the Styles panel.</p>
+                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">
+                            <p style="margin: 0;">Add your text content here. You can style this text in Settings.</p>
                         </td>
                     </tr>
                 </table>
@@ -539,7 +687,7 @@
             content: `
                 <table width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td style="padding: 10px 20px;">
+                        <td style="padding: 0;">
                             <h1 style="margin: 0; font-family: Arial, sans-serif; font-size: 28px; font-weight: bold; color: #1d2327;">
                                 Your Heading Here
                             </h1>
@@ -557,7 +705,7 @@
                 <table width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
                         <td align="center" style="padding: 10px;">
-                            <img src="https://via.placeholder.com/600x300/e0e0e0/666666?text=Click+to+add+image" alt="Image" width="600" style="display: block; max-width: 100%; height: auto;">
+                            <img src="https://via.placeholder.com/600x300/e0e0e0/666666?text=Click+to+add+image" alt="Image" width="100%" style="display: block; width: 100%; max-width: 100%; height: auto;">
                         </td>
                     </tr>
                 </table>
@@ -569,7 +717,7 @@
             category: 'Content',
             media: icons.button,
             content: `
-                <table cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 15px auto;">
+                <table class="nl-button" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 15px auto;">
                     <tr>
                         <td align="center" bgcolor="#2271b1" style="border-radius: 4px;">
                             <a href="#" target="_blank" style="display: inline-block; padding: 14px 30px; font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none;">
@@ -586,10 +734,14 @@
             category: 'Content',
             media: icons.divider,
             content: `
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <table class="nl-divider" width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td style="padding: 20px;">
-                            <hr style="border: none; border-top: 1px solid #dddddd; margin: 0;">
+                        <td style="padding: 16px 20px;">
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td class="nl-divider-rule" height="2" bgcolor="#dddddd" style="height: 2px; line-height: 2px; font-size: 1px; background-color: #dddddd; border: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
                 </table>
@@ -979,6 +1131,26 @@
             }
         });
 
+        bm.add('now-next', {
+            label: 'Now and Next',
+            category: 'WordPress',
+            media: icons.calendar,
+            content: `
+                <table class="nl-now-next" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td style="padding: 16px; background: #f0f6fc; border: 2px dashed #2271b1; text-align: center;">
+                            <p style="margin: 0; font-family: monospace; font-size: 14px; color: #2271b1;">
+                                [nl-now-next]
+                            </p>
+                            <p style="margin: 10px 0 0; font-size: 12px; color: #666;">
+                                This Week and Next Week events — compact 2-column list
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            `
+        });
+
         bm.add('shortcode-block', {
             label: 'Shortcode',
             category: 'WordPress',
@@ -1199,6 +1371,1551 @@
         });
     }
 
+    var NL_COL_MIN = 15;
+
+    /**
+     * Equal-width 1/2/3 column row. Columns are the layout frame;
+     * content (not other column rows) goes inside each cell.
+     */
+    function sectionGroupHtml() {
+        return '<table class="nl-section nl-section-empty" width="100%" height="260" cellpadding="0" cellspacing="0" border="0" style="height: 260px;">'
+            + '<tr><td class="nl-section-body" height="260" valign="middle" style="height: 260px; padding: 56px 24px;">'
+            + '<div class="nl-section-hint"></div>'
+            + '</td></tr></table>';
+    }
+
+    function columnRowHtml(count) {
+        var n = count === 3 ? 3 : (count === 2 ? 2 : 1);
+        var widths = n === 3 ? [33, 34, 33] : n === 2 ? [50, 50] : [100];
+        var labels = n === 1 ? ['Add content here'] : n === 2 ? ['Left column', 'Right column'] : ['Column 1', 'Column 2', 'Column 3'];
+        var cells = '';
+        for (var i = 0; i < n; i++) {
+            cells += '<td class="nl-stack-col nl-column" width="' + widths[i] + '%" valign="top" style="padding: 10px; width: ' + widths[i] + '%;">'
+                + '<p>' + labels[i] + '</p></td>';
+        }
+        return '<table class="nl-stack-cols" width="100%" cellpadding="0" cellspacing="0" border="0">'
+            + '<tr>' + cells + '</tr></table>';
+    }
+
+    /**
+     * Move leftover percent across the other columns so the row stays 100%.
+     * Keep in sync with tests/test-newsletter-designer-layout.php.
+     */
+    function redistributeColumnWidths(widths, index, newVal) {
+        var n = widths.length;
+        if (n < 1) {
+            return [];
+        }
+        if (n === 1) {
+            return [100];
+        }
+        var min = NL_COL_MIN;
+        var max = 100 - min * (n - 1);
+        newVal = Number(newVal);
+        if (!isFinite(newVal)) {
+            newVal = widths[index];
+        }
+        newVal = Math.max(min, Math.min(max, newVal));
+        var next = widths.slice();
+        var old = next[index];
+        var delta = newVal - old;
+        next[index] = newVal;
+        var others = [];
+        var otherSum = 0;
+        var i;
+        for (i = 0; i < n; i++) {
+            if (i !== index) {
+                others.push(i);
+                otherSum += next[i];
+            }
+        }
+        if (otherSum <= 0) {
+            var even = (100 - newVal) / others.length;
+            for (i = 0; i < others.length; i++) {
+                next[others[i]] = even;
+            }
+        } else {
+            for (i = 0; i < others.length; i++) {
+                var oi = others[i];
+                next[oi] = next[oi] - delta * (next[oi] / otherSum);
+            }
+        }
+        for (i = 0; i < n; i++) {
+            if (i !== index && next[i] < min) {
+                next[i] = min;
+            }
+        }
+        var sum = 0;
+        for (i = 0; i < n; i++) {
+            sum += next[i];
+        }
+        if (Math.abs(sum - 100) > 0.01) {
+            var fix = 100 - sum;
+            var grow = index === 0 ? 1 : 0;
+            next[grow] = Math.max(min, Math.min(max, next[grow] + fix));
+        }
+        var rounded = [];
+        var roundedSum = 0;
+        for (i = 0; i < n; i++) {
+            rounded[i] = Math.round(next[i]);
+            roundedSum += rounded[i];
+        }
+        rounded[n - 1] += (100 - roundedSum);
+        if (rounded[n - 1] < min) {
+            var deficit = min - rounded[n - 1];
+            rounded[n - 1] = min;
+            for (i = 0; i < n - 1 && deficit > 0; i++) {
+                var take = Math.min(deficit, rounded[i] - min);
+                rounded[i] -= take;
+                deficit -= take;
+            }
+        }
+        return rounded;
+    }
+
+    function findColumnCells(rowComp) {
+        var found = [];
+        function walk(c) {
+            if (!c || !c.get) {
+                return;
+            }
+            if (c.get('type') === 'nl-column') {
+                found.push(c);
+                return;
+            }
+            var tag = String(c.get('tagName') || '').toLowerCase();
+            var cls = String((c.getAttributes() || {}).class || '');
+            if (tag === 'td' && cls.indexOf('nl-column') !== -1) {
+                found.push(c);
+                return;
+            }
+            var kids = c.components && c.components();
+            if (kids && kids.forEach) {
+                kids.forEach(walk);
+            }
+        }
+        walk(rowComp);
+        return found;
+    }
+
+    function rotateListLeft(items) {
+        if (!items || items.length < 2) {
+            return items ? items.slice() : [];
+        }
+        return items.slice(1).concat([items[0]]);
+    }
+
+    function getSwappableColumnRow(component) {
+        if (!component || !component.get) {
+            return null;
+        }
+        var row = component.get('type') === 'nl-columns' ? component : findAncestorColumns(component);
+        if (!row) {
+            return null;
+        }
+        return findColumnCells(row).length >= 2 ? row : null;
+    }
+
+    function cycleColumnContents(row) {
+        var cells = findColumnCells(row);
+        if (cells.length < 2) {
+            return false;
+        }
+        var parent = cells[0].parent && cells[0].parent();
+        if (!parent) {
+            return false;
+        }
+        var i;
+        for (i = 1; i < cells.length; i++) {
+            if ((cells[i].parent && cells[i].parent()) !== parent) {
+                return false;
+            }
+        }
+        var widths = getColumnWidths(row);
+        var rotated = rotateListLeft(cells);
+        var wasSyncing = syncingRowGaps;
+        syncingRowGaps = true;
+        try {
+            rotated.forEach(function(cell, idx) {
+                hoistTo(cell, parent, idx);
+            });
+        } finally {
+            syncingRowGaps = wasSyncing;
+        }
+        applyColumnWidths(row, widths);
+        constrainColumnImage(row);
+        return true;
+    }
+
+    function cycleSelectedColumns() {
+        var row = getSwappableColumnRow(editor && editor.getSelected && editor.getSelected());
+        if (!row) {
+            return false;
+        }
+        var ok = cycleColumnContents(row);
+        if (ok && editor && editor.select) {
+            editor.select(row);
+        }
+        updateMoveButtons(getMovableRow(row));
+        return ok;
+    }
+
+    function parseWidthPct(comp) {
+        var attrs = comp.getAttributes ? comp.getAttributes() : {};
+        var w = attrs.width || '';
+        var n = parseFloat(String(w).replace('%', ''));
+        if (isFinite(n) && n > 0) {
+            return n;
+        }
+        var style = comp.getStyle ? comp.getStyle() : {};
+        n = parseFloat(String(style.width || '').replace('%', ''));
+        return isFinite(n) && n > 0 ? n : 0;
+    }
+
+    function getColumnWidths(rowComp) {
+        var cols = findColumnCells(rowComp);
+        var widths = cols.map(parseWidthPct);
+        var n = widths.length;
+        if (!n) {
+            return [];
+        }
+        var missing = widths.some(function(w) { return !w; });
+        if (missing) {
+            var even = Math.floor(100 / n);
+            widths = [];
+            for (var i = 0; i < n; i++) {
+                widths.push(i === n - 1 ? 100 - even * (n - 1) : even);
+            }
+        }
+        return widths;
+    }
+
+    function applyColumnWidths(rowComp, widths) {
+        var cols = findColumnCells(rowComp);
+        widths.forEach(function(pct, i) {
+            if (!cols[i]) {
+                return;
+            }
+            var rounded = Math.round(pct);
+            cols[i].addAttributes({ width: rounded + '%' });
+            var style = cols[i].getStyle() || {};
+            style.width = rounded + '%';
+            if (!style.padding && !style['padding-left'] && !style['padding-right']) {
+                style.padding = '10px';
+            }
+            cols[i].setStyle(style);
+        });
+    }
+
+    function componentIsInColumn(component) {
+        var parent = component && component.parent ? component.parent() : null;
+        while (parent) {
+            if (parent.get && parent.get('type') === 'nl-column') {
+                return true;
+            }
+            var cls = String((parent.getAttributes && parent.getAttributes() || {}).class || '');
+            if (cls.indexOf('nl-column') !== -1 || cls.indexOf('nl-stack-col') !== -1) {
+                return true;
+            }
+            parent = parent.parent ? parent.parent() : null;
+        }
+        return false;
+    }
+
+    function constrainColumnImage(component) {
+        if (!component || !component.get) {
+            return;
+        }
+        var type = component.get('type');
+        if (type !== 'image' && type !== 'email-image') {
+            var kids = component.components && component.components();
+            if (kids && kids.forEach) {
+                kids.forEach(constrainColumnImage);
+            }
+            return;
+        }
+        if (!componentIsInColumn(component)) {
+            return;
+        }
+        var attrs = component.getAttributes ? component.getAttributes() : {};
+        var rawWidth = attrs.width || component.get('width') || '';
+        var px = parseInt(String(rawWidth).replace('px', ''), 10);
+        if (rawWidth === '100%' || (isFinite(px) && px > 0 && px < 280)) {
+            component.addStyle({
+                'max-width': '100%',
+                height: 'auto',
+                display: 'block'
+            });
+            return;
+        }
+        component.addAttributes({ width: '100%' });
+        component.addStyle({
+            width: '100%',
+            'max-width': '100%',
+            height: 'auto',
+            display: 'block'
+        });
+    }
+
+    function isColumnFrame(component) {
+        if (!component || !component.get) {
+            return false;
+        }
+        var type = component.get('type');
+        if (type === 'nl-columns' || type === 'nl-column' || type === 'nl-section' || type === 'nl-section-body') {
+            return true;
+        }
+        var cls = String((component.getAttributes() || {}).class || '');
+        if (cls.indexOf('nl-stack-cols') !== -1 || cls.indexOf('nl-column') !== -1 || cls.indexOf('nl-section') !== -1) {
+            return true;
+        }
+        var tag = String(component.get('tagName') || '').toLowerCase();
+        if (['table', 'tbody', 'thead', 'tr'].indexOf(tag) !== -1 && findAncestorColumns(component)) {
+            return true;
+        }
+        return false;
+    }
+
+    function findAncestorSection(component) {
+        var p = component && component.parent ? component.parent() : null;
+        while (p) {
+            if (p.get && p.get('type') === 'nl-section') {
+                return p;
+            }
+            var cls = String((p.getAttributes && p.getAttributes() || {}).class || '');
+            if (cls.indexOf('nl-section') !== -1 && String(p.get('tagName') || '').toLowerCase() === 'table'
+                && cls.indexOf('nl-section-body') === -1) {
+                return p;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        return null;
+    }
+
+    function findAncestorColumns(component) {
+        var p = component && component.parent ? component.parent() : null;
+        while (p) {
+            if (p.get && p.get('type') === 'nl-columns') {
+                return p;
+            }
+            var cls = String((p.getAttributes && p.getAttributes() || {}).class || '');
+            if (cls.indexOf('nl-stack-cols') !== -1 && String(p.get('tagName') || '').toLowerCase() === 'table') {
+                return p;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        return null;
+    }
+
+    function clearSectionHint(component) {
+        var parent = component && component.parent ? component.parent() : null;
+        if (!parent || (component.getAttributes && String((component.getAttributes() || {}).class || '').indexOf('nl-section-hint') !== -1)) {
+            return;
+        }
+        var type = parent.get ? parent.get('type') : '';
+        var cls = String((parent.getAttributes && parent.getAttributes() || {}).class || '');
+        if (type !== 'nl-section-body' && cls.indexOf('nl-section-body') === -1) {
+            return;
+        }
+        var kids = [];
+        if (parent.components) {
+            var comps = parent.components();
+            if (comps && comps.forEach) {
+                comps.forEach(function(c) { kids.push(c); });
+            } else if (comps && comps.models) {
+                kids = comps.models.slice();
+            }
+        }
+        kids.forEach(function(k) {
+            if (k === component) {
+                return;
+            }
+            var kcls = String((k.getAttributes && k.getAttributes() || {}).class || '');
+            if (kcls.indexOf('nl-section-hint') !== -1) {
+                try { k.remove(); } catch (e) { /* already gone */ }
+            }
+        });
+        applySectionFrame(parent, false);
+    }
+
+    function hoistNestedSection(component) {
+        if (!component || component.get('type') !== 'nl-section') {
+            return;
+        }
+        var outer = findAncestorSection(component);
+        var inCol = findAncestorColumns(component);
+        if (!outer && !inCol) {
+            return;
+        }
+        var dest;
+        var at;
+        if (outer) {
+            dest = outer.parent && outer.parent();
+            at = typeof outer.index === 'function' ? outer.index() + 1 : undefined;
+        } else {
+            dest = findEmailCanvasCell() || (editor && editor.getWrapper && editor.getWrapper());
+            var anchor = inCol;
+            while (anchor && anchor.parent && anchor.parent() !== dest) {
+                var next = anchor.parent();
+                if (!next || next === dest) {
+                    break;
+                }
+                anchor = next;
+            }
+            at = anchor && typeof anchor.index === 'function' ? anchor.index() + 1 : undefined;
+        }
+        if (!dest) {
+            return;
+        }
+        try {
+            if (typeof component.move === 'function') {
+                component.move(dest, { at: at });
+            } else {
+                var json = component.toJSON();
+                component.remove();
+                dest.components().add(json, { at: at });
+            }
+        } catch (e) { /* drop already rejected */ }
+    }
+
+    function hoistNowNext(component) {
+        if (!component || !component.get) {
+            return;
+        }
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        if (cls.indexOf('nl-now-next') === -1 && component.get('type') !== 'nl-now-next') {
+            return;
+        }
+        var inCol = findAncestorColumns(component);
+        if (!inCol) {
+            return;
+        }
+        var section = findAncestorSection(component);
+        var dest = null;
+        if (section) {
+            dest = findSectionBodyChild(section) || (section.parent && section.parent());
+        } else {
+            dest = findEmailCanvasCell() || (editor && editor.getWrapper && editor.getWrapper());
+        }
+        if (!dest || dest === component) {
+            return;
+        }
+        var at;
+        if (section) {
+            at = typeof inCol.index === 'function' ? inCol.index() + 1 : undefined;
+        } else {
+            var anchor = inCol;
+            while (anchor && anchor.parent && anchor.parent() !== dest) {
+                var next = anchor.parent();
+                if (!next || next === dest) {
+                    break;
+                }
+                anchor = next;
+            }
+            at = anchor && typeof anchor.index === 'function' ? anchor.index() + 1 : undefined;
+        }
+        hoistTo(component, dest, at);
+    }
+
+    function hoistNestedColumns(component) {
+        if (!component || component.get('type') !== 'nl-columns') {
+            return;
+        }
+        var outer = findAncestorColumns(component);
+        if (!outer) {
+            return;
+        }
+        var dest = outer.parent && outer.parent();
+        if (!dest) {
+            return;
+        }
+        var at = typeof outer.index === 'function' ? outer.index() + 1 : undefined;
+        try {
+            if (typeof component.move === 'function') {
+                component.move(dest, { at: at });
+            } else {
+                var json = component.toJSON();
+                component.remove();
+                dest.components().add(json, { at: at });
+            }
+        } catch (e) { /* drop already rejected */ }
+    }
+
+    function renderColumnWidthSliders(container, component) {
+        if (!container || !component) {
+            return;
+        }
+        var widths = getColumnWidths(component);
+        container.innerHTML = '';
+        if (widths.length < 2) {
+            container.innerHTML = '<p class="description" style="margin:0;">This row uses the full width.</p>';
+            return;
+        }
+        var max = 100 - NL_COL_MIN * (widths.length - 1);
+        widths.forEach(function(w, i) {
+            var row = document.createElement('label');
+            row.className = 'pta-nl-col-width-row';
+            row.innerHTML = '<span>Column ' + (i + 1) + '</span>'
+                + '<input type="range" min="' + NL_COL_MIN + '" max="' + max + '" step="1" value="' + Math.round(w) + '" data-col="' + i + '">'
+                + '<span class="pta-nl-col-width-val">' + Math.round(w) + '%</span>';
+            container.appendChild(row);
+        });
+        var inputs = container.querySelectorAll('input[type=range]');
+        for (var i = 0; i < inputs.length; i++) {
+            inputs[i].addEventListener('input', function() {
+                var idx = parseInt(this.getAttribute('data-col'), 10);
+                var next = redistributeColumnWidths(getColumnWidths(component), idx, parseFloat(this.value));
+                applyColumnWidths(component, next);
+                renderColumnWidthSliders(container, component);
+            });
+        }
+    }
+
+    var syncingRowGaps = false;
+
+    function isRowGap(component) {
+        return !!(component && component.get && component.get('type') === 'nl-row-gap');
+    }
+
+    function wrapperChildList(wrapper) {
+        var list = [];
+        if (!wrapper || !wrapper.components) {
+            return list;
+        }
+        var comps = wrapper.components();
+        if (comps && comps.forEach) {
+            comps.forEach(function(c) { list.push(c); });
+        } else if (comps && comps.each) {
+            comps.each(function(c) { list.push(c); });
+        } else if (comps && comps.models) {
+            list = comps.models.slice();
+        }
+        return list;
+    }
+
+    function isSectionHint(component) {
+        var cls = String((component && component.getAttributes && component.getAttributes() || {}).class || '');
+        return cls.indexOf('nl-section-hint') !== -1;
+    }
+
+    function isSectionBody(component) {
+        if (!component || !component.get) {
+            return false;
+        }
+        if (component.get('type') === 'nl-section-body') {
+            return true;
+        }
+        var tag = String(component.get('tagName') || '').toLowerCase();
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        return tag === 'td' && cls.indexOf('nl-section-body') !== -1;
+    }
+
+    function findAllSectionBodies() {
+        var out = [];
+        function walk(c) {
+            if (!c) {
+                return;
+            }
+            if (isSectionBody(c)) {
+                out.push(c);
+                return;
+            }
+            wrapperChildList(c).forEach(walk);
+        }
+        walk(editor && editor.getWrapper && editor.getWrapper());
+        return out;
+    }
+
+    function findSectionBodyChild(section) {
+        var found = null;
+        function walk(c) {
+            if (!c || found) {
+                return;
+            }
+            if (isSectionBody(c)) {
+                found = c;
+                return;
+            }
+            wrapperChildList(c).forEach(walk);
+        }
+        walk(section);
+        return found;
+    }
+
+    function parentIsSectionChrome(parent) {
+        if (!parent || !parent.get) {
+            return false;
+        }
+        if (parent.get('type') === 'nl-section') {
+            return true;
+        }
+        var tag = String(parent.get('tagName') || '').toLowerCase();
+        if (tag !== 'tr' && tag !== 'tbody' && tag !== 'thead') {
+            return false;
+        }
+        var p = parent.parent && parent.parent();
+        return !!(p && p.get && p.get('type') === 'nl-section');
+    }
+
+    function isSectionInternal(component) {
+        if (!component || !component.get) {
+            return false;
+        }
+        var type = component.get('type');
+        if (type === 'nl-section' || type === 'nl-section-body' || type === 'nl-section-hint') {
+            return true;
+        }
+        var tag = String(component.get('tagName') || '').toLowerCase();
+        if (tag === 'tr' || tag === 'tbody' || tag === 'thead' || tag === 'tfoot') {
+            return true;
+        }
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        return cls.indexOf('nl-section-hint') !== -1 || cls.indexOf('nl-section-body') !== -1;
+    }
+
+    function setComponentAttr(comp, name, value) {
+        if (!comp || !comp.getAttributes || !comp.setAttributes) {
+            return;
+        }
+        var attrs = {};
+        var cur = comp.getAttributes() || {};
+        Object.keys(cur).forEach(function(k) {
+            attrs[k] = cur[k];
+        });
+        if (value === null || value === '') {
+            delete attrs[name];
+        } else {
+            attrs[name] = value;
+        }
+        comp.setAttributes(attrs);
+    }
+
+    function toggleClass(comp, className, on) {
+        if (!comp || !comp.getAttributes) {
+            return;
+        }
+        var attrs = comp.getAttributes() || {};
+        var parts = String(attrs.class || '').split(/\s+/).filter(Boolean);
+        var has = parts.indexOf(className) !== -1;
+        if (on && !has) {
+            parts.push(className);
+        }
+        if (!on && has) {
+            parts = parts.filter(function(c) { return c !== className; });
+        }
+        setComponentAttr(comp, 'class', parts.join(' '));
+    }
+
+    function applySectionFrame(body, empty) {
+        var section = body && findAncestorSection(body);
+        if (!section && body && body.get && body.get('type') === 'nl-section') {
+            section = body;
+            body = findSectionBodyChild(section);
+        }
+        if (section) {
+            toggleClass(section, 'nl-section-empty', !!empty);
+            var ss = section.getStyle ? (section.getStyle() || {}) : {};
+            if (empty) {
+                ss.height = '260px';
+                setComponentAttr(section, 'height', '260');
+            } else {
+                delete ss.height;
+                setComponentAttr(section, 'height', null);
+            }
+            if (section.setStyle) {
+                section.setStyle(ss);
+            }
+        }
+        if (!body || !body.setStyle) {
+            return;
+        }
+        var st = body.getStyle() || {};
+        if (empty) {
+            st.height = '260px';
+            st.padding = '56px 24px';
+            st['vertical-align'] = 'middle';
+            setComponentAttr(body, 'height', '260');
+            setComponentAttr(body, 'valign', 'middle');
+        } else {
+            delete st.height;
+            st.padding = '0';
+            st['vertical-align'] = 'top';
+            setComponentAttr(body, 'height', null);
+            setComponentAttr(body, 'valign', 'top');
+        }
+        body.setStyle(st);
+    }
+
+    function hoistTo(component, dest, at) {
+        if (!component || !dest || component === dest) {
+            return;
+        }
+        try {
+            if (typeof component.move === 'function') {
+                component.move(dest, { at: at });
+            } else {
+                var json = component.toJSON();
+                component.remove();
+                dest.components().add(json, { at: at });
+            }
+        } catch (e) { /* sorter already placed it */ }
+    }
+
+    function hoistToWrapper(component, at) {
+        hoistTo(component, editor && editor.getWrapper && editor.getWrapper(), at);
+    }
+
+    function emptyGapsIn(container) {
+        if (!container) {
+            return;
+        }
+        wrapperChildList(container).forEach(function(gap) {
+            if (!isRowGap(gap)) {
+                return;
+            }
+            var kids = [];
+            var comps = gap.components && gap.components();
+            if (comps && comps.forEach) {
+                comps.forEach(function(c) { kids.push(c); });
+            } else if (comps && comps.each) {
+                comps.each(function(c) { kids.push(c); });
+            }
+            var at = typeof gap.index === 'function' ? gap.index() : 0;
+            kids.forEach(function(child, i) {
+                hoistTo(child, container, at + i);
+            });
+        });
+    }
+
+    function emptyGapsIntoWrapper() {
+        var canvas = findEmailCanvasCell();
+        if (canvas) {
+            emptyGapsIn(canvas);
+        }
+        emptyGapsIn(editor && editor.getWrapper && editor.getWrapper());
+        findAllSectionBodies().forEach(emptyGapsIn);
+    }
+
+    function syncGapsInContainer(container, skipHints) {
+        if (!container || !container.components) {
+            return;
+        }
+        emptyGapsIn(container);
+        var kids = wrapperChildList(container);
+        var reals = kids.filter(function(c) {
+            return !isRowGap(c) && !(skipHints && isSectionHint(c));
+        });
+        if (skipHints && reals.length === 0) {
+            kids.forEach(function(c) {
+                if (isRowGap(c)) {
+                    c.remove();
+                }
+            });
+            return;
+        }
+        var expected = reals.length * 2 + 1;
+        var ok = kids.length === expected;
+        if (ok) {
+            for (var i = 0; i < kids.length; i++) {
+                if ((i % 2 === 0) !== isRowGap(kids[i])) {
+                    ok = false;
+                    break;
+                }
+                if (i % 2 === 1 && kids[i] !== reals[(i - 1) / 2]) {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if (ok) {
+            return;
+        }
+        kids.forEach(function(c) {
+            if (isRowGap(c)) {
+                c.remove();
+            }
+        });
+        reals = wrapperChildList(container).filter(function(c) {
+            return !isRowGap(c) && !(skipHints && isSectionHint(c));
+        });
+        container.components().add({ type: 'nl-row-gap' }, { at: 0 });
+        reals.forEach(function(c) {
+            var at = typeof c.index === 'function' ? c.index() + 1 : undefined;
+            container.components().add({ type: 'nl-row-gap' }, { at: at });
+        });
+    }
+
+    function componentTag(component) {
+        return String(component && component.get ? component.get('tagName') || '' : '').toLowerCase();
+    }
+
+    function containsDescendant(root, target) {
+        if (!root || !target) {
+            return false;
+        }
+        if (root === target) {
+            return true;
+        }
+        var kids = wrapperChildList(root);
+        for (var i = 0; i < kids.length; i++) {
+            if (containsDescendant(kids[i], target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function isEmailCanvasTable(component) {
+        if (!component || componentTag(component) !== 'table') {
+            return false;
+        }
+        var attrs = (component.getAttributes && component.getAttributes()) || {};
+        var width = String(attrs.width || '');
+        if (width === '600' || width === '600px') {
+            return true;
+        }
+        var st = (component.getStyle && component.getStyle()) || {};
+        var mw = String(st['max-width'] || st.maxWidth || '');
+        var tw = String(st.width || '');
+        return mw.indexOf('600') !== -1 || tw === '600px' || tw === '600';
+    }
+
+    function findEmailCanvasTable() {
+        var found = null;
+        function walk(c) {
+            if (!c || found) {
+                return;
+            }
+            if (isEmailCanvasTable(c)) {
+                found = c;
+                return;
+            }
+            wrapperChildList(c).forEach(walk);
+        }
+        walk(editor && editor.getWrapper && editor.getWrapper());
+        return found;
+    }
+
+    function getDirectTableCells(table) {
+        var cells = [];
+        function addCellsFromRow(row) {
+            wrapperChildList(row).forEach(function(cell) {
+                var tag = componentTag(cell);
+                if (tag === 'td' || tag === 'th') {
+                    cells.push(cell);
+                }
+            });
+        }
+        wrapperChildList(table).forEach(function(child) {
+            var tag = componentTag(child);
+            if (tag === 'tr') {
+                addCellsFromRow(child);
+                return;
+            }
+            if (tag === 'tbody' || tag === 'thead' || tag === 'tfoot') {
+                wrapperChildList(child).forEach(function(row) {
+                    if (componentTag(row) === 'tr') {
+                        addCellsFromRow(row);
+                    }
+                });
+            }
+        });
+        return cells;
+    }
+
+    function looksLikeFooterCell(cell) {
+        var html = '';
+        try {
+            html = cell && cell.toHTML ? String(cell.toHTML()) : '';
+        } catch (e) {
+            html = '';
+        }
+        html = html.toLowerCase();
+        return html.indexOf('unsubscribe') !== -1
+            || html.indexOf('view_in_browser') !== -1
+            || html.indexOf('view in browser') !== -1;
+    }
+
+    function findEmailCanvasCell() {
+        var table = findEmailCanvasTable();
+        if (!table) {
+            return null;
+        }
+        var cells = getDirectTableCells(table);
+        if (!cells.length) {
+            return null;
+        }
+        var footerIdx = -1;
+        for (var i = cells.length - 1; i >= 0; i--) {
+            if (looksLikeFooterCell(cells[i])) {
+                footerIdx = i;
+                break;
+            }
+        }
+        var end = footerIdx >= 0 ? footerIdx : cells.length;
+        var candidates = cells.slice(0, end);
+        if (!candidates.length) {
+            return cells[0];
+        }
+        return candidates[candidates.length - 1];
+    }
+
+    function pinEmailCanvasWidth() {
+        var table = findEmailCanvasTable();
+        if (!table || !table.addStyle) {
+            return;
+        }
+        table.addStyle({ width: '600px', 'max-width': '600px' });
+        var attrs = (table.getAttributes && table.getAttributes()) || {};
+        if (!attrs.width || String(attrs.width) === '100%') {
+            setComponentAttr(table, 'width', '600');
+        }
+    }
+
+    function isCanvasBlock(component) {
+        if (!component || !component.get || isRowGap(component) || isSectionHint(component)) {
+            return false;
+        }
+        var type = component.get('type');
+        if (type === 'nl-section' || type === 'nl-columns') {
+            return true;
+        }
+        var tag = componentTag(component);
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        if (tag === 'table' && cls.indexOf('nl-section') !== -1 && cls.indexOf('nl-section-body') === -1) {
+            return true;
+        }
+        if (tag === 'table' && cls.indexOf('nl-stack-cols') !== -1) {
+            return true;
+        }
+        if (tag === 'table' && cls.indexOf('nl-now-next') !== -1) {
+            return true;
+        }
+        if (tag === 'table' && cls.indexOf('nl-divider') !== -1) {
+            return true;
+        }
+        return false;
+    }
+
+    function hoistEscapedBlocksIntoCanvas() {
+        var canvasTable = findEmailCanvasTable();
+        var cell = findEmailCanvasCell();
+        if (!canvasTable || !cell) {
+            return;
+        }
+        var parent = canvasTable.parent && canvasTable.parent();
+        if (parent) {
+            wrapperChildList(parent).slice().forEach(function(sib) {
+                if (sib === canvasTable || sib === cell || isRowGap(sib)) {
+                    return;
+                }
+                if (containsDescendant(sib, canvasTable)) {
+                    return;
+                }
+                hoistTo(sib, cell);
+            });
+        }
+        var wrapper = editor && editor.getWrapper && editor.getWrapper();
+        wrapperChildList(wrapper).slice().forEach(function(child) {
+            if (isRowGap(child)) {
+                return;
+            }
+            if (child === canvasTable || containsDescendant(child, canvasTable)) {
+                return;
+            }
+            hoistTo(child, cell);
+        });
+    }
+
+    function syncCanvasBlockGaps(cell) {
+        if (!cell) {
+            return;
+        }
+        emptyGapsIn(cell);
+        wrapperChildList(cell).forEach(function(c) {
+            if (isRowGap(c)) {
+                c.remove();
+            }
+        });
+        var blocks = wrapperChildList(cell).filter(isCanvasBlock);
+        if (!blocks.length) {
+            cell.components().add({ type: 'nl-row-gap' });
+            return;
+        }
+        blocks.forEach(function(block, i) {
+            if (i === 0) {
+                var startAt = typeof block.index === 'function' ? block.index() : 0;
+                cell.components().add({ type: 'nl-row-gap' }, { at: startAt });
+            }
+            var after = typeof block.index === 'function' ? block.index() + 1 : undefined;
+            cell.components().add({ type: 'nl-row-gap' }, { at: after });
+        });
+    }
+
+    function clearContainerGaps(container) {
+        if (!container) {
+            return;
+        }
+        emptyGapsIn(container);
+        wrapperChildList(container).forEach(function(c) {
+            if (isRowGap(c)) {
+                c.remove();
+            }
+        });
+    }
+
+    function syncRowGaps() {
+        if (!editor || syncingRowGaps) {
+            return;
+        }
+        var wrapper = editor.getWrapper && editor.getWrapper();
+        if (!wrapper) {
+            return;
+        }
+        syncingRowGaps = true;
+        try {
+            var canvas = findEmailCanvasCell();
+            if (canvas) {
+                pinEmailCanvasWidth();
+                hoistEscapedBlocksIntoCanvas();
+                syncCanvasBlockGaps(canvas);
+                clearContainerGaps(wrapper);
+            } else {
+                syncGapsInContainer(wrapper, false);
+            }
+            findAllSectionBodies().forEach(function(body) {
+                emptyGapsIn(body);
+                wrapperChildList(body).forEach(function(c) {
+                    if (isRowGap(c)) {
+                        c.remove();
+                    }
+                });
+            });
+        } finally {
+            syncingRowGaps = false;
+        }
+    }
+
+    function getMovableRow(component) {
+        if (!component || !component.get || isRowGap(component)) {
+            return null;
+        }
+        if (component.get('type') === 'nl-section') {
+            return component;
+        }
+        var section = findAncestorSection(component);
+        if (section) {
+            return section;
+        }
+        if (component.get('type') === 'nl-columns') {
+            return component;
+        }
+        var cols = findAncestorColumns(component);
+        if (cols) {
+            return cols;
+        }
+        var wrapper = editor && editor.getWrapper && editor.getWrapper();
+        if (!wrapper) {
+            return null;
+        }
+        var p = component;
+        while (p.parent && p.parent() && p.parent() !== wrapper) {
+            p = p.parent();
+        }
+        if (p.parent && p.parent() === wrapper && !isRowGap(p)) {
+            return p;
+        }
+        return null;
+    }
+
+    function rowMoveContainer(row) {
+        if (row && row.parent && row.parent()) {
+            return row.parent();
+        }
+        return findEmailCanvasCell() || (editor && editor.getWrapper && editor.getWrapper());
+    }
+
+    function rowMoveState(row) {
+        var container = rowMoveContainer(row);
+        var reals = wrapperChildList(container).filter(function(c) { return !isRowGap(c); });
+        var idx = -1;
+        for (var i = 0; i < reals.length; i++) {
+            if (reals[i] === row) {
+                idx = i;
+                break;
+            }
+        }
+        return {
+            reals: reals,
+            index: idx,
+            canUp: idx > 0,
+            canDown: idx >= 0 && idx < reals.length - 1
+        };
+    }
+
+    function updateMoveButtons(row) {
+        var state = row ? rowMoveState(row) : { canUp: false, canDown: false };
+        $('#btn-row-up').prop('disabled', !state.canUp);
+        $('#btn-row-down').prop('disabled', !state.canDown);
+        var selected = editor && editor.getSelected && editor.getSelected();
+        $('#btn-swap-cols').prop('disabled', !getSwappableColumnRow(selected));
+        $('#btn-delete-section').prop('disabled', !(selected && selected.get && selected.get('type') === 'nl-section'));
+    }
+
+    function deleteSelectedSection() {
+        var selected = editor && editor.getSelected && editor.getSelected();
+        if (!selected || !selected.get) {
+            return false;
+        }
+        var section = null;
+        if (selected.get('type') === 'nl-section') {
+            section = selected;
+        } else if (isSectionBody(selected) || parentIsSectionChrome(selected)) {
+            section = findAncestorSection(selected) || (selected.get('type') === 'nl-section' ? selected : null);
+        }
+        if (!section || typeof section.remove !== 'function') {
+            return false;
+        }
+        section.remove();
+        updateMoveButtons(null);
+        return true;
+    }
+
+    function moveSelectedRow(direction) {
+        var row = getMovableRow(editor.getSelected());
+        if (!row) {
+            return false;
+        }
+        var state = rowMoveState(row);
+        var swap = state.index + direction;
+        if (state.index < 0 || swap < 0 || swap >= state.reals.length) {
+            return false;
+        }
+        var ordered = state.reals.slice();
+        var tmp = ordered[state.index];
+        ordered[state.index] = ordered[swap];
+        ordered[swap] = tmp;
+        var container = rowMoveContainer(row);
+        syncingRowGaps = true;
+        try {
+            wrapperChildList(container).forEach(function(c) {
+                if (isRowGap(c)) {
+                    c.remove();
+                }
+            });
+            ordered.forEach(function(c, i) {
+                if (c && typeof c.move === 'function') {
+                    c.move(container, { at: i });
+                }
+            });
+        } finally {
+            syncingRowGaps = false;
+        }
+        syncRowGaps();
+        editor.select(row);
+        updateMoveButtons(row);
+        return true;
+    }
+
+    function setCanvasDragging(on) {
+        var doc = editor && editor.Canvas && editor.Canvas.getDocument && editor.Canvas.getDocument();
+        if (!doc || !doc.body) {
+            return;
+        }
+        if (on) {
+            doc.body.classList.add('pta-nl-dragging');
+        } else {
+            doc.body.classList.remove('pta-nl-dragging');
+        }
+    }
+
+    function setupColumnFramework() {
+        if (!editor) {
+            return;
+        }
+        editor.on('load', function() {
+            window.setTimeout(function() {
+                hoistEscapedBlocksIntoCanvas();
+                syncRowGaps();
+            }, 0);
+        });
+        editor.on('component:add', function(component) {
+            if (syncingRowGaps || !component || isRowGap(component)) {
+                return;
+            }
+            var parent = component.parent && component.parent();
+            if (parent && isRowGap(parent)) {
+                var dest = parent.parent && parent.parent();
+                var at = typeof parent.index === 'function' ? parent.index() : 0;
+                hoistTo(component, dest, at);
+            } else if (parent && isSectionHint(parent)) {
+                var hintBody = parent.parent && parent.parent();
+                hoistTo(component, hintBody);
+            } else if (parentIsSectionChrome(parent) && !isSectionInternal(component)) {
+                var chromeSection = parent.get('type') === 'nl-section'
+                    ? parent
+                    : findAncestorSection(parent);
+                var body = findSectionBodyChild(chromeSection);
+                if (body) {
+                    hoistTo(component, body);
+                }
+            }
+            if (component.get('type') === 'nl-columns') {
+                window.setTimeout(function() {
+                    hoistNestedColumns(component);
+                }, 0);
+            }
+            if (component.get('type') === 'nl-section') {
+                window.setTimeout(function() {
+                    hoistNestedSection(component);
+                }, 0);
+            }
+            window.setTimeout(function() {
+                hoistNowNext(component);
+                hoistEscapedBlocksIntoCanvas();
+            }, 0);
+            clearSectionHint(component);
+            constrainColumnImage(component);
+            window.setTimeout(syncRowGaps, 0);
+        });
+        editor.on('component:remove', function(component) {
+            if (syncingRowGaps || isRowGap(component)) {
+                return;
+            }
+            window.setTimeout(syncRowGaps, 0);
+        });
+        editor.on('block:drag:start', function() {
+            setCanvasDragging(true);
+        });
+        editor.on('component:drag:start', function() {
+            setCanvasDragging(true);
+        });
+        editor.on('block:drag:stop', function(component) {
+            setCanvasDragging(false);
+            if (component && component.get('type') === 'nl-columns') {
+                hoistNestedColumns(component);
+            }
+            if (component && component.get('type') === 'nl-section') {
+                hoistNestedSection(component);
+            }
+            hoistNowNext(component);
+            hoistEscapedBlocksIntoCanvas();
+            emptyGapsIntoWrapper();
+            window.setTimeout(syncRowGaps, 0);
+        });
+        editor.on('component:drag:end', function(component) {
+            setCanvasDragging(false);
+            hoistNowNext(component);
+            hoistEscapedBlocksIntoCanvas();
+            emptyGapsIntoWrapper();
+            window.setTimeout(syncRowGaps, 0);
+        });
+        var hasMoveCmd = false;
+        try {
+            hasMoveCmd = !!(editor.Commands && editor.Commands.get && editor.Commands.get('pta-move-row-up'));
+        } catch (e) { hasMoveCmd = false; }
+        editor.on('component:update:src', function(component) {
+            constrainColumnImage(component);
+        });
+        if (editor.Commands && !hasMoveCmd) {
+            editor.Commands.add('pta-move-row-up', {
+                run: function() { moveSelectedRow(-1); }
+            });
+            editor.Commands.add('pta-move-row-down', {
+                run: function() { moveSelectedRow(1); }
+            });
+        }
+        var hasSwapCmd = false;
+        try {
+            hasSwapCmd = !!(editor.Commands && editor.Commands.get && editor.Commands.get('pta-swap-columns'));
+        } catch (e2) { hasSwapCmd = false; }
+        if (editor.Commands && !hasSwapCmd) {
+            editor.Commands.add('pta-swap-columns', {
+                run: function() { cycleSelectedColumns(); }
+            });
+        }
+        var hasDeleteSectionCmd = false;
+        try {
+            hasDeleteSectionCmd = !!(editor.Commands && editor.Commands.get && editor.Commands.get('pta-delete-section'));
+        } catch (e3) { hasDeleteSectionCmd = false; }
+        if (editor.Commands && !hasDeleteSectionCmd) {
+            editor.Commands.add('pta-delete-section', {
+                run: function() { deleteSelectedSection(); }
+            });
+        }
+    }
+
+    var NL_TYPO_PROPS = {
+        'font-family': 1,
+        'font-size': 1,
+        'font-weight': 1,
+        'letter-spacing': 1,
+        color: 1,
+        'line-height': 1,
+        'text-align': 1,
+        'text-decoration': 1,
+        'font-style': 1
+    };
+
+    function applyComponentStyle(comp, style) {
+        if (!comp || !style) {
+            return;
+        }
+        if (typeof comp.addStyle === 'function') {
+            comp.addStyle(style);
+        } else if (typeof comp.setStyle === 'function') {
+            var cur = comp.getStyle() || {};
+            Object.keys(style).forEach(function(k) {
+                cur[k] = style[k];
+            });
+            comp.setStyle(cur);
+        }
+    }
+
+    /**
+     * Style Manager writes to the selected component. Text lives on
+     * inner p/h1 tags that already have inline fonts, so a table-level
+     * change is invisible. Push typography onto every text descendant
+     * and keep spacing on the block cell only.
+     */
+    function applyBlockStyle(comp, name, val) {
+        if (!comp || !name || val == null || val === '') {
+            return;
+        }
+        var root = findTextBlockStyleRoot(comp) || comp;
+        var style = {};
+        style[name] = val;
+        applyComponentStyle(root, style);
+        if (!NL_TYPO_PROPS[name]) {
+            return;
+        }
+        collectTextTargets(root, [], 0).forEach(function(textComp) {
+            applyComponentStyle(textComp, style);
+        });
+    }
+
+    function setupStyleApply() {
+        if (!editor) {
+            return;
+        }
+        editor.on('style:property:update', function(prop) {
+            var comp = editor.getSelected();
+            if (!comp || !prop) {
+                return;
+            }
+            var name = (prop.get && prop.get('property')) || (prop.getName && prop.getName()) || '';
+            var val = prop.get && prop.get('value');
+            applyBlockStyle(comp, name, val);
+        });
+    }
+
+    /**
+     * Button tables used to be recognised only when the label was still
+     * "Click Here". Custom labels then parsed as a plain table, and the
+     * email-button defaults (button_url: '#') overwrote a saved href on
+     * reload. Detect the block itself and keep the <a href> as source of truth.
+     */
+    function isNewsletterButtonTable(el) {
+        if (!el || !el.tagName || el.tagName !== 'TABLE') {
+            return false;
+        }
+        if (el.classList && el.classList.contains('nl-button')) {
+            return true;
+        }
+        var links = el.querySelectorAll ? el.querySelectorAll('a') : [];
+        if (links.length !== 1) {
+            return false;
+        }
+        var a = links[0];
+        if (a.querySelector && a.querySelector('img')) {
+            return false;
+        }
+        var style = String(a.getAttribute('style') || '').toLowerCase();
+        var looksPadded = style.indexOf('padding') !== -1 &&
+            (style.indexOf('inline-block') !== -1 || style.indexOf('display: block') !== -1 || style.indexOf('display:block') !== -1);
+        if (!looksPadded) {
+            return false;
+        }
+        var td = a.parentElement;
+        while (td && td.tagName !== 'TD') {
+            td = td.parentElement;
+        }
+        if (!td) {
+            return false;
+        }
+        var tdStyle = String(td.getAttribute('style') || '').toLowerCase();
+        return !!(td.getAttribute('bgcolor') || tdStyle.indexOf('background') !== -1);
+    }
+
+    function buttonLinkHref(linkComp) {
+        if (!linkComp) {
+            return '';
+        }
+        var attrs = linkComp.getAttributes ? linkComp.getAttributes() : {};
+        return String(attrs.href || '');
+    }
+
+    function firstButtonLink(comp) {
+        if (!comp) {
+            return null;
+        }
+        var found = [];
+        if (comp.findType) {
+            found = comp.findType('link') || [];
+        }
+        if ((!found || !found.length) && comp.find) {
+            found = comp.find('a') || [];
+        }
+        return found && found.length ? found[0] : null;
+    }
+
+    function syncButtonFromLink(comp) {
+        var link = firstButtonLink(comp);
+        if (!link) {
+            return;
+        }
+        var href = buttonLinkHref(link);
+        var stored = String(comp.get('button_url') || '');
+        if (href && href !== '#' && (!stored || stored === '#' || stored !== href)) {
+            comp.set('button_url', href, { silent: true });
+        }
+        var text = '';
+        if (link.getEl && link.getEl()) {
+            text = String(link.getEl().textContent || '').replace(/\s+/g, ' ').trim();
+        } else if (typeof link.get === 'function' && typeof link.get('content') === 'string') {
+            text = link.get('content').replace(/\s+/g, ' ').trim();
+        }
+        var storedText = String(comp.get('button_text') || '');
+        if (text && storedText && storedText === 'Click Here' && text !== 'Click Here') {
+            comp.set('button_text', text, { silent: true });
+        }
+    }
+
+    function wrapImgHrefInHtml(html) {
+        if (!html || typeof html !== 'string') {
+            return html;
+        }
+        return html.replace(/<img\b([^>]*)>/gi, function(tag, attrs) {
+            var hrefMatch = attrs.match(/\bhref\s*=\s*(["'])([^"']*)\1/i);
+            if (!hrefMatch) {
+                return tag;
+            }
+            var url = String(hrefMatch[2] || '').trim();
+            if (!url || url === '#') {
+                return tag;
+            }
+            var cleaned = attrs.replace(/\s*href\s*=\s*(["'])([^"']*)\1/i, '');
+            return '<a href="' + url + '" target="_blank" style="text-decoration:none;border:0;"><img' + cleaned + '></a>';
+        });
+    }
+
+    var applyingImageLinks = false;
+
+    function imageHrefValue(comp) {
+        if (!comp || !comp.get) {
+            return '';
+        }
+        var prop = comp.get('href');
+        if (typeof prop === 'string' && prop.trim()) {
+            return prop.trim();
+        }
+        var attrs = comp.getAttributes ? comp.getAttributes() : {};
+        return String(attrs.href || '').trim();
+    }
+
+    function parentAnchor(comp) {
+        var parent = comp && comp.parent ? comp.parent() : null;
+        if (parent && String(parent.get('tagName') || '').toLowerCase() === 'a') {
+            return parent;
+        }
+        return null;
+    }
+
+    function applyImageLink(imgComp) {
+        if (applyingImageLinks || !imgComp || !imgComp.get) {
+            return;
+        }
+        var type = imgComp.get('type');
+        if (type !== 'image' && type !== 'email-image') {
+            return;
+        }
+        var href = imageHrefValue(imgComp);
+        var anchor = parentAnchor(imgComp);
+        if (anchor) {
+            var existing = String((anchor.getAttributes() || {}).href || '').trim();
+            if (!href || href === '#') {
+                if (existing && existing !== '#') {
+                    imgComp.set('href', existing, { silent: true });
+                }
+                return;
+            }
+            if (existing !== href) {
+                anchor.addAttributes({ href: href, target: '_blank' });
+            }
+            return;
+        }
+        if (!href || href === '#') {
+            return;
+        }
+        var parent = imgComp.parent && imgComp.parent();
+        if (!parent || !parent.components) {
+            return;
+        }
+        applyingImageLinks = true;
+        try {
+            var at = typeof imgComp.index === 'function' ? imgComp.index() : 0;
+            var json = imgComp.toJSON();
+            if (json.attributes) {
+                delete json.attributes.href;
+            }
+            parent.components().remove(imgComp);
+            var added = parent.components().add({
+                type: 'link',
+                tagName: 'a',
+                attributes: {
+                    href: href,
+                    target: '_blank',
+                    style: 'text-decoration: none; border: 0;'
+                },
+                components: [json]
+            }, { at: at });
+            var newImg = added && added.findType ? (added.findType('image') || [])[0] : null;
+            if (newImg && typeof newImg.set === 'function') {
+                newImg.set('href', href, { silent: true });
+            }
+        } finally {
+            applyingImageLinks = false;
+        }
+    }
+
+    function applyAllImageLinks() {
+        if (!editor || !editor.getWrapper) {
+            return;
+        }
+        var wrapper = editor.getWrapper();
+        if (!wrapper || !wrapper.findType) {
+            return;
+        }
+        var images = wrapper.findType('image') || [];
+        images.forEach(function(img) {
+            applyImageLink(img);
+        });
+    }
+
+    function syncAllEmailButtons() {
+        if (!editor || !editor.getWrapper) {
+            return;
+        }
+        var wrapper = editor.getWrapper();
+        if (!wrapper || !wrapper.findType) {
+            return;
+        }
+        var buttons = wrapper.findType('email-button') || [];
+        buttons.forEach(function(btn) {
+            syncButtonFromLink(btn);
+        });
+    }
+
     /**
      * Register custom component types with traits (settings)
      */
@@ -1227,6 +2944,215 @@
             },
             onUpdate: function() {},
             onEvent: function() {}
+        });
+
+        editor.TraitManager.addType('column-widths', {
+            createInput: function() {
+                var el = document.createElement('div');
+                el.className = 'pta-nl-col-widths';
+                return el;
+            },
+            onUpdate: function(opts) {
+                var elInput = (opts && opts.elInput) || this.elInput || this.el;
+                var component = (opts && opts.component) || this.target || editor.getSelected();
+                if (!elInput || !component) {
+                    return;
+                }
+                renderColumnWidthSliders(elInput, component);
+            },
+            onEvent: function() {}
+        });
+
+        dc.addType('nl-section', {
+            isComponent: function(el) {
+                return el && el.tagName === 'TABLE' && el.classList && el.classList.contains('nl-section');
+            },
+            model: {
+                defaults: {
+                    tagName: 'table',
+                    droppable: false,
+                    draggable: true,
+                    copyable: true,
+                    removable: true,
+                    name: 'Section',
+                    attributes: {
+                        class: 'nl-section',
+                        width: '100%',
+                        cellpadding: '0',
+                        cellspacing: '0',
+                        border: '0'
+                    },
+                    toolbar: [
+                        {
+                            label: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7 14l5-6 5 6z"/></svg>',
+                            attributes: { title: 'Move section up' },
+                            command: 'pta-move-row-up'
+                        },
+                        {
+                            label: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7 10l5 6 5-6z"/></svg>',
+                            attributes: { title: 'Move section down' },
+                            command: 'pta-move-row-down'
+                        },
+                        {
+                            attributes: { class: 'fa fa-arrows' },
+                            command: 'tlb-move'
+                        },
+                        {
+                            attributes: { class: 'fa fa-clone' },
+                            command: 'tlb-clone'
+                        },
+                        {
+                            attributes: { class: 'fa fa-trash-o', title: 'Delete section' },
+                            command: 'pta-delete-section'
+                        }
+                    ]
+                }
+            }
+        });
+
+        dc.addType('nl-section-body', {
+            isComponent: function(el) {
+                return el && el.tagName === 'TD' && el.classList && el.classList.contains('nl-section-body');
+            },
+            model: {
+                defaults: {
+                    tagName: 'td',
+                    draggable: false,
+                    copyable: false,
+                    removable: false,
+                    selectable: false,
+                    hoverable: false,
+                    droppable: ':not(.nl-section)',
+                    traits: [],
+                    style: {
+                        padding: '0',
+                        'vertical-align': 'top'
+                    }
+                }
+            }
+        });
+
+        dc.addType('nl-section-hint', {
+            isComponent: function(el) {
+                return el && el.classList && el.classList.contains('nl-section-hint');
+            },
+            model: {
+                defaults: {
+                    tagName: 'div',
+                    droppable: ':not(.nl-section)',
+                    draggable: false,
+                    copyable: false,
+                    removable: false,
+                    selectable: false,
+                    hoverable: true,
+                    highlightable: true,
+                    layerable: false,
+                    attributes: { class: 'nl-section-hint' }
+                }
+            }
+        });
+
+        dc.addType('nl-columns', {
+            isComponent: function(el) {
+                return el && el.tagName === 'TABLE' && el.classList && el.classList.contains('nl-stack-cols');
+            },
+            model: {
+                defaults: {
+                    tagName: 'table',
+                    droppable: false,
+                    draggable: true,
+                    copyable: true,
+                    removable: true,
+                    attributes: {
+                        class: 'nl-stack-cols',
+                        width: '100%',
+                        cellpadding: '0',
+                        cellspacing: '0',
+                        border: '0'
+                    },
+                    traits: [
+                        {
+                            type: 'column-widths',
+                            name: 'column_widths',
+                            label: 'Column widths'
+                        }
+                    ],
+                    toolbar: [
+                        {
+                            label: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7 14l5-6 5 6z"/></svg>',
+                            attributes: { title: 'Move row up' },
+                            command: 'pta-move-row-up'
+                        },
+                        {
+                            label: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7 10l5 6 5-6z"/></svg>',
+                            attributes: { title: 'Move row down' },
+                            command: 'pta-move-row-down'
+                        },
+                        {
+                            label: '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7 7h11l-3-3 1.4-1.4L22 8l-5.6 5.4L15 12l3-3H7V7zm10 10H6l3 3-1.4 1.4L2 16l5.6-5.4L9 12l-3 3h11v2z"/></svg>',
+                            attributes: { title: 'Swap columns' },
+                            command: 'pta-swap-columns'
+                        },
+                        {
+                            attributes: { class: 'fa fa-arrows' },
+                            command: 'tlb-move'
+                        },
+                        {
+                            attributes: { class: 'fa fa-clone' },
+                            command: 'tlb-clone'
+                        },
+                        {
+                            attributes: { class: 'fa fa-trash-o' },
+                            command: 'tlb-delete'
+                        }
+                    ]
+                }
+            }
+        });
+
+        dc.addType('nl-column', {
+            isComponent: function(el) {
+                return el && el.tagName === 'TD' && el.classList
+                    && (el.classList.contains('nl-column') || el.classList.contains('nl-stack-col'));
+            },
+            model: {
+                defaults: {
+                    tagName: 'td',
+                    draggable: false,
+                    copyable: false,
+                    removable: false,
+                    droppable: ':not(.nl-stack-cols):not(.nl-section)',
+                    traits: [],
+                    style: {
+                        padding: '10px',
+                        'vertical-align': 'top'
+                    }
+                }
+            }
+        });
+
+        dc.addType('nl-row-gap', {
+            isComponent: function(el) {
+                return el && el.classList && el.classList.contains('nl-row-gap');
+            },
+            model: {
+                defaults: {
+                    tagName: 'div',
+                    droppable: true,
+                    draggable: false,
+                    copyable: false,
+                    removable: false,
+                    selectable: false,
+                    hoverable: true,
+                    highlightable: true,
+                    layerable: false,
+                    badgable: false,
+                    attributes: { class: 'nl-row-gap', 'aria-hidden': 'true' }
+                },
+                toHTML: function() {
+                    return '';
+                }
+            }
         });
         
         // === PTA DIRECTORY COMPONENT ===
@@ -1450,10 +3376,28 @@
         // === BUTTON COMPONENT ===
         dc.addType('email-button', {
             isComponent: function(el) {
-                return el.tagName === 'TABLE' && el.querySelector('a[href]') && el.innerHTML.indexOf('Click Here') > -1;
+                if (!isNewsletterButtonTable(el)) {
+                    return false;
+                }
+                var a = el.querySelector('a');
+                var href = a ? (a.getAttribute('href') || '') : '';
+                var text = a ? String(a.textContent || '').replace(/\s+/g, ' ').trim() : '';
+                return {
+                    type: 'email-button',
+                    button_url: href || '#',
+                    button_text: text || 'Click Here'
+                };
             },
             model: {
                 defaults: {
+                    tagName: 'table',
+                    attributes: {
+                        class: 'nl-button',
+                        cellpadding: '0',
+                        cellspacing: '0',
+                        border: '0',
+                        align: 'center'
+                    },
                     traits: [
                         {
                             type: 'text',
@@ -1487,19 +3431,36 @@
                     text_color: '#ffffff'
                 },
                 init: function() {
+                    var self = this;
                     this.on('change:button_text change:button_url change:button_color change:text_color', this.updateButtonFromTraits);
+                    this.on('change:components', function() {
+                        syncButtonFromLink(self);
+                    });
+                    syncButtonFromLink(this);
                 },
                 updateButtonFromTraits: function() {
-                    var links = this.find('a');
-                    var link = links && links.length ? links[0] : null;
+                    var link = firstButtonLink(this);
                     if (!link) {
                         return;
                     }
+                    var currentHref = buttonLinkHref(link);
+                    var href = this.get('button_url');
+                    if ((!href || href === '#') && currentHref && currentHref !== '#') {
+                        syncButtonFromLink(this);
+                        return;
+                    }
                     var text = this.get('button_text');
+                    var currentText = '';
+                    if (link.getEl && link.getEl()) {
+                        currentText = String(link.getEl().textContent || '').replace(/\s+/g, ' ').trim();
+                    }
+                    if (text === 'Click Here' && currentText && currentText !== 'Click Here') {
+                        syncButtonFromLink(this);
+                        return;
+                    }
                     if (typeof text === 'string') {
                         link.components(text);
                     }
-                    var href = this.get('button_url');
                     if (typeof href === 'string' && href !== '') {
                         link.addAttributes({ href: href });
                     }
@@ -1627,7 +3588,7 @@
             return false;
         }
         var type = component.get('type');
-        if (type === 'image' || type === 'email-image' || type === 'wrapper') {
+        if (type === 'image' || type === 'email-image' || type === 'wrapper' || type === 'nl-columns' || type === 'nl-column') {
             return false;
         }
         if (type === 'text' || type === 'textnode') {
@@ -1672,18 +3633,84 @@
 
     /**
      * Heading / text blocks are tables. Clicking the block selects the
-     * table; the words live on the inner h1/p. Drill in when there is
-     * exactly one text target so a click starts live edit.
+     * table; the words live on the inner h1/p. Prefer the inner text
+     * for RTE, but keep Styles on the wrapping cell so padding/font
+     * apply to the whole block.
      */
     function findTextEditTarget(component) {
         if (!component) {
+            return null;
+        }
+        if (isColumnFrame(component) || isRowGap(component)) {
             return null;
         }
         if (isEditableTextComponent(component)) {
             return component;
         }
         var targets = collectTextTargets(component, [], 0);
-        return targets.length === 1 ? targets[0] : null;
+        return targets.length >= 1 ? targets[0] : null;
+    }
+
+    function walkChildTds(component, acc, depth) {
+        acc = acc || [];
+        depth = depth || 0;
+        if (!component || depth > 6) {
+            return acc;
+        }
+        var tag = String(component.get('tagName') || '').toLowerCase();
+        if (tag === 'td') {
+            acc.push(component);
+            return acc;
+        }
+        var children = component.components && component.components();
+        if (children && children.forEach) {
+            children.forEach(function(child) {
+                walkChildTds(child, acc, depth + 1);
+            });
+        }
+        return acc;
+    }
+
+    function blockHasTypographicText(component) {
+        var acc = [];
+        if (isEditableTextComponent(component)) {
+            acc.push(component);
+        } else {
+            collectTextTargets(component, acc, 0);
+        }
+        return acc.some(function(t) {
+            var tag = String(t.get('tagName') || '').toLowerCase();
+            return t.get('type') === 'text' || ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li', 'strong', 'em'].indexOf(tag) !== -1;
+        });
+    }
+
+    /**
+     * The email-styled cell around a text/heading block. Spacing
+     * belongs here, not on the first <p> or a text node.
+     */
+    function findTextBlockStyleRoot(component) {
+        if (!component || isColumnFrame(component) || isRowGap(component)) {
+            return null;
+        }
+        if (!blockHasTypographicText(component)) {
+            return null;
+        }
+        var cur = component;
+        while (cur) {
+            if (isColumnFrame(cur) || isRowGap(cur)) {
+                return null;
+            }
+            var tag = String(cur.get('tagName') || '').toLowerCase();
+            var type = cur.get('type');
+            if (tag === 'td' && type !== 'nl-column' && type !== 'nl-section-body') {
+                return cur;
+            }
+            cur = cur.parent ? cur.parent() : null;
+        }
+        var tds = walkChildTds(component, [], 0).filter(function(td) {
+            return !isColumnFrame(td);
+        });
+        return tds.length === 1 ? tds[0] : null;
     }
 
     function traitNames(component) {
@@ -1716,8 +3743,15 @@
      * Copy canvas HTML into the Settings → Text box without re-rendering
      * the trait panel (a re-render steals the RTE caret).
      */
+    function isTextSettingsHost(component) {
+        if (!component) {
+            return false;
+        }
+        return isEditableTextComponent(component) || !!findTextBlockStyleRoot(component);
+    }
+
     function syncSettingsTextFromCanvas(component) {
-        if (!component || !isEditableTextComponent(component)) {
+        if (!isTextSettingsHost(component)) {
             return;
         }
         var html = componentInnerHtml(component);
@@ -1764,7 +3798,7 @@
      * real Text trait to the component's inner HTML instead.
      */
     function ensureTextContentTrait(component) {
-        if (!isEditableTextComponent(component)) {
+        if (!isTextSettingsHost(component)) {
             return;
         }
 
@@ -1816,41 +3850,62 @@
             if (!component) {
                 placeholder.show();
                 traitsContainer.hide();
+                $('#styles-container').hide();
                 $('#selected-element-name .element-name').text('No element selected');
+                updateMoveButtons(null);
                 return;
             }
 
-            var textTarget = findTextEditTarget(component);
-            if (textTarget && textTarget !== component && !component._ptaSkipDrill) {
-                textTarget._ptaSkipDrill = true;
-                editor.select(textTarget);
+            if (component.get('type') === 'nl-column') {
+                var row = findAncestorColumns(component);
+                if (row && row !== component) {
+                    editor.select(row);
+                    return;
+                }
+            }
+
+            if (isSectionBody(component) || parentIsSectionChrome(component)) {
+                var owningSection = component.get('type') === 'nl-section'
+                    ? component
+                    : findAncestorSection(component);
+                if (owningSection && owningSection !== component) {
+                    editor.select(owningSection);
+                    return;
+                }
+            }
+
+            var styleRoot = findTextBlockStyleRoot(component);
+            if (styleRoot && styleRoot !== component) {
+                styleRoot._ptaRteTarget = isEditableTextComponent(component)
+                    ? component
+                    : findTextEditTarget(component);
+                editor.select(styleRoot);
                 return;
             }
 
-            if (textTarget) {
-                ensureTextContentTrait(textTarget);
-            } else {
-                ensureTextContentTrait(component);
-            }
+            var textTarget = component._ptaRteTarget || findTextEditTarget(component);
+            component._ptaRteTarget = null;
+            ensureTextContentTrait(component);
 
             if (editor.TraitManager && typeof editor.TraitManager.render === 'function') {
                 editor.TraitManager.render();
             }
+            placeholder.hide();
             var traits = component.get('traits');
             if (traits && traits.length > 0) {
-                placeholder.hide();
                 traitsContainer.show();
             } else {
-                placeholder.show();
                 traitsContainer.hide();
             }
+            $('#styles-container').show();
 
             updateElementIndicator(component);
+            updateMoveButtons(getMovableRow(component));
 
             if (textTarget) {
                 window.setTimeout(function() {
                     enableCanvasTextEdit(textTarget);
-                    syncSettingsTextFromCanvas(textTarget);
+                    syncSettingsTextFromCanvas(component);
                 }, 0);
             }
         });
@@ -1858,10 +3913,11 @@
         editor.on('rte:enable', function() {
             rteActive = true;
             var selected = editor.getSelected();
-            if (!selected || !isEditableTextComponent(selected)) {
+            if (!isTextSettingsHost(selected)) {
                 return;
             }
-            var el = selected.getEl && selected.getEl();
+            var textTarget = findTextEditTarget(selected) || selected;
+            var el = textTarget.getEl && textTarget.getEl();
             if (!el) {
                 return;
             }
@@ -1889,7 +3945,7 @@
                 rteInputCleanup();
             }
             var selected = editor.getSelected();
-            if (!selected || !isEditableTextComponent(selected)) {
+            if (!isTextSettingsHost(selected)) {
                 return;
             }
             syncSettingsTextFromCanvas(selected);
@@ -1900,7 +3956,7 @@
 
         $(document).on('input.ptaNewsletterText', '#traits-container textarea', function() {
             var selected = editor.getSelected();
-            if (!selected || !isEditableTextComponent(selected)) {
+            if (!isTextSettingsHost(selected)) {
                 return;
             }
             if (rteActive) {
@@ -1916,7 +3972,9 @@
             }
             $('.settings-placeholder').show();
             $('#traits-container').hide();
+            $('#styles-container').hide();
             $('#selected-element-name .element-name').text('No element selected');
+            updateMoveButtons(null);
         });
 
         editor.on('component:dblclick', function(component) {
@@ -1972,6 +4030,10 @@
                 var data = JSON.parse(newsletterEditorConfig.initialContent);
                 if (data && Object.keys(data).length > 0) {
                     editor.loadProjectData(data);
+                    window.setTimeout(function() {
+                        syncAllEmailButtons();
+                        applyAllImageLinks();
+                    }, 0);
                     return;
                 }
             } catch (e) {
@@ -2004,6 +4066,10 @@
             html = html.replace(/^[\s\S]*?(?=<table|<div|<p|<h[1-6])/i, '');
             
             editor.setComponents(html);
+            window.setTimeout(function() {
+                syncAllEmailButtons();
+                applyAllImageLinks();
+            }, 0);
         } else {
             // Set default starter template
             editor.setComponents(`
@@ -2022,7 +4088,7 @@
                                     <td style="padding: 30px 20px; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #333333;">
                                         <p>Hello {{first_name}},</p>
                                         <p>Start creating your newsletter by dragging blocks from the left panel. You can add text, images, buttons, and more.</p>
-                                        <p>Use the Styles panel to customize colors, fonts, and spacing.</p>
+                                        <p>Use Settings to customize colors, fonts, and spacing.</p>
                                     </td>
                                 </tr>
                                 <tr>
@@ -2099,6 +4165,19 @@
             if (editor) {
                 editor.UndoManager.redo();
             }
+        });
+
+        $('#btn-row-up').on('click', function() {
+            moveSelectedRow(-1);
+        });
+        $('#btn-row-down').on('click', function() {
+            moveSelectedRow(1);
+        });
+        $('#btn-swap-cols').on('click', function() {
+            cycleSelectedColumns();
+        });
+        $('#btn-delete-section').on('click', function() {
+            deleteSelectedSection();
         });
 
         // View/Edit code

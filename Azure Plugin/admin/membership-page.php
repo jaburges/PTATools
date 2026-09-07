@@ -38,10 +38,7 @@ if (function_exists('wc_get_products')) {
 
 $roster_ids = Azure_Membership_Module::roster_user_ids();
 $rows       = Azure_Membership_Module::build_roster_rows($roster_ids);
-$export_url = wp_nonce_url(
-    admin_url('admin.php?page=azure-plugin-membership&export=csv'),
-    Azure_Membership_Module::NONCE_ADMIN
-);
+$export_url = Azure_Membership_Module::export_csv_url();
 
 $member_count = 0;
 $family_count = 0;
@@ -173,6 +170,56 @@ foreach ($rows as $r) {
             <?php esc_html_e('[Parent-directory] is accepted as an alias. This list is not the paid roster — it is opt-in only.', 'azure-plugin'); ?>
         </p>
     </div>
+
+    <?php
+    $guest_review = Azure_Membership_Module::review_guest_memberships();
+    $guest_unmatched = $guest_review['unmatched'];
+    $guest_uncertain = $guest_review['uncertain'];
+    $guest_matched = $guest_review['matched'];
+    ?>
+    <h2><?php esc_html_e('Guest membership checkouts', 'azure-plugin'); ?></h2>
+    <p class="description">
+        <?php esc_html_e('Family and Individual sales placed while logged out. Matching uses checkout/Stripe email plus first and last name, because those emails are sometimes different from the WordPress account. Staff sales are ignored. Matched guests count as members (and the order is linked to Parent 1). Unmatched rows still need an account.', 'azure-plugin'); ?>
+    </p>
+    <p>
+        <?php
+        printf(
+            /* translators: 1: matched count 2: unmatched count 3: uncertain count */
+            esc_html__('%1$d matched to an existing parent. %2$d unmatched. %3$d need a human look (name and email disagree, or more than one parent fits).', 'azure-plugin'),
+            count($guest_matched),
+            count($guest_unmatched),
+            count($guest_uncertain)
+        );
+        ?>
+    </p>
+    <?php if ($guest_unmatched || $guest_uncertain): ?>
+    <table class="widefat striped" style="max-width:1100px;margin-bottom:24px;">
+        <thead>
+            <tr>
+                <th><?php esc_html_e('Order', 'azure-plugin'); ?></th>
+                <th><?php esc_html_e('Type', 'azure-plugin'); ?></th>
+                <th><?php esc_html_e('Who', 'azure-plugin'); ?></th>
+                <th><?php esc_html_e('Name', 'azure-plugin'); ?></th>
+                <th><?php esc_html_e('Email', 'azure-plugin'); ?></th>
+                <th><?php esc_html_e('Status', 'azure-plugin'); ?></th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php foreach (array_merge($guest_uncertain, $guest_unmatched) as $g): ?>
+            <tr>
+                <td>#<?php echo (int) $g['order_id']; ?></td>
+                <td><?php echo esc_html($g['type']); ?></td>
+                <td><?php echo esc_html($g['slot'] === 'parent_2' ? __('Parent 2', 'azure-plugin') : __('Parent 1', 'azure-plugin')); ?></td>
+                <td><?php echo esc_html($g['name'] !== '' ? $g['name'] : trim($g['first'] . ' ' . $g['last'])); ?></td>
+                <td><?php echo esc_html($g['email']); ?></td>
+                <td><?php echo $g['status'] === 'uncertain'
+                    ? esc_html(sprintf(__('Review (%s)', 'azure-plugin'), $g['reason']))
+                    : esc_html__('No parent account', 'azure-plugin'); ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    <?php endif; ?>
 
     <h2><?php esc_html_e('Roster', 'azure-plugin'); ?></h2>
     <div class="azure-membership-toolbar">

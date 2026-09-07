@@ -201,4 +201,20 @@ $from_profile = Azure_Membership_Module::parent_2_from_order_item($family, $prof
 $t->equals('Charles Babbage', $from_profile['name'], 'parent 2 name falls back to Family Info meta');
 $t->equals('charles@example.com', $from_profile['email'], 'parent 2 email falls back to Family Info meta');
 
+if (!function_exists('wp_nonce_url')) {
+    function wp_nonce_url($url, $action = -1, $name = '_wpnonce') {
+        $sep = strpos($url, '?') === false ? '?' : '&';
+        return $url . $sep . $name . '=nonce-' . $action;
+    }
+}
+
+$export_url = Azure_Membership_Module::export_csv_url();
+$t->check(strpos($export_url, 'page=azure-plugin-membership') !== false, 'export URL stays on the Membership page handler');
+$t->check(strpos($export_url, 'export=csv') !== false, 'export URL requests the sold-memberships CSV');
+$t->check(strpos($export_url, 'nonce-azure_membership_admin') !== false, 'export URL carries the Membership admin nonce');
+
+$widget = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-membership-module.php');
+$t->check(strpos($widget, 'export_csv_url()') !== false, 'Membership dashboard widget uses the same CSV URL');
+$t->check(strpos($widget, "esc_html_e('Export'") !== false, 'Membership dashboard widget has an Export button');
+
 exit($t->finish() === 0 ? 0 : 1);

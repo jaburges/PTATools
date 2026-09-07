@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.43
+ * Version: 3.147.71
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.43');
+define('AZURE_PLUGIN_VERSION', '3.147.71');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -1566,19 +1566,28 @@ class AzurePlugin {
         add_action('save_post_pta_event', $invalidate_up_next, 10, 1);
         add_action('before_delete_post',  $invalidate_up_next, 10, 1);
 
-        if (shortcode_exists('up-next')) {
-            return;
-        }
-        add_shortcode('up-next', function ($atts = array(), $content = null) {
+        $load_upcoming = function () {
             $path = AZURE_PLUGIN_PATH . 'includes/class-upcoming-module.php';
             if (file_exists($path)) {
                 require_once $path;
             }
-            if (class_exists('Azure_Upcoming_Module')) {
-                return Azure_Upcoming_Module::get_instance()->render_upcoming_shortcode($atts);
-            }
-            return '';
-        });
+            return class_exists('Azure_Upcoming_Module')
+                ? Azure_Upcoming_Module::get_instance()
+                : null;
+        };
+
+        if (!shortcode_exists('up-next')) {
+            add_shortcode('up-next', function ($atts = array(), $content = null) use ($load_upcoming) {
+                $module = $load_upcoming();
+                return $module ? $module->render_upcoming_shortcode($atts) : '';
+            });
+        }
+        if (!shortcode_exists('nl-now-next')) {
+            add_shortcode('nl-now-next', function ($atts = array(), $content = null) use ($load_upcoming) {
+                $module = $load_upcoming();
+                return $module ? $module->render_now_next_shortcode($atts) : '';
+            });
+        }
     }
 
     /**
@@ -2212,7 +2221,9 @@ class AzurePlugin {
     private function get_azuread_capabilities() {
         $editor = get_role('editor');
         if ($editor && !empty($editor->capabilities)) {
-            return $editor->capabilities;
+            $caps = $editor->capabilities;
+            $caps['access_pta_tools'] = true;
+            return $caps;
         }
 
         return array(
@@ -2242,6 +2253,7 @@ class AzurePlugin {
             'manage_links' => true,
             'moderate_comments' => true,
             'unfiltered_html' => true,
+            'access_pta_tools' => true,
         );
     }
 }

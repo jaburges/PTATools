@@ -1584,6 +1584,9 @@ class Azure_User_Children {
 
     public function enqueue_assets() {
         if (is_account_page() || is_product()) {
+            if (class_exists('Azure_Membership_Module')) {
+                Azure_Membership_Module::get_instance()->enqueue_badge_assets();
+            }
             wp_enqueue_style(
                 'azure-user-children',
                 AZURE_PLUGIN_URL . 'css/user-children.css',

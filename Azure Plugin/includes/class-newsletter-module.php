@@ -129,6 +129,8 @@ class Azure_Newsletter_Module {
      */
     private function load_module_classes() {
         $classes = array(
+            'class-newsletter-shortcodes.php',
+            'class-newsletter-now-next.php',
             'class-newsletter-queue.php',
             'class-newsletter-sender.php',
             'class-newsletter-tracking.php',
@@ -631,6 +633,26 @@ class Azure_Newsletter_Module {
     }
 
     /**
+     * Encode a destination so a '#' fragment cannot terminate the tracking
+     * query string after Mailgun / Outlook SafeLinks decode the Location
+     * header once. add_query_arg() then encodes %23 as %2523.
+     */
+    public static function click_query_destination($url) {
+        return str_replace('#', '%23', (string) $url);
+    }
+
+    /**
+     * Reverse click_query_destination() after PHP's query decode.
+     */
+    public static function click_incoming_destination($url) {
+        $url = (string) $url;
+        if (strpos($url, '%23') !== false) {
+            $url = str_replace('%23', '#', $url);
+        }
+        return $url;
+    }
+
+    /**
      * True when $sig matches the current key or the revision-local nonce salt
      * (emails sent before the MySQL key existed).
      */
@@ -638,14 +660,20 @@ class Azure_Newsletter_Module {
         if (!is_string($sig) || $sig === '') {
             return false;
         }
-        $url = (string) $url;
+        $candidates = array_unique(array(
+            (string) $url,
+            self::click_incoming_destination($url),
+            self::click_query_destination($url),
+        ));
         $keys = array(self::click_signing_key());
         if (function_exists('wp_salt')) {
             $keys[] = wp_salt('nonce');
         }
-        foreach ($keys as $key) {
-            if (hash_equals(hash_hmac('sha256', $url, $key), $sig)) {
-                return true;
+        foreach ($candidates as $candidate) {
+            foreach ($keys as $key) {
+                if (hash_equals(hash_hmac('sha256', $candidate, $key), $sig)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -697,7 +725,7 @@ class Azure_Newsletter_Module {
      */
     public function handle_track_click($request) {
         $token = $request->get_param('token');
-        $url   = (string) $request->get_param('url');
+        $url   = self::click_incoming_destination((string) $request->get_param('url'));
         $sig   = (string) $request->get_param('sig');
 
         if ($url === '') {

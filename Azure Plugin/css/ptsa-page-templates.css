@@ -1,16 +1,67 @@
 /**
  * Layout for the plugin-registered PTSA page templates.
  *
- * ChromeNews caps .container-wrapper at 1280px. These templates use more of
- * the viewport while leaving grey gutters (not header-width). Inner padding
- * keeps classic headings off the white edge — the theme's own full-width
- * template zeros that padding for Elementor.
+ * ChromeNews caps .container-wrapper at 1280px. Catch Box caps #page.site at
+ * 1000px (740px in one-column) and .entry-content at 660px — that is the
+ * grey-gutter squash on lwptsa.net/calendar. These rules widen both themes.
  */
 
 body.ptsa-template #content.container-wrapper {
     max-width: min(1680px, calc(100vw - 96px));
     padding-left: 24px;
     padding-right: 24px;
+    box-sizing: border-box;
+}
+
+/* Catch Box: #page.site is the centered column (not .container-wrapper). */
+body.ptsa-template #page.site,
+body.ptsa-template.one-column #page.site,
+body.ptsa-template.no-sidebar #page.site,
+body.ptsa-template.one-column.no-sidebar #page.site {
+    width: min(1680px, calc(100vw - 48px));
+    max-width: none;
+}
+
+/* Catch Box #main is content-box with 30px padding. width:100% without
+ * border-box makes the grey bar and inner column wider than #branding. */
+body.ptsa-template #page.site,
+body.ptsa-template #page > #main,
+body.ptsa-template #primary,
+body.ptsa-template #content,
+body.ptsa-template #main.site-main {
+    box-sizing: border-box;
+}
+
+/* width:auto fills the padded content box. width:100% + theme padding
+ * overflows to the right only (left stays flush with the nav). */
+body.ptsa-template #page > #main.clearfix,
+body.ptsa-template #page > #main #primary,
+body.ptsa-template #page > #main #content,
+body.ptsa-template #main.site-main {
+    width: auto;
+    max-width: 100%;
+    float: none;
+}
+
+body.ptsa-template .entry-header,
+body.ptsa-template .entry-content,
+body.ptsa-template .entry-content-wrap,
+body.ptsa-template .entry-summary,
+body.ptsa-template .hentry,
+body.ptsa-template.no-sidebar .entry-header,
+body.ptsa-template.no-sidebar .entry-content,
+body.ptsa-template.no-sidebar .entry-summary,
+body.ptsa-template.no-sidebar .hentry {
+    width: auto;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+    box-sizing: border-box;
+}
+
+body.ptsa-template .azure-calendar-container {
+    width: auto;
+    max-width: 100%;
     box-sizing: border-box;
 }
 
@@ -21,7 +72,8 @@ body.ptsa-template #main.site-main {
 
 body.ptsa-template-full-width #primary,
 body.full-width-content.ptsa-template-full-width #primary {
-    width: 100%;
+    width: auto;
+    max-width: 100%;
     float: none;
     padding: 0;
     margin-bottom: 20px;
@@ -54,8 +106,10 @@ body.ptsa-template .pta-roles-directory {
     width: 100%;
 }
 
-body.ptsa-template-sidebar .ptsa-sidebar-row {
+body.ptsa-template-sidebar .ptsa-sidebar-row,
+body.align-content-right.ptsa-template-sidebar .section-block-upper.ptsa-sidebar-row {
     display: flex;
+    flex-direction: row;
     align-items: flex-start;
     gap: 32px;
 }
@@ -68,15 +122,69 @@ body.ptsa-template-sidebar #primary {
     padding: 0;
     margin-bottom: 0;
     min-width: 0;
+    order: 1;
 }
 
 body.ptsa-template-sidebar #secondary {
-    flex: 0 0 300px;
-    width: 300px;
-    max-width: 32%;
+    flex: 0 0 500px;
+    width: 500px;
+    max-width: 42%;
     float: none;
     display: block;
+    order: 2;
     padding-left: 0;
+    padding-right: 32px;
+    margin-right: 0;
+    box-sizing: border-box;
+}
+
+/* Enrichment activities calendar: the page HTML already has the teal
+ * card + AM/PM colors, but ChromeNews stretches tables to the full
+ * PTSA template width and paints discs on any ul whose class does not
+ * contain "wp-". Keep the card compact and kill those bullets. */
+.entry-content .activities-calendar {
+    max-width: 680px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.entry-content .activities-calendar .ac-table,
+.entry-content .activities-calendar table.ac-table {
+    width: 100%;
+    max-width: 100%;
+    table-layout: fixed;
+}
+
+.entry-content .activities-calendar .ac-day {
+    width: 72px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.entry-content .activities-calendar ul.ac-list,
+.entry-content ul.ac-list {
+    list-style: none !important;
+    list-style-type: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.entry-content .activities-calendar ul.ac-list > li,
+.entry-content ul.ac-list > li {
+    list-style: none !important;
+    list-style-type: none !important;
+    margin: 0.35em 0;
+    padding: 0;
+}
+
+.entry-content .activities-calendar ul.ac-list > li::marker,
+.entry-content ul.ac-list > li::before {
+    content: none !important;
+    display: none !important;
+}
+
+.entry-content .activities-calendar .ac-item:has(a:empty) {
+    display: none;
 }
 
 @media (max-width: 900px) {
@@ -86,7 +194,14 @@ body.ptsa-template-sidebar #secondary {
         padding-right: 16px;
     }
 
-    body.ptsa-template-sidebar .ptsa-sidebar-row {
+    body.ptsa-template #page.site,
+    body.ptsa-template.one-column #page.site,
+    body.ptsa-template.one-column.no-sidebar #page.site {
+        width: calc(100vw - 24px);
+    }
+
+    body.ptsa-template-sidebar .ptsa-sidebar-row,
+    body.align-content-right.ptsa-template-sidebar .section-block-upper.ptsa-sidebar-row {
         flex-direction: column;
     }
 
@@ -94,5 +209,6 @@ body.ptsa-template-sidebar #secondary {
         width: 100%;
         max-width: none;
         flex-basis: auto;
+        padding-right: 0;
     }
 }

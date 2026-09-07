@@ -20,6 +20,15 @@ class Azure_Admin {
     
     public function __construct() {
         try {
+        if (!class_exists('Azure_Admin_Menu_Customizer')) {
+            $customizer = AZURE_PLUGIN_PATH . 'includes/class-admin-menu-customizer.php';
+            if (file_exists($customizer)) {
+                require_once $customizer;
+            }
+        }
+        if (class_exists('Azure_Admin_Menu_Customizer')) {
+            Azure_Admin_Menu_Customizer::get_instance();
+        }
         add_action('admin_menu', array($this, 'admin_menu'));
         add_action('admin_init', array($this, 'admin_init'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
@@ -92,15 +101,28 @@ class Azure_Admin {
     
     public function admin_menu() {
         try {
-            // Main menu
+            $pta_cap = class_exists('Azure_Admin_Menu_Customizer')
+                ? Azure_Admin_Menu_Customizer::CAP
+                : 'manage_options';
+
+            // Main menu — Azure AD User can see PTA Tools; System/SSO stay manage_options.
             add_menu_page(
             'PTA Tools',
             'PTA Tools',
-            'manage_options',
+            $pta_cap,
             'azure-plugin',
             array($this, 'admin_page'),
             'dashicons-admin-plugins',
             30
+        );
+
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools',
+            'Dashboard',
+            'manage_options',
+            'azure-plugin',
+            array($this, 'admin_page')
         );
         
         // Submenus
@@ -126,7 +148,7 @@ class Azure_Admin {
             'azure-plugin',
             'PTA Tools - Calendar',
             'Calendar',
-            'manage_options',
+            $pta_cap,
             'azure-plugin-calendar',
             array($this, 'admin_page_calendar_combined')
         );
@@ -135,7 +157,7 @@ class Azure_Admin {
             'azure-plugin',
             'PTA Tools - Emails',
             'Emails',
-            'manage_options',
+            $pta_cap,
             'azure-plugin-emails',
             array($this, 'admin_page_emails')
         );
@@ -144,7 +166,7 @@ class Azure_Admin {
             'azure-plugin',
             'PTA Tools - PTA Roles',
             'PTA Roles',
-            'manage_options',
+            $pta_cap,
             'azure-plugin-pta',
             array($this, 'admin_page_pta')
         );
@@ -180,7 +202,7 @@ class Azure_Admin {
             'azure-plugin',
             'PTA Tools - OneDrive Media',
             'OneDrive Media',
-            'manage_options',
+            $pta_cap,
             'azure-plugin-onedrive-media',
             array($this, 'admin_page_onedrive_media')
         );
@@ -189,7 +211,7 @@ class Azure_Admin {
             'azure-plugin',
             'PTA Tools - Newsletter',
             'Newsletter',
-            'manage_options',
+            $pta_cap,
             'azure-plugin-newsletter',
             array($this, 'admin_page_newsletter')
         );
@@ -198,7 +220,7 @@ class Azure_Admin {
             'azure-plugin',
             'PTA Tools - Event Tickets',
             'Event Tickets',
-            'manage_options',
+            $pta_cap,
             'azure-plugin-tickets',
             array($this, 'admin_page_tickets')
         );
@@ -308,6 +330,15 @@ class Azure_Admin {
         );
         if (in_array($current_page, $tabbed_pages)) {
             wp_enqueue_style('azure-admin-tabs', AZURE_PLUGIN_URL . 'css/admin-tabs.css', array(), $cache_version);
+        }
+        if ($current_page === 'azure-plugin-system' && isset($_GET['tab']) && $_GET['tab'] === 'menu') {
+            wp_enqueue_script(
+                'azure-admin-menu-editor',
+                AZURE_PLUGIN_URL . 'js/admin-menu-editor.js',
+                array('jquery'),
+                $cache_version,
+                true
+            );
         }
 
         switch ($current_page) {

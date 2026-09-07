@@ -429,6 +429,20 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                             <span class="dashicons dashicons-smartphone"></span>
                         </button>
                     </div>
+                    <div class="row-move-buttons">
+                        <button type="button" class="device-btn" id="btn-row-up" disabled title="<?php esc_attr_e('Move row up', 'azure-plugin'); ?>">
+                            <span class="dashicons dashicons-arrow-up-alt2"></span>
+                        </button>
+                        <button type="button" class="device-btn" id="btn-row-down" disabled title="<?php esc_attr_e('Move row down', 'azure-plugin'); ?>">
+                            <span class="dashicons dashicons-arrow-down-alt2"></span>
+                        </button>
+                        <button type="button" class="device-btn" id="btn-swap-cols" disabled title="<?php esc_attr_e('Swap columns', 'azure-plugin'); ?>">
+                            <span class="dashicons dashicons-leftright"></span>
+                        </button>
+                        <button type="button" class="device-btn" id="btn-delete-section" disabled title="<?php esc_attr_e('Delete section', 'azure-plugin'); ?>">
+                            <span class="dashicons dashicons-trash"></span>
+                        </button>
+                    </div>
                 </div>
                 <div class="toolbar-right">
                     <button type="button" class="button" id="btn-undo" title="<?php _e('Undo', 'azure-plugin'); ?>">
@@ -470,31 +484,26 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                     <div class="editor-help-bar" id="editor-help-bar">
                         <span class="dashicons dashicons-info-outline" aria-hidden="true"></span>
                         <span class="editor-help-text">
-                            <?php _e('Tip: click a text block to type on the canvas. Settings → Text stays in sync. Use the floating toolbar for bold, italic, and <strong>links</strong>.', 'azure-plugin'); ?>
+                            <?php _e('Tip: drop a Section around a heading + columns + button, then Move up/down to reorder the whole group. Swap flips a 2-column row (or cycles a 3-column row) while keeping each cell together. Now and Next inserts a compact This Week / Next Week event list.', 'azure-plugin'); ?>
                         </span>
                         <button type="button" class="editor-help-dismiss" aria-label="<?php esc_attr_e('Dismiss tip', 'azure-plugin'); ?>">&times;</button>
                     </div>
                     <div id="gjs-editor"></div>
                 </div>
                 
-                <!-- RIGHT SIDEBAR: Settings & Styles -->
+                <!-- RIGHT SIDEBAR: block settings + styles in one place -->
                 <div class="editor-sidebar editor-sidebar-right">
-                    <div class="sidebar-tabs">
-                        <button type="button" class="sidebar-tab active" data-panel="settings"><?php _e('Settings', 'azure-plugin'); ?></button>
-                        <button type="button" class="sidebar-tab" data-panel="styles"><?php _e('Styles', 'azure-plugin'); ?></button>
-                    </div>
+                    <div class="sidebar-header"><?php _e('Settings', 'azure-plugin'); ?></div>
                     <div id="settings-panel" class="sidebar-panel">
-                        <div class="settings-placeholder">
-                            <span class="dashicons dashicons-admin-generic"></span>
-                            <p><?php _e('Select an element to see its settings', 'azure-plugin'); ?></p>
-                        </div>
-                        <div id="traits-container"></div>
-                    </div>
-                    <div id="styles-panel" class="sidebar-panel" style="display:none;">
                         <div class="selected-element-indicator" id="selected-element-name">
                             <span class="dashicons dashicons-info-outline"></span>
                             <span class="element-name"><?php _e('No element selected', 'azure-plugin'); ?></span>
                         </div>
+                        <div class="settings-placeholder">
+                            <span class="dashicons dashicons-admin-generic"></span>
+                            <p><?php _e('Select a block to edit text, typography, and spacing.', 'azure-plugin'); ?></p>
+                        </div>
+                        <div id="traits-container"></div>
                         <div id="styles-container"></div>
                     </div>
                 </div>
@@ -923,6 +932,8 @@ var newsletterEditorConfig = {
     initialContent: <?php echo json_encode($newsletter->content_json ?? ($template ? $template->content_json : '') ?? ''); ?>,
     initialHtml: <?php echo json_encode($newsletter->content_html ?? ($template ? $template->content_html : '') ?? ''); ?>,
     columnStackCss: <?php echo json_encode(Azure_Newsletter_Email_Css::column_stack_css()); ?>,
+    columnGapCss: <?php echo json_encode(Azure_Newsletter_Email_Css::column_gap_css()); ?>,
+    dividerCss: <?php echo json_encode(Azure_Newsletter_Email_Css::divider_css()); ?>,
     templateId: <?php echo (int) $template_id; ?>,
     templateName: <?php echo json_encode($template ? $template->name : ''); ?>,
     editTemplateId: <?php echo (int) $edit_template_id; ?>,

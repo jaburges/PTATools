@@ -28,6 +28,7 @@ class Azure_Upcoming_Module {
     public function __construct() {
         // Register shortcode
         add_shortcode('up-next', array($this, 'render_upcoming_shortcode'));
+        add_shortcode('nl-now-next', array($this, 'render_now_next_shortcode'));
         
         // Enqueue frontend styles
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_styles'));
@@ -150,37 +151,10 @@ class Azure_Upcoming_Module {
         
         // Parse excluded categories
         $exclude_categories = array_filter(array_map('trim', explode(',', $atts['exclude-categories'])));
-        
-        // Get week boundaries
-        $week_start_day = strtolower($atts['week-start']) === 'sunday' ? 0 : 1; // 0 = Sunday, 1 = Monday
+
+        list($current_week_start, $current_week_end) = $this->week_boundaries($atts['week-start'], 0);
+        list($next_week_start, $next_week_end) = $this->week_boundaries($atts['week-start'], 1);
         $today = new DateTime('today', wp_timezone());
-        
-        // Calculate start of current week
-        $current_day_of_week = (int) $today->format('w'); // 0 = Sunday
-        if ($week_start_day === 1) { // Monday start
-            $days_since_start = $current_day_of_week === 0 ? 6 : $current_day_of_week - 1;
-        } else { // Sunday start
-            $days_since_start = $current_day_of_week;
-        }
-        
-        $current_week_start = clone $today;
-        $current_week_start->modify("-{$days_since_start} days");
-        $current_week_start->setTime(0, 0, 0);
-
-        // Inclusive end-of-day on the 7th day of each week so evening events
-        // on the last day (e.g. Sunday 6pm) are not clipped by a midnight
-        // exclusive upper bound.
-        $current_week_end = clone $current_week_start;
-        $current_week_end->modify('+6 days');
-        $current_week_end->setTime(23, 59, 59);
-
-        $next_week_start = clone $current_week_start;
-        $next_week_start->modify('+7 days');
-        $next_week_start->setTime(0, 0, 0);
-
-        $next_week_end = clone $next_week_start;
-        $next_week_end->modify('+6 days');
-        $next_week_end->setTime(23, 59, 59);
 
         $coming_up_start = clone $today;
         $coming_up_start->setTime(0, 0, 0);
@@ -334,6 +308,87 @@ class Azure_Upcoming_Module {
         }
 
         return $output;
+    }
+
+    /**
+     * Compact This Week / Next Week table for the newsletter designer.
+     *
+     * Same pta_event source and Monday week as [up-next], but email-safe
+     * (inline 2-column table, no website theme cards).
+     *
+     * @param array $atts
+     * @return string
+     */
+    public function render_now_next_shortcode($atts) {
+        if (!class_exists('Azure_Newsletter_Now_Next')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-newsletter-now-next.php';
+            if (file_exists($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('Azure_Newsletter_Now_Next')) {
+            return '';
+        }
+
+        $atts = shortcode_atts(array(
+            'week-start'         => 'monday',
+            'exclude-categories' => '',
+            'this-week-title'    => __('This Week', 'azure-plugin'),
+            'next-week-title'    => __('Next Week', 'azure-plugin'),
+            'empty-message'      => __('No events', 'azure-plugin'),
+            'limit'              => (string) Azure_Newsletter_Now_Next::LIMIT,
+        ), $atts, 'nl-now-next');
+
+        $exclude = array_filter(array_map('trim', explode(',', $atts['exclude-categories'])));
+        $limit = max(1, min(8, (int) $atts['limit']));
+
+        $this_week = array();
+        $next_week = array();
+        if (class_exists('Azure_Event_CPT')) {
+            list($this_start, $this_end) = $this->week_boundaries($atts['week-start'], 0);
+            list($next_start, $next_end) = $this->week_boundaries($atts['week-start'], 1);
+            $this_week = $this->get_events_in_range($this_start, $this_end, $exclude);
+            $next_week = $this->get_events_in_range($next_start, $next_end, $exclude);
+        }
+
+        return Azure_Newsletter_Now_Next::render($this_week, $next_week, array(
+            'this_week_title'  => $atts['this-week-title'],
+            'next_week_title'  => $atts['next-week-title'],
+            'empty_message'    => $atts['empty-message'],
+            'limit'            => $limit,
+        ));
+    }
+
+    /**
+     * Inclusive start/end of a week, matching [up-next].
+     *
+     * @param string $week_start monday|sunday
+     * @param int    $offset_weeks 0 = current week, 1 = next week
+     * @return array{0:DateTime,1:DateTime}
+     */
+    private function week_boundaries($week_start = 'monday', $offset_weeks = 0) {
+        $week_start_day = strtolower((string) $week_start) === 'sunday' ? 0 : 1;
+        $today = new DateTime('today', wp_timezone());
+        $current_day_of_week = (int) $today->format('w');
+        if ($week_start_day === 1) {
+            $days_since_start = $current_day_of_week === 0 ? 6 : $current_day_of_week - 1;
+        } else {
+            $days_since_start = $current_day_of_week;
+        }
+
+        $start = clone $today;
+        $start->modify("-{$days_since_start} days");
+        $offset_weeks = (int) $offset_weeks;
+        if ($offset_weeks !== 0) {
+            $start->modify(($offset_weeks > 0 ? '+' : '') . ($offset_weeks * 7) . ' days');
+        }
+        $start->setTime(0, 0, 0);
+
+        $end = clone $start;
+        $end->modify('+6 days');
+        $end->setTime(23, 59, 59);
+
+        return array($start, $end);
     }
 
     /**

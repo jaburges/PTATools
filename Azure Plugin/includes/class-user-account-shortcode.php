@@ -41,6 +41,9 @@ class Azure_User_Account_Shortcode {
      */
     public function enqueue_frontend_assets() {
         if (is_admin()) { return; }
+        if (class_exists('Azure_Membership_Module')) {
+            Azure_Membership_Module::get_instance()->enqueue_badge_assets();
+        }
         wp_enqueue_style(
             'azure-user-account-dropdown',
             AZURE_PLUGIN_URL . 'css/user-account-dropdown.css',
@@ -153,8 +156,9 @@ class Azure_User_Account_Shortcode {
                         + ' aria-controls="' + menuId + '"'
                         + ' onclick="azureToggleAccountMenu(\'' + id + '\')"'
                         + ' style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;">'
-                        + '<img src="' + (d.avatar||'') + '" width="32" height="32" class="user-account-avatar" style="border-radius:50%;" />'
+                        + (d.avatar_html || ('<img src="' + (d.avatar||'') + '" width="32" height="32" class="user-account-avatar" style="border-radius:50%;" />'))
                         + '<span class="user-account-name">' + d.display_name + '</span>'
+                        + (d.badge_html || '')
                         + '<span class="user-account-arrow" style="transition:transform .2s ease;">'
                         + '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
                         + '</span></div>'
@@ -224,10 +228,18 @@ class Azure_User_Account_Shortcode {
                  aria-controls="<?php echo esc_attr($menu_id); ?>"
                  onclick="azureToggleAccountMenu('<?php echo esc_js($dropdown_id); ?>')"
                  style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;">
-                <img src="<?php echo esc_url($avatar); ?>" width="32" height="32"
-                     class="user-account-avatar" alt=""
-                     style="border-radius:50%;" />
+                <?php
+                $avatar_img = '<img src="' . esc_url($avatar) . '" width="32" height="32" class="user-account-avatar" alt="" style="border-radius:50%;" />';
+                echo class_exists('Azure_Membership_Module')
+                    ? Azure_Membership_Module::wrap_member_avatar($avatar_img, (int) $user->ID)
+                    : $avatar_img;
+                ?>
                 <span class="user-account-name"><?php echo esc_html($user->display_name); ?></span>
+                <?php
+                if (class_exists('Azure_Membership_Module')) {
+                    echo Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill');
+                }
+                ?>
                 <span class="user-account-arrow" style="transition:transform .2s ease;">
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                         <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5"
@@ -293,10 +305,20 @@ class Azure_User_Account_Shortcode {
         $wc   = class_exists('WooCommerce');
         $acct = $wc ? wc_get_page_permalink('myaccount') : admin_url('profile.php');
 
+        $avatar_url = get_avatar_url($user->ID, array('size' => 40));
+        $avatar_img = '<img src="' . esc_url($avatar_url) . '" width="32" height="32" class="user-account-avatar" style="border-radius:50%;" />';
+        $badge_html = '';
+        if (class_exists('Azure_Membership_Module')) {
+            $avatar_img = Azure_Membership_Module::wrap_member_avatar($avatar_img, (int) $user->ID);
+            $badge_html = Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill');
+        }
+
         wp_send_json(array(
             'logged_in'    => true,
             'display_name' => $user->display_name,
-            'avatar'       => get_avatar_url($user->ID, array('size' => 40)),
+            'avatar'       => $avatar_url,
+            'avatar_html'  => $avatar_img,
+            'badge_html'   => $badge_html,
             'menu'         => array(
                 array('label' => __('Dashboard', 'azure-plugin'),       'url' => $acct),
                 array('label' => __('Orders', 'azure-plugin'),          'url' => $wc ? wc_get_endpoint_url('orders', '', $acct) : ''),

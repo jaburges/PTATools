@@ -141,6 +141,9 @@ class Azure_PTA_Shortcode {
         }
 
         wp_enqueue_style('pta-roles-frontend', AZURE_PLUGIN_URL . 'css/pta-roles-frontend.css', array(), AZURE_PLUGIN_VERSION);
+        if (class_exists('Azure_Membership_Module')) {
+            Azure_Membership_Module::get_instance()->enqueue_badge_assets();
+        }
         wp_enqueue_script('pta-shortcodes', AZURE_PLUGIN_URL . 'assets/pta-shortcodes.js', array('jquery'), AZURE_PLUGIN_VERSION, true);
 
         if (class_exists('Azure_PTA_Forminator') && Azure_PTA_Forminator::is_configured()) {
@@ -284,7 +287,9 @@ class Azure_PTA_Shortcode {
         if ($atts['show_vp'] && $department->vp_user_id) {
             $vp_user = get_user_by('ID', $department->vp_user_id);
             if ($vp_user) {
-                $output .= '<p class="pta-department-vp"><strong>VP:</strong> ' . esc_html($vp_user->display_name) . '</p>';
+                $output .= '<p class="pta-department-vp"><strong>VP:</strong> ' . esc_html($vp_user->display_name)
+                    . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $vp_user->ID, 'pill') : '')
+                    . '</p>';
             }
         }
         
@@ -455,7 +460,9 @@ class Azure_PTA_Shortcode {
 
         $output = '<div class="pta-department-vp-card">';
         $output .= '<h4>' . esc_html($department->name) . ' VP</h4>';
-        $output .= '<div class="pta-vp-name">' . esc_html($vp_user->display_name) . '</div>';
+        $output .= '<div class="pta-vp-name">' . esc_html($vp_user->display_name)
+            . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $vp_user->ID, 'pill') : '')
+            . '</div>';
         
         if ($atts['show_email'] && $display_email) {
             $output .= '<div class="pta-vp-email"><a href="mailto:' . esc_attr($display_email) . '">' . esc_html($display_email) . '</a></div>';
@@ -811,7 +818,9 @@ class Azure_PTA_Shortcode {
                     $html .= '<img class="pta-person-photo" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
                 }
             }
-            $html .= '<span class="pta-person-name">' . esc_html($user->display_name) . '</span>';
+            $html .= '<span class="pta-person-name">' . esc_html($user->display_name)
+                . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill') : '')
+                . '</span>';
             $html .= '</div>';
         }
         $html .= '</div>';
@@ -866,7 +875,9 @@ class Azure_PTA_Shortcode {
                         $output .= '<img class="pta-person-photo" src="' . esc_url($url) . '" width="' . $size . '" height="' . $size . '" alt="' . esc_attr($user->display_name) . '" />';
                     }
                 }
-                $output .= '<span class="pta-person-name">' . esc_html($user->display_name) . '</span>';
+                $output .= '<span class="pta-person-name">' . esc_html($user->display_name)
+                    . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill') : '')
+                    . '</span>';
                 if ($show_contact && $user->user_email) {
                     $output .= '<span class="pta-person-email"><a href="mailto:' . esc_attr($user->user_email) . '">' . esc_html($user->user_email) . '</a></span>';
                 }
@@ -990,7 +1001,9 @@ class Azure_PTA_Shortcode {
                 foreach ($role->assignments as $assignment) {
                     $user = get_user_by('ID', $assignment->user_id);
                     if ($user) {
-                        $output .= '<li>' . esc_html($user->display_name) . '</li>';
+                        $output .= '<li>' . esc_html($user->display_name)
+                            . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill') : '')
+                            . '</li>';
                     }
                 }
                 $output .= '</ul>';

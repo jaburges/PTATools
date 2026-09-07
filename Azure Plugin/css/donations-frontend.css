@@ -411,9 +411,26 @@ a.pta-wag-level:focus-visible {
     border-color: var(--wag-bg);
 }
 
+/* ChromeNews colors entry-content links #404040 at higher specificity
+ * than the button, so $500 inherited grey on the navy featured card. */
+.pta-wag-level.is-featured .pta-wag-amount,
+.pta-wag-level.is-featured .pta-wag-name,
+.pta-wag-level.is-featured .pta-wag-suffix {
+    color: var(--wag-fg);
+}
+
 a.pta-wag-level.is-featured:hover,
 a.pta-wag-level.is-featured:focus-visible {
     filter: brightness(1.08);
+}
+
+a.pta-wag-level:hover .pta-wag-amount,
+a.pta-wag-level:hover .pta-wag-name,
+a.pta-wag-level:hover .pta-wag-suffix,
+a.pta-wag-level:focus-visible .pta-wag-amount,
+a.pta-wag-level:focus-visible .pta-wag-name,
+a.pta-wag-level:focus-visible .pta-wag-suffix {
+    color: var(--wag-fg);
 }
 
 .pta-wag-amount {

@@ -499,12 +499,18 @@
     gap: 8px;
 }
 
-.device-buttons {
+.device-buttons,
+.row-move-buttons {
     display: flex;
     background: #fff;
     border: 1px solid #ccd0d4;
     border-radius: 3px;
     overflow: hidden;
+}
+
+.row-move-buttons .device-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
 }
 
 .device-btn {
@@ -666,6 +672,16 @@
     color: #93003c !important;
 }
 
+.sidebar-header {
+    flex-shrink: 0;
+    padding: 14px 16px;
+    background: #fff;
+    border-bottom: 1px solid #e6e9ec;
+    font-size: 13px;
+    font-weight: 600;
+    color: #93003c;
+}
+
 .sidebar-tabs {
     display: flex;
     background: #fff;
@@ -715,6 +731,13 @@
 
 #settings-panel {
     padding: 0;
+}
+
+#settings-panel #styles-container {
+    display: none;
+    border-top: 1px solid #e6e9ec;
+    margin-top: 8px;
+    padding-top: 4px;
 }
 
 .settings-placeholder {
@@ -947,11 +970,14 @@
     background: #f8f9fa !important;
 }
 
-/* Hide the grapesjs-preset-newsletter device-switcher panel (we render
-   our own Desktop / Tablet / Mobile buttons in the top toolbar). The
-   preset re-adds these on init even though we remove the panel via
-   Panels.removePanel('devices-c'); CSS catches anything that slips
-   through. */
+/* Hide every GrapesJS chrome panel. The preset re-injects devices,
+   undo/redo/code, and a views header that duplicated our toolbars
+   and the Settings sidebar. Managers are appended to our containers. */
+#gjs-editor > .gjs-pn-panels,
+#gjs-editor .gjs-pn-commands,
+#gjs-editor .gjs-pn-options,
+#gjs-editor .gjs-pn-views,
+#gjs-editor .gjs-pn-views-container,
 .gjs-pn-devices-c,
 .gjs-pn-devices {
     display: none !important;
@@ -1490,6 +1516,32 @@ div.gjs-block[style] {
     border-radius: 3px !important;
     text-transform: uppercase !important;
     letter-spacing: 0.5px !important;
+}
+
+.pta-nl-col-widths {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pta-nl-col-width-row {
+    display: grid;
+    grid-template-columns: 72px 1fr 40px;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #1d2327;
+}
+
+.pta-nl-col-width-row input[type="range"] {
+    width: 100%;
+    margin: 0;
+}
+
+.pta-nl-col-width-val {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: #50575e;
 }
 
 /* Empty blocks container message */

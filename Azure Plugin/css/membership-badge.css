@@ -1,0 +1,73 @@
+/* PTSA Member badge — profile, directory, header avatar, PTA people */
+
+.pta-member-badge {
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.pta-member-badge--pill {
+    margin-left: 8px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #0a2d57;
+    color: #fff;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+}
+
+.pta-member-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.pta-member-heading .pta-member-badge--pill {
+    margin-left: 4px;
+}
+
+.pta-member-avatar {
+    position: relative;
+    display: inline-block;
+    line-height: 0;
+    vertical-align: middle;
+}
+
+.pta-member-badge--mark {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    max-width: calc(100% + 8px);
+    padding: 1px 5px;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    background: #0a2d57;
+    color: #fff;
+    font-size: 8px;
+    letter-spacing: 0.02em;
+    box-shadow: 0 1px 2px rgba(10, 45, 87, 0.25);
+}
+
+.pta-parent-directory__name {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.pta-parent-directory__name .pta-member-badge--pill {
+    margin-left: 0;
+}
+
+.pta-user-dropdown__trigger .pta-member-badge--pill,
+.user-account-toggle .pta-member-badge--pill {
+    margin-left: 0;
+}
+
+.pta-person-name .pta-member-badge--pill {
+    margin-left: 6px;
+}

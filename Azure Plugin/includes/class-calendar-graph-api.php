@@ -254,7 +254,7 @@ class Azure_Calendar_GraphAPI {
                 'endDateTime'   => $end_date,
                 '$top'          => $max_events,
                 '$orderby'      => 'start/dateTime',
-                '$select'       => 'id,subject,start,end,location,attendees,body,isAllDay,showAs,sensitivity,categories,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,webLink',
+                '$select'       => 'id,subject,start,end,location,attendees,body,isAllDay,showAs,sensitivity,categories,isCancelled,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,webLink',
             );
             
             // Use /users/{mailbox}/calendars/ for shared mailbox, otherwise /me/calendars/
@@ -516,12 +516,32 @@ class Azure_Calendar_GraphAPI {
     }
     
     /**
+     * Whether a raw Graph event is cancelled.
+     *
+     * calendarView keeps returning occurrences after Outlook "Delete
+     * series" / Cancel — they come back with isCancelled=true instead
+     * of disappearing. Importing those re-publishes trashed pta_event
+     * posts and keeps them on the embed. Treat only real booleans /
+     * "true" as cancelled; Graph's string "false" must stay importable.
+     */
+    public static function is_cancelled_graph_event($event) {
+        if (!is_array($event) || !array_key_exists('isCancelled', $event)) {
+            return false;
+        }
+        $flag = $event['isCancelled'];
+        return $flag === true || $flag === 1 || $flag === '1' || $flag === 'true';
+    }
+
+    /**
      * Process events for frontend consumption
      */
     private function process_events($events) {
         $processed = array();
 
         foreach ($events as $event) {
+            if (self::is_cancelled_graph_event($event)) {
+                continue;
+            }
             // Extract online-meeting fields. Graph returns these only
             // when isOnlineMeeting is true; we still expose the keys
             // so downstream callers can `?? ''` cleanly. Provider can

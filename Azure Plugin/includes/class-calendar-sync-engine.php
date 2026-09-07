@@ -538,6 +538,14 @@ class Azure_Calendar_Sync_Engine {
         );
 
         if ($existing_id) {
+            $existing_status = function_exists('get_post_status') ? get_post_status($existing_id) : '';
+            if (!self::may_update_existing_outlook_event($existing_status)) {
+                Azure_Logger::info(
+                    "Calendar Sync Engine: leaving trashed {$post_type} #{$existing_id} in trash (outlook_event_id={$outlook_event_id})",
+                    'Calendar'
+                );
+                return $existing_id;
+            }
             $post_data['ID'] = $existing_id;
             $post_id = wp_update_post($post_data, true);
         } else {
@@ -638,6 +646,20 @@ class Azure_Calendar_Sync_Engine {
         }
 
         return $post_id;
+    }
+
+    /**
+     * Whether an existing Outlook-linked post may be overwritten.
+     *
+     * Trashed posts stay trashed. Graph calendarView can keep listing a
+     * deleted series (sometimes even with isCancelled=false); publishing
+     * over the trash row would put the meetings back on the site.
+     *
+     * @param string $post_status WordPress post status.
+     * @return bool
+     */
+    public static function may_update_existing_outlook_event($post_status) {
+        return $post_status !== 'trash';
     }
 
     /**

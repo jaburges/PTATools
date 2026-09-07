@@ -31,6 +31,7 @@ class Azure_Membership_Module {
     const NONCE_ADMIN       = 'azure_membership_admin';
     const SHORTCODE_A       = 'parent-directory';
     const SHORTCODE_B       = 'Parent-directory';
+    const META_MEMBER_DISCOUNT = '_pta_member_discount';
 
     private static $instance = null;
     private static $assets_enqueued = false;
@@ -52,9 +53,38 @@ class Azure_Membership_Module {
         add_shortcode(self::SHORTCODE_B, array($this, 'render_directory_shortcode'));
 
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_frontend'));
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_badge_assets'));
+        add_filter('get_avatar', array($this, 'filter_member_avatar'), 20, 6);
         add_action('template_redirect', array($this, 'maybe_gate_directory_page'));
 
         add_action('woocommerce_order_status_changed', array($this, 'maybe_invalidate_map'), 10, 4);
+        add_action('woocommerce_cart_calculate_fees', array($this, 'apply_cart_member_discount'));
+        add_action('woocommerce_product_options_pricing', array($this, 'render_simple_discount_field'));
+        add_action('woocommerce_product_options_general_product_data', array($this, 'render_variable_parent_discount_field'));
+        add_action('woocommerce_variation_options_pricing', array($this, 'render_variation_discount_field'), 10, 3);
+        add_action('woocommerce_process_product_meta', array($this, 'save_product_discount_field'));
+        add_action('woocommerce_save_product_variation', array($this, 'save_variation_discount_field'), 10, 2);
+
+        add_filter('woocommerce_checkout_registration_enabled', array($this, 'enable_registration_for_membership_cart'));
+        add_filter('woocommerce_checkout_registration_required', array($this, 'require_registration_for_membership_cart'));
+        add_filter('woocommerce_create_account_default_checked', array($this, 'check_create_account_for_membership_cart'));
+        add_filter('option_woocommerce_enable_signup_and_login_from_checkout', array($this, 'force_signup_option_for_membership_cart'));
+        add_filter('option_woocommerce_registration_generate_password', array($this, 'show_password_for_membership_cart'));
+        add_filter('woocommerce_registration_generate_password', array($this, 'generate_password_when_express_omits_it'));
+        add_filter('option_woocommerce_registration_generate_username', array($this, 'generate_username_for_membership_cart'));
+        add_filter('woocommerce_new_customer_data', array($this, 'parent_role_for_membership_customer'));
+        add_action('woocommerce_created_customer', array($this, 'ensure_parent_role_for_membership_customer'));
+        add_action('woocommerce_after_checkout_validation', array($this, 'validate_membership_checkout_account'), 10, 2);
+        add_action('woocommerce_store_api_checkout_update_order_from_request', array($this, 'validate_store_api_membership_account'), 10, 2);
+        add_action('woocommerce_before_add_to_cart_form', array($this, 'render_product_account_notice'));
+        add_action('woocommerce_before_cart', array($this, 'render_cart_account_notice'));
+        add_action('woocommerce_before_checkout_form', array($this, 'render_checkout_account_notice'));
+        add_filter('render_block_woocommerce/checkout', array($this, 'prepend_blocks_checkout_notice'), 10, 2);
+        add_filter('wc_stripe_show_payment_request_on_product_page', array($this, 'allow_express_pay_when_account_optional'));
+        add_filter('wc_stripe_show_payment_request_on_cart', array($this, 'allow_express_pay_when_account_optional'));
+        add_filter('wc_stripe_show_payment_request_on_checkout', array($this, 'allow_express_pay_when_account_optional'));
+        add_filter('wcpay_payment_request_is_product_supported', array($this, 'allow_express_pay_when_account_optional'));
+        add_filter('wcpay_payment_request_is_cart_supported', array($this, 'allow_express_pay_when_account_optional'));
 
         if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX)) {
             add_action('admin_menu', array($this, 'register_admin_page'), 25);
@@ -226,7 +256,7 @@ class Azure_Membership_Module {
     public static function get_member_map() {
         $range = self::school_year_range();
         $ver = (int) get_option('azure_membership_map_ver', 1);
-        $cache_key = self::TRANSIENT_MAP . '_' . $ver . '_' . md5($range['from'] . '|' . implode(',', self::get_family_product_ids()) . '|' . implode(',', self::get_individual_product_ids()));
+        $cache_key = self::TRANSIENT_MAP . '_' . $ver . '_g2_' . md5($range['from'] . '|' . implode(',', self::get_family_product_ids()) . '|' . implode(',', self::get_individual_product_ids()));
         $cached = get_transient($cache_key);
         if (is_array($cached)) {
             return $cached;
@@ -235,6 +265,609 @@ class Azure_Membership_Module {
         $map = self::build_member_map($range);
         set_transient($cache_key, $map, HOUR_IN_SECONDS);
         return $map;
+    }
+
+    /**
+     * True when this user has a paid Family/Individual/Staff membership
+     * this school year.
+     */
+    public static function user_is_member($user_id) {
+        $user_id = (int) $user_id;
+        if ($user_id < 1) {
+            return false;
+        }
+        $map = self::get_member_map();
+        return isset($map[$user_id]);
+    }
+
+    public static function member_badge_label() {
+        return __('PTSA Member', 'azure-plugin');
+    }
+
+    /**
+     * @param string $variant pill|avatar
+     */
+    public static function render_member_badge($variant = 'pill') {
+        $label = self::member_badge_label();
+        $class = $variant === 'avatar' ? 'pta-member-badge pta-member-badge--mark' : 'pta-member-badge pta-member-badge--pill';
+        $html = '<span class="' . esc_attr($class) . '"';
+        if ($variant === 'avatar') {
+            $html .= ' title="' . esc_attr($label) . '" aria-label="' . esc_attr($label) . '"';
+        }
+        $visible = $variant === 'avatar' ? __('PTSA', 'azure-plugin') : $label;
+        $html .= '>' . esc_html($visible) . '</span>';
+        return $html;
+    }
+
+    public static function member_badge_html($user_id, $variant = 'pill') {
+        if (!self::user_is_member($user_id)) {
+            return '';
+        }
+        return self::render_member_badge($variant);
+    }
+
+    public static function decorate_avatar_html($avatar_html, $is_member) {
+        $avatar_html = (string) $avatar_html;
+        if ($avatar_html === '' || !$is_member) {
+            return $avatar_html;
+        }
+        return '<span class="pta-member-avatar">' . $avatar_html . self::render_member_badge('avatar') . '</span>';
+    }
+
+    public static function wrap_member_avatar($avatar_html, $user_id) {
+        return self::decorate_avatar_html($avatar_html, self::user_is_member($user_id));
+    }
+
+    public static function user_id_from_avatar_id($id_or_email) {
+        if (is_numeric($id_or_email)) {
+            return (int) $id_or_email;
+        }
+        if (is_object($id_or_email)) {
+            if (isset($id_or_email->user_id) && (int) $id_or_email->user_id > 0) {
+                return (int) $id_or_email->user_id;
+            }
+            if (isset($id_or_email->ID) && !isset($id_or_email->comment_ID) && !isset($id_or_email->comment_author_email)) {
+                return (int) $id_or_email->ID;
+            }
+        }
+        if (is_string($id_or_email) && $id_or_email !== '' && function_exists('get_user_by')) {
+            $user = get_user_by('email', $id_or_email);
+            return $user ? (int) $user->ID : 0;
+        }
+        return 0;
+    }
+
+    public function filter_member_avatar($avatar, $id_or_email, $size = 96, $default = '', $alt = '', $args = array()) {
+        if (function_exists('is_admin') && is_admin() && !(defined('DOING_AJAX') && DOING_AJAX)) {
+            return $avatar;
+        }
+        return self::wrap_member_avatar($avatar, self::user_id_from_avatar_id($id_or_email));
+    }
+
+    public function enqueue_badge_assets() {
+        if (function_exists('is_admin') && is_admin()) {
+            return;
+        }
+        $css = AZURE_PLUGIN_PATH . 'css/membership-badge.css';
+        wp_enqueue_style(
+            'pta-membership-badge',
+            AZURE_PLUGIN_URL . 'css/membership-badge.css',
+            array(),
+            file_exists($css) ? (string) filemtime($css) : AZURE_PLUGIN_VERSION
+        );
+    }
+
+    public static function sanitize_member_discount_amount($value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+        if (preg_match('/^\s*-/', $value)) {
+            return '';
+        }
+        if (function_exists('wc_format_decimal')) {
+            $value = wc_format_decimal($value);
+        } else {
+            $value = preg_replace('/[^0-9.]/', '', $value);
+        }
+        $amount = (float) $value;
+        if ($amount <= 0) {
+            return '';
+        }
+        return (string) $amount;
+    }
+
+    /**
+     * Variation amount wins when set; otherwise the parent product.
+     */
+    public static function resolve_member_discount_amount($variation_amount, $parent_amount) {
+        $variation = self::sanitize_member_discount_amount($variation_amount);
+        if ($variation !== '') {
+            return (float) $variation;
+        }
+        $parent = self::sanitize_member_discount_amount($parent_amount);
+        return $parent === '' ? 0.0 : (float) $parent;
+    }
+
+    /**
+     * @param int $product_id
+     * @param int $variation_id
+     */
+    public static function get_product_member_discount($product_id, $variation_id = 0) {
+        $variation_amount = '';
+        if ((int) $variation_id > 0 && function_exists('get_post_meta')) {
+            $variation_amount = get_post_meta((int) $variation_id, self::META_MEMBER_DISCOUNT, true);
+        }
+        $parent_amount = '';
+        if ((int) $product_id > 0 && function_exists('get_post_meta')) {
+            $parent_amount = get_post_meta((int) $product_id, self::META_MEMBER_DISCOUNT, true);
+        }
+        return self::resolve_member_discount_amount($variation_amount, $parent_amount);
+    }
+
+    /**
+     * @param array<int, array{discount:float,qty:int,line_subtotal:float,is_membership?:bool}> $items
+     */
+    public static function discount_for_cart_items(array $items, $is_member) {
+        if (!$is_member) {
+            return 0.0;
+        }
+        $total = 0.0;
+        foreach ($items as $item) {
+            if (!empty($item['is_membership'])) {
+                continue;
+            }
+            $amount = isset($item['discount']) ? (float) $item['discount'] : 0.0;
+            $qty = isset($item['qty']) ? (int) $item['qty'] : 0;
+            $line = isset($item['line_subtotal']) ? (float) $item['line_subtotal'] : 0.0;
+            if ($amount <= 0 || $qty < 1 || $line <= 0) {
+                continue;
+            }
+            $total += min($amount * $qty, $line);
+        }
+        return round($total, 2);
+    }
+
+    public function apply_cart_member_discount($cart) {
+        if (!is_object($cart) || !method_exists($cart, 'get_cart') || !method_exists($cart, 'add_fee')) {
+            return;
+        }
+        if (function_exists('is_admin') && is_admin() && !(defined('DOING_AJAX') && DOING_AJAX)) {
+            return;
+        }
+        $user_id = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
+        $items = array();
+        foreach ($cart->get_cart() as $cart_item) {
+            $product = isset($cart_item['data']) ? $cart_item['data'] : null;
+            $product_id = isset($cart_item['product_id']) ? (int) $cart_item['product_id'] : 0;
+            $variation_id = isset($cart_item['variation_id']) ? (int) $cart_item['variation_id'] : 0;
+            $parent_id = 0;
+            $name = '';
+            if (is_object($product)) {
+                if (method_exists($product, 'get_parent_id')) {
+                    $parent_id = (int) $product->get_parent_id();
+                }
+                if (method_exists($product, 'get_name')) {
+                    $name = (string) $product->get_name();
+                }
+            }
+            $lookup_id = $parent_id ? $parent_id : $product_id;
+            $items[] = array(
+                'discount'       => self::get_product_member_discount($lookup_id, $variation_id),
+                'qty'            => isset($cart_item['quantity']) ? (int) $cart_item['quantity'] : 1,
+                'line_subtotal'  => isset($cart_item['line_subtotal']) ? (float) $cart_item['line_subtotal'] : 0.0,
+                'is_membership'  => self::classify_membership_product($product_id, $parent_id, $name) !== '',
+            );
+        }
+        $amount = self::discount_for_cart_items($items, self::user_is_member($user_id));
+        if ($amount <= 0) {
+            return;
+        }
+        $cart->add_fee(__('PTSA Member discount', 'azure-plugin'), -1 * $amount, false);
+    }
+
+    public function render_simple_discount_field() {
+        $this->render_product_discount_field(0, array(
+            'wrapper_class' => 'show_if_simple show_if_external',
+        ));
+    }
+
+    public function render_variable_parent_discount_field() {
+        $this->render_product_discount_field(0, array(
+            'wrapper_class' => 'show_if_variable',
+            'description'   => __('This is the amount taken off the final price. Variations can set their own amount; otherwise this value is used.', 'azure-plugin'),
+        ));
+    }
+
+    /**
+     * @param int   $product_id 0 = current admin product
+     * @param array $args
+     */
+    public function render_product_discount_field($product_id = 0, array $args = array()) {
+        if (!function_exists('woocommerce_wp_text_input')) {
+            return;
+        }
+        $product_id = (int) $product_id;
+        if ($product_id < 1 && function_exists('get_the_ID')) {
+            $product_id = (int) get_the_ID();
+        }
+        $value = ($product_id && function_exists('get_post_meta'))
+            ? get_post_meta($product_id, self::META_MEMBER_DISCOUNT, true)
+            : '';
+        $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$';
+        $field = array_merge(array(
+            'id'            => self::META_MEMBER_DISCOUNT,
+            'label'         => __('PTSA Membership discount', 'azure-plugin') . ' (' . $symbol . ')',
+            'description'   => __('This is the amount taken off the final price.', 'azure-plugin'),
+            'desc_tip'      => false,
+            'type'          => 'text',
+            'data_type'     => 'price',
+            'value'         => $value,
+            'wrapper_class' => '',
+        ), $args);
+        woocommerce_wp_text_input($field);
+    }
+
+    public function render_variation_discount_field($loop, $variation_data, $variation) {
+        if (!function_exists('woocommerce_wp_text_input')) {
+            return;
+        }
+        $variation_id = is_object($variation) ? (int) $variation->ID : 0;
+        $value = ($variation_id && function_exists('get_post_meta'))
+            ? get_post_meta($variation_id, self::META_MEMBER_DISCOUNT, true)
+            : '';
+        $symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$';
+        woocommerce_wp_text_input(array(
+            'id'            => 'pta_member_discount_' . (int) $loop,
+            'name'          => 'pta_member_discount[' . (int) $loop . ']',
+            'label'         => __('PTSA Membership discount', 'azure-plugin') . ' (' . $symbol . ')',
+            'description'   => __('This is the amount taken off the final price.', 'azure-plugin'),
+            'desc_tip'      => false,
+            'type'          => 'text',
+            'data_type'     => 'price',
+            'value'         => $value,
+            'wrapper_class' => 'form-row form-row-first',
+        ));
+    }
+
+    public function save_product_discount_field($product_id) {
+        $product_id = (int) $product_id;
+        if ($product_id < 1 || !function_exists('update_post_meta')) {
+            return;
+        }
+        $raw = isset($_POST[self::META_MEMBER_DISCOUNT]) ? $_POST[self::META_MEMBER_DISCOUNT] : '';
+        $amount = self::sanitize_member_discount_amount($raw);
+        if ($amount === '') {
+            delete_post_meta($product_id, self::META_MEMBER_DISCOUNT);
+            return;
+        }
+        update_post_meta($product_id, self::META_MEMBER_DISCOUNT, $amount);
+    }
+
+    public function save_variation_discount_field($variation_id, $i) {
+        $variation_id = (int) $variation_id;
+        if ($variation_id < 1 || !function_exists('update_post_meta')) {
+            return;
+        }
+        $raw = '';
+        if (isset($_POST['pta_member_discount']) && is_array($_POST['pta_member_discount']) && isset($_POST['pta_member_discount'][$i])) {
+            $raw = $_POST['pta_member_discount'][$i];
+        }
+        $amount = self::sanitize_member_discount_amount($raw);
+        if ($amount === '') {
+            delete_post_meta($variation_id, self::META_MEMBER_DISCOUNT);
+            return;
+        }
+        update_post_meta($variation_id, self::META_MEMBER_DISCOUNT, $amount);
+    }
+
+    /**
+     * Family and Individual must be tied to a WP account. Staff can
+     * still check out as a guest.
+     *
+     * @param string[] $types family|individual|staff
+     */
+    public static function membership_types_require_account(array $types) {
+        foreach ($types as $type) {
+            $type = strtolower(trim((string) $type));
+            if ($type === 'family' || $type === 'individual') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function product_requires_membership_account($product_id, $parent_id = 0, $name = '') {
+        $type = self::classify_membership_product($product_id, $parent_id, $name);
+        return $type === 'family' || $type === 'individual';
+    }
+
+    /**
+     * @param bool     $is_logged_in
+     * @param string[] $types
+     */
+    public static function guest_membership_checkout_allowed($is_logged_in, array $types) {
+        if ($is_logged_in) {
+            return true;
+        }
+        return !self::membership_types_require_account($types);
+    }
+
+    /**
+     * @param object|null $cart Woo cart
+     * @return string[]
+     */
+    public static function cart_membership_types($cart = null) {
+        $types = array();
+        if ($cart === null && function_exists('WC')) {
+            $wc = WC();
+            $cart = (is_object($wc) && isset($wc->cart)) ? $wc->cart : null;
+        }
+        if (!is_object($cart) || !method_exists($cart, 'get_cart')) {
+            return $types;
+        }
+        foreach ($cart->get_cart() as $cart_item) {
+            $product = isset($cart_item['data']) ? $cart_item['data'] : null;
+            $product_id = isset($cart_item['product_id']) ? (int) $cart_item['product_id'] : 0;
+            $parent_id = 0;
+            $name = '';
+            if (is_object($product)) {
+                if (method_exists($product, 'get_parent_id')) {
+                    $parent_id = (int) $product->get_parent_id();
+                }
+                if (method_exists($product, 'get_name')) {
+                    $name = (string) $product->get_name();
+                }
+            }
+            $type = self::classify_membership_product($product_id, $parent_id, $name);
+            if ($type !== '') {
+                $types[] = $type;
+            }
+        }
+        return $types;
+    }
+
+    public static function cart_requires_membership_account($cart = null) {
+        return self::membership_types_require_account(self::cart_membership_types($cart));
+    }
+
+    public function enable_registration_for_membership_cart($enabled) {
+        return $enabled || self::cart_requires_membership_account();
+    }
+
+    public function require_registration_for_membership_cart($required) {
+        return $required || self::cart_requires_membership_account();
+    }
+
+    public function check_create_account_for_membership_cart($checked) {
+        return $checked || self::cart_requires_membership_account();
+    }
+
+    public function force_signup_option_for_membership_cart($value) {
+        return self::cart_requires_membership_account() ? 'yes' : $value;
+    }
+
+    public function show_password_for_membership_cart($value) {
+        return self::cart_requires_membership_account() ? 'no' : $value;
+    }
+
+    /**
+     * Card checkout shows a password field. Apple Pay / Google Pay do
+     * not send one, so generate it in that path and still create the
+     * required parent account.
+     */
+    public function generate_password_when_express_omits_it($generate) {
+        if ($generate || !self::cart_requires_membership_account()) {
+            return $generate;
+        }
+        return self::posted_account_password() === '';
+    }
+
+    public static function posted_account_password() {
+        foreach (array('account_password', 'password', 'account-password') as $key) {
+            if (!empty($_POST[$key]) && is_string($_POST[$key])) {
+                return (string) $_POST[$key];
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Wallets on the product or cart skip the create-account fields.
+     * Checkout is where the password is collected, so express pay is
+     * allowed there (and always allowed once signed in).
+     *
+     * @param string $context product|cart|checkout
+     */
+    public static function guest_may_use_express_pay($is_logged_in, $requires_account, $context) {
+        if (!$requires_account || $is_logged_in) {
+            return true;
+        }
+        return $context === 'checkout';
+    }
+
+    public function generate_username_for_membership_cart($value) {
+        return self::cart_requires_membership_account() ? 'yes' : $value;
+    }
+
+    public function parent_role_for_membership_customer($data) {
+        if (!is_array($data) || !self::cart_requires_membership_account()) {
+            return $data;
+        }
+        $data['role'] = 'parent';
+        return $data;
+    }
+
+    public function ensure_parent_role_for_membership_customer($customer_id) {
+        $customer_id = (int) $customer_id;
+        if ($customer_id < 1 || !self::cart_requires_membership_account() || !function_exists('get_userdata')) {
+            return;
+        }
+        $user = get_userdata($customer_id);
+        if (!$user) {
+            return;
+        }
+        $protected = array('administrator', 'shop_manager', 'editor', 'school_staff', 'pta_manager', 'finance');
+        foreach ($protected as $role) {
+            if (in_array($role, (array) $user->roles, true)) {
+                return;
+            }
+        }
+        if (!in_array('parent', (array) $user->roles, true) && method_exists($user, 'set_role')) {
+            $user->set_role('parent');
+        }
+    }
+
+    public function validate_membership_checkout_account($data, $errors) {
+        if (self::guest_membership_checkout_allowed(
+            function_exists('is_user_logged_in') && is_user_logged_in(),
+            self::cart_membership_types()
+        )) {
+            return;
+        }
+        if (is_object($errors) && method_exists($errors, 'add')) {
+            $errors->add('pta_membership_account_required', self::account_required_message());
+        }
+    }
+
+    public function validate_store_api_membership_account($order, $request) {
+        if (self::guest_membership_checkout_allowed(
+            function_exists('is_user_logged_in') && is_user_logged_in(),
+            self::cart_membership_types()
+        )) {
+            return;
+        }
+        $customer_id = (is_object($order) && method_exists($order, 'get_customer_id'))
+            ? (int) $order->get_customer_id()
+            : 0;
+        if ($customer_id > 0) {
+            return;
+        }
+        $message = self::account_required_message();
+        if (class_exists('\Automattic\WooCommerce\StoreApi\Exceptions\RouteException')) {
+            throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(
+                'pta_membership_account_required',
+                $message,
+                403
+            );
+        }
+        throw new Exception($message);
+    }
+
+    public function allow_express_pay_when_account_optional($allowed) {
+        $requires = self::cart_requires_membership_account()
+            || self::current_product_requires_membership_account();
+        $logged_in = function_exists('is_user_logged_in') && is_user_logged_in();
+        if (self::guest_may_use_express_pay($logged_in, $requires, self::express_pay_context())) {
+            return $allowed;
+        }
+        return false;
+    }
+
+    private static function express_pay_context() {
+        if (function_exists('is_checkout') && is_checkout() && !(function_exists('is_order_received_page') && is_order_received_page())) {
+            return 'checkout';
+        }
+        if (function_exists('is_cart') && is_cart()) {
+            return 'cart';
+        }
+        return 'product';
+    }
+
+    public function render_product_account_notice() {
+        if (function_exists('is_user_logged_in') && is_user_logged_in()) {
+            return;
+        }
+        if (!self::current_product_requires_membership_account()) {
+            return;
+        }
+        echo self::account_notice_html('product');
+    }
+
+    public function render_cart_account_notice() {
+        if (function_exists('is_user_logged_in') && is_user_logged_in()) {
+            return;
+        }
+        if (!self::cart_requires_membership_account()) {
+            return;
+        }
+        echo self::account_notice_html('cart');
+    }
+
+    public function render_checkout_account_notice() {
+        $this->print_checkout_account_notice();
+    }
+
+    public function prepend_blocks_checkout_notice($content, $block = null) {
+        $notice = $this->print_checkout_account_notice(true);
+        return $notice . $content;
+    }
+
+    private function print_checkout_account_notice($return = false) {
+        static $printed = false;
+        if ($printed) {
+            return '';
+        }
+        if (function_exists('is_user_logged_in') && is_user_logged_in()) {
+            return '';
+        }
+        if (!self::cart_requires_membership_account()) {
+            return '';
+        }
+        $printed = true;
+        $html = self::account_notice_html('checkout');
+        if ($return) {
+            return $html;
+        }
+        echo $html;
+        return '';
+    }
+
+    private static function current_product_requires_membership_account() {
+        global $product;
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return false;
+        }
+        $parent_id = method_exists($product, 'get_parent_id') ? (int) $product->get_parent_id() : 0;
+        $name = method_exists($product, 'get_name') ? (string) $product->get_name() : '';
+        return self::product_requires_membership_account((int) $product->get_id(), $parent_id, $name);
+    }
+
+    public static function account_required_message() {
+        return __('Please create an account or log in to buy a PTSA membership. Membership has to be tied to an account so we can keep your family on the roster and apply member pricing.', 'azure-plugin');
+    }
+
+    public static function account_notice_html($context = 'checkout') {
+        $login = self::membership_checkout_login_url();
+        if ($context === 'product') {
+            $text = __('You will create a free PTSA account at checkout — required for membership so we can apply member benefits to your family.', 'azure-plugin');
+        } elseif ($context === 'cart') {
+            $text = __('PTSA membership requires an account. Create one at checkout (it only takes a minute), or log in if you already have one.', 'azure-plugin');
+        } else {
+            $text = __('Create a free PTSA account below (email and password), or log in if you already have one. After that you can pay with a card, Apple Pay, or Google Pay. Membership has to be tied to an account so we can keep your family on the roster.', 'azure-plugin');
+        }
+        $login_html = '';
+        if ($login !== '') {
+            $login_html = ' <a href="' . esc_url($login) . '">' . esc_html__('Log in', 'azure-plugin') . '</a>';
+        }
+        return '<div class="woocommerce-info pta-membership-account-notice">'
+            . esc_html($text)
+            . $login_html
+            . '</div>';
+    }
+
+    public static function membership_checkout_login_url() {
+        $redirect = function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : '';
+        if ($redirect === '' && function_exists('home_url')) {
+            $redirect = home_url('/checkout/');
+        }
+        if (function_exists('wc_get_page_permalink')) {
+            $account = wc_get_page_permalink('myaccount');
+            if ($account) {
+                return $redirect !== '' ? add_query_arg('redirect', $redirect, $account) : $account;
+            }
+        }
+        return function_exists('wp_login_url') ? wp_login_url($redirect) : $redirect;
     }
 
     /**
@@ -333,34 +966,1182 @@ class Azure_Membership_Module {
             'return'       => 'objects',
         ));
 
+        $identities = self::parent_match_identities();
+
         foreach ($orders as $order) {
             $type = self::order_membership_type($order);
             if (!$type) {
                 continue;
             }
-            $user_id = (int) $order->get_user_id();
-            if (!$user_id) {
-                continue;
-            }
-            $paid_at = $order->get_date_paid()
-                ? $order->get_date_paid()->date('Y-m-d H:i:s')
-                : $order->get_date_created()->date('Y-m-d H:i:s');
+            $paid_at = self::order_paid_at($order);
             $entry = array(
                 'type'     => $type,
-                'order_id' => (int) $order->get_id(),
+                'order_id' => method_exists($order, 'get_id') ? (int) $order->get_id() : 0,
                 'paid_at'  => $paid_at,
             );
-            self::apply_member_entry($map, $user_id, $entry);
 
-            if ($type === 'family') {
-                $other = self::co_parent_user_id($user_id);
-                if ($other) {
-                    self::apply_member_entry($map, $other, $entry);
+            $user_id = method_exists($order, 'get_user_id') ? (int) $order->get_user_id() : 0;
+            if ($user_id) {
+                self::apply_member_entry($map, $user_id, $entry);
+                if ($type === 'family') {
+                    $other = self::co_parent_user_id($user_id);
+                    if ($other) {
+                        self::apply_member_entry($map, $other, $entry);
+                    }
+                    foreach (self::guest_order_parties($order, 'family') as $party) {
+                        if ($party['slot'] !== 'parent_2') {
+                            continue;
+                        }
+                        $hit = self::match_checkout_party($party, $identities);
+                        if ($hit['status'] === 'confident' && !empty($hit['user_id']) && (int) $hit['user_id'] !== $user_id) {
+                            self::apply_member_entry($map, (int) $hit['user_id'], $entry);
+                        }
+                    }
                 }
+                continue;
+            }
+
+            if ($type === 'staff') {
+                continue;
+            }
+
+            $review = self::review_one_guest_order($order, $type, $identities);
+            foreach ($review['matched'] as $hit) {
+                self::apply_member_entry($map, (int) $hit['user_id'], $entry);
+            }
+            $p1 = isset($review['parent_1']) ? $review['parent_1'] : null;
+            if ($p1 && $p1['status'] === 'confident' && !empty($p1['user_id'])) {
+                self::maybe_link_guest_order($order, (int) $p1['user_id']);
             }
         }
 
         return $map;
+    }
+
+    /**
+     * Guest Family/Individual memberships this school year: who we can
+     * attach to an existing parent account, and who still needs one.
+     *
+     * @param object[]|null $orders
+     * @param array|null    $identities
+     * @return array{matched:array,unmatched:array,uncertain:array}
+     */
+    public static function review_guest_memberships($orders = null, $identities = null) {
+        $out = array(
+            'matched'    => array(),
+            'unmatched'  => array(),
+            'uncertain'  => array(),
+        );
+        if ($orders === null) {
+            if (!function_exists('wc_get_orders')) {
+                return $out;
+            }
+            $range = self::school_year_range();
+            $orders = wc_get_orders(array(
+                'status'       => array('processing', 'completed'),
+                'type'         => 'shop_order',
+                'date_created' => $range['from'] . '...' . $range['to'],
+                'limit'        => -1,
+                'return'       => 'objects',
+            ));
+        }
+        if ($identities === null) {
+            $identities = self::parent_match_identities();
+        }
+
+        foreach ((array) $orders as $order) {
+            if (!is_object($order) || !method_exists($order, 'get_user_id')) {
+                continue;
+            }
+            if ((int) $order->get_user_id() !== 0) {
+                continue;
+            }
+            $type = self::order_membership_type($order);
+            if ($type === '' || $type === 'staff') {
+                continue;
+            }
+            $review = self::review_one_guest_order($order, $type, $identities);
+            foreach (array('matched', 'unmatched', 'uncertain') as $bucket) {
+                foreach ($review[$bucket] as $row) {
+                    $out[$bucket][] = $row;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * @param object $order
+     * @param string $type family|individual
+     * @param array  $identities
+     * @return array{matched:array,unmatched:array,uncertain:array,parent_1:?array}
+     */
+    public static function review_one_guest_order($order, $type, array $identities) {
+        $out = array(
+            'matched'   => array(),
+            'unmatched' => array(),
+            'uncertain' => array(),
+            'parent_1'  => null,
+        );
+        $parties = self::guest_order_parties($order, $type);
+        foreach ($parties as $party) {
+            $hit = self::match_checkout_party($party, $identities);
+            $row = array_merge($party, $hit);
+            if ($party['slot'] === 'parent_1') {
+                $out['parent_1'] = $row;
+            }
+            if ($hit['status'] === 'confident' && !empty($hit['user_id'])) {
+                $out['matched'][] = $row;
+                foreach ((array) (isset($hit['extra_user_ids']) ? $hit['extra_user_ids'] : array()) as $extra) {
+                    $out['matched'][] = array_merge($row, array(
+                        'user_id'    => (int) $extra['user_id'],
+                        'user_email' => (string) $extra['user_email'],
+                        'reason'     => 'name_same_person_accounts',
+                    ));
+                }
+            } elseif ($hit['status'] === 'uncertain') {
+                $out['uncertain'][] = $row;
+            } else {
+                $out['unmatched'][] = $row;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Parent 1 (billing) and, for Family, Parent 2 from the line item.
+     *
+     * @return array<int, array{slot:string,email:string,first:string,last:string,name:string,order_id:int,type:string,paid_at:string}>
+     */
+    public static function guest_order_parties($order, $type) {
+        $order_id = method_exists($order, 'get_id') ? (int) $order->get_id() : 0;
+        $paid_at = self::order_paid_at($order);
+        $first = method_exists($order, 'get_billing_first_name') ? trim((string) $order->get_billing_first_name()) : '';
+        $last = method_exists($order, 'get_billing_last_name') ? trim((string) $order->get_billing_last_name()) : '';
+        $email = method_exists($order, 'get_billing_email') ? trim((string) $order->get_billing_email()) : '';
+        $name = trim($first . ' ' . $last);
+        $parties = array(
+            array(
+                'slot'     => 'parent_1',
+                'email'    => $email,
+                'first'    => $first,
+                'last'     => $last,
+                'name'     => $name,
+                'order_id' => $order_id,
+                'type'     => $type,
+                'paid_at'  => $paid_at,
+            ),
+        );
+        if ($type !== 'family' || !method_exists($order, 'get_items')) {
+            return $parties;
+        }
+        foreach ($order->get_items() as $item) {
+            if (self::item_membership_type($item) !== 'family') {
+                continue;
+            }
+            $p2 = self::parent_2_from_order_item($order, $item, 0);
+            if ($p2['name'] === '' && $p2['email'] === '') {
+                break;
+            }
+            $split = self::split_person_name($p2['name']);
+            $parties[] = array(
+                'slot'     => 'parent_2',
+                'email'    => trim((string) $p2['email']),
+                'first'    => $split['first'],
+                'last'     => $split['last'],
+                'name'     => trim((string) $p2['name']),
+                'order_id' => $order_id,
+                'type'     => $type,
+                'paid_at'  => $paid_at,
+            );
+            break;
+        }
+        return $parties;
+    }
+
+    /**
+     * Match one checkout adult against known parent identities.
+     *
+     * Email is preferred. Stripe/checkout email may differ from the
+     * WordPress email, so a close first+last name is enough when it
+     * points at exactly one parent. An email hit whose first/last name
+     * clearly disagrees is left uncertain.
+     *
+     * @param array $party
+     * @param array $identities
+     * @return array{status:string,user_id:int,user_email:string,reason:string}
+     */
+    public static function match_checkout_party(array $party, array $identities) {
+        $empty = array(
+            'status'         => 'none',
+            'user_id'        => 0,
+            'user_email'     => '',
+            'reason'         => 'no_match',
+            'extra_user_ids' => array(),
+        );
+        $email_hits = array();
+        $name_hits = array();
+        $conflicts = array();
+
+        foreach ($identities as $identity) {
+            $grade = self::identity_match_status($party, $identity);
+            if ($grade === 'none') {
+                continue;
+            }
+            $id = (int) $identity['user_id'];
+            if ($grade === 'uncertain') {
+                $conflicts[$id] = $identity;
+                continue;
+            }
+            if (!empty($grade['email'])) {
+                $email_hits[$id] = $identity;
+            }
+            if (!empty($grade['name'])) {
+                $name_hits[$id] = $identity;
+            }
+        }
+
+        if (count($email_hits) === 1) {
+            $id = (int) array_key_first($email_hits);
+            $identity = $email_hits[$id];
+            return array(
+                'status'         => 'confident',
+                'user_id'        => $id,
+                'user_email'     => (string) $identity['email'],
+                'reason'         => isset($name_hits[$id]) ? 'email_and_name' : 'email',
+                'extra_user_ids' => array(),
+            );
+        }
+        if (count($email_hits) > 1) {
+            return array(
+                'status'         => 'uncertain',
+                'user_id'        => 0,
+                'user_email'     => '',
+                'reason'         => 'multiple_email_matches',
+                'extra_user_ids' => array(),
+            );
+        }
+        if (!empty($conflicts)) {
+            return array(
+                'status'         => 'uncertain',
+                'user_id'        => 0,
+                'user_email'     => '',
+                'reason'         => 'email_name_conflict',
+                'extra_user_ids' => array(),
+            );
+        }
+        if (count($name_hits) === 1) {
+            $id = (int) array_key_first($name_hits);
+            $identity = $name_hits[$id];
+            return array(
+                'status'         => 'confident',
+                'user_id'        => $id,
+                'user_email'     => (string) $identity['email'],
+                'reason'         => 'name',
+                'extra_user_ids' => array(),
+            );
+        }
+        if (count($name_hits) > 1) {
+            if (self::identities_are_same_person($name_hits)) {
+                $chosen = self::prefer_identity_for_link($name_hits);
+                $chosen_id = (int) $chosen['user_id'];
+                $extras = array();
+                foreach ($name_hits as $id => $identity) {
+                    if ((int) $id !== $chosen_id) {
+                        $extras[] = array(
+                            'user_id'    => (int) $identity['user_id'],
+                            'user_email' => (string) $identity['email'],
+                        );
+                    }
+                }
+                return array(
+                    'status'         => 'confident',
+                    'user_id'        => $chosen_id,
+                    'user_email'     => (string) $chosen['email'],
+                    'reason'         => 'name_same_person_accounts',
+                    'extra_user_ids' => $extras,
+                );
+            }
+            return array(
+                'status'         => 'uncertain',
+                'user_id'        => 0,
+                'user_email'     => '',
+                'reason'         => 'multiple_name_matches',
+                'extra_user_ids' => array(),
+            );
+        }
+        return $empty;
+    }
+
+    /**
+     * @return array{email?:bool,name?:bool}|'uncertain'|'none'
+     */
+    public static function identity_match_status(array $party, array $identity) {
+        $email_ok = self::emails_are_same(
+            isset($party['email']) ? $party['email'] : '',
+            isset($identity['email']) ? $identity['email'] : ''
+        );
+        $name_ok = self::names_are_close(
+            isset($party['first']) ? $party['first'] : '',
+            isset($party['last']) ? $party['last'] : '',
+            isset($identity['first']) ? $identity['first'] : '',
+            isset($identity['last']) ? $identity['last'] : '',
+            isset($identity['display']) ? $identity['display'] : ''
+        );
+        $last_conflict = self::last_names_conflict(
+            isset($party['last']) ? $party['last'] : '',
+            isset($identity['last']) ? $identity['last'] : '',
+            isset($identity['display']) ? $identity['display'] : ''
+        );
+
+        // Email is strong. A different first name (Divya vs Vineela) is
+        // not enough to reject when the last name still lines up.
+        if ($email_ok && $last_conflict) {
+            return 'uncertain';
+        }
+        $out = array();
+        if ($email_ok) {
+            $out['email'] = true;
+        }
+        if ($name_ok) {
+            $out['name'] = true;
+        }
+        return $out === array() ? 'none' : $out;
+    }
+
+    public static function emails_are_same($a, $b) {
+        $a = self::normalize_email($a);
+        $b = self::normalize_email($b);
+        return $a !== '' && $a === $b;
+    }
+
+    public static function normalize_email($email) {
+        return strtolower(trim((string) $email));
+    }
+
+    public static function normalize_name_part($value) {
+        $value = strtolower(trim((string) $value));
+        if (function_exists('remove_accents')) {
+            $value = remove_accents($value);
+        }
+        $value = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value);
+        $value = preg_replace('/\s+/u', ' ', $value);
+        return trim((string) $value);
+    }
+
+    /**
+     * @return array{first:string,last:string}
+     */
+    public static function split_person_name($name) {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return array('first' => '', 'last' => '');
+        }
+        $parts = preg_split('/\s+/', $name);
+        if (count($parts) === 1) {
+            return array('first' => $parts[0], 'last' => '');
+        }
+        $last = array_pop($parts);
+        return array(
+            'first' => implode(' ', $parts),
+            'last'  => $last,
+        );
+    }
+
+    public static function names_are_close($a_first, $a_last, $b_first, $b_last, $b_display = '') {
+        $a_first = self::normalize_name_part($a_first);
+        $a_last = self::normalize_name_part($a_last);
+        $b_first = self::normalize_name_part($b_first);
+        $b_last = self::normalize_name_part($b_last);
+        if ($b_first === '' && $b_last === '' && trim((string) $b_display) !== '') {
+            $split = self::split_person_name($b_display);
+            $b_first = self::normalize_name_part($split['first']);
+            $b_last = self::normalize_name_part($split['last']);
+        }
+        if ($a_last === '' || $b_last === '') {
+            return false;
+        }
+        if (!self::name_parts_close($a_last, $b_last)) {
+            return false;
+        }
+        if ($a_first === '' || $b_first === '') {
+            return true;
+        }
+        return self::name_parts_close($a_first, $b_first);
+    }
+
+    public static function last_names_conflict($a_last, $b_last, $b_display = '') {
+        $a_last = self::normalize_name_part($a_last);
+        $b_last = self::normalize_name_part($b_last);
+        if ($b_last === '' && trim((string) $b_display) !== '') {
+            $split = self::split_person_name($b_display);
+            $b_last = self::normalize_name_part($split['last']);
+        }
+        if ($a_last === '' || $b_last === '') {
+            return false;
+        }
+        return !self::name_parts_close($a_last, $b_last);
+    }
+
+    /**
+     * Common first-name nicknames that are not string prefixes
+     * (Nick / Nicholas, Becky / Rebecca).
+     */
+    public static function name_aliases_close($a, $b) {
+        $a = self::normalize_name_part($a);
+        $b = self::normalize_name_part($b);
+        if ($a === '' || $b === '') {
+            return false;
+        }
+        $map = array(
+            'nick'     => array('nicholas', 'nicolas'),
+            'nicholas' => array('nick'),
+            'nicolas'  => array('nick', 'nicholas'),
+            'becky'    => array('rebecca', 'rebekah'),
+            'rebecca'  => array('becky'),
+            'rebekah'  => array('becky', 'rebecca'),
+        );
+        return (isset($map[$a]) && in_array($b, $map[$a], true))
+            || (isset($map[$b]) && in_array($a, $map[$b], true));
+    }
+
+    /**
+     * True when every identity is the same first+last (duplicate accounts).
+     *
+     * @param array<int, array> $identities
+     */
+    public static function identities_are_same_person(array $identities) {
+        $list = array_values($identities);
+        if (count($list) < 2) {
+            return false;
+        }
+        $has_sso = false;
+        foreach ($list as $identity) {
+            $email = self::normalize_email(isset($identity['email']) ? $identity['email'] : '');
+            if (substr($email, -strlen('@wilderptsa.net')) === '@wilderptsa.net') {
+                $has_sso = true;
+                break;
+            }
+        }
+        if (!$has_sso) {
+            return false;
+        }
+        $first = $list[0];
+        for ($i = 1; $i < count($list); $i++) {
+            $other = $list[$i];
+            if (!self::names_are_close(
+                isset($first['first']) ? $first['first'] : '',
+                isset($first['last']) ? $first['last'] : '',
+                isset($other['first']) ? $other['first'] : '',
+                isset($other['last']) ? $other['last'] : '',
+                isset($other['display']) ? $other['display'] : ''
+            )) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Prefer a personal email over an @wilderptsa.net SSO mailbox
+     * when the same person has more than one account.
+     *
+     * @param array<int, array> $identities
+     * @return array
+     */
+    public static function prefer_identity_for_link(array $identities) {
+        $list = array_values($identities);
+        foreach ($list as $identity) {
+            $email = self::normalize_email(isset($identity['email']) ? $identity['email'] : '');
+            if ($email !== '' && substr($email, -strlen('@wilderptsa.net')) !== '@wilderptsa.net') {
+                return $identity;
+            }
+        }
+        return $list[0];
+    }
+
+    public static function names_conflict($a_first, $a_last, $b_first, $b_last, $b_display = '') {
+        $a_first = self::normalize_name_part($a_first);
+        $a_last = self::normalize_name_part($a_last);
+        $b_first = self::normalize_name_part($b_first);
+        $b_last = self::normalize_name_part($b_last);
+        if ($b_first === '' && $b_last === '' && trim((string) $b_display) !== '') {
+            $split = self::split_person_name($b_display);
+            $b_first = self::normalize_name_part($split['first']);
+            $b_last = self::normalize_name_part($split['last']);
+        }
+        if ($a_last === '' || $b_last === '') {
+            return false;
+        }
+        if (self::names_are_close($a_first, $a_last, $b_first, $b_last, '')) {
+            return false;
+        }
+        return true;
+    }
+
+    public static function name_parts_close($a, $b) {
+        $a = self::normalize_name_part($a);
+        $b = self::normalize_name_part($b);
+        if ($a === '' || $b === '') {
+            return false;
+        }
+        if ($a === $b) {
+            return true;
+        }
+        $a_compact = str_replace(' ', '', $a);
+        $b_compact = str_replace(' ', '', $b);
+        if ($a_compact === $b_compact) {
+            return true;
+        }
+        if (strlen($a) >= 3 && strlen($b) >= 3 && (strpos($a, $b) === 0 || strpos($b, $a) === 0)) {
+            return true;
+        }
+        if (self::name_aliases_close($a, $b)) {
+            return true;
+        }
+        $a_tokens = preg_split('/\s+/', $a);
+        $b_tokens = preg_split('/\s+/', $b);
+        foreach ($a_tokens as $a_tok) {
+            foreach ($b_tokens as $b_tok) {
+                if (strlen($a_tok) < 3 || strlen($b_tok) < 3) {
+                    continue;
+                }
+                if ($a_tok === $b_tok || strpos($a_tok, $b_tok) === 0 || strpos($b_tok, $a_tok) === 0) {
+                    return true;
+                }
+            }
+        }
+        if (function_exists('similar_text')) {
+            similar_text($a, $b, $pct);
+            return $pct >= 88.0;
+        }
+        return false;
+    }
+
+    /**
+     * Parent (and parent-like) accounts we can attach a guest sale to.
+     *
+     * @return array<int, array{user_id:int,email:string,first:string,last:string,display:string}>
+     */
+    public static function parent_match_identities() {
+        if (!function_exists('get_users')) {
+            return array();
+        }
+        $users = get_users(array(
+            'role__in' => array('parent', 'alumni', 'customer'),
+            'fields'   => array('ID', 'user_email', 'display_name'),
+            'number'   => -1,
+        ));
+        $out = array();
+        foreach ((array) $users as $user) {
+            $uid = (int) $user->ID;
+            $first = function_exists('get_user_meta') ? trim((string) get_user_meta($uid, 'first_name', true)) : '';
+            $last = function_exists('get_user_meta') ? trim((string) get_user_meta($uid, 'last_name', true)) : '';
+            $out[] = array(
+                'user_id' => $uid,
+                'email'   => (string) $user->user_email,
+                'first'   => $first,
+                'last'    => $last,
+                'display' => (string) $user->display_name,
+            );
+        }
+        return $out;
+    }
+
+    private static function order_paid_at($order) {
+        if (method_exists($order, 'get_date_paid') && $order->get_date_paid()) {
+            $paid = $order->get_date_paid();
+            if (is_object($paid) && method_exists($paid, 'date')) {
+                return $paid->date('Y-m-d H:i:s');
+            }
+            return (string) $paid;
+        }
+        if (method_exists($order, 'get_date_created') && $order->get_date_created()) {
+            $created = $order->get_date_created();
+            if (is_object($created) && method_exists($created, 'date')) {
+                return $created->date('Y-m-d H:i:s');
+            }
+            return (string) $created;
+        }
+        return '';
+    }
+
+    /**
+     * Point a guest order at the matched Parent 1 account so it shows
+     * on My Account. No-op when Woo cannot save, or the order already
+     * has a customer.
+     */
+    public static function maybe_link_guest_order($order, $user_id) {
+        $user_id = (int) $user_id;
+        if ($user_id < 1 || !is_object($order)) {
+            return false;
+        }
+        if (method_exists($order, 'get_user_id') && (int) $order->get_user_id() > 0) {
+            return false;
+        }
+        if (!method_exists($order, 'set_customer_id') || !method_exists($order, 'save')) {
+            return false;
+        }
+        $order->set_customer_id($user_id);
+        $order->save();
+        return true;
+    }
+
+    /**
+     * Welcome email for a parent we are about to create from a guest
+     * membership checkout. Preview-safe: does not create a user.
+     *
+     * @param array $vars
+     * @return array{subject:string,html:string,text:string}
+     */
+    public static function build_guest_account_email(array $vars) {
+        $site = isset($vars['site_name']) ? (string) $vars['site_name'] : 'Wilder PTSA';
+        $greeting_name = isset($vars['first_name']) && trim((string) $vars['first_name']) !== ''
+            ? trim((string) $vars['first_name'])
+            : 'there';
+        $username = isset($vars['username']) ? (string) $vars['username'] : '';
+        $password = isset($vars['password']) ? (string) $vars['password'] : '';
+        $login_url = isset($vars['login_url']) ? (string) $vars['login_url'] : 'https://wilderptsa.net/my-account/';
+        $support = isset($vars['support_email']) ? (string) $vars['support_email'] : 'info@wilderptsa.net';
+        $preview = !empty($vars['preview']);
+
+        $subject = $preview
+            ? sprintf('[PREVIEW] Your %s account is ready', $site)
+            : sprintf('Your %s account is ready', $site);
+
+        $preview_banner = $preview
+            ? '<p style="margin:0 0 16px 0;padding:10px 12px;background:#fff4ce;border:1px solid #dba617;border-radius:4px;font-size:13px;color:#3c434a;"><strong>Preview only.</strong> This is not a live account. No parent user was created. The username and password below are samples.</p>'
+            : '';
+
+        $site_h = htmlspecialchars($site, ENT_QUOTES, 'UTF-8');
+        $greet_h = htmlspecialchars($greeting_name, ENT_QUOTES, 'UTF-8');
+        $user_h = htmlspecialchars($username, ENT_QUOTES, 'UTF-8');
+        $pass_h = htmlspecialchars($password, ENT_QUOTES, 'UTF-8');
+        $url_h = htmlspecialchars($login_url, ENT_QUOTES, 'UTF-8');
+        $support_h = htmlspecialchars($support, ENT_QUOTES, 'UTF-8');
+
+        $html = <<<HTML
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);overflow:hidden;">
+        <tr><td style="padding:32px 32px 16px 32px;">
+          {$preview_banner}
+          <h1 style="margin:0 0 12px 0;font-size:22px;color:#1d2327;">Your {$site_h} account is ready</h1>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">Hi {$greet_h},</p>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">
+            Thank you for joining the {$site_h}. We created an account from your membership checkout so you can sign in and use your member benefits.
+          </p>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px 0;border-collapse:collapse;">
+            <tr>
+              <td style="padding:6px 16px 6px 0;font-size:15px;color:#646970;">Username</td>
+              <td style="padding:6px 0;font-size:15px;color:#1d2327;"><strong>{$user_h}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding:6px 16px 6px 0;font-size:15px;color:#646970;">Password</td>
+              <td style="padding:6px 0;font-size:15px;color:#1d2327;"><code style="display:inline-block;padding:6px 10px;background:#f1f3f5;border:1px solid #d1d5db;border-radius:4px;font-family:Consolas,Menlo,'SF Mono',monospace;font-size:16px;letter-spacing:0.4px;">{$pass_h}</code></td>
+            </tr>
+          </table>
+          <p style="text-align:center;margin:24px 0;">
+            <a href="{$url_h}" style="display:inline-block;padding:14px 28px;background:#0078d4;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Sign in</a>
+          </p>
+          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.5;color:#3c434a;">With this account you can:</p>
+          <ol style="margin:0 0 16px 24px;padding:0;font-size:15px;line-height:1.6;color:#3c434a;">
+            <li>Save your family profile for faster checkout next time</li>
+            <li>Get member pricing in the store</li>
+            <li>Join the member parent directory (optional — you choose whether to be listed)</li>
+          </ol>
+          <p style="margin:0 0 8px 0;font-size:15px;line-height:1.5;color:#3c434a;">
+            Please change this password after you sign in. If the button does not work, open:<br>
+            <span style="word-break:break-all;color:#0073aa;">{$url_h}</span>
+          </p>
+        </td></tr>
+        <tr><td style="padding:16px 32px 32px 32px;border-top:1px solid #e0e0e0;">
+          <p style="margin:0;font-size:12px;color:#646970;line-height:1.5;">
+            Questions? Email <a href="mailto:{$support_h}" style="color:#0073aa;">{$support_h}</a>.
+            <br>You are receiving this because you purchased a {$site_h} membership.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+HTML;
+
+        $text = ($preview ? "[PREVIEW — not a live account]\n\n" : '')
+            . "Your {$site} account is ready\n\n"
+            . "Hi {$greeting_name},\n\n"
+            . "Thank you for joining the {$site}. We created an account from your membership checkout so you can sign in and use your member benefits.\n\n"
+            . "Username: {$username}\n"
+            . "Password: {$password}\n"
+            . "Sign in: {$login_url}\n\n"
+            . "With this account you can:\n"
+            . "1. Save your family profile for faster checkout next time\n"
+            . "2. Get member pricing in the store\n"
+            . "3. Join the member parent directory (optional — you choose whether to be listed)\n\n"
+            . "Please change this password after you sign in.\n\n"
+            . "Questions? Email {$support}.\n";
+
+        return array(
+            'subject' => $subject,
+            'html'    => $html,
+            'text'    => $text,
+        );
+    }
+
+    /**
+     * Sample payload for the operator preview. Does not create a user.
+     *
+     * @return array
+     */
+    public static function guest_account_preview_sample() {
+        $password = function_exists('wp_generate_password')
+            ? wp_generate_password(14, true, false)
+            : 'Test-' . substr(md5(uniqid('', true)), 0, 10);
+        return array(
+            'site_name'     => function_exists('get_bloginfo') ? get_bloginfo('name') : 'Wilder PTSA',
+            'first_name'    => 'Robert',
+            'username'      => 'rjbaummer@gmail.com',
+            'password'      => $password,
+            'login_url'     => 'https://wilderptsa.net/my-account/',
+            'support_email' => 'info@wilderptsa.net',
+            'preview'       => true,
+        );
+    }
+
+    /**
+     * Send the preview welcome to an operator inbox. No WordPress user
+     * is created or updated.
+     *
+     * @param string $to
+     * @param array|null $vars
+     * @return array{ok:bool,to:string,subject:string,username:string,password:string,error:string}
+     */
+    public static function send_guest_account_preview($to, $vars = null) {
+        $to = function_exists('sanitize_email') ? sanitize_email($to) : strtolower(trim((string) $to));
+        $out = array(
+            'ok'       => false,
+            'to'       => $to,
+            'subject'  => '',
+            'username' => '',
+            'password' => '',
+            'error'    => '',
+        );
+        if ($to === '' || (function_exists('is_email') && !is_email($to))) {
+            $out['error'] = 'invalid_email';
+            return $out;
+        }
+        $vars = is_array($vars) ? $vars : self::guest_account_preview_sample();
+        $vars['preview'] = true;
+        $email = self::build_guest_account_email($vars);
+        $out['subject'] = $email['subject'];
+        $out['username'] = isset($vars['username']) ? (string) $vars['username'] : '';
+        $out['password'] = isset($vars['password']) ? (string) $vars['password'] : '';
+
+        if (!function_exists('wp_mail')) {
+            $out['error'] = 'wp_mail_unavailable';
+            return $out;
+        }
+        $headers = array(
+            'Content-Type: text/html; charset=UTF-8',
+            'From: Wilder PTSA <info@wilderptsa.net>',
+        );
+        $sent = wp_mail($to, $email['subject'], $email['html'], $headers);
+        $out['ok'] = (bool) $sent;
+        if (!$sent) {
+            $out['error'] = 'wp_mail_false';
+        }
+        return $out;
+    }
+
+    /**
+     * Real (non-preview) welcome to a newly created guest-membership parent.
+     *
+     * @param string $to
+     * @param array  $vars
+     * @return array{ok:bool,to:string,subject:string,error:string}
+     */
+    public static function send_guest_account_email($to, array $vars) {
+        $to = function_exists('sanitize_email') ? sanitize_email($to) : strtolower(trim((string) $to));
+        $vars['preview'] = false;
+        $email = self::build_guest_account_email($vars);
+        $out = array(
+            'ok'      => false,
+            'to'      => $to,
+            'subject' => $email['subject'],
+            'error'   => '',
+        );
+        if ($to === '' || (function_exists('is_email') && !is_email($to))) {
+            $out['error'] = 'invalid_email';
+            return $out;
+        }
+        if (!function_exists('wp_mail')) {
+            $out['error'] = 'wp_mail_unavailable';
+            return $out;
+        }
+        $headers = array(
+            'Content-Type: text/html; charset=UTF-8',
+            'From: Wilder PTSA <info@wilderptsa.net>',
+        );
+        $sent = wp_mail($to, $email['subject'], $email['html'], $headers);
+        $out['ok'] = (bool) $sent;
+        if (!$sent) {
+            $out['error'] = 'wp_mail_false';
+        }
+        return $out;
+    }
+
+    /**
+     * Normalize and gate a create-account batch. Does not write users.
+     *
+     * @param array $candidates
+     * @param array $existing_emails lowercase emails that already have a WP user
+     * @return array{ok:bool,ready:array,skipped:array,errors:array}
+     */
+    public static function validate_guest_account_candidates(array $candidates, array $existing_emails = array()) {
+        $existing = array();
+        foreach ($existing_emails as $email) {
+            $n = self::normalize_email($email);
+            if ($n !== '') {
+                $existing[$n] = true;
+            }
+        }
+        $ready = array();
+        $skipped = array();
+        $errors = array();
+        $seen = array();
+
+        foreach ($candidates as $raw) {
+            $email = self::normalize_email(isset($raw['email']) ? $raw['email'] : '');
+            $first = trim((string) (isset($raw['first']) ? $raw['first'] : ''));
+            $last = trim((string) (isset($raw['last']) ? $raw['last'] : ''));
+            if ($last === '-') {
+                $last = '';
+            }
+            $name = trim((string) (isset($raw['name']) ? $raw['name'] : ($first . ' ' . $last)));
+            $order_id = isset($raw['order_id']) ? (int) $raw['order_id'] : 0;
+            $row = array(
+                'email'      => $email,
+                'first'      => $first,
+                'last'       => $last,
+                'name'       => $name,
+                'order_id'   => $order_id,
+                'link_order' => !empty($raw['link_order']),
+                'slot'       => isset($raw['slot']) ? (string) $raw['slot'] : '',
+            );
+            if ($email === '' || (function_exists('is_email') && !is_email($email))) {
+                $row['reason'] = 'missing_or_invalid_email';
+                $skipped[] = $row;
+                continue;
+            }
+            if (isset($existing[$email])) {
+                $row['reason'] = 'email_already_has_account';
+                $skipped[] = $row;
+                continue;
+            }
+            if (isset($seen[$email])) {
+                $errors[] = array(
+                    'email'  => $email,
+                    'reason' => 'duplicate_email_in_batch',
+                );
+                continue;
+            }
+            $seen[$email] = true;
+            $ready[] = $row;
+        }
+
+        return array(
+            'ok'      => empty($errors),
+            'ready'   => $ready,
+            'skipped' => $skipped,
+            'errors'  => $errors,
+        );
+    }
+
+    /**
+     * @param int $count
+     * @return string[]
+     */
+    public static function generate_unique_passwords($count) {
+        $count = max(0, (int) $count);
+        $out = array();
+        $guard = 0;
+        while (count($out) < $count && $guard < ($count * 20) + 20) {
+            $guard++;
+            $password = function_exists('wp_generate_password')
+                ? wp_generate_password(14, true, false)
+                : ('Acct-' . substr(md5(uniqid((string) $guard, true)), 0, 10));
+            if ($password === '' || isset($out[$password])) {
+                continue;
+            }
+            $out[$password] = true;
+        }
+        return array_keys($out);
+    }
+
+    /**
+     * @param array<int, array{email?:string,password?:string}> $rows
+     * @return array{ok:bool,unique_emails:bool,unique_passwords:bool,email_count:int,password_count:int,errors:array}
+     */
+    public static function assert_unique_credentials(array $rows) {
+        $emails = array();
+        $passwords = array();
+        $errors = array();
+        foreach ($rows as $row) {
+            $email = self::normalize_email(isset($row['email']) ? $row['email'] : '');
+            $password = (string) (isset($row['password']) ? $row['password'] : '');
+            if ($email === '') {
+                $errors[] = 'empty_email';
+                continue;
+            }
+            if ($password === '') {
+                $errors[] = 'empty_password:' . $email;
+                continue;
+            }
+            if (isset($emails[$email])) {
+                $errors[] = 'duplicate_email:' . $email;
+            }
+            $emails[$email] = true;
+            if (isset($passwords[$password])) {
+                $errors[] = 'duplicate_password:' . $email;
+            }
+            $passwords[$password] = true;
+        }
+        return array(
+            'ok'               => empty($errors),
+            'unique_emails'    => count($emails) === count($rows) && empty($errors),
+            'unique_passwords' => count($passwords) === count($rows) && empty($errors),
+            'email_count'      => count($emails),
+            'password_count'   => count($passwords),
+            'errors'           => $errors,
+        );
+    }
+
+    /**
+     * Create parent accounts for unmatched guest memberships, verify
+     * unique email+password, optionally send the welcome. Mail is never
+     * sent until every created row has been verified.
+     *
+     * @param array $candidates
+     * @param bool  $send
+     * @return array
+     */
+    public static function provision_guest_membership_accounts(array $candidates, $send = false) {
+        $existing = array();
+        foreach ($candidates as $raw) {
+            $email = self::normalize_email(isset($raw['email']) ? $raw['email'] : '');
+            if ($email !== '' && function_exists('get_user_by') && get_user_by('email', $email)) {
+                $existing[] = $email;
+            }
+        }
+        $plan = self::validate_guest_account_candidates($candidates, $existing);
+        $out = array(
+            'ok'          => false,
+            'send'        => (bool) $send,
+            'ready'       => count($plan['ready']),
+            'created'     => array(),
+            'sent'        => array(),
+            'skipped'     => $plan['skipped'],
+            'errors'      => $plan['errors'],
+            'credentials' => array(
+                'unique_emails'    => false,
+                'unique_passwords' => false,
+                'email_count'      => 0,
+                'password_count'   => 0,
+            ),
+            'accounts_verified_before_send' => false,
+        );
+        if (!$plan['ok']) {
+            $out['errors'][] = 'batch_validation_failed';
+            return $out;
+        }
+        if (empty($plan['ready'])) {
+            $out['ok'] = true;
+            return $out;
+        }
+
+        $passwords = self::generate_unique_passwords(count($plan['ready']));
+        if (count($passwords) !== count($plan['ready'])) {
+            $out['errors'][] = 'password_generation_failed';
+            return $out;
+        }
+
+        $created = array();
+        foreach ($plan['ready'] as $i => $row) {
+            $password = $passwords[$i];
+            $made = self::create_guest_membership_parent($row, $password);
+            if (!empty($made['error'])) {
+                $out['errors'][] = $made['error'] . ':' . $row['email'];
+                continue;
+            }
+            $created[] = $made;
+        }
+
+        $cred = self::assert_unique_credentials($created);
+        $out['credentials'] = $cred;
+        $out['created'] = array_map(function ($row) {
+            return array(
+                'user_id'    => (int) $row['user_id'],
+                'email'      => $row['email'],
+                'username'   => $row['username'],
+                'first'      => $row['first'],
+                'last'       => $row['last'],
+                'order_id'   => (int) $row['order_id'],
+                'linked'     => !empty($row['linked']),
+                'verified'   => !empty($row['verified']),
+            );
+        }, $created);
+
+        $all_verified = !empty($created) && $cred['ok'];
+        foreach ($created as $row) {
+            if (empty($row['verified']) || (int) $row['user_id'] < 1) {
+                $all_verified = false;
+            }
+        }
+        $out['accounts_verified_before_send'] = $all_verified;
+
+        if (!$all_verified) {
+            $out['errors'][] = 'accounts_not_verified';
+            return $out;
+        }
+
+        $out['ok'] = true;
+        if (!$send) {
+            return $out;
+        }
+
+        foreach ($created as $row) {
+            $mail = self::send_guest_account_email($row['email'], array(
+                'site_name'     => function_exists('get_bloginfo') ? get_bloginfo('name') : 'Wilder PTSA',
+                'first_name'    => $row['first'] !== '' ? $row['first'] : $row['name'],
+                'username'      => $row['username'],
+                'password'      => $row['password'],
+                'login_url'     => 'https://wilderptsa.net/my-account/',
+                'support_email' => 'info@wilderptsa.net',
+                'preview'       => false,
+            ));
+            if (!empty($mail['ok']) && function_exists('update_user_meta')) {
+                update_user_meta((int) $row['user_id'], '_pta_guest_membership_welcome_sent', gmdate('Y-m-d\TH:i:s\Z'));
+            }
+            $out['sent'][] = array(
+                'user_id' => (int) $row['user_id'],
+                'email'   => $row['email'],
+                'ok'      => !empty($mail['ok']),
+                'error'   => $mail['error'],
+            );
+        }
+        if (function_exists('update_option')) {
+            self::flush_member_map();
+        }
+        return $out;
+    }
+
+    /**
+     * @param array  $row
+     * @param string $password
+     * @return array
+     */
+    public static function create_guest_membership_parent(array $row, $password) {
+        $email = self::normalize_email(isset($row['email']) ? $row['email'] : '');
+        $out = array(
+            'user_id'  => 0,
+            'email'    => $email,
+            'username' => $email,
+            'password' => $password,
+            'first'    => isset($row['first']) ? trim((string) $row['first']) : '',
+            'last'     => isset($row['last']) ? trim((string) $row['last']) : '',
+            'name'     => isset($row['name']) ? trim((string) $row['name']) : '',
+            'order_id' => isset($row['order_id']) ? (int) $row['order_id'] : 0,
+            'linked'   => false,
+            'verified' => false,
+            'error'    => '',
+        );
+        if ($email === '' || $password === '') {
+            $out['error'] = 'missing_email_or_password';
+            return $out;
+        }
+        if (!function_exists('wp_insert_user')) {
+            $out['error'] = 'wp_insert_user_unavailable';
+            return $out;
+        }
+        if (function_exists('get_user_by') && get_user_by('email', $email)) {
+            $out['error'] = 'email_already_has_account';
+            return $out;
+        }
+
+        $login = self::guest_account_user_login($email);
+        $display = $out['name'] !== '' ? $out['name'] : trim($out['first'] . ' ' . $out['last']);
+        if ($display === '') {
+            $display = $email;
+        }
+        $user_id = wp_insert_user(array(
+            'user_login'   => $login,
+            'user_email'   => $email,
+            'user_pass'    => $password,
+            'first_name'   => $out['first'],
+            'last_name'    => $out['last'],
+            'display_name' => $display,
+            'role'         => 'parent',
+        ));
+        if (is_wp_error($user_id)) {
+            $out['error'] = $user_id->get_error_message();
+            return $out;
+        }
+        $out['user_id'] = (int) $user_id;
+
+        if (function_exists('delete_user_meta') && class_exists('Azure_Parent_Role')) {
+            delete_user_meta($out['user_id'], Azure_Parent_Role::META_LOGIN_DISABLED);
+            update_user_meta($out['user_id'], Azure_Parent_Role::META_FORCE_PW_RESET, 1);
+        }
+        if (function_exists('update_user_meta')) {
+            update_user_meta($out['user_id'], '_pta_guest_membership_account', 1);
+            if (class_exists('Azure_Parent_Activation')) {
+                update_user_meta($out['user_id'], Azure_Parent_Activation::META_IMPORT_SOURCE, 'membership_guest');
+            }
+        }
+
+        $should_link = !empty($row['link_order']);
+        if ($should_link && $out['order_id'] > 0 && function_exists('wc_get_order')) {
+            $order = wc_get_order($out['order_id']);
+            if ($order) {
+                $out['linked'] = self::maybe_link_guest_order($order, $out['user_id']);
+            }
+        }
+
+        $user = function_exists('get_user_by') ? get_user_by('id', $out['user_id']) : false;
+        $hash_ok = $user && function_exists('wp_check_password')
+            ? wp_check_password($password, $user->user_pass, $out['user_id'])
+            : (bool) $user;
+        $email_ok = $user && self::emails_are_same($user->user_email, $email);
+        $out['verified'] = $hash_ok && $email_ok && $out['user_id'] > 0;
+        if (!$out['verified']) {
+            $out['error'] = 'account_verify_failed';
+        }
+        return $out;
+    }
+
+    public static function guest_account_user_login($email) {
+        $email = self::normalize_email($email);
+        $local = strstr($email, '@', true);
+        $base = function_exists('sanitize_user')
+            ? sanitize_user(strtolower((string) $local), true)
+            : preg_replace('/[^a-z0-9_]/', '', strtolower((string) $local));
+        if ($base === '' || strlen($base) < 3) {
+            $base = 'parent_' . substr(md5($email), 0, 8);
+        }
+        $username = $base;
+        $i = 1;
+        while (function_exists('username_exists') && username_exists($username)) {
+            $username = $base . $i;
+            $i++;
+            if ($i > 999) {
+                $username = $base . '_' . substr(md5($email . microtime(true)), 0, 6);
+                break;
+            }
+        }
+        return $username;
     }
 
     private static function order_membership_type($order) {
@@ -528,6 +2309,9 @@ class Azure_Membership_Module {
             return '';
         }
         $v = trim((string) $item->get_meta('_pta_' . $field_key));
+        if ($v === '') {
+            $v = trim((string) $item->get_meta('_pta_' . $field_key . '_2'));
+        }
         if ($v !== '') {
             return $v;
         }
@@ -998,12 +2782,13 @@ class Azure_Membership_Module {
                     $name = $user->display_name;
                 }
                 $rows[] = array(
-                    'slot'     => 'parent_1',
-                    'owner_id' => $uid,
-                    'name'     => $name,
-                    'email'    => (string) get_user_meta($uid, self::META_P1_EMAIL, true),
-                    'cell'     => (string) get_user_meta($uid, self::META_P1_CELL, true),
-                    'children' => $children,
+                    'slot'      => 'parent_1',
+                    'owner_id'  => $uid,
+                    'name'      => $name,
+                    'email'     => (string) get_user_meta($uid, self::META_P1_EMAIL, true),
+                    'cell'      => (string) get_user_meta($uid, self::META_P1_CELL, true),
+                    'children'  => $children,
+                    'is_member' => self::user_is_member($uid),
                 );
             }
 
@@ -1013,12 +2798,13 @@ class Azure_Membership_Module {
                     continue;
                 }
                 $rows[] = array(
-                    'slot'     => 'parent_2',
-                    'owner_id' => $uid,
-                    'name'     => $name,
-                    'email'    => (string) get_user_meta($uid, self::META_P2_EMAIL, true),
-                    'cell'     => (string) get_user_meta($uid, self::META_P2_CELL, true),
-                    'children' => $children,
+                    'slot'      => 'parent_2',
+                    'owner_id'  => $uid,
+                    'name'      => $name,
+                    'email'     => (string) get_user_meta($uid, self::META_P2_EMAIL, true),
+                    'cell'      => (string) get_user_meta($uid, self::META_P2_CELL, true),
+                    'children'  => $children,
+                    'is_member' => self::user_is_member($uid),
                 );
             }
         }
@@ -1126,7 +2912,12 @@ class Azure_Membership_Module {
                         data-email="<?php echo esc_attr($row['email']); ?>"
                         data-cell="<?php echo esc_attr($row['cell']); ?>"
                         data-grades="<?php echo esc_attr(implode('|', $grade_bits)); ?>">
-                        <td><?php echo esc_html($row['name']); ?></td>
+                        <td><span class="pta-parent-directory__name"><?php
+                            echo esc_html($row['name']);
+                            if (!empty($row['is_member'])) {
+                                echo self::render_member_badge('pill');
+                            }
+                        ?></span></td>
                         <td><?php echo esc_html($children_text); ?></td>
                         <?php if ($show_email): ?><td><?php echo esc_html($row['email']); ?></td><?php endif; ?>
                         <?php if ($show_cell): ?><td><?php echo esc_html($row['cell']); ?></td><?php endif; ?>
@@ -1257,9 +3048,18 @@ class Azure_Membership_Module {
         return $count;
     }
 
+    /**
+     * Same nonce'd URL the Membership page uses for the WA/LW CSV.
+     */
+    public static function export_csv_url() {
+        $url = admin_url('admin.php?page=azure-plugin-membership&export=csv');
+        return function_exists('wp_nonce_url') ? wp_nonce_url($url, self::NONCE_ADMIN) : $url;
+    }
+
     public function render_dashboard_widget() {
         $stats = self::dashboard_stats();
         $page  = admin_url('admin.php?page=azure-plugin-membership');
+        $export_url = self::export_csv_url();
         ?>
         <style>
             .azure-membership-widget .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
@@ -1293,7 +3093,11 @@ class Azure_Membership_Module {
                 );
                 ?>
             </p>
-            <p style="margin:0;">
+            <p class="azure-membership-widget-actions" style="margin:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                <a class="button button-small button-primary" href="<?php echo esc_url($export_url); ?>">
+                    <span class="dashicons dashicons-download" style="vertical-align:middle;font-size:14px;height:14px;width:14px;line-height:1;margin-right:2px;"></span>
+                    <?php esc_html_e('Export', 'azure-plugin'); ?>
+                </a>
                 <a class="button button-small" href="<?php echo esc_url($page); ?>"><?php esc_html_e('Open Membership', 'azure-plugin'); ?></a>
             </p>
         </div>

@@ -222,7 +222,8 @@ $t->check(
     'click destinations are signed'
 );
 $t->check(
-    strpos($newsletter, 'hash_equals(self::click_signature($url), $sig)') !== false,
+    strpos($newsletter, 'click_signature_matches') !== false
+    && strpos($newsletter, 'click_redirect_allowed') !== false,
     'the click route verifies the signature before redirecting'
 );
 $t->check(

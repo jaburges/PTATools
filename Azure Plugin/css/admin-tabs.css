@@ -148,3 +148,78 @@
 	height: 16px;
 	vertical-align: text-bottom;
 }
+
+/* System → Admin Menu editor */
+.azure-admin-menu-editor {
+	max-width: 640px;
+}
+
+.azure-ame-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	margin: 16px 0 12px;
+}
+
+.azure-ame-toolbar select {
+	min-width: 220px;
+}
+
+.azure-ame-status {
+	color: #1d2327;
+	font-weight: 600;
+}
+
+.azure-ame-sidebar {
+	background: #1d2327;
+	color: #f0f0f1;
+	border-radius: 4px;
+	padding: 8px 0;
+	max-width: 280px;
+}
+
+.azure-ame-item {
+	border-bottom: 1px solid #3c434a;
+}
+
+.azure-ame-item:last-child {
+	border-bottom: none;
+}
+
+.azure-ame-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	margin: 0;
+	color: #f0f0f1;
+	cursor: pointer;
+}
+
+.azure-ame-child {
+	padding-left: 36px;
+	background: #2c3338;
+}
+
+.azure-ame-icon {
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+	color: #8c8f94;
+}
+
+.azure-ame-item.is-hidden > .azure-ame-row,
+.azure-ame-child.is-hidden {
+	opacity: 0.45;
+	color: #a7aaad;
+}
+
+.azure-ame-item.is-hidden .azure-ame-children {
+	opacity: 0.45;
+}
+
+.azure-ame-item.is-locked > .azure-ame-row,
+.azure-ame-child.is-locked {
+	cursor: default;
+}

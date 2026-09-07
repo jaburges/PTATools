@@ -475,6 +475,14 @@ class Azure_Classes_Product_Type {
                 ));
                 ?>
             </div>
+
+            <div class="options_group">
+                <?php
+                if (class_exists('Azure_Membership_Module')) {
+                    Azure_Membership_Module::get_instance()->render_product_discount_field($product_id);
+                }
+                ?>
+            </div>
             
             <!-- Variable Pricing Checkbox -->
             <div class="options_group">

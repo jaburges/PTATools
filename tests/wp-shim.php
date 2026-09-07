@@ -168,6 +168,8 @@ if (!class_exists('Azure_Logger')) {
 function add_action($hook, $cb, $priority = 10, $args = 1) { return true; }
 function add_filter($hook, $cb, $priority = 10, $args = 1) { return true; }
 function __($text, $domain = null) { return $text; }
+function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); }
+function esc_attr($text) { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); }
 
 function wp_timezone() {
     return new DateTimeZone(WP_Shim::$timezone);

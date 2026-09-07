@@ -16,35 +16,116 @@ if (!defined('ABSPATH')) {
 class Azure_Newsletter_Email_Css {
 
     const MARKER = '/* pta-nl-stack-cols */';
+    const GAP_MARKER = '/* pta-nl-col-gap */';
+    const DIVIDER_MARKER = '/* pta-nl-divider */';
+    const COLUMN_GAP_PX = 10;
 
     /**
      * Mobile stack rules for 2- and 3-column newsletter tables.
      * Matches new `.nl-stack-cols` blocks and the older width="50%"
      * / 33% / 34% cells already in saved campaigns.
+     *
+     * Do not zero horizontal padding here. The designer uses 10px cell
+     * padding as the image/text gutter; wiping it on narrow panes (or
+     * when a client applies this query without stacking) makes columns
+     * flush against each other.
      */
     public static function column_stack_css() {
         return '@media only screen and (max-width: 600px) {'
             . ' .nl-stack-cols, .nl-stack-cols tbody, .nl-stack-cols tr { display: block !important; width: 100% !important; }'
-            . ' .nl-stack-cols td, td[width="50%"], td[width="33%"], td[width="34%"] { display: block !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; padding-left: 0 !important; padding-right: 0 !important; }'
-            . ' .nl-stack-cols img, td[width="50%"] img, td[width="33%"] img, td[width="34%"] img { width: 100% !important; max-width: 100% !important; height: auto !important; }'
+            . ' .nl-stack-cols td, .nl-stack-cols .nl-column, .nl-stack-col, td[width="50%"], td[width="33%"], td[width="34%"] { display: block !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }'
+            . ' .nl-stack-cols img, .nl-column img, td[width="50%"] img, td[width="33%"] img, td[width="34%"] img { width: 100% !important; max-width: 100% !important; height: auto !important; }'
             . ' }';
     }
 
     /**
-     * Insert the stack media query once, just before </head>.
+     * Desktop gutter that matches the designer column cells (10px).
+     * Kept as a class rule for clients that honour <style>, and copied
+     * onto the td style attribute before send.
+     */
+    public static function column_gap_css() {
+        $pad = (int) self::COLUMN_GAP_PX;
+        return self::GAP_MARKER
+            . ' .nl-stack-cols .nl-column, .nl-stack-cols .nl-stack-col, td.nl-column, td.nl-stack-col { padding: ' . $pad . 'px; vertical-align: top; }'
+            . ' .nl-stack-cols img, .nl-column img, .nl-stack-col img { display: block; max-width: 100%; height: auto; }';
+    }
+
+    /**
+     * Keep divider rules visible. GrapesJS and email resets often zero
+     * <hr> borders; the block now uses a 2px bgcolor row, and this
+     * restores older <hr> dividers already saved in campaigns.
+     */
+    public static function divider_css() {
+        return self::DIVIDER_MARKER
+            . ' table.nl-divider hr, .nl-divider hr { display: block !important; width: 100% !important; height: 0 !important; margin: 0 !important; border: 0 !important; border-top: 2px solid #dddddd !important; }'
+            . ' table.nl-divider .nl-divider-rule { height: 2px !important; line-height: 2px !important; font-size: 1px !important; background-color: #dddddd !important; border: 0 !important; }';
+    }
+
+    /**
+     * Insert stack + gap CSS and copy the gutter onto column cells.
      */
     public static function ensure_column_stack_style($html) {
         if ($html === '' || $html === null) {
             return $html;
         }
-        if (strpos($html, self::MARKER) !== false) {
+        $html = self::ensure_column_cell_padding($html);
+        $html = self::wrap_image_hrefs($html);
+        if (strpos($html, self::GAP_MARKER) === false) {
+            $html = self::append_style($html, self::column_gap_css());
+        }
+        if (strpos($html, self::MARKER) === false) {
+            $html = self::append_style($html, self::MARKER . self::column_stack_css());
+        }
+        if (strpos($html, self::DIVIDER_MARKER) === false) {
+            $html = self::append_style($html, self::divider_css());
+        }
+        return $html;
+    }
+
+    /**
+     * GrapesJS stores an image "Link URL" as href on the <img>. That is
+     * not clickable in email clients — wrap it in <a> unless it already is.
+     */
+    public static function wrap_image_hrefs($html) {
+        if ($html === '' || $html === null || stripos($html, '<img') === false) {
             return $html;
         }
-        $style = '<style type="text/css">' . self::MARKER . self::column_stack_css() . '</style>';
-        if (stripos($html, '</head>') !== false) {
-            return preg_replace('/<\/head>/i', $style . '</head>', $html, 1);
+        return preg_replace_callback(
+            '/<img\b([^>]*)>/i',
+            array(__CLASS__, 'wrap_one_image_href'),
+            $html
+        );
+    }
+
+    private static function wrap_one_image_href($match) {
+        $attrs = $match[1];
+        if (!preg_match('/\bhref\s*=\s*(["\'])([^"\']*)\1/i', $attrs, $href_match)) {
+            return $match[0];
         }
-        return $style . $html;
+        $url = trim($href_match[2]);
+        if ($url === '' || $url === '#') {
+            return $match[0];
+        }
+        $attrs = preg_replace('/\s*href\s*=\s*(["\'])([^"\']*)\1/i', '', $attrs);
+        return '<a href="' . $url . '" target="_blank" style="text-decoration:none;border:0;"><img' . $attrs . '></a>';
+    }
+
+    /**
+     * Write padding onto .nl-column cells so the gutter survives clients
+     * that strip <style> tags (Outlook) or class-only GrapesJS CSS.
+     */
+    public static function ensure_column_cell_padding($html) {
+        if ($html === '' || $html === null) {
+            return $html;
+        }
+        if (stripos($html, 'nl-column') === false && stripos($html, 'nl-stack-col') === false) {
+            return $html;
+        }
+        return preg_replace_callback(
+            '/<td\b([^>]*)>/i',
+            array(__CLASS__, 'ensure_column_td_padding_attr'),
+            $html
+        );
     }
 
     /**
@@ -111,7 +192,92 @@ class Azure_Newsletter_Email_Css {
                 $html = self::append_style($html, $block);
             }
         }
-        return $html;
+        return self::ensure_column_cell_padding($html);
+    }
+
+    /**
+     * Merge stylesheet declarations onto an inline style without
+     * overwriting properties the designer already set. Appending
+     * `td { padding: 0 }` after `padding: 10px` was collapsing the
+     * image/text gutter in the delivered email.
+     */
+    public static function merge_inline_style($existing, $incoming) {
+        $base = self::parse_declaration_map($existing);
+        $add = self::parse_declaration_map($incoming);
+        $padding_keys = array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
+        $has_padding = false;
+        foreach ($padding_keys as $key) {
+            if (isset($base[$key])) {
+                $has_padding = true;
+                break;
+            }
+        }
+        foreach ($add as $prop => $val) {
+            if (isset($base[$prop])) {
+                continue;
+            }
+            if ($has_padding && in_array($prop, $padding_keys, true)) {
+                continue;
+            }
+            $base[$prop] = $val;
+        }
+        $out = array();
+        foreach ($base as $prop => $val) {
+            $out[] = $prop . ': ' . $val;
+        }
+        return implode('; ', $out);
+    }
+
+    private static function parse_declaration_map($css) {
+        $map = array();
+        foreach (preg_split('/;/', (string) $css) as $part) {
+            $part = trim($part);
+            if ($part === '' || strpos($part, ':') === false) {
+                continue;
+            }
+            $bits = explode(':', $part, 2);
+            $prop = strtolower(trim($bits[0]));
+            $val = trim($bits[1]);
+            if ($prop !== '' && $val !== '') {
+                $map[$prop] = $val;
+            }
+        }
+        return $map;
+    }
+
+    private static function style_has_nonzero_padding($style) {
+        $map = self::parse_declaration_map($style);
+        $keys = array('padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left');
+        foreach ($keys as $key) {
+            if (!isset($map[$key])) {
+                continue;
+            }
+            if (preg_match('/[1-9]/', $map[$key])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function ensure_column_td_padding_attr($match) {
+        $attrs = $match[1];
+        if (!preg_match('/\bclass\s*=\s*([\'"])([^\'"]*)\1/i', $attrs, $class_match)) {
+            return $match[0];
+        }
+        $classes = preg_split('/\s+/', trim($class_match[2]));
+        if (!in_array('nl-column', $classes, true) && !in_array('nl-stack-col', $classes, true)) {
+            return $match[0];
+        }
+        $pad = (int) self::COLUMN_GAP_PX;
+        if (preg_match('/\bstyle\s*=\s*([\'"])(.*?)\1/is', $attrs, $style_match)) {
+            $style = $style_match[2];
+            if (!self::style_has_nonzero_padding($style)) {
+                $style = $style === '' ? 'padding: ' . $pad . 'px' : rtrim($style, '; ') . '; padding: ' . $pad . 'px';
+            }
+            $attrs = preg_replace('/\bstyle\s*=\s*([\'"])(.*?)\1/is', 'style="' . str_replace('"', '&quot;', $style) . '"', $attrs, 1);
+            return '<td' . $attrs . '>';
+        }
+        return '<td' . $attrs . ' style="padding: ' . $pad . 'px;">';
     }
 
     private static function append_style($html, $css) {
@@ -173,11 +339,10 @@ class Azure_Newsletter_Email_Css {
                 }
                 foreach ($elements as $element) {
                     if ($element instanceof DOMElement) {
-                        $existing_style = $element->getAttribute('style');
-                        $new_style = $existing_style
-                            ? rtrim($existing_style, '; ') . '; ' . $properties
-                            : $properties;
-                        $element->setAttribute('style', $new_style);
+                        $element->setAttribute(
+                            'style',
+                            self::merge_inline_style($element->getAttribute('style'), $properties)
+                        );
                     }
                 }
             } catch (Exception $e) {

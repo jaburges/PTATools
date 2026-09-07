@@ -51,11 +51,21 @@ class Azure_PTSA_Page_Templates {
     }
 
     public static function enqueue_styles() {
+        if (get_template() === 'chromenews') {
+            wp_enqueue_style(
+                'ptsa-chromenews-sidebar',
+                AZURE_PLUGIN_URL . 'css/chromenews-sidebar.css',
+                array(),
+                AZURE_PLUGIN_VERSION
+            );
+        }
         if (!is_singular('page')) {
             return;
         }
         $slug = get_page_template_slug();
-        if ($slug !== self::FULL_WIDTH && $slug !== self::SIDEBAR) {
+        $needs_template_css = ($slug === self::FULL_WIDTH || $slug === self::SIDEBAR);
+        $needs_calendar_css = is_page('enrichment-programs');
+        if (!$needs_template_css && !$needs_calendar_css) {
             return;
         }
         wp_enqueue_style(

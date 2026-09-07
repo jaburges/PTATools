@@ -54,6 +54,14 @@ $back_url = admin_url('admin.php?page=azure-plugin-selling&tab=rules');
                     <span class="dashicons dashicons-smartphone"></span>
                 </button>
             </div>
+            <div class="row-move-buttons">
+                <button type="button" class="device-btn" id="btn-row-up" disabled title="<?php esc_attr_e('Move row up', 'azure-plugin'); ?>">
+                    <span class="dashicons dashicons-arrow-up-alt2"></span>
+                </button>
+                <button type="button" class="device-btn" id="btn-row-down" disabled title="<?php esc_attr_e('Move row down', 'azure-plugin'); ?>">
+                    <span class="dashicons dashicons-arrow-down-alt2"></span>
+                </button>
+            </div>
         </div>
         <div class="toolbar-right">
             <span id="save-status"></span>
@@ -107,18 +115,17 @@ $back_url = admin_url('admin.php?page=azure-plugin-selling&tab=rules');
         </div>
 
         <div class="editor-sidebar editor-sidebar-right">
-            <div class="sidebar-tabs">
-                <button type="button" class="sidebar-tab active" data-panel="settings"><?php esc_html_e('Settings', 'azure-plugin'); ?></button>
-                <button type="button" class="sidebar-tab" data-panel="styles"><?php esc_html_e('Styles', 'azure-plugin'); ?></button>
-            </div>
+            <div class="sidebar-header"><?php esc_html_e('Settings', 'azure-plugin'); ?></div>
             <div id="settings-panel" class="sidebar-panel">
+                <div class="selected-element-indicator" id="selected-element-name">
+                    <span class="dashicons dashicons-info-outline"></span>
+                    <span class="element-name"><?php esc_html_e('No element selected', 'azure-plugin'); ?></span>
+                </div>
                 <div class="settings-placeholder">
                     <span class="dashicons dashicons-admin-generic"></span>
-                    <p><?php esc_html_e('Select an element to see its settings', 'azure-plugin'); ?></p>
+                    <p><?php esc_html_e('Select a block to edit text, typography, and spacing.', 'azure-plugin'); ?></p>
                 </div>
                 <div id="traits-container"></div>
-            </div>
-            <div id="styles-panel" class="sidebar-panel" style="display:none;">
                 <div id="styles-container"></div>
             </div>
         </div>
@@ -139,6 +146,8 @@ var newsletterEditorConfig = {
     initialContent: <?php echo wp_json_encode($initial_json); ?>,
     initialHtml: <?php echo wp_json_encode($initial_html); ?>,
     columnStackCss: <?php echo wp_json_encode(Azure_Newsletter_Email_Css::column_stack_css()); ?>,
+    columnGapCss: <?php echo wp_json_encode(Azure_Newsletter_Email_Css::column_gap_css()); ?>,
+    dividerCss: <?php echo wp_json_encode(Azure_Newsletter_Email_Css::divider_css()); ?>,
     templateId: 0,
     templateName: '',
     editTemplateId: 0,

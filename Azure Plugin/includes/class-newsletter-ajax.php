@@ -332,7 +332,7 @@ class Azure_Newsletter_Ajax {
         }
         
         // Clean up HTML for preview - remove any CSS text that leaked into body
-        $clean_html = $this->clean_html_for_preview($newsletter->content_html);
+        $clean_html = $this->clean_html_for_preview(self::expand_email_shortcodes($newsletter->content_html));
         
         // Return all data
         wp_send_json_success(array(
@@ -767,6 +767,7 @@ class Azure_Newsletter_Ajax {
         }
         
         // Clean and prepare HTML for email
+        $html = self::expand_email_shortcodes($html);
         $html = self::prepare_email_html($html);
         
         // Ensure sender class is loaded
@@ -791,6 +792,22 @@ class Azure_Newsletter_Ajax {
         }
     }
     
+    /**
+     * Expand designer shortcode placeholders so test/preview match send.
+     */
+    private static function expand_email_shortcodes($html) {
+        if (!class_exists('Azure_Newsletter_Shortcodes')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-newsletter-shortcodes.php';
+            if (file_exists($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('Azure_Newsletter_Shortcodes')) {
+            return $html;
+        }
+        return Azure_Newsletter_Shortcodes::expand($html);
+    }
+
     /**
      * Prepare HTML for email sending - clean up GrapesJS output
      */
@@ -827,7 +844,7 @@ class Azure_Newsletter_Ajax {
             if (!empty($styles)) {
                 $email_html .= "<style type=\"text/css\">\n";
                 $email_html .= "/* Email Reset */\n";
-                $email_html .= "body, table, td { margin: 0; padding: 0; }\n";
+                $email_html .= "body { margin: 0; padding: 0; }\n";
                 $email_html .= "img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; display: block; }\n";
                 $email_html .= $styles;
                 $email_html .= "</style>\n";
@@ -845,6 +862,16 @@ class Azure_Newsletter_Ajax {
         if (!empty($styles) && preg_match('/<head[^>]*>(.*?)<\/head>/is', $html, $head_match)) {
             $new_head = $head_match[1] . "\n<style type=\"text/css\">\n" . $styles . "\n</style>\n";
             $html = str_replace($head_match[1], $new_head, $html);
+        }
+
+        if (!class_exists('Azure_Newsletter_Email_Css')) {
+            $css_path = AZURE_PLUGIN_PATH . 'includes/class-newsletter-email-css.php';
+            if (file_exists($css_path)) {
+                require_once $css_path;
+            }
+        }
+        if (class_exists('Azure_Newsletter_Email_Css')) {
+            $html = Azure_Newsletter_Email_Css::ensure_column_stack_style($html);
         }
         
         return $html;

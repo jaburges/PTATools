@@ -448,6 +448,18 @@ class Azure_Diagnostics_API {
             'permission_callback' => $auth,
         ));
 
+        register_rest_route($ns, '/diagnostics/membership-guest-preview-email', array(
+            'methods'             => 'POST',
+            'callback'            => array($this, 'route_membership_guest_preview_email'),
+            'permission_callback' => $auth,
+        ));
+
+        register_rest_route($ns, '/diagnostics/membership-guest-provision', array(
+            'methods'             => 'POST',
+            'callback'            => array($this, 'route_membership_guest_provision'),
+            'permission_callback' => $auth,
+        ));
+
         // Idempotent register/refresh of the Parent role. POST writes,
         // GET reports current state. Used to repair sites where the
         // upgrade-path role registration was short-circuited.
@@ -2434,6 +2446,59 @@ class Azure_Diagnostics_API {
                 ? 'No row in wp_azure_email_logs — most likely a pre_wp_mail interceptor short-circuited before our logger. Check your inbox for the actual From: header.'
                 : 'Logger captured the send. method=' . (is_array($logged) ? $logged['method'] : '?'),
         ));
+    }
+
+    /**
+     * POST /diagnostics/membership-guest-preview-email
+     * Send the guest-membership account-created email to an operator
+     * inbox. Does not create or update a WordPress user.
+     *
+     * Body: { "to": "you@example.com" }
+     */
+    public function route_membership_guest_preview_email($request) {
+        $body = json_decode($request->get_body(), true);
+        if (!is_array($body)) {
+            $body = array();
+        }
+        $to = isset($body['to']) ? $body['to'] : $request->get_param('to');
+        if (!class_exists('Azure_Membership_Module')) {
+            return new WP_Error('missing_module', 'Azure_Membership_Module is not loaded', array('status' => 500));
+        }
+        $result = Azure_Membership_Module::send_guest_account_preview((string) $to);
+        if (empty($result['ok'])) {
+            return new WP_Error(
+                'preview_send_failed',
+                !empty($result['error']) ? $result['error'] : 'send failed',
+                array('status' => 500, 'result' => $result)
+            );
+        }
+        return rest_ensure_response($result);
+    }
+
+    /**
+     * POST /diagnostics/membership-guest-provision
+     * Create parent accounts from unmatched guest memberships, verify
+     * unique emails and passwords, then optionally send the welcome.
+     *
+     * Body: { "candidates": [...], "send": true|false }
+     */
+    public function route_membership_guest_provision($request) {
+        $body = json_decode($request->get_body(), true);
+        if (!is_array($body)) {
+            $body = array();
+        }
+        $candidates = isset($body['candidates']) && is_array($body['candidates'])
+            ? $body['candidates']
+            : array();
+        $send = !empty($body['send']);
+        if (!class_exists('Azure_Membership_Module')) {
+            return new WP_Error('missing_module', 'Azure_Membership_Module is not loaded', array('status' => 500));
+        }
+        if (empty($candidates)) {
+            return new WP_Error('bad_request', 'candidates is required', array('status' => 400));
+        }
+        $result = Azure_Membership_Module::provision_guest_membership_accounts($candidates, $send);
+        return rest_ensure_response($result);
     }
 
     /**

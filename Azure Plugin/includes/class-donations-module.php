@@ -1818,7 +1818,7 @@ class Azure_Donations_Module {
                     $amount = self::format_wag_amount($level['amount']);
                     ?>
                     <?php if ($url !== ''): ?>
-                        <a class="pta-wag-level<?php echo esc_attr($featured); ?>" href="<?php echo esc_url($url); ?>">
+                        <a class="pta-wag-level has-text-color<?php echo esc_attr($featured); ?>" href="<?php echo esc_url($url); ?>">
                             <span class="pta-wag-amount"><?php echo esc_html($amount); ?></span>
                             <span class="pta-wag-name"><?php echo esc_html($level['name']); ?></span>
                             <?php if ($level['suffix'] !== ''): ?>

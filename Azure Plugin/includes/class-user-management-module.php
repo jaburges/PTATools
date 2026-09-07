@@ -349,6 +349,9 @@ class Azure_User_Management_Module {
         $name_html   = ($atts['show_name'] === 'yes')
             ? '<span class="pta-user-dropdown__name">' . esc_html($user->display_name) . '</span>'
             : '';
+        $badge_html  = class_exists('Azure_Membership_Module')
+            ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill')
+            : '';
 
         $menu_html = wp_nav_menu(array(
             'theme_location' => self::NAV_LOCATION,
@@ -366,12 +369,13 @@ class Azure_User_Management_Module {
         return sprintf(
             '<div class="pta-user-dropdown" data-pta-user-dropdown>
                 <button type="button" class="pta-user-dropdown__trigger" aria-expanded="false" aria-haspopup="true">
-                    %s%s<span class="pta-user-dropdown__caret" aria-hidden="true">▾</span>
+                    %s%s%s<span class="pta-user-dropdown__caret" aria-hidden="true">▾</span>
                 </button>
                 <div class="pta-user-dropdown__panel" hidden>%s</div>
             </div>',
             $avatar_html,
             $name_html,
+            $badge_html,
             $menu_html
         );
     }

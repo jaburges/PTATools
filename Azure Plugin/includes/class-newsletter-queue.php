@@ -543,7 +543,8 @@ class Azure_Newsletter_Queue {
         $sender = new Azure_Newsletter_Sender();
         $sent = 0;
         $failed = 0;
-        
+        $expanded_html = array();
+
         foreach ($pending as $item) {
             // Get recipient name
             $name = '';
@@ -554,8 +555,13 @@ class Azure_Newsletter_Queue {
                 }
             }
             
+            $newsletter_id = (int) $item->newsletter_id;
+            if (!isset($expanded_html[$newsletter_id])) {
+                $expanded_html[$newsletter_id] = $this->expand_shortcodes($item->content_html);
+            }
+
             // Personalize content
-            $html = $this->personalize_content($item->content_html, array(
+            $html = $this->personalize_content($expanded_html[$newsletter_id], array(
                 'email' => $item->email,
                 'first_name' => $this->get_first_name($name, $item->email),
                 'user_id' => $item->user_id
@@ -646,6 +652,22 @@ class Azure_Newsletter_Queue {
         ));
     }
     
+    /**
+     * Expand designer shortcode placeholders once per campaign HTML.
+     */
+    private function expand_shortcodes($html) {
+        if (!class_exists('Azure_Newsletter_Shortcodes')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-newsletter-shortcodes.php';
+            if (file_exists($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('Azure_Newsletter_Shortcodes')) {
+            return $html;
+        }
+        return Azure_Newsletter_Shortcodes::expand($html);
+    }
+
     /**
      * Personalize email content with merge tags
      */
