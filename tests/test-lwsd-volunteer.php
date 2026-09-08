@@ -104,9 +104,11 @@ $t->equals(null, $chunks[0][1]['expires_on'], 'empty expiry becomes null for ins
 
 $built = Azure_Lwsd_Volunteer::roster_insert_sql('wp_lwsd_volunteer_roster', $chunks[0]);
 $t->check(strpos($built['sql'], 'INSERT INTO wp_lwsd_volunteer_roster') === 0, 'insert SQL targets the roster table');
-$t->check(substr_count($built['sql'], '(%s, %s, %s, %s, %d, %s, %s)') === 2, 'one placeholder group per chunk row');
-$t->equals(14, count($built['values']), 'flattened bind values are 7 columns times 2 rows');
+$t->check(strpos($built['sql'], '(%s, %s, %s, NULL, %d, %s, %s)') !== false, 'null expiry emits literal NULL in SQL');
+$t->check(substr_count($built['sql'], '(%s, %s, %s, %s, %d, %s, %s)') === 1, 'dated row still binds expiry with %s');
+$t->equals(13, count($built['values']), 'null expiry omits bind value so 7 plus 6 binds');
 $t->equals('A', $built['values'][0], 'first bind value is first_name');
+$t->equals('2027-01-01', $built['values'][3], 'dated row binds expires_on');
 $t->equals(1, $built['values'][4], 'user_id binds as integer position');
 
 $many = array();

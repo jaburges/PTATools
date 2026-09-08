@@ -600,11 +600,14 @@ class Azure_Lwsd_Volunteer {
         $placeholders = array();
         $values = array();
         foreach ($chunk as $row) {
-            $placeholders[] = '(%s, %s, %s, %s, %d, %s, %s)';
+            $expiry_ph = ($row['expires_on'] === null) ? 'NULL' : '%s';
+            $placeholders[] = '(%s, %s, %s, ' . $expiry_ph . ', %d, %s, %s)';
             $values[] = $row['first_name'];
             $values[] = $row['last_name'];
             $values[] = $row['name_key'];
-            $values[] = $row['expires_on'];
+            if ($row['expires_on'] !== null) {
+                $values[] = $row['expires_on'];
+            }
             $values[] = (int) $row['user_id'];
             $values[] = $row['match_state'];
             $values[] = $row['imported_at'];
