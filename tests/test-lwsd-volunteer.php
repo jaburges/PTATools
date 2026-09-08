@@ -40,6 +40,13 @@ $t->equals('ambiguous', $matched[1]['match_state'], 'two WP users with same name
 $t->equals(0, $matched[1]['user_id'], 'ambiguous writes no user');
 $t->equals('unmatched', $matched[2]['match_state'], 'no WP user');
 
+$plan = Azure_Lwsd_Volunteer::plan_meta_writes($matched, array(11, 99), '2026-09-07');
+$t->equals(array(11), array_keys($plan['set']), 'only unique match gets meta');
+$t->equals('2028-08-21', $plan['set'][11]['expires_on'], 'expiry copied');
+$t->equals(1, $plan['set'][11]['active'], 'Lindsay still active on 2026-09-07 — pass today into plan_meta_writes');
+$t->check(in_array(99, $plan['clear'], true), 'user who left the roster is cleared');
+$t->check(!in_array(21, $plan['clear'], true) && !isset($plan['set'][21]), 'ambiguous Pat is neither set nor assumed');
+
 $ok = Azure_Lwsd_Volunteer::status_from_meta('2028-08-21', '2026-10-17', '2026-09-07');
 $t->equals('ok', $ok['reason'], 'future expiry is ok');
 $t->check($ok['active'] && $ok['approved_for_event'], 'ok is active and covers event');

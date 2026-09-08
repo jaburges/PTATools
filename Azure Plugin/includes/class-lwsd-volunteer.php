@@ -12,6 +12,10 @@ class Azure_Lwsd_Volunteer {
     const META_EXPIRES = 'pta_lwsd_volunteer_expires';
     const META_ACTIVE  = 'pta_lwsd_volunteer_active';
 
+    const OPTION_IMPORTED_AT = 'pta_lwsd_volunteer_imported_at';
+    const OPTION_BLOB        = 'pta_lwsd_volunteer_last_blob';
+    const OPTION_FILENAME    = 'pta_lwsd_volunteer_last_filename';
+
     /**
      * Trim, collapse internal whitespace, and lowercase a name fragment.
      */
@@ -118,6 +122,53 @@ class Azure_Lwsd_Volunteer {
         }
 
         return $out;
+    }
+
+    /**
+     * Today's date in America/Los_Angeles as Y-m-d.
+     */
+    public static function today_pacific() {
+        return (new DateTimeImmutable('now', new DateTimeZone('America/Los_Angeles')))->format('Y-m-d');
+    }
+
+    /**
+     * Plan user-meta writes for a full roster replace.
+     *
+     * @return array{set: array<int,array{expires_on:string,active:int}>, clear: int[]}
+     */
+    public static function plan_meta_writes(array $matched_rows, array $previously_matched_user_ids, $today) {
+        $today = (string) $today;
+        $set = array();
+
+        foreach ($matched_rows as $row) {
+            if (($row['match_state'] ?? '') !== 'matched') {
+                continue;
+            }
+
+            $user_id = (int) ($row['user_id'] ?? 0);
+            if ($user_id <= 0) {
+                continue;
+            }
+
+            $expires_on = (string) ($row['expires_on'] ?? '');
+            $set[$user_id] = array(
+                'expires_on' => $expires_on,
+                'active'     => self::is_active($expires_on, $today) ? 1 : 0,
+            );
+        }
+
+        $clear = array();
+        foreach ($previously_matched_user_ids as $prev_id) {
+            $prev_id = (int) $prev_id;
+            if ($prev_id > 0 && !isset($set[$prev_id])) {
+                $clear[] = $prev_id;
+            }
+        }
+
+        return array(
+            'set'   => $set,
+            'clear' => $clear,
+        );
     }
 
     /**
