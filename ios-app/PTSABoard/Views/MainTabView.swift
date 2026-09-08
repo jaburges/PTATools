@@ -2,16 +2,24 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var auth: AuthService
-    @State private var selection: Tab = .orders
+    @EnvironmentObject var widgets: HomeWidgetStore
+    @State private var selection: Tab = .home
     @State private var showSettings = false
     @State private var showBacklog = false
 
     enum Tab: Hashable {
-        case orders, products, calendar, users, ptaRoles
+        case home, orders, products, calendar, users, ptaRoles
     }
 
     var body: some View {
         TabView(selection: $selection) {
+            NavigationStack {
+                HomeView()
+                    .toolbar { mainToolbar }
+            }
+            .tabItem { Label("Home", systemImage: "house.fill") }
+            .tag(Tab.home)
+
             NavigationStack {
                 OrdersView()
                     .toolbar { mainToolbar }
@@ -50,6 +58,7 @@ struct MainTabView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environmentObject(auth)
+                .environmentObject(widgets)
         }
         .sheet(isPresented: $showBacklog) {
             NavigationStack {

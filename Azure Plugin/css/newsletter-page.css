@@ -1,0 +1,60 @@
+/**
+ * Reset ChromeNews / block styles on newsletter archive pages so the
+ * saved campaign HTML matches the sent email (no table grid, no boxed
+ * dividers, no leftover empty CTA bars).
+ */
+
+body.pta-newsletter-page .pta-newsletter-email {
+    max-width: 600px;
+    margin: 0 auto;
+    overflow-x: auto;
+}
+
+body.pta-newsletter-page .entry-content .pta-newsletter-email table,
+body.pta-newsletter-page .pta-newsletter-email table {
+    border: 0 !important;
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+body.pta-newsletter-page .pta-newsletter-email td,
+body.pta-newsletter-page .pta-newsletter-email th {
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+body.pta-newsletter-page .pta-newsletter-email hr {
+    background: none !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    border-top: 2px solid #dddddd !important;
+    height: 0 !important;
+    margin: 0 !important;
+    box-sizing: content-box !important;
+}
+
+body.pta-newsletter-page .pta-newsletter-email .nl-divider,
+body.pta-newsletter-page .pta-newsletter-email table.nl-divider {
+    width: 100% !important;
+}
+
+body.pta-newsletter-page .pta-newsletter-email a,
+body.pta-newsletter-page .entry-content .pta-newsletter-email :is(h1, h2, h3, h4, h5, h6, p) a {
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+}
+
+body.pta-newsletter-page .pta-newsletter-email a:empty {
+    display: none !important;
+}
+
+body.pta-newsletter-page .pta-newsletter-email td[bgcolor]:empty {
+    display: none !important;
+    padding: 0 !important;
+    height: 0 !important;
+    line-height: 0 !important;
+    font-size: 0 !important;
+}

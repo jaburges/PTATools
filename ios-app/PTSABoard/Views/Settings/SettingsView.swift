@@ -56,6 +56,14 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Home") {
+                    NavigationLink {
+                        HomeWidgetCustomizeView()
+                    } label: {
+                        Label("Customize Home widgets", systemImage: "rectangle.stack.fill")
+                    }
+                }
+
                 Section("Appearance") {
                     Picker("Theme", selection: Binding(
                         get: { theme.choice },

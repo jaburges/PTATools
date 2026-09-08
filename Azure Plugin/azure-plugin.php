@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.78
+ * Version: 3.147.79
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.78');
+define('AZURE_PLUGIN_VERSION', '3.147.79');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -787,6 +787,16 @@ class AzurePlugin {
                 require_once AZURE_PLUGIN_PATH . 'includes/class-newsletter-archive-shortcode.php';
                 if (class_exists('Azure_Newsletter_Archive_Shortcode')) {
                     Azure_Newsletter_Archive_Shortcode::get_instance();
+                }
+            }
+
+            // Single newsletter pages store campaign HTML as post_content.
+            // Scope ChromeNews resets so leftover CTA cells and divider
+            // tables do not pick up theme borders/buttons.
+            if (file_exists(AZURE_PLUGIN_PATH . 'includes/class-newsletter-page.php')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-newsletter-page.php';
+                if (class_exists('Azure_Newsletter_Page')) {
+                    Azure_Newsletter_Page::get_instance();
                 }
             }
 

@@ -268,6 +268,63 @@ class Azure_Membership_Module {
     }
 
     /**
+     * Paid-member counts for the iOS memberships widget.
+     *
+     * @param array<int, array{type?:string}>|null $map
+     * @return array{year:string,from:string,to:string,total:int,counts:array<string,int>}
+     */
+    public static function rest_summary($map = null) {
+        $range = self::school_year_range();
+        $map = is_array($map) ? $map : self::get_member_map();
+        $counts = array(
+            'family'     => 0,
+            'individual' => 0,
+            'staff'      => 0,
+            'other'      => 0,
+        );
+        foreach ($map as $row) {
+            $type = strtolower((string) (is_array($row) ? ($row['type'] ?? 'other') : 'other'));
+            if (!isset($counts[$type])) {
+                $type = 'other';
+            }
+            $counts[$type]++;
+        }
+        return array(
+            'year'   => $range['label'],
+            'from'   => $range['from'],
+            'to'     => $range['to'],
+            'total'  => count($map),
+            'counts' => $counts,
+        );
+    }
+
+    /**
+     * Paid members for the current school year (searchable).
+     *
+     * @param string $search
+     * @param int    $limit
+     * @return array<int, array>
+     */
+    public static function rest_members($search = '', $limit = 200) {
+        $map = self::get_member_map();
+        $ids = array_map('intval', array_keys($map));
+        $rows = self::build_roster_rows($ids);
+        $search = strtolower(trim((string) $search));
+        if ($search !== '') {
+            $rows = array_values(array_filter($rows, function ($row) use ($search) {
+                $hay = strtolower(
+                    (string) ($row['name'] ?? '') . ' ' .
+                    (string) ($row['email'] ?? '') . ' ' .
+                    (string) ($row['membership'] ?? '')
+                );
+                return strpos($hay, $search) !== false;
+            }));
+        }
+        $limit = max(1, min(500, (int) $limit));
+        return array_slice($rows, 0, $limit);
+    }
+
+    /**
      * True when this user has a paid Family/Individual/Staff membership
      * this school year.
      */

@@ -109,6 +109,128 @@ class Azure_Volunteer_Signup {
         )) : 0;
     }
 
+    /**
+     * @return array{spots_needed:int,spots_filled:int,spots_open:int}
+     */
+    public static function activity_fill($spots_needed, $signed_up) {
+        $need = max(0, (int) $spots_needed);
+        $have = max(0, (int) $signed_up);
+        return array(
+            'spots_needed' => $need,
+            'spots_filled' => $have,
+            'spots_open'   => max(0, $need - $have),
+        );
+    }
+
+    /**
+     * @param array<int, array{spots_needed:int,spots_filled:int}> $activities
+     * @return array{spots_needed:int,spots_filled:int,spots_open:int}
+     */
+    public static function sheet_fill_totals(array $activities) {
+        $need = 0;
+        $have = 0;
+        foreach ($activities as $row) {
+            $need += max(0, (int) ($row['spots_needed'] ?? 0));
+            $have += max(0, (int) ($row['spots_filled'] ?? 0));
+        }
+        return array(
+            'spots_needed' => $need,
+            'spots_filled' => $have,
+            'spots_open'   => max(0, $need - $have),
+        );
+    }
+
+    /**
+     * Compact sheet rows for the iOS home widget / list.
+     *
+     * @param object[]|null $sheets
+     * @return array<int, array>
+     */
+    public static function rest_sheet_summaries($sheets = null) {
+        $sheets = is_array($sheets) ? $sheets : self::get_sheets('all');
+        $out = array();
+        foreach ($sheets as $sheet) {
+            if (!is_object($sheet)) {
+                continue;
+            }
+            $activities = self::get_activities((int) $sheet->id);
+            $fills = array();
+            foreach ($activities as $activity) {
+                $fills[] = self::activity_fill(
+                    (int) ($activity->spots_needed ?? 1),
+                    self::count_signups((int) $activity->id)
+                );
+            }
+            $totals = self::sheet_fill_totals($fills);
+            $out[] = array(
+                'id'            => (int) $sheet->id,
+                'title'         => (string) ($sheet->title ?? ''),
+                'description'   => (string) ($sheet->description ?? ''),
+                'event_date'    => (string) ($sheet->event_date ?? ''),
+                'event_location'=> (string) ($sheet->event_location ?? ''),
+                'status'        => (string) ($sheet->status ?? 'open'),
+                'activities'    => count($activities),
+                'spots_needed'  => $totals['spots_needed'],
+                'spots_filled'  => $totals['spots_filled'],
+                'spots_open'    => $totals['spots_open'],
+            );
+        }
+        return $out;
+    }
+
+    /**
+     * @param int $id
+     * @return array|null
+     */
+    public static function rest_sheet_detail($id) {
+        $sheet = self::get_sheet((int) $id);
+        if (!$sheet) {
+            return null;
+        }
+        $activities_out = array();
+        $fills = array();
+        foreach (self::get_activities((int) $sheet->id) as $activity) {
+            $signups = array();
+            foreach (self::get_signups_for_activity((int) $activity->id) as $signup) {
+                $user = function_exists('get_userdata') ? get_userdata((int) $signup->user_id) : null;
+                $signups[] = array(
+                    'id'           => (int) $signup->id,
+                    'user_id'      => (int) $signup->user_id,
+                    'display_name' => $user ? (string) $user->display_name : ('User #' . (int) $signup->user_id),
+                    'email'        => $user ? (string) $user->user_email : '',
+                    'signed_up_at' => (string) ($signup->signed_up_at ?? ''),
+                );
+            }
+            $fill = self::activity_fill((int) ($activity->spots_needed ?? 1), count($signups));
+            $fills[] = $fill;
+            $activities_out[] = array(
+                'id'            => (int) $activity->id,
+                'name'          => (string) ($activity->name ?? ''),
+                'description'   => (string) ($activity->description ?? ''),
+                'slot_start'    => (string) ($activity->slot_start ?? ''),
+                'slot_end'      => (string) ($activity->slot_end ?? ''),
+                'time_label'    => self::slot_time_label($sheet, $activity),
+                'spots_needed'  => $fill['spots_needed'],
+                'spots_filled'  => $fill['spots_filled'],
+                'spots_open'    => $fill['spots_open'],
+                'signups'       => $signups,
+            );
+        }
+        $totals = self::sheet_fill_totals($fills);
+        return array(
+            'id'             => (int) $sheet->id,
+            'title'          => (string) ($sheet->title ?? ''),
+            'description'    => (string) ($sheet->description ?? ''),
+            'event_date'     => (string) ($sheet->event_date ?? ''),
+            'event_location' => (string) ($sheet->event_location ?? ''),
+            'status'         => (string) ($sheet->status ?? 'open'),
+            'spots_needed'   => $totals['spots_needed'],
+            'spots_filled'   => $totals['spots_filled'],
+            'spots_open'     => $totals['spots_open'],
+            'activities'     => $activities_out,
+        );
+    }
+
     public static function ensure_slot_columns() {
         global $wpdb;
         $t = Azure_Database::get_table_name('volunteer_activities');

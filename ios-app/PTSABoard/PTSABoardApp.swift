@@ -6,6 +6,7 @@ struct PTSABoardApp: App {
 
     @StateObject private var auth = AuthService()
     @StateObject private var theme = ThemeManager()
+    @StateObject private var widgets = HomeWidgetStore()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -13,6 +14,7 @@ struct PTSABoardApp: App {
             RootView()
                 .environmentObject(auth)
                 .environmentObject(theme)
+                .environmentObject(widgets)
                 .preferredColorScheme(theme.preferred)
                 .tint(.accentColor)
                 .onOpenURL { url in
@@ -32,6 +34,10 @@ struct PTSABoardApp: App {
                         return try await auth.wordpressIdToken()
                     }
                     await auth.restoreSession()
+                    widgets.bind(email: auth.profile?.email ?? "")
+                }
+                .onChange(of: auth.profile?.email) { _, email in
+                    widgets.bind(email: email ?? "")
                 }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {

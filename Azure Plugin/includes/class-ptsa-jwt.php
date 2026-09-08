@@ -26,11 +26,55 @@ class Azure_PTSA_JWT {
     const CLOCK_SKEW     = 60; // seconds of tolerance on exp/nbf
 
     /** @var string */ private $tenant_id;
-    /** @var string */ private $client_id;
+    /** @var string[] */ private $client_ids;
 
-    public function __construct($tenant_id, $client_id) {
+    /**
+     * @param string          $tenant_id
+     * @param string|string[] $client_ids  Entra app IDs allowed as JWT `aud`
+     *                                     (iOS public client and/or website SSO).
+     */
+    public function __construct($tenant_id, $client_ids) {
         $this->tenant_id = (string) $tenant_id;
-        $this->client_id = (string) $client_id;
+        $this->client_ids = self::normalize_client_ids($client_ids);
+    }
+
+    /**
+     * @param string|string[] $client_ids
+     * @return string[]
+     */
+    public static function normalize_client_ids($client_ids) {
+        $out = array();
+        foreach ((array) $client_ids as $id) {
+            $id = trim((string) $id);
+            if ($id !== '' && !in_array($id, $out, true)) {
+                $out[] = $id;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Entra id_tokens use the requesting app's client_id as `aud`.
+     * Accept a string or a list of allowed app IDs.
+     *
+     * @param mixed           $aud
+     * @param string|string[] $allowed
+     * @return bool
+     */
+    public static function audience_matches($aud, $allowed) {
+        $allowed = self::normalize_client_ids($allowed);
+        if ($allowed === array()) {
+            return false;
+        }
+        if (is_array($aud)) {
+            foreach ($aud as $one) {
+                if (in_array((string) $one, $allowed, true)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return in_array((string) $aud, $allowed, true);
     }
 
     /**
@@ -67,15 +111,9 @@ class Azure_PTSA_JWT {
             return new WP_Error('ptsa_jwt_iss', "Unexpected issuer: $iss", array('status' => 401));
         }
         $aud = $payload['aud'] ?? '';
-        if (is_array($aud)) {
-            // Some flows emit an array; require our client_id to be in it.
-            if (!in_array($this->client_id, $aud, true)) {
-                return new WP_Error('ptsa_jwt_aud', 'Audience does not include this client_id.', array('status' => 401));
-            }
-        } else {
-            if ((string) $aud !== $this->client_id) {
-                return new WP_Error('ptsa_jwt_aud', 'Audience does not match this client_id (got "' . (string) $aud . '").', array('status' => 401));
-            }
+        if (!self::audience_matches($aud, $this->client_ids)) {
+            $got = is_array($aud) ? implode(',', $aud) : (string) $aud;
+            return new WP_Error('ptsa_jwt_aud', 'Audience does not match this client_id (got "' . $got . '").', array('status' => 401));
         }
         $now = time();
         if (!isset($payload['exp']) || ((int) $payload['exp']) + self::CLOCK_SKEW < $now) {

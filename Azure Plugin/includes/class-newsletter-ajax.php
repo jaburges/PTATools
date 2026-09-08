@@ -1821,6 +1821,15 @@ class Azure_Newsletter_Ajax {
                 wp_set_post_categories($page_id, array($term_id), true);
             }
             
+            if (!class_exists('Azure_Newsletter_Page')) {
+                $page_class = AZURE_PLUGIN_PATH . 'includes/class-newsletter-page.php';
+                if (file_exists($page_class)) {
+                    require_once $page_class;
+                }
+            }
+            if (class_exists('Azure_Newsletter_Page')) {
+                update_post_meta($page_id, Azure_Newsletter_Page::META_ID, (int) $newsletter_id);
+            }
             Azure_Logger::info("Newsletter #{$newsletter_id} page created: {$page_id}");
 
             if ($parent_id > 0 && class_exists('Azure_Settings')) {

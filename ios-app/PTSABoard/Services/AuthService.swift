@@ -38,6 +38,12 @@ final class AuthService: ObservableObject {
         return !Set(wpRoles.map { $0.lowercased() }).isDisjoint(with: allowed)
     }
 
+    /// Matches the Membership admin page: admin, shop manager, or Finance.
+    var canReadMemberships: Bool {
+        let allowed: Set<String> = ["administrator", "shop_manager", "finance"]
+        return !Set(wpRoles.map { $0.lowercased() }).isDisjoint(with: allowed)
+    }
+
     /// Refresh WordPress roles for the signed-in user via `/ptsa/v1/me`.
     func refreshWordPressRoles() async {
         guard state == .signedIn else { return }

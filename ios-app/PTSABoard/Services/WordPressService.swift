@@ -26,6 +26,43 @@ final class WordPressService {
         return try await api.request(url, auth: try await wpAuth(), as: PTSAMe.self)
     }
 
+    func fetchHomeWidgets() async throws -> HomeWidgetPrefs {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("me/home-widgets")
+        return try await api.request(url, auth: try await wpAuth(), as: HomeWidgetPrefs.self)
+    }
+
+    func saveHomeWidgets(_ prefs: HomeWidgetPrefs) async throws -> HomeWidgetPrefs {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("me/home-widgets")
+        let body = try JSONEncoder().encode(prefs)
+        return try await api.request(url, method: "PUT", body: body, auth: try await wpAuth(), as: HomeWidgetPrefs.self)
+    }
+
+    func volunteerSheets() async throws -> [VolunteerSheetSummary] {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("volunteers/sheets")
+        return try await api.request(url, auth: try await wpAuth(), as: [VolunteerSheetSummary].self)
+    }
+
+    func volunteerSheet(_ id: Int) async throws -> VolunteerSheetDetail {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("volunteers/sheets/\(id)")
+        return try await api.request(url, auth: try await wpAuth(), as: VolunteerSheetDetail.self)
+    }
+
+    func membershipSummary() async throws -> MembershipSummary {
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("memberships/summary")
+        return try await api.request(url, auth: try await wpAuth(), as: MembershipSummary.self)
+    }
+
+    func membershipMembers(search: String = "", perPage: Int = 200) async throws -> [MembershipMember] {
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "per_page", value: "\(perPage)")
+        ]
+        if !search.isEmpty {
+            query.append(.init(name: "search", value: search))
+        }
+        let url = AppConfig.ptsaRestBase.appendingPathComponent("memberships/members")
+        return try await api.request(url, query: query, auth: try await wpAuth(), as: [MembershipMember].self)
+    }
+
     // MARK: - Orders reports
 
     func listOrdersReports() async throws -> [OrdersReportSummary] {

@@ -18,21 +18,59 @@ if (!defined('ABSPATH')) {
 class Azure_PTSA_REST_API {
 
     const NAMESPACE_V1 = 'ptsa/v1';
+    const USERMETA_HOME_WIDGETS = 'ptsa_ios_home_widgets';
+
+    /** @var string[] Widget ids the iOS Home screen can show or hide. */
+    const HOME_WIDGET_IDS = array(
+        'orders',
+        'calendar',
+        'volunteers',
+        'memberships',
+        'products',
+        'users',
+        'pta_roles',
+        'backlog',
+    );
+
+    /**
+     * Entra Application (client) ID of "Wilder PTSA Board (iOS)".
+     * Public client — not a secret. The app's id_token uses this as `aud`.
+     */
+    const IOS_CLIENT_ID = '62d983db-f1e9-49cf-a833-b332ea3af84e';
 
     /** @var Azure_PTSA_JWT */ private $jwt;
     /** @var string */         private $allowed_domain;
     /** @var WP_User|null */   private $caller = null;
 
     public function __construct() {
-        list($tenant_id, $client_id, $allowed_domain) = $this->load_config();
+        list($tenant_id, $client_ids, $allowed_domain) = $this->load_config();
         $this->allowed_domain = $allowed_domain;
         if (!class_exists('Azure_PTSA_JWT')) {
             $path = AZURE_PLUGIN_PATH . 'includes/class-ptsa-jwt.php';
             if (file_exists($path)) require_once $path;
         }
-        if (class_exists('Azure_PTSA_JWT') && $tenant_id && $client_id) {
-            $this->jwt = new Azure_PTSA_JWT($tenant_id, $client_id);
+        if (class_exists('Azure_PTSA_JWT') && $tenant_id && $client_ids) {
+            $this->jwt = new Azure_PTSA_JWT($tenant_id, $client_ids);
         }
+    }
+
+    /**
+     * Audiences we accept on Entra id_tokens. Always includes the iOS app
+     * so a missing option or a website-only SSO client_id cannot 401 the
+     * board app. Extra IDs (env, option, website SSO) are also allowed.
+     *
+     * @param string $explicit    PTSA_REST_CLIENT_ID constant or env
+     * @param string $ios_option  ptsa_rest_ios_client_id option
+     * @param string $sso_client  Azure_Settings SSO client_id
+     * @return string[]
+     */
+    public static function collect_client_ids($explicit = '', $ios_option = '', $sso_client = '') {
+        return Azure_PTSA_JWT::normalize_client_ids(array(
+            $explicit,
+            $ios_option,
+            self::IOS_CLIENT_ID,
+            $sso_client,
+        ));
     }
 
     private function load_config() {
@@ -60,21 +98,19 @@ class Azure_PTSA_REST_API {
         $env_domain = getenv('PTSA_REST_ALLOWED_DOMAIN');
         if (is_string($env_domain) && $env_domain !== '') $domain = $env_domain;
 
-        if ((empty($tenant) || empty($client)) && class_exists('Azure_Settings')) {
+        $sso_client = '';
+        if (class_exists('Azure_Settings')) {
             $creds = Azure_Settings::get_credentials('sso');
             if (is_array($creds)) {
                 if (empty($tenant)) $tenant = (string) ($creds['tenant_id'] ?? '');
-                if (empty($client)) {
-                    // Prefer a dedicated mobile client ID if the admin configured one.
-                    $ios = (string) get_option('ptsa_rest_ios_client_id', '');
-                    $client = $ios !== '' ? $ios : (string) ($creds['client_id'] ?? '');
-                }
+                $sso_client = (string) ($creds['client_id'] ?? '');
             }
         }
+        $ios = (string) get_option('ptsa_rest_ios_client_id', '');
         $opt_domain = (string) get_option('ptsa_rest_allowed_domain', '');
         if ($opt_domain !== '') $domain = $opt_domain;
 
-        return array($tenant, $client, $domain);
+        return array($tenant, self::collect_client_ids($client, $ios, $sso_client), $domain);
     }
 
     /* =================================================================
@@ -87,6 +123,22 @@ class Azure_PTSA_REST_API {
 
         register_rest_route($ns, '/me', array(
             'methods' => 'GET', 'callback' => array($this, 'whoami'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/me/home-widgets', array(
+            array('methods' => 'GET', 'callback' => array($this, 'get_home_widgets'), 'permission_callback' => $auth),
+            array('methods' => 'PUT', 'callback' => array($this, 'put_home_widgets'), 'permission_callback' => $auth),
+        ));
+        register_rest_route($ns, '/volunteers/sheets', array(
+            'methods' => 'GET', 'callback' => array($this, 'list_volunteer_sheets'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/volunteers/sheets/(?P<id>\d+)', array(
+            'methods' => 'GET', 'callback' => array($this, 'get_volunteer_sheet'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/memberships/summary', array(
+            'methods' => 'GET', 'callback' => array($this, 'membership_summary'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/memberships/members', array(
+            'methods' => 'GET', 'callback' => array($this, 'list_membership_members'), 'permission_callback' => $auth,
         ));
 
         register_rest_route($ns, '/calendars', array(
@@ -242,6 +294,151 @@ class Azure_PTSA_REST_API {
             'display_name' => $u->display_name,
             'roles'        => array_values($u->roles),
         ));
+    }
+
+    /**
+     * Normalize Home-widget order/hidden lists. Unknown ids are dropped;
+     * every known widget appears in `order` exactly once.
+     *
+     * @param mixed $input
+     * @return array{order:string[],hidden:string[],updated:int}
+     */
+    public static function normalize_widget_id($id) {
+        $id = strtolower(trim((string) $id));
+        $id = preg_replace('/[^a-z0-9_]/', '', $id);
+        return is_string($id) ? $id : '';
+    }
+
+    public static function sanitize_home_widgets($input) {
+        $allowed = self::HOME_WIDGET_IDS;
+        $order = array();
+        $hidden = array();
+        if (is_array($input)) {
+            foreach ((array) ($input['order'] ?? array()) as $id) {
+                $id = self::normalize_widget_id($id);
+                if (in_array($id, $allowed, true) && !in_array($id, $order, true)) {
+                    $order[] = $id;
+                }
+            }
+            foreach ((array) ($input['hidden'] ?? array()) as $id) {
+                $id = self::normalize_widget_id($id);
+                if (in_array($id, $allowed, true) && !in_array($id, $hidden, true)) {
+                    $hidden[] = $id;
+                }
+            }
+        }
+        foreach ($allowed as $id) {
+            if (!in_array($id, $order, true)) {
+                $order[] = $id;
+            }
+        }
+        $updated = (is_array($input) && isset($input['updated'])) ? (int) $input['updated'] : time();
+        if ($updated < 1) {
+            $updated = time();
+        }
+        return array(
+            'order'   => $order,
+            'hidden'  => $hidden,
+            'updated' => $updated,
+        );
+    }
+
+    public function get_home_widgets(WP_REST_Request $req) {
+        $u = $this->caller;
+        if (!$u) return $this->forbidden();
+        $stored = get_user_meta($u->ID, self::USERMETA_HOME_WIDGETS, true);
+        if (!is_array($stored) || empty($stored['order'])) {
+            return rest_ensure_response(array(
+                'order'   => self::HOME_WIDGET_IDS,
+                'hidden'  => array(),
+                'updated' => 0,
+            ));
+        }
+        return rest_ensure_response(self::sanitize_home_widgets($stored));
+    }
+
+    public function put_home_widgets(WP_REST_Request $req) {
+        $u = $this->caller;
+        if (!$u) return $this->forbidden();
+        $clean = self::sanitize_home_widgets($req->get_json_params());
+        update_user_meta($u->ID, self::USERMETA_HOME_WIDGETS, $clean);
+        return rest_ensure_response($clean);
+    }
+
+    public function list_volunteer_sheets(WP_REST_Request $req) {
+        if (!class_exists('Azure_Volunteer_Signup')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-volunteer-signup.php';
+            if (file_exists($path)) require_once $path;
+        }
+        if (!class_exists('Azure_Volunteer_Signup')) {
+            return new WP_Error('ptsa_volunteers_unavailable', 'Volunteer Sign Up module is not loaded.', array('status' => 503));
+        }
+        return rest_ensure_response(Azure_Volunteer_Signup::rest_sheet_summaries());
+    }
+
+    public function get_volunteer_sheet(WP_REST_Request $req) {
+        if (!class_exists('Azure_Volunteer_Signup')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-volunteer-signup.php';
+            if (file_exists($path)) require_once $path;
+        }
+        if (!class_exists('Azure_Volunteer_Signup')) {
+            return new WP_Error('ptsa_volunteers_unavailable', 'Volunteer Sign Up module is not loaded.', array('status' => 503));
+        }
+        $detail = Azure_Volunteer_Signup::rest_sheet_detail((int) $req['id']);
+        if (!$detail) {
+            return new WP_Error('ptsa_volunteer_not_found', 'Volunteer sheet not found.', array('status' => 404));
+        }
+        return rest_ensure_response($detail);
+    }
+
+    public function membership_summary(WP_REST_Request $req) {
+        if ($denied = $this->require_membership_read()) {
+            return $denied;
+        }
+        if (!class_exists('Azure_Membership_Module')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-membership-module.php';
+            if (file_exists($path)) require_once $path;
+        }
+        if (!class_exists('Azure_Membership_Module')) {
+            return new WP_Error('ptsa_memberships_unavailable', 'Membership module is not loaded.', array('status' => 503));
+        }
+        return rest_ensure_response(Azure_Membership_Module::rest_summary());
+    }
+
+    public function list_membership_members(WP_REST_Request $req) {
+        if ($denied = $this->require_membership_read()) {
+            return $denied;
+        }
+        if (!class_exists('Azure_Membership_Module')) {
+            $path = AZURE_PLUGIN_PATH . 'includes/class-membership-module.php';
+            if (file_exists($path)) require_once $path;
+        }
+        if (!class_exists('Azure_Membership_Module')) {
+            return new WP_Error('ptsa_memberships_unavailable', 'Membership module is not loaded.', array('status' => 503));
+        }
+        $search = (string) $req->get_param('search');
+        $limit = (int) $req->get_param('per_page');
+        if ($limit < 1) {
+            $limit = 200;
+        }
+        return rest_ensure_response(Azure_Membership_Module::rest_members($search, $limit));
+    }
+
+    /**
+     * Membership roster is PII. Same gate as the WP Membership admin page.
+     *
+     * @return WP_Error|null
+     */
+    private function require_membership_read() {
+        $finance = class_exists('Azure_Finance_Role') ? Azure_Finance_Role::CAP : 'manage_pta_finance';
+        if (
+            current_user_can('manage_options')
+            || current_user_can('manage_woocommerce')
+            || current_user_can($finance)
+        ) {
+            return null;
+        }
+        return $this->forbidden();
     }
 
     /* =================================================================
