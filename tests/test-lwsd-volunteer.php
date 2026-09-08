@@ -118,4 +118,23 @@ $foot = Azure_Lwsd_Volunteer::confirmation_footer(
 $t->check(strpos($foot, 'https://wilderptsa.net/become-an-lwsd-approved-volunteer/') !== false, 'footer has apply URL');
 $t->equals('', Azure_Lwsd_Volunteer::confirmation_footer(array('reason' => 'ok', 'expires_on' => '2028-01-01', 'active' => true, 'approved_for_event' => true), 'https://x'), 'ok footer empty');
 
+$t->equals(
+    array('BethanyM@wilderptsa.net', 'webmaster@wilderptsa.net'),
+    Azure_Lwsd_Volunteer::staff_alert_recipients(),
+    'staff recipients'
+);
+$body = Azure_Lwsd_Volunteer::staff_alert_body(array(
+    'volunteer_name' => 'Pat Smith',
+    'volunteer_email' => 'pat@example.com',
+    'user_id' => 21,
+    'sheet_title' => 'Fall Carnival',
+    'activities' => 'Set up (5:00 PM – 6:00 PM)',
+    'event_date' => '2026-10-17',
+    'expires_on' => '2026-09-20',
+    'reason' => 'expires_before_event',
+));
+$t->check(strpos($body, 'Pat Smith') !== false, 'name in staff body');
+$t->check(strpos($body, '2026-09-20') !== false, 'expiry in staff body');
+$t->check(strpos($body, 'Fall Carnival') !== false, 'sheet in staff body');
+
 exit($t->finish());

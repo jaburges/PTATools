@@ -396,6 +396,66 @@ class Azure_Lwsd_Volunteer {
     }
 
     /**
+     * Staff alert recipients for unapproved volunteer signups.
+     *
+     * @return string[]
+     */
+    public static function staff_alert_recipients() {
+        return array(
+            'BethanyM@wilderptsa.net',
+            'webmaster@wilderptsa.net',
+        );
+    }
+
+    /**
+     * Subject line for staff LWSD coverage alerts.
+     */
+    public static function staff_alert_subject($volunteer_name, $sheet_title) {
+        return 'LWSD volunteer coverage — ' . (string) $volunteer_name . ' — ' . (string) $sheet_title;
+    }
+
+    /**
+     * Plain-text body for staff LWSD coverage alerts.
+     *
+     * @param array{volunteer_name?:string,volunteer_email?:string,user_id?:int,sheet_title?:string,activities?:string,event_date?:string,expires_on?:string,reason?:string} $ctx
+     */
+    public static function staff_alert_body(array $ctx) {
+        $name = isset($ctx['volunteer_name']) ? (string) $ctx['volunteer_name'] : '';
+        $email = isset($ctx['volunteer_email']) ? (string) $ctx['volunteer_email'] : '';
+        $user_id = isset($ctx['user_id']) ? (int) $ctx['user_id'] : 0;
+        $sheet_title = isset($ctx['sheet_title']) ? (string) $ctx['sheet_title'] : '';
+        $activities = isset($ctx['activities']) ? (string) $ctx['activities'] : '';
+        $event_date = isset($ctx['event_date']) ? (string) $ctx['event_date'] : '';
+        $expires_on = isset($ctx['expires_on']) ? (string) $ctx['expires_on'] : '';
+        $reason = isset($ctx['reason']) ? (string) $ctx['reason'] : '';
+
+        $lines = array(
+            'An unapproved volunteer signed up for a shift.',
+            '',
+            'Volunteer: ' . $name . ($email !== '' ? ' (' . $email . ')' : ''),
+            'User ID: ' . $user_id,
+            'Sheet: ' . $sheet_title,
+            'Activities: ' . $activities,
+        );
+
+        if ($event_date !== '') {
+            $lines[] = 'Event date: ' . $event_date;
+        }
+
+        if ($expires_on === '') {
+            $lines[] = 'LWSD status: not on the LWSD roster';
+        } else {
+            $lines[] = 'LWSD status: expiry ' . $expires_on;
+        }
+
+        if ($reason !== '') {
+            $lines[] = 'Reason: ' . $reason;
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
      * Build the blob name for an archived roster upload.
      *
      * Format: lwsd-volunteer-rosters/{stamp}-{sanitized-basename}.xlsx

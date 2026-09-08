@@ -615,6 +615,7 @@ class Azure_Volunteer_Signup {
         $this->send_confirmation_email($user_id, $sheet_id, $added_acts);
 
         $lwsd = null;
+        $lwsd_status = null;
         if (class_exists('Azure_Lwsd_Volunteer')) {
             $bounds = $sheet ? self::slot_bounds($sheet, $added_acts[0]) : array('start' => null);
             $event_date = $bounds['start'] ? substr((string) $bounds['start'], 0, 10) : '';
@@ -626,6 +627,9 @@ class Azure_Volunteer_Signup {
                 $event_date,
                 Azure_Lwsd_Volunteer::today_pacific()
             );
+            if (($lwsd_status['reason'] ?? '') !== 'ok') {
+                $this->send_staff_lwsd_alert($user_id, $sheet, $added_acts, $event_date, $lwsd_status);
+            }
             $lwsd = array(
                 'reason'     => $lwsd_status['reason'],
                 'expires_on' => $lwsd_status['expires_on'],
@@ -730,6 +734,57 @@ class Azure_Volunteer_Signup {
         $attachments = $this->write_ics_attachments($sheet, $activities, $user);
         wp_mail($user->user_email, $subject, $message, array(), $attachments);
         $this->cleanup_ics_attachments($attachments);
+    }
+
+    /**
+     * Notify staff when an unapproved volunteer signs up. Failures are logged only.
+     *
+     * @param int      $user_id
+     * @param object|null $sheet
+     * @param object[] $activities
+     * @param string   $event_date Y-m-d
+     * @param array{reason?:string,expires_on?:string} $lwsd_status
+     */
+    private function send_staff_lwsd_alert($user_id, $sheet, $activities, $event_date, array $lwsd_status) {
+        if (!class_exists('Azure_Lwsd_Volunteer')) {
+            return;
+        }
+
+        $user = get_userdata($user_id);
+        if (!$user || !$sheet) {
+            return;
+        }
+
+        $lines = array();
+        foreach ((array) $activities as $act) {
+            if (!is_object($act)) {
+                continue;
+            }
+            $time = self::slot_time_label($sheet, $act);
+            $lines[] = $time !== '' ? $act->name . ' (' . $time . ')' : $act->name;
+        }
+
+        $ctx = array(
+            'volunteer_name'  => $user->display_name,
+            'volunteer_email' => $user->user_email,
+            'user_id'         => (int) $user_id,
+            'sheet_title'     => (string) $sheet->title,
+            'activities'      => implode(', ', $lines),
+            'event_date'      => (string) $event_date,
+            'expires_on'      => isset($lwsd_status['expires_on']) ? (string) $lwsd_status['expires_on'] : '',
+            'reason'          => isset($lwsd_status['reason']) ? (string) $lwsd_status['reason'] : '',
+        );
+
+        $subject = Azure_Lwsd_Volunteer::staff_alert_subject($ctx['volunteer_name'], $ctx['sheet_title']);
+        $body = Azure_Lwsd_Volunteer::staff_alert_body($ctx);
+        $sent = wp_mail(Azure_Lwsd_Volunteer::staff_alert_recipients(), $subject, $body);
+
+        if (!$sent && class_exists('Azure_Logger')) {
+            Azure_Logger::warning(
+                'Volunteer signup: staff LWSD alert email failed',
+                array('module' => 'Volunteer', 'user_id' => (int) $user_id, 'reason' => $ctx['reason'])
+            );
+        }
     }
 
     /**
