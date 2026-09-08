@@ -30,6 +30,9 @@ $t->check(strpos($js, "addType('nl-columns'") !== false, 'registers nl-columns c
 $t->check(strpos($js, 'function isNewsletterButtonTable') !== false, 'button tables are detected without requiring Click Here');
 $t->check(strpos($js, 'function findAncestorButton') !== false, 'button clicks stay on the button table');
 $t->check(strpos($js, 'function restoreButtonCellChrome') !== false, 'selected buttons do not inherit Settings border 0');
+$t->check(strpos($js, 'function ensureButtonLinkChrome') !== false, 'saved CTAs get padding and white text written inline');
+$t->check(strpos($js, 'highlighted word') !== false, 'button detection covers bgcolor tables that lost class padding');
+$t->check(strpos($js, 'findAncestorButton(component)') !== false, 'typography does not rewrite button link styles');
 $t->check(strpos($js, "findAncestorButton(comp)") !== false, 'Settings styles are not copied through a button');
 $t->check(strpos($js, 'function syncButtonFromLink') !== false, 'button URL is synced from the saved <a href>');
 $t->check(strpos($js, 'function syncAllEmailButtons') !== false, 'all buttons are re-synced after load');

@@ -59,6 +59,28 @@ $t->check(strpos($linked, '<img href=') === false, 'href is removed from the <im
 $plain = Azure_Newsletter_Email_Css::wrap_image_hrefs('<img src="photo.jpg" alt="Photo">');
 $t->equals($plain, '<img src="photo.jpg" alt="Photo">', 'images without href are unchanged');
 
+$flat_btn = '<table align="center" class="c28807"><tr>'
+    . '<td align="center" bgcolor="#2271b1" class="c28816">'
+    . '<a href="https://wilderptsa.net/theater/" style="font-family:Arial, Helvetica, sans-serif;font-size:14px;" class="c28819">Theater Page</a>'
+    . '</td></tr></table>';
+$btn_out = Azure_Newsletter_Email_Css::ensure_column_stack_style($flat_btn);
+$t->check(strpos($btn_out, 'padding: 14px 30px') !== false, 'flattened CTA gets button padding back');
+$t->check(strpos($btn_out, 'color: #ffffff') !== false, 'flattened CTA gets white button text');
+$t->check(strpos($btn_out, 'display: inline-block') !== false, 'flattened CTA is inline-block so the bgcolor fills the pad');
+$t->check(strpos($btn_out, 'text-decoration: none') !== false, 'flattened CTA drops the link underline');
+$t->check(strpos($btn_out, 'Theater Page') !== false, 'CTA label survives button chrome');
+$t->check(strpos($btn_out, Azure_Newsletter_Email_Css::BUTTON_MARKER) !== false, 'send path injects nl-button CSS');
+
+$img_cell = '<td align="center" bgcolor="#2271b1"><a href="https://wilderptsa.net/x/"><img src="pic.jpg" alt="x"></a></td>';
+$img_out = Azure_Newsletter_Email_Css::ensure_button_chrome($img_cell);
+$t->equals($img_out, $img_cell, 'image links are not turned into text buttons');
+
+$rsvp = '<table class="nl-button" align="center"><tr><td align="center" bgcolor="#2271b1">'
+    . '<a href="https://example.com" style="display: inline-block; padding: 14px 30px; font-weight: bold; color: #ffffff; text-decoration: none;">RSVP</a>'
+    . '</td></tr></table>';
+$rsvp_out = Azure_Newsletter_Email_Css::ensure_button_chrome($rsvp);
+$t->equals(substr_count($rsvp_out, 'padding: 14px 30px'), 1, 'a real button is not double-padded');
+
 $html = '<html><head><style type="text/css">p { color: red; } @media only screen and (max-width: 600px) { td { display: block !important; } }</style></head><body><p class="intro">Hi</p></body></html>';
 $out = Azure_Newsletter_Email_Css::inline_keeping_media($html);
 $t->check(strpos($out, '@media only screen and (max-width: 600px)') !== false, 'inlining keeps the mobile media query');

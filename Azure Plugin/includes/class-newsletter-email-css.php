@@ -19,7 +19,9 @@ class Azure_Newsletter_Email_Css {
     const GAP_MARKER = '/* pta-nl-col-gap */';
     const DIVIDER_MARKER = '/* pta-nl-divider */';
     const OUTLOOK_LH_MARKER = '/* pta-nl-outlook-lh */';
+    const BUTTON_MARKER = '/* pta-nl-button */';
     const COLUMN_GAP_PX = 10;
+    const BUTTON_LINK_STYLE = 'display: inline-block; padding: 14px 30px; font-weight: bold; color: #ffffff; text-decoration: none;';
 
     /**
      * Mobile stack rules for 2- and 3-column newsletter tables.
@@ -78,6 +80,10 @@ class Azure_Newsletter_Email_Css {
         if (!is_string($html) || $html === '') {
             return $original;
         }
+        $html = self::ensure_button_chrome($html);
+        if (!is_string($html) || $html === '') {
+            return $original;
+        }
         $html = self::outlook_safe_line_heights($html);
         if (!is_string($html) || $html === '') {
             return $original;
@@ -103,7 +109,82 @@ class Azure_Newsletter_Email_Css {
         if (strpos($html, self::DIVIDER_MARKER) === false) {
             $html = self::append_style($html, self::divider_css());
         }
+        if (strpos($html, self::BUTTON_MARKER) === false) {
+            $html = self::append_style($html, self::button_css());
+        }
         return (is_string($html) && $html !== '') ? $html : $original;
+    }
+
+    /**
+     * CTA tables that lost GrapesJS class padding look like highlighted
+     * words (bgcolor on the td, no padding/white text on the <a>).
+     */
+    public static function button_css() {
+        return self::BUTTON_MARKER
+            . ' table.nl-button td { border-radius: 4px; }'
+            . ' table.nl-button a { display: inline-block; padding: 14px 30px; font-weight: bold; color: #ffffff !important; text-decoration: none; }';
+    }
+
+    /**
+     * Write button padding/color onto CTA links so they survive clients
+     * that strip <style> (and GrapesJS classes that never got inlined).
+     */
+    public static function ensure_button_chrome($html) {
+        if ($html === '' || $html === null || stripos($html, '<a') === false) {
+            return $html;
+        }
+        if (stripos($html, 'bgcolor') === false && stripos($html, 'background') === false) {
+            return $html;
+        }
+        $rewritten = preg_replace_callback(
+            '/<td\b([^>]*)>((?:(?!<td\b|<table\b).)*)<\/td>/is',
+            array(__CLASS__, 'ensure_one_button_cell'),
+            $html
+        );
+        return is_string($rewritten) ? $rewritten : $html;
+    }
+
+    private static function td_looks_like_button($attrs) {
+        if (preg_match('/\bbgcolor\s*=\s*(["\']?)#?([0-9a-f]{3,8})\1/i', $attrs)) {
+            return true;
+        }
+        return (bool) preg_match('/background(?:-color)?\s*:\s*#?[0-9a-f]{3,8}/i', $attrs);
+    }
+
+    private static function ensure_one_button_cell($match) {
+        if (!self::td_looks_like_button($match[1])) {
+            return $match[0];
+        }
+        $inner = $match[2];
+        if (stripos($inner, '<img') !== false) {
+            return $match[0];
+        }
+        if (!preg_match('/<a\b([^>]*)>(.*?)<\/a>/is', $inner, $a)) {
+            return $match[0];
+        }
+        if (substr_count(strtolower($inner), '<a') !== 1) {
+            return $match[0];
+        }
+        $text = trim(preg_replace('/\s+/', ' ', strip_tags($a[2])));
+        if ($text === '' || strlen($text) > 80) {
+            return $match[0];
+        }
+        $a_attrs = $a[1];
+        $style = '';
+        if (preg_match('/\bstyle\s*=\s*(["\'])(.*?)\1/is', $a_attrs, $sm)) {
+            $style = $sm[2];
+        }
+        $merged = self::merge_inline_style($style, self::BUTTON_LINK_STYLE);
+        if ($merged === $style) {
+            return $match[0];
+        }
+        if (preg_match('/\bstyle\s*=\s*(["\'])(.*?)\1/is', $a_attrs)) {
+            $a_attrs = preg_replace('/\bstyle\s*=\s*(["\'])(.*?)\1/is', 'style="' . str_replace('"', '&quot;', $merged) . '"', $a_attrs, 1);
+        } else {
+            $a_attrs .= ' style="' . $merged . '"';
+        }
+        $new_inner = str_replace($a[0], '<a' . $a_attrs . '>' . $a[2] . '</a>', $inner);
+        return '<td' . $match[1] . '>' . $new_inner . '</td>';
     }
 
     /**

@@ -3050,9 +3050,6 @@
         var style = String(a.getAttribute('style') || '').toLowerCase();
         var looksPadded = style.indexOf('padding') !== -1 &&
             (style.indexOf('inline-block') !== -1 || style.indexOf('display: block') !== -1 || style.indexOf('display:block') !== -1);
-        if (!looksPadded) {
-            return false;
-        }
         var td = a.parentElement;
         while (td && td.tagName !== 'TD') {
             td = td.parentElement;
@@ -3061,7 +3058,19 @@
             return false;
         }
         var tdStyle = String(td.getAttribute('style') || '').toLowerCase();
-        return !!(td.getAttribute('bgcolor') || tdStyle.indexOf('background') !== -1);
+        var hasBg = !!(td.getAttribute('bgcolor') || tdStyle.indexOf('background') !== -1);
+        if (!hasBg) {
+            return false;
+        }
+        if (looksPadded) {
+            return true;
+        }
+        // Saved CTAs often keep bgcolor on the td but store padding
+        // only in a GrapesJS class. Without this they flatten to a
+        // highlighted word after typography writes font onto the <a>.
+        var tableAlign = String(el.getAttribute('align') || '').toLowerCase();
+        var tableWidth = String(el.getAttribute('width') || '');
+        return tableAlign === 'center' && tableWidth !== '100%';
     }
 
     function buttonLinkHref(linkComp) {
@@ -3230,7 +3239,7 @@
         var buttons = wrapper.findType('email-button') || [];
         buttons.forEach(function(btn) {
             syncButtonFromLink(btn);
-            restoreButtonCellChrome(btn);
+            ensureButtonLinkChrome(btn);
         });
     }
 
@@ -3254,6 +3263,35 @@
      * Settings Border defaults to 0. Selecting the inner <a> used to
      * copy that onto the colored td and flatten border-radius.
      */
+    function ensureButtonLinkChrome(button) {
+        var link = firstButtonLink(button);
+        if (!link) {
+            restoreButtonCellChrome(button);
+            return;
+        }
+        var st = (link.getStyle && link.getStyle()) || {};
+        var next = {};
+        if (!st.padding && !st['padding-left'] && !st['padding-right']) {
+            next.padding = '14px 30px';
+        }
+        if (!st.display) {
+            next.display = 'inline-block';
+        }
+        if (!st.color) {
+            next.color = '#ffffff';
+        }
+        if (!st['text-decoration'] && !st.textDecoration) {
+            next['text-decoration'] = 'none';
+        }
+        if (!st['font-weight'] && !st.fontWeight) {
+            next['font-weight'] = 'bold';
+        }
+        if (Object.keys(next).length) {
+            applyComponentStyle(link, next, true);
+        }
+        restoreButtonCellChrome(button);
+    }
+
     function restoreButtonCellChrome(button) {
         if (!button) {
             return;
@@ -4005,7 +4043,7 @@
     function collectTextTargets(component, acc, depth) {
         acc = acc || [];
         depth = depth || 0;
-        if (!component || depth > 8) {
+        if (!component || depth > 8 || findAncestorButton(component)) {
             return acc;
         }
         if (isEditableTextComponent(component)) {
@@ -4422,7 +4460,7 @@
             var button = findAncestorButton(component);
             if (button) {
                 withoutUndo(function() {
-                    restoreButtonCellChrome(button);
+                    ensureButtonLinkChrome(button);
                 });
                 if (button !== component) {
                     selectQuiet(button);
