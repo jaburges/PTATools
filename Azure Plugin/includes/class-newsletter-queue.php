@@ -705,7 +705,8 @@ class Azure_Newsletter_Queue {
             return $html;
         }
         $html = Azure_Newsletter_Email_Css::inline_keeping_media($html);
-        return Azure_Newsletter_Email_Css::ensure_column_stack_style($html);
+        $ensured = Azure_Newsletter_Email_Css::ensure_column_stack_style($html);
+        return (is_string($ensured) && $ensured !== '') ? $ensured : $html;
     }
     
     /**

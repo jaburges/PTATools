@@ -69,23 +69,41 @@ class Azure_Newsletter_Email_Css {
         if ($html === '' || $html === null) {
             return $html;
         }
+        $original = $html;
         $html = self::ensure_column_cell_padding($html);
+        if (!is_string($html) || $html === '') {
+            return $original;
+        }
         $html = self::wrap_image_hrefs($html);
-        $html = self::strip_outlook_paste($html);
+        if (!is_string($html) || $html === '') {
+            return $original;
+        }
         $html = self::outlook_safe_line_heights($html);
+        if (!is_string($html) || $html === '') {
+            return $original;
+        }
         if (strpos($html, self::OUTLOOK_LH_MARKER) === false) {
             $html = self::append_style($html, self::outlook_block_css());
+        }
+        if (!is_string($html) || $html === '') {
+            return $original;
         }
         if (strpos($html, self::GAP_MARKER) === false) {
             $html = self::append_style($html, self::column_gap_css());
         }
+        if (!is_string($html) || $html === '') {
+            return $original;
+        }
         if (strpos($html, self::MARKER) === false) {
             $html = self::append_style($html, self::MARKER . self::column_stack_css());
+        }
+        if (!is_string($html) || $html === '') {
+            return $original;
         }
         if (strpos($html, self::DIVIDER_MARKER) === false) {
             $html = self::append_style($html, self::divider_css());
         }
-        return $html;
+        return (is_string($html) && $html !== '') ? $html : $original;
     }
 
     /**
@@ -96,11 +114,12 @@ class Azure_Newsletter_Email_Css {
         if ($html === '' || $html === null || stripos($html, '<img') === false) {
             return $html;
         }
-        return preg_replace_callback(
+        $rewritten = preg_replace_callback(
             '/<img\b([^>]*)>/i',
             array(__CLASS__, 'wrap_one_image_href'),
             $html
         );
+        return is_string($rewritten) ? $rewritten : $html;
     }
 
     private static function wrap_one_image_href($match) {
@@ -114,142 +133,6 @@ class Azure_Newsletter_Email_Css {
         }
         $attrs = preg_replace('/\s*href\s*=\s*(["\'])([^"\']*)\1/i', '', $attrs);
         return '<a href="' . $url . '" target="_blank" style="text-decoration:none;border:0;"><img' . $attrs . '></a>';
-    }
-
-    /**
-     * Outlook-pasted copy (data-olk-copy-source, Aptos, 12pt,
-     * line-height:inherit, div-inside-span) collapses in Word/mobile.
-     * Flatten that chrome so text is real paragraphs with a px height.
-     *
-     * @param string $html
-     * @return string
-     */
-    public static function strip_outlook_paste($html) {
-        if ($html === '' || $html === null) {
-            return $html;
-        }
-        if (
-            stripos($html, 'data-olk-copy-source') === false
-            && stripos($html, 'data-ogsc') === false
-            && stripos($html, 'Aptos') === false
-            && stripos($html, 'line-height:inherit') === false
-            && stripos($html, 'line-height: inherit') === false
-            && stripos($html, '12pt') === false
-        ) {
-            return $html;
-        }
-        $html = self::outlook_paste_divs_to_paragraphs($html);
-        $html = self::unwrap_olk_spans($html);
-        $html = preg_replace_callback(
-            '/style\s*=\s*(["\'])(.*?)\1/is',
-            array(__CLASS__, 'clean_outlook_paste_style_attr'),
-            $html
-        );
-        $html = preg_replace('/\s+data-olk-copy-source\s*=\s*(["\'])[^"\']*\1/i', '', $html);
-        $html = preg_replace('/\s+data-ogsc\s*=\s*(["\'])[^"\']*\1/i', '', $html);
-        $html = preg_replace('/\s+data-ogsb\s*=\s*(["\'])[^"\']*\1/i', '', $html);
-        $html = preg_replace('/\s+draggable\s*=\s*(["\'])[^"\']*\1/i', '', $html);
-        return $html;
-    }
-
-    private static function is_outlook_paste_markup($attrs) {
-        if ($attrs === '' || $attrs === null) {
-            return false;
-        }
-        if (preg_match('/\b(nl-section-handle|nl-section-hint|nl-row-gap|nl-button|nl-now-next|nl-divider)\b/i', $attrs)) {
-            return false;
-        }
-        return (bool) preg_match(
-            '/data-olk-copy-source|data-ogsc|Aptos|line-height\s*:\s*inherit|font-variant-numeric\s*:\s*inherit|font-size\s*:\s*\d+(?:\.\d+)?pt/i',
-            $attrs
-        );
-    }
-
-    private static function outlook_paste_divs_to_paragraphs($html) {
-        for ($i = 0; $i < 8; $i++) {
-            $next = preg_replace_callback(
-                '/<div\b([^>]*)>((?:(?!<div\b).)*)<\/div>/is',
-                array(__CLASS__, 'outlook_paste_one_div'),
-                $html
-            );
-            if ($next === $html) {
-                break;
-            }
-            $html = $next;
-        }
-        return $html;
-    }
-
-    private static function outlook_paste_one_div($match) {
-        if (!self::is_outlook_paste_markup($match[1])) {
-            return $match[0];
-        }
-        if (stripos($match[2], '<table') !== false) {
-            return $match[0];
-        }
-        return '<p' . $match[1] . '>' . $match[2] . '</p>';
-    }
-
-    private static function unwrap_olk_spans($html) {
-        for ($i = 0; $i < 8; $i++) {
-            $next = preg_replace(
-                '/<span\b[^>]*data-olk-copy-source[^>]*>((?:(?!<span\b).)*)<\/span>/is',
-                '$1',
-                $html
-            );
-            if ($next === null || $next === $html) {
-                break;
-            }
-            $html = $next;
-        }
-        return $html;
-    }
-
-    private static function clean_outlook_paste_style_attr($match) {
-        $quote = $match[1];
-        $style = $match[2];
-        $cleaned = self::clean_outlook_paste_decls($style);
-        if ($cleaned === $style) {
-            return $match[0];
-        }
-        if (trim($cleaned) === '') {
-            return '';
-        }
-        return 'style=' . $quote . $cleaned . $quote;
-    }
-
-    public static function clean_outlook_paste_decls($style) {
-        $parts = preg_split('/;/', (string) $style);
-        $out = array();
-        foreach ($parts as $part) {
-            $part = trim($part);
-            if ($part === '' || strpos($part, ':') === false) {
-                continue;
-            }
-            $bits = explode(':', $part, 2);
-            $prop = strtolower(trim($bits[0]));
-            $val = trim($bits[1]);
-            if ($prop === '') {
-                continue;
-            }
-            if (preg_match('/^font-variant|^font-optical|^font-kerning|^font-feature|^font-variation|^font-language|^font-stretch|^font-size-adjust/', $prop)) {
-                continue;
-            }
-            if ($prop === 'vertical-align' && strtolower($val) === 'baseline') {
-                continue;
-            }
-            if ($prop === 'border' && preg_match('/^0(px)?$/i', $val)) {
-                continue;
-            }
-            if ($prop === 'font-family' && preg_match('/Aptos|Calibri|Cambria|MSFontService/i', $val)) {
-                $val = 'Arial, Helvetica, sans-serif';
-            }
-            if ($prop === 'font-size' && preg_match('/^(\d+(?:\.\d+)?)pt$/i', $val, $m)) {
-                $val = (string) max(12, (int) round(((float) $m[1]) * 96 / 72)) . 'px';
-            }
-            $out[] = $prop . ': ' . $val;
-        }
-        return implode('; ', $out);
     }
 
     /**
@@ -276,16 +159,20 @@ class Azure_Newsletter_Email_Css {
         if ($html === '' || $html === null || stripos($html, 'line-height') === false) {
             return $html;
         }
-        $html = preg_replace_callback(
+        $rewritten = preg_replace_callback(
             '/(<style\b[^>]*>)(.*?)(<\/style>)/is',
             array(__CLASS__, 'outlook_safe_line_height_style_tag'),
             $html
         );
-        return preg_replace_callback(
+        if (!is_string($rewritten)) {
+            return $html;
+        }
+        $rewritten = preg_replace_callback(
             '/style\s*=\s*(["\'])(.*?)\1/is',
             array(__CLASS__, 'outlook_safe_line_height_attr'),
-            $html
+            $rewritten
         );
+        return is_string($rewritten) ? $rewritten : $html;
     }
 
     /**
@@ -385,11 +272,12 @@ class Azure_Newsletter_Email_Css {
         if (stripos($html, 'nl-column') === false && stripos($html, 'nl-stack-col') === false) {
             return $html;
         }
-        return preg_replace_callback(
+        $rewritten = preg_replace_callback(
             '/<td\b([^>]*)>/i',
             array(__CLASS__, 'ensure_column_td_padding_attr'),
             $html
         );
+        return is_string($rewritten) ? $rewritten : $html;
     }
 
     /**
@@ -547,7 +435,8 @@ class Azure_Newsletter_Email_Css {
     private static function append_style($html, $css) {
         $style = '<style type="text/css">' . $css . '</style>';
         if (stripos($html, '</head>') !== false) {
-            return preg_replace('/<\/head>/i', $style . '</head>', $html, 1);
+            $rewritten = preg_replace('/<\/head>/i', $style . '</head>', $html, 1);
+            return is_string($rewritten) ? $rewritten : ($style . $html);
         }
         return $style . $html;
     }

@@ -117,19 +117,38 @@ $t->equals(Azure_Newsletter_Email_Css::line_height_to_px('inherit', 'font-size: 
 $pasted = '<td width="50%" class="nl-column">'
     . '<span data-olk-copy-source="MessageBody" style="font-family:Arial, Helvetica, sans-serif;font-size:14px;">'
     . '<b>When:</b> 8AM Tuesday<br/>'
-    . '<span data-olk-copy-source="MessageBody">'
-    . '<div data-ogsc="black" data-olk-copy-source="MessageBody" '
-    . 'style="font-size:12pt;line-height:inherit;font-family:Aptos, Aptos_MSFontService, Arial, sans-serif;'
-    . 'margin:0px;padding:0px;vertical-align:baseline;font-variant-numeric:inherit;">'
+    . '<div data-olk-copy-source="MessageBody" style="font-size:12pt;line-height:inherit;font-family:Aptos, Arial, sans-serif;">'
     . 'Step into the magical land.</div>'
-    . '</span></span></td>';
-$flat = Azure_Newsletter_Email_Css::ensure_column_stack_style($pasted);
-$t->check(strpos($flat, 'data-olk-copy-source') === false, 'send path strips Outlook paste markers');
-$t->check(strpos($flat, 'Aptos') === false, 'send path replaces Aptos with Arial');
-$t->check(strpos($flat, '12pt') === false, 'send path converts pasted 12pt to px');
-$t->check(strpos($flat, 'line-height:inherit') === false && strpos($flat, 'line-height: inherit') === false, 'send path does not leave line-height:inherit');
-$t->check(strpos($flat, '<p') !== false, 'Outlook paste divs become paragraphs');
-$t->check(preg_match('/line-height:\s*\d+px/', $flat), 'Outlook paste gets a px line-height');
-$t->check(strpos($flat, 'When:') !== false && strpos($flat, 'magical land') !== false, 'pasted words survive sanitizing');
+    . '</span></td>';
+$kept = Azure_Newsletter_Email_Css::ensure_column_stack_style($pasted);
+$t->check(strpos($kept, 'data-olk-copy-source') !== false, 'send path keeps pasted Outlook wrappers visible');
+$t->check(strpos($kept, 'Aptos') !== false, 'send path does not rewrite pasted font-family');
+$t->check(strpos($kept, 'line-height:inherit') === false && strpos($kept, 'line-height: inherit') === false, 'send path still replaces line-height:inherit with px');
+$t->check(preg_match('/line-height:\s*\d+px/', $kept), 'Outlook inherit gets a px line-height');
+$t->check(strpos($kept, 'When:') !== false && strpos($kept, 'magical land') !== false, 'pasted words survive send-path CSS');
+$t->check(strlen($kept) >= strlen($pasted), 'send path does not shrink pasted cells away');
+$t->check(strpos($css_src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-newsletter-email-css.php'), 'function strip_outlook_paste') === false, 'send path no longer unwraps pasted markup');
+
+$ajax_src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-newsletter-ajax.php');
+$t->check(strpos($ajax_src, 'function prepared_html_keeps_content') !== false, 'test send refuses an emptied prepare result');
+$t->check(strpos($ajax_src, 'function preg_replace_keep') !== false, 'test send keeps HTML when a preg_replace fails');
+
+$campaign_file = __DIR__ . '/fixtures/sept7-body-snip.html';
+$campaign = file_get_contents($campaign_file);
+$t->check($campaign !== false && strpos($campaign, 'data-olk-copy-source') !== false, 'Sept 7 campaign fixture is readable');
+$campaign_out = Azure_Newsletter_Email_Css::ensure_column_stack_style($campaign);
+$t->check(is_string($campaign_out) && strlen($campaign_out) > 200, 'send path does not empty the Sept 7 campaign');
+$t->check(strpos($campaign_out, 'data-olk-copy-source') !== false, 'Sept 7 Outlook wrappers survive send');
+$t->check(strpos($campaign_out, 'Hi Wilder Wolves Families') !== false, 'Sept 7 greeting survives send');
+$t->check(strpos($campaign_out, 'magical land') !== false, 'Sept 7 theater copy survives send');
+$t->check(strpos($campaign_out, 'line-height:inherit') === false && strpos($campaign_out, 'line-height: inherit') === false, 'Sept 7 inherit line-height is converted to px');
+
+$stress = $pasted;
+for ($i = 0; $i < 200; $i++) {
+    $stress .= '<td class="nl-column" style="font-family:Arial;font-size:14px;line-height:inherit;">Block ' . $i . '</td>';
+}
+$stress_out = Azure_Newsletter_Email_Css::ensure_column_stack_style($stress);
+$t->check(is_string($stress_out) && strpos($stress_out, 'Block 199') !== false, 'a large pasted document is not emptied by send-path CSS');
+$t->check(strpos($stress_out, 'data-olk-copy-source') !== false, 'Outlook wrappers survive a large send-path rewrite');
 
 exit($t->finish() === 0 ? 0 : 1);

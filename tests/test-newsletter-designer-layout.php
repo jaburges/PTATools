@@ -107,6 +107,8 @@ $t->check(strpos($js, '#btn-format-text') !== false, 'toolbar Format text button
 $t->check(strpos($js, 'function formatTextToDefault') !== false, 'Format text helper exists');
 $t->check(strpos($js, 'function findTextStyleHost') !== false, 'typography targets the text block or column cell');
 $t->check(strpos($js, 'function normalizeTextHost') !== false, 'Format text resets body font and size');
+$t->check(strpos($js, "removeAttribute('data-olk-copy-source')") === false, 'Format text does not strip Outlook paste markers');
+$t->check(strpos($js, "removeAttribute('data-ogsc')") === false, 'Format text does not strip Outlook color markers');
 $t->check(strpos($js, "NL_DEFAULT_FONT = 'Arial, Helvetica, sans-serif'") !== false, 'default body font is Arial');
 $t->check(strpos($js, "NL_DEFAULT_SIZE = '14px'") !== false, 'default body size is 14px');
 $t->check(strpos($js, 'lastTextStyleHost') !== false, 'sidebar font changes keep the last text block');

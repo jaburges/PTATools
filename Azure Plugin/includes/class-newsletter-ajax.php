@@ -768,7 +768,10 @@ class Azure_Newsletter_Ajax {
         
         // Clean and prepare HTML for email
         $html = self::expand_email_shortcodes($html);
-        $html = self::prepare_email_html($html);
+        $prepared = self::prepare_email_html($html);
+        if (self::prepared_html_keeps_content($html, $prepared)) {
+            $html = $prepared;
+        }
         
         // Ensure sender class is loaded
         if (!class_exists('Azure_Newsletter_Sender')) {
@@ -809,24 +812,50 @@ class Azure_Newsletter_Ajax {
     }
 
     /**
+     * Keep the pre-prepare HTML when a sanitizer returns empty or a
+     * wrapper document whose body no longer has the original words.
+     */
+    private static function prepared_html_keeps_content($original, $prepared) {
+        if (!is_string($prepared) || $prepared === '') {
+            return false;
+        }
+        $orig_text = self::visible_email_text($original);
+        if ($orig_text === '') {
+            return true;
+        }
+        return self::visible_email_text($prepared) !== '';
+    }
+
+    private static function visible_email_text($html) {
+        $text = preg_replace('/<style[^>]*>.*?<\/style>/is', '', (string) $html);
+        $text = is_string($text) ? $text : (string) $html;
+        return trim(preg_replace('/\s+/', '', strip_tags($text)));
+    }
+
+    private static function preg_replace_keep($pattern, $replacement, $html) {
+        $next = preg_replace($pattern, $replacement, $html);
+        return is_string($next) ? $next : $html;
+    }
+
+    /**
      * Prepare HTML for email sending - clean up GrapesJS output
      */
     private static function prepare_email_html($html) {
         // Remove raw CSS text that appears before HTML tags (GrapesJS bug)
         // This catches patterns like: "* { box-sizing: border-box; } body {margin: 0;} ..."
-        $html = preg_replace('/^[^<]*\*\s*\{[^}]*\}[^<]*/s', '', $html);
+        $html = self::preg_replace_keep('/^[^<]*\*\s*\{[^}]*\}[^<]*/s', '', $html);
         
         // Remove any text content before the first HTML tag
-        $html = preg_replace('/^[^<]+/', '', $html);
+        $html = self::preg_replace_keep('/^[^<]+/', '', $html);
         
         // Extract style tags from body and collect them
         $styles = '';
-        if (preg_match_all('/<style[^>]*>(.*?)<\/style>/is', $html, $matches)) {
+        if (is_string($html) && preg_match_all('/<style[^>]*>(.*?)<\/style>/is', $html, $matches)) {
             foreach ($matches[1] as $style) {
                 $styles .= $style . "\n";
             }
             // Remove style tags from body
-            $html = preg_replace('/<style[^>]*>.*?<\/style>/is', '', $html);
+            $html = self::preg_replace_keep('/<style[^>]*>.*?<\/style>/is', '', $html);
         }
         
         // Check if it already has a proper structure
@@ -867,7 +896,10 @@ class Azure_Newsletter_Ajax {
             }
         }
         if (class_exists('Azure_Newsletter_Email_Css')) {
-            $html = Azure_Newsletter_Email_Css::ensure_column_stack_style($html);
+            $ensured = Azure_Newsletter_Email_Css::ensure_column_stack_style($html);
+            if (is_string($ensured) && $ensured !== '') {
+                $html = $ensured;
+            }
         }
         
         return $html;
@@ -2235,22 +2267,18 @@ class Azure_Newsletter_Ajax {
         // Unslash the content (WordPress adds slashes)
         $html = wp_unslash($html);
         
-        // Remove any PHP tags (security)
-        $html = preg_replace('/<\?php.*?\?>/is', '', $html);
-        $html = preg_replace('/<\?=.*?\?>/is', '', $html);
-        $html = preg_replace('/<\?.*?\?>/is', '', $html);
-        
-        // Remove script tags (security) - but preserve style tags
-        $html = preg_replace('/<script\b[^>]*>.*?<\/script>/is', '', $html);
-        
-        // Remove event handlers (onclick, onerror, etc.)
-        $html = preg_replace('/\s+on\w+\s*=\s*["\'][^"\']*["\']/i', '', $html);
-        $html = preg_replace('/\s+on\w+\s*=\s*[^\s>]*/i', '', $html);
-        
-        // Remove javascript: URLs
-        $html = preg_replace('/href\s*=\s*["\']?\s*javascript:[^"\'>\s]*/i', 'href="#"', $html);
-        
-        return $html;
+        $html = self::preg_replace_keep('/<\?php.*?\?>/is', '', $html);
+        $html = self::preg_replace_keep('/<\?=.*?\?>/is', '', $html);
+        $html = self::preg_replace_keep('/<\?.*?\?>/is', '', $html);
+
+        $html = self::preg_replace_keep('/<script\b[^>]*>.*?<\/script>/is', '', $html);
+
+        $html = self::preg_replace_keep('/\s+on\w+\s*=\s*["\'][^"\']*["\']/i', '', $html);
+        $html = self::preg_replace_keep('/\s+on\w+\s*=\s*[^\s>]*/i', '', $html);
+
+        $html = self::preg_replace_keep('/href\s*=\s*["\']?\s*javascript:[^"\'>\s]*/i', 'href="#"', $html);
+
+        return is_string($html) ? $html : '';
     }
     
     /**
