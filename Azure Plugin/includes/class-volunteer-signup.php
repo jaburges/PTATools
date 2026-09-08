@@ -611,11 +611,33 @@ class Azure_Volunteer_Signup {
         }
 
         $sheet_id = (int) $added_acts[0]->sheet_id;
+        $sheet = self::get_sheet($sheet_id);
         $this->send_confirmation_email($user_id, $sheet_id, $added_acts);
+
+        $lwsd = null;
+        if (class_exists('Azure_Lwsd_Volunteer')) {
+            $bounds = $sheet ? self::slot_bounds($sheet, $added_acts[0]) : array('start' => null);
+            $event_date = $bounds['start'] ? substr((string) $bounds['start'], 0, 10) : '';
+            $expires_on = function_exists('get_user_meta')
+                ? (string) get_user_meta($user_id, Azure_Lwsd_Volunteer::META_EXPIRES, true)
+                : '';
+            $lwsd_status = Azure_Lwsd_Volunteer::status_from_meta(
+                $expires_on,
+                $event_date,
+                Azure_Lwsd_Volunteer::today_pacific()
+            );
+            $lwsd = array(
+                'reason'     => $lwsd_status['reason'],
+                'expires_on' => $lwsd_status['expires_on'],
+                'apply_url'  => Azure_Lwsd_Volunteer::apply_url(),
+                'warning'    => Azure_Lwsd_Volunteer::warning_copy($lwsd_status),
+            );
+        }
 
         wp_send_json_success(array(
             'message'    => sprintf(__('You signed up for: %s', 'azure-plugin'), implode(', ', $added)),
             'activities' => $added,
+            'lwsd'       => $lwsd,
         ));
     }
 
@@ -680,6 +702,30 @@ class Azure_Volunteer_Signup {
         }
 
         $message .= __("\n\nA calendar invite is attached — add it to keep this shift on your calendar.\n\nThank you for helping out!\n", 'azure-plugin');
+
+        if (class_exists('Azure_Lwsd_Volunteer')) {
+            $first_act = null;
+            foreach ((array) $activities as $act) {
+                if (is_object($act)) {
+                    $first_act = $act;
+                    break;
+                }
+            }
+            $bounds = $first_act ? self::slot_bounds($sheet, $first_act) : array('start' => null);
+            $event_date = $bounds['start'] ? substr((string) $bounds['start'], 0, 10) : '';
+            if ($event_date === '' && !empty($sheet->event_date)) {
+                $event_date = substr((string) $sheet->event_date, 0, 10);
+            }
+            $expires_on = function_exists('get_user_meta')
+                ? (string) get_user_meta($user_id, Azure_Lwsd_Volunteer::META_EXPIRES, true)
+                : '';
+            $lwsd_status = Azure_Lwsd_Volunteer::status_from_meta(
+                $expires_on,
+                $event_date,
+                Azure_Lwsd_Volunteer::today_pacific()
+            );
+            $message .= Azure_Lwsd_Volunteer::confirmation_footer($lwsd_status, Azure_Lwsd_Volunteer::apply_url());
+        }
 
         $attachments = $this->write_ics_attachments($sheet, $activities, $user);
         wp_mail($user->user_email, $subject, $message, array(), $attachments);
@@ -841,6 +887,16 @@ class Azure_Volunteer_Signup {
                 ? wp_login_url(function_exists('get_permalink') ? get_permalink() : '')
                 : '';
             ?>
+            <?php
+            $lwsd_expires = '';
+            $lwsd_today = '';
+            if ($user_id && class_exists('Azure_Lwsd_Volunteer')) {
+                $lwsd_expires = function_exists('get_user_meta')
+                    ? (string) get_user_meta($user_id, Azure_Lwsd_Volunteer::META_EXPIRES, true)
+                    : '';
+                $lwsd_today = Azure_Lwsd_Volunteer::today_pacific();
+            }
+            ?>
             <div class="azure-vs-table-wrap">
                 <table class="azure-vs-table">
                     <thead>
@@ -859,12 +915,26 @@ class Azure_Volunteer_Signup {
                         $signed = $user_id ? self::user_signed_up($act->id, $user_id) : false;
                         $signups = self::get_signups_for_activity($act->id);
                         $time_label = self::slot_time_label($sheet, $act);
+                        $row_bounds = self::slot_bounds($sheet, $act);
+                        $row_event_date = $row_bounds['start'] ? substr((string) $row_bounds['start'], 0, 10) : '';
+                        $row_lwsd_copy = array('title' => '', 'body' => '', 'show_link' => false);
+                        $row_lwsd_reason = 'ok';
+                        if ($user_id && class_exists('Azure_Lwsd_Volunteer')) {
+                            $row_lwsd_status = Azure_Lwsd_Volunteer::status_from_meta($lwsd_expires, $row_event_date, $lwsd_today);
+                            $row_lwsd_copy = Azure_Lwsd_Volunteer::warning_copy($row_lwsd_status);
+                            $row_lwsd_reason = $row_lwsd_status['reason'];
+                        }
                     ?>
                         <tr class="azure-vs-activity <?php echo $full ? 'full' : ''; ?> <?php echo $signed ? 'signed-up' : ''; ?>"
                             data-activity-id="<?php echo esc_attr($act->id); ?>"
                             data-activity-name="<?php echo esc_attr($act->name); ?>"
                             data-activity-time="<?php echo esc_attr($time_label); ?>"
-                            data-sheet-title="<?php echo esc_attr($sheet->title); ?>">
+                            data-sheet-title="<?php echo esc_attr($sheet->title); ?>"
+                            data-event-date="<?php echo esc_attr($row_event_date); ?>"
+                            data-lwsd-reason="<?php echo esc_attr($row_lwsd_reason); ?>"
+                            data-lwsd-show-link="<?php echo !empty($row_lwsd_copy['show_link']) ? '1' : '0'; ?>"
+                            data-lwsd-warning="<?php echo esc_attr($row_lwsd_copy['body']); ?>"
+                            data-lwsd-warning-title="<?php echo esc_attr($row_lwsd_copy['title']); ?>">
                             <td>
                                 <strong><?php echo esc_html($act->name); ?></strong>
                                 <?php if ($act->description): ?>
@@ -956,9 +1026,34 @@ class Azure_Volunteer_Signup {
             true
         );
 
+        $lwsd_localize = array(
+            'apply_url'  => '',
+            'show_link'  => false,
+            'reason'     => 'ok',
+            'expires_on' => '',
+            'warning'    => array('title' => '', 'body' => '', 'show_link' => false),
+        );
+        if (class_exists('Azure_Lwsd_Volunteer')) {
+            $uid = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
+            $today = Azure_Lwsd_Volunteer::today_pacific();
+            $expires_on = ($uid && function_exists('get_user_meta'))
+                ? (string) get_user_meta($uid, Azure_Lwsd_Volunteer::META_EXPIRES, true)
+                : '';
+            $today_status = Azure_Lwsd_Volunteer::status_from_meta($expires_on, $today, $today);
+            $today_copy = Azure_Lwsd_Volunteer::warning_copy($today_status);
+            $lwsd_localize = array(
+                'apply_url'  => Azure_Lwsd_Volunteer::apply_url(),
+                'show_link'  => !empty($today_copy['show_link']),
+                'reason'     => $today_status['reason'],
+                'expires_on' => $today_status['expires_on'],
+                'warning'    => $today_copy,
+            );
+        }
+
         wp_localize_script('azure-volunteer-frontend', 'azureVolunteer', array(
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce('azure_volunteer_front'),
+            'lwsd'    => $lwsd_localize,
             'i18n'    => array(
                 'saving'   => __('Saving...', 'azure-plugin'),
                 'saved'    => __('Saved!', 'azure-plugin'),
@@ -967,6 +1062,7 @@ class Azure_Volunteer_Signup {
                 'confirm_btn' => __('Confirm sign-up', 'azure-plugin'),
                 'cancel' => __('Cancel', 'azure-plugin'),
                 'confirm_withdraw' => __('Withdraw from this activity?', 'azure-plugin'),
+                'apply_link' => __('Become an LWSD approved volunteer', 'azure-plugin'),
             ),
         ));
     }

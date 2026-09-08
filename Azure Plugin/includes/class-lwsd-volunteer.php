@@ -326,6 +326,76 @@ class Azure_Lwsd_Volunteer {
     }
 
     /**
+     * Modal / email warning copy for a status_from_meta() result.
+     *
+     * @param array{reason?:string,expires_on?:string,active?:bool,approved_for_event?:bool} $status
+     * @return array{title:string,body:string,show_link:bool}
+     */
+    public static function warning_copy(array $status) {
+        $reason = isset($status['reason']) ? (string) $status['reason'] : '';
+        if ($reason === 'ok') {
+            return array(
+                'title'     => '',
+                'body'      => '',
+                'show_link' => false,
+            );
+        }
+
+        $expires_on = isset($status['expires_on']) ? (string) $status['expires_on'] : '';
+
+        if ($reason === 'expired') {
+            return array(
+                'title'     => 'Your LWSD volunteer approval has expired',
+                'body'      => 'Your LWSD volunteer approval is no longer current. You can still sign up, but please renew your district approval.',
+                'show_link' => true,
+            );
+        }
+
+        if ($reason === 'expires_before_event') {
+            $when = $expires_on !== '' ? $expires_on : 'soon';
+            return array(
+                'title'     => 'Your LWSD volunteer approval expires before this event',
+                'body'      => 'Your LWSD volunteer approval expires on ' . $when . ', which is before this event. You can still sign up.',
+                'show_link' => true,
+            );
+        }
+
+        return array(
+            'title'     => 'You are not on the LWSD approved volunteer roster',
+            'body'      => 'You are not currently listed as an LWSD-approved volunteer. You can still sign up.',
+            'show_link' => true,
+        );
+    }
+
+    /**
+     * Extra confirmation-email text: empty when approved, otherwise warning + apply URL.
+     *
+     * @param array{reason?:string,expires_on?:string,active?:bool,approved_for_event?:bool} $status
+     * @param string $apply_url
+     * @return string
+     */
+    public static function confirmation_footer(array $status, $apply_url) {
+        $copy = self::warning_copy($status);
+        if (empty($copy['show_link'])) {
+            return '';
+        }
+
+        $lines = array();
+        if ($copy['title'] !== '') {
+            $lines[] = $copy['title'];
+        }
+        if ($copy['body'] !== '') {
+            $lines[] = $copy['body'];
+        }
+        $apply_url = (string) $apply_url;
+        if ($apply_url !== '') {
+            $lines[] = $apply_url;
+        }
+
+        return "\n\n" . implode("\n", $lines);
+    }
+
+    /**
      * Build the blob name for an archived roster upload.
      *
      * Format: lwsd-volunteer-rosters/{stamp}-{sanitized-basename}.xlsx

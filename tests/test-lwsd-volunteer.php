@@ -94,4 +94,28 @@ $t->equals(
     'blob forces xlsx extension and lowercases'
 );
 
+$warn = Azure_Lwsd_Volunteer::warning_copy(array(
+    'reason' => 'not_on_roster',
+    'expires_on' => '',
+    'active' => false,
+    'approved_for_event' => false,
+));
+$t->check($warn['show_link'] === true, 'unapproved shows link');
+$t->check(strpos($warn['body'], 'LWSD') !== false, 'body mentions LWSD');
+
+$okc = Azure_Lwsd_Volunteer::warning_copy(array(
+    'reason' => 'ok',
+    'expires_on' => '2028-08-21',
+    'active' => true,
+    'approved_for_event' => true,
+));
+$t->check($okc['show_link'] === false, 'approved has no nag');
+
+$foot = Azure_Lwsd_Volunteer::confirmation_footer(
+    array('reason' => 'expires_before_event', 'expires_on' => '2026-09-20', 'active' => true, 'approved_for_event' => false),
+    'https://wilderptsa.net/become-an-lwsd-approved-volunteer/'
+);
+$t->check(strpos($foot, 'https://wilderptsa.net/become-an-lwsd-approved-volunteer/') !== false, 'footer has apply URL');
+$t->equals('', Azure_Lwsd_Volunteer::confirmation_footer(array('reason' => 'ok', 'expires_on' => '2028-01-01', 'active' => true, 'approved_for_event' => true), 'https://x'), 'ok footer empty');
+
 exit($t->finish());
