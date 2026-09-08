@@ -26,6 +26,141 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
 </p>
 
 <div class="azure-module-content">
+    <?php
+    // LWSD approved-volunteer roster widget (Task 4).
+    if (class_exists('Azure_Lwsd_Volunteer')) {
+        $lwsd_vm = Azure_Lwsd_Volunteer::widget_view_model();
+        $lwsd_stats = $lwsd_vm['stats'];
+        $lwsd_unmatched = $lwsd_vm['unmatched'];
+        $lwsd_ambiguous = $lwsd_vm['ambiguous'];
+        $lwsd_imported_at = $lwsd_vm['imported_at'];
+        $lwsd_filename = $lwsd_vm['filename'];
+        $lwsd_nonce = function_exists('wp_create_nonce') ? wp_create_nonce(Azure_Lwsd_Volunteer::NONCE) : '';
+    } else {
+        $lwsd_stats = array('active' => 0, 'expiring' => 0, 'expired' => 0, 'unmatched' => 0, 'ambiguous' => 0, 'total' => 0);
+        $lwsd_unmatched = array();
+        $lwsd_ambiguous = array();
+        $lwsd_imported_at = '';
+        $lwsd_filename = '';
+        $lwsd_nonce = '';
+    }
+    ?>
+    <div id="azure-lwsd-volunteer-widget" class="card" style="max-width: none; margin-bottom: 16px; padding: 16px;">
+        <h2 style="margin-top:0;">
+            <span class="dashicons dashicons-awards"></span>
+            <?php _e('LWSD Approved Volunteer Roster', 'azure-plugin'); ?>
+        </h2>
+        <p class="description">
+            <?php
+            printf(
+                /* translators: 1: apply URL */
+                __('Upload the district three-column workbook to refresh the approved-volunteer roster. Approved volunteers can apply at %s.', 'azure-plugin'),
+                '<a href="' . esc_url(Azure_Lwsd_Volunteer::apply_url()) . '" target="_blank" rel="noopener">' . esc_html(Azure_Lwsd_Volunteer::apply_url()) . '</a>'
+            );
+            ?>
+        </p>
+
+        <div style="display:flex; gap:24px; flex-wrap:wrap; margin: 12px 0;">
+            <div>
+                <span class="azure-lwsd-stat-label"><?php _e('Active approved', 'azure-plugin'); ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['active']; ?></span>
+            </div>
+            <div>
+                <span class="azure-lwsd-stat-label"><?php _e('Expiring in 14 days', 'azure-plugin'); ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['expiring']; ?></span>
+            </div>
+            <div>
+                <span class="azure-lwsd-stat-label"><?php _e('Expired', 'azure-plugin'); ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['expired']; ?></span>
+            </div>
+            <div>
+                <span class="azure-lwsd-stat-label"><?php _e('Unmatched', 'azure-plugin'); ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['unmatched']; ?></span>
+            </div>
+            <div>
+                <span class="azure-lwsd-stat-label"><?php _e('Ambiguous', 'azure-plugin'); ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['ambiguous']; ?></span>
+            </div>
+            <div>
+                <span class="azure-lwsd-stat-label"><?php _e('Total rows', 'azure-plugin'); ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['total']; ?></span>
+            </div>
+        </div>
+
+        <p class="description" id="azure-lwsd-last-import">
+            <?php if ($lwsd_imported_at !== ''): ?>
+                <?php
+                printf(
+                    /* translators: 1: timestamp, 2: filename */
+                    __('Last import: %1$s — %2$s', 'azure-plugin'),
+                    esc_html($lwsd_imported_at),
+                    esc_html($lwsd_filename)
+                );
+                ?>
+            <?php else: ?>
+                <?php _e('No roster imported yet.', 'azure-plugin'); ?>
+            <?php endif; ?>
+        </p>
+
+        <?php if (!empty($lwsd_unmatched) || !empty($lwsd_ambiguous)): ?>
+        <details style="margin: 10px 0;">
+            <summary><?php _e('Unmatched / ambiguous names', 'azure-plugin'); ?></summary>
+            <table class="wp-list-table widefat fixed striped" style="margin-top:8px;">
+                <thead>
+                    <tr>
+                        <th><?php _e('First', 'azure-plugin'); ?></th>
+                        <th><?php _e('Last', 'azure-plugin'); ?></th>
+                        <th><?php _e('Expires', 'azure-plugin'); ?></th>
+                        <th><?php _e('State', 'azure-plugin'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($lwsd_unmatched as $u): ?>
+                    <tr>
+                        <td><?php echo esc_html($u['first']); ?></td>
+                        <td><?php echo esc_html($u['last']); ?></td>
+                        <td><?php echo esc_html($u['expires_on']); ?></td>
+                        <td><?php _e('Unmatched', 'azure-plugin'); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php foreach ($lwsd_ambiguous as $a): ?>
+                    <tr>
+                        <td><?php echo esc_html($a['first']); ?></td>
+                        <td><?php echo esc_html($a['last']); ?></td>
+                        <td><?php echo esc_html($a['expires_on']); ?></td>
+                        <td><?php _e('Ambiguous', 'azure-plugin'); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </details>
+        <?php endif; ?>
+
+        <div class="azure-lwsd-upload-row" style="display:flex; gap:10px; align-items:center; margin-top: 12px;">
+            <input type="file" id="azure-lwsd-xlsx-input" accept=".xlsx" style="max-width: 360px;" />
+            <button type="button" class="button button-primary" id="azure-lwsd-upload-btn">
+                <span class="dashicons dashicons-upload" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
+                <?php _e('Import Roster', 'azure-plugin'); ?>
+            </button>
+            <span id="azure-lwsd-upload-status" class="description" style="margin-left:8px;"></span>
+        </div>
+
+        <?php
+        /*
+        // "Email Expiring Volunteers" stays off until we only mail people we
+        // have WordPress accounts for (Task 7 wires this up safely).
+        ?>
+        <div class="azure-lwsd-email-row" style="margin-top: 12px;">
+            <button type="button" class="button" id="azure-lwsd-email-expiring-btn" disabled>
+                <?php _e('Email Expiring Volunteers', 'azure-plugin'); ?>
+            </button>
+            <span class="description"><?php _e('Disabled until we can email only matched WordPress users.', 'azure-plugin'); ?></span>
+        </div>
+        <?php
+        */
+        ?>
+    </div>
+
     <div class="azure-action-row" style="margin-bottom: 16px;">
         <button type="button" class="button button-primary" id="azure-vs-new-sheet">
             <span class="dashicons dashicons-plus-alt2"></span> <?php _e('New Sign-Up Sheet', 'azure-plugin'); ?>
@@ -187,6 +322,42 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
 
 <script>
 jQuery(function($) {
+    // LWSD roster upload (Task 4).
+    $('#azure-lwsd-upload-btn').on('click', function() {
+        var $btn = $(this);
+        var $input = $('#azure-lwsd-xlsx-input');
+        var $status = $('#azure-lwsd-upload-status');
+        var file = $input[0].files[0];
+        if (!file) {
+            $status.text('<?php echo esc_js(__('Choose an .xlsx file first.', 'azure-plugin')); ?>');
+            return;
+        }
+        var fd = new FormData();
+        fd.append('action', 'azure_lwsd_volunteer_upload');
+        fd.append('nonce', <?php echo wp_json_encode($lwsd_nonce); ?>);
+        fd.append('lwsd_xlsx', file);
+        $btn.prop('disabled', true);
+        $status.text('<?php echo esc_js(__('Importing...', 'azure-plugin')); ?>');
+        $.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: fd,
+            processData: false,
+            contentType: false
+        }).done(function(res) {
+            if (res && res.success) {
+                $status.text('<?php echo esc_js(__('Import complete. Reloading...', 'azure-plugin')); ?>');
+                location.reload();
+            } else {
+                $status.text((res && res.data) || '<?php echo esc_js(__('Import failed.', 'azure-plugin')); ?>');
+            }
+        }).fail(function() {
+            $status.text('<?php echo esc_js(__('Network error during import.', 'azure-plugin')); ?>');
+        }).always(function() {
+            $btn.prop('disabled', false);
+        });
+    });
+
     var activityIdx = 0;
 
     function timeFromMysql(dt) {

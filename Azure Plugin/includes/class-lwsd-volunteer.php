@@ -299,4 +299,384 @@ class Azure_Lwsd_Volunteer {
         }
         return (bool) filter_var($email, FILTER_VALIDATE_EMAIL);
     }
+
+    /**
+     * Hard-coded apply page slug used by apply_url().
+     *
+     * Kept as a constant so tests can assert it without WordPress.
+     */
+    const APPLY_PATH = '/become-an-lwsd-approved-volunteer/';
+
+    /**
+     * URL of the public "become an approved volunteer" page.
+     *
+     * @return string
+     */
+    public static function apply_url() {
+        return function_exists('home_url') ? home_url(self::apply_path()) : self::apply_path();
+    }
+
+    /**
+     * Hard-coded apply page path (no host).
+     *
+     * @return string
+     */
+    public static function apply_path() {
+        return self::APPLY_PATH;
+    }
+
+    /**
+     * Build the blob name for an archived roster upload.
+     *
+     * Format: lwsd-volunteer-rosters/{stamp}-{sanitized-basename}.xlsx
+     *
+     * The basename is forced to .xlsx so a mislabeled upload cannot write a
+     * different extension into the private archive container.
+     *
+     * @param string $original Original client filename (may contain spaces/case).
+     * @param string $stamp    Pre-formatted Y-m-d-His stamp.
+     * @return string
+     */
+    public static function blob_name($original, $stamp) {
+        $base = basename((string) $original);
+        if (function_exists('sanitize_file_name')) {
+            $clean = sanitize_file_name($base);
+        } else {
+            $clean = preg_replace('/[^a-zA-Z0-9._-]+/', '-', strtolower($base));
+        }
+        $clean = strtolower((string) $clean);
+        // Strip any extension(s) and force .xlsx.
+        $clean = preg_replace('/\.[^.]+$/', '', $clean);
+        if ($clean === '') {
+            $clean = 'roster';
+        }
+        return 'lwsd-volunteer-rosters/' . $stamp . '-' . $clean . '.xlsx';
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // WordPress wiring
+    // ───────────────────────────────────────────────────────────────────
+
+    /** Nonce action used by the admin upload widget. */
+    const NONCE = 'azure_lwsd_volunteer_admin';
+
+    private static $instance = null;
+
+    /**
+     * Register the AJAX + profile hooks. Called from init_volunteer_components.
+     */
+    public static function init() {
+        add_action('wp_ajax_azure_lwsd_volunteer_upload', array(__CLASS__, 'ajax_upload'));
+        add_action('show_user_profile', array(__CLASS__, 'render_user_profile_fields'));
+        add_action('edit_user_profile', array(__CLASS__, 'render_user_profile_fields'));
+
+        // Email Expiring Volunteers is implemented but not hooked until we can
+        // mail only people we have WordPress accounts for.
+        /*
+        add_action('wp_ajax_azure_lwsd_volunteer_email_expiring', array(__CLASS__, 'ajax_email_expiring'));
+        */
+    }
+
+    /**
+     * Best-effort: archive the uploaded xlsx to the private blob container.
+     * Failure (storage not configured or upload throws) is logged but never
+     * propagates — the roster import must still succeed.
+     *
+     * @param string $tmp_path  $_FILES['...']['tmp_name'].
+     * @param string $original  Original client filename.
+     * @param string $stamp     Y-m-d-His stamp for the blob name.
+     * @return string Empty string on failure, the blob name on success.
+     */
+    public static function archive_upload_to_blob($tmp_path, $original, $stamp) {
+        if (!class_exists('Azure_Backup_Storage')) {
+            return '';
+        }
+
+        $blob_name = self::blob_name($original, $stamp);
+
+        try {
+            $storage = new Azure_Backup_Storage();
+            $uploaded = $storage->upload_backup($tmp_path, $blob_name);
+            if (is_string($uploaded) && $uploaded !== '') {
+                return $uploaded;
+            }
+            return $blob_name;
+        } catch (\Throwable $e) {
+            if (class_exists('Azure_Logger')) {
+                Azure_Logger::warning(
+                    'LWSD volunteer roster blob archive failed: ' . $e->getMessage(),
+                    array('module' => 'Volunteer')
+                );
+            }
+            return '';
+        }
+    }
+
+    /**
+     * Load WordPress users in a form match_rows() can consume. Skips users
+     * with no first or last name (they can never be matched by name).
+     *
+     * @return array<int,array{ID:int,first_name:string,last_name:string,user_email:string}>
+     */
+    public static function load_wp_users_for_match() {
+        if (!function_exists('get_users')) {
+            return array();
+        }
+
+        $ids = get_users(array('fields' => array('ID')));
+        $out = array();
+        foreach ($ids as $uid) {
+            $id = (int) $uid;
+            $first = (string) get_user_meta($id, 'first_name', true);
+            $last  = (string) get_user_meta($id, 'last_name', true);
+            if ($first === '' || $last === '') {
+                continue;
+            }
+            $out[] = array(
+                'ID'         => $id,
+                'first_name' => $first,
+                'last_name'  => $last,
+                'user_email' => (string) get_user_meta($id, 'user_email', true),
+            );
+        }
+        return $out;
+    }
+
+    /**
+     * Existing roster rows' user_ids that are currently matched. Used as the
+     * "previously matched" set so the next import clears users who left.
+     *
+     * @return int[]
+     */
+    public static function current_matched_user_ids() {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('lwsd_volunteer_roster');
+        if (!$table) {
+            return array();
+        }
+        $rows = $wpdb->get_results(
+            "SELECT user_id FROM {$table} WHERE match_state = 'matched' AND user_id > 0"
+        );
+        $out = array();
+        foreach ($rows as $r) {
+            $out[] = (int) $r->user_id;
+        }
+        return $out;
+    }
+
+    /**
+     * Full roster replace: truncate, insert, apply the meta plan, and update
+     * the imported_at option. Returns counts for the admin widget.
+     *
+     * @param array  $matched_rows Output of match_rows().
+     * @param string $today        Y-m-d (Pacific).
+     * @return array{stats:array,unmatched:array,ambiguous:array}
+     */
+    public static function replace_roster(array $matched_rows, $today) {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('lwsd_volunteer_roster');
+        $now = function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s');
+
+        $prev = self::current_matched_user_ids();
+        $plan = self::plan_meta_writes($matched_rows, $prev, $today);
+
+        if ($table) {
+            // Full replace: delete every row, then insert the new set.
+            $wpdb->query("DELETE FROM {$table}");
+
+            foreach ($matched_rows as $row) {
+                $first = isset($row['first']) ? (string) $row['first'] : '';
+                $last  = isset($row['last']) ? (string) $row['last'] : '';
+                $expires_on = isset($row['expires_on']) && $row['expires_on'] !== ''
+                    ? (string) $row['expires_on']
+                    : null;
+                $user_id = (int) ($row['user_id'] ?? 0);
+                $match_state = (string) ($row['match_state'] ?? 'unmatched');
+
+                $wpdb->insert($table, array(
+                    'first_name'  => $first,
+                    'last_name'   => $last,
+                    'name_key'    => self::name_key($first, $last),
+                    'expires_on'  => $expires_on,
+                    'user_id'     => $user_id,
+                    'match_state' => $match_state,
+                    'imported_at' => $now,
+                ));
+            }
+        }
+
+        // Apply user-meta plan: set matched users, clear users who left.
+        foreach ($plan['set'] as $user_id => $meta) {
+            update_user_meta($user_id, self::META_EXPIRES, $meta['expires_on']);
+            update_user_meta($user_id, self::META_ACTIVE, $meta['active']);
+        }
+        foreach ($plan['clear'] as $user_id) {
+            delete_user_meta($user_id, self::META_EXPIRES);
+            delete_user_meta($user_id, self::META_ACTIVE);
+        }
+
+        update_option(self::OPTION_IMPORTED_AT, $now);
+
+        $stats = self::widget_stats($matched_rows, $today);
+
+        $unmatched = array();
+        $ambiguous = array();
+        foreach ($matched_rows as $row) {
+            $state = $row['match_state'] ?? '';
+            $entry = array(
+                'first'      => (string) ($row['first'] ?? ''),
+                'last'       => (string) ($row['last'] ?? ''),
+                'expires_on' => (string) ($row['expires_on'] ?? ''),
+            );
+            if ($state === 'unmatched') {
+                $unmatched[] = $entry;
+            } elseif ($state === 'ambiguous') {
+                $ambiguous[] = $entry;
+            }
+        }
+
+        return array(
+            'stats'     => $stats,
+            'unmatched'  => $unmatched,
+            'ambiguous'  => $ambiguous,
+        );
+    }
+
+    /**
+     * AJAX handler: upload a district xlsx, replace the roster, archive to blob.
+     */
+    public static function ajax_upload() {
+        if (!function_exists('check_ajax_referer')) {
+            return;
+        }
+        check_ajax_referer(self::NONCE, 'nonce');
+        if (!function_exists('current_user_can') || !current_user_can('manage_options')) {
+            wp_send_json_error('Permission denied.');
+            return;
+        }
+
+        $file = isset($_FILES['lwsd_xlsx']) ? $_FILES['lwsd_xlsx'] : null;
+        if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            wp_send_json_error('No file uploaded.');
+            return;
+        }
+
+        $original = isset($file['name']) ? (string) $file['name'] : '';
+        $tmp_path = isset($file['tmp_name']) ? (string) $file['tmp_name'] : '';
+        $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+        if ($ext !== 'xlsx') {
+            wp_send_json_error('Only .xlsx workbooks are accepted.');
+            return;
+        }
+
+        try {
+            $rows = Azure_Lwsd_Volunteer_Xlsx::parse_file($tmp_path);
+        } catch (\Throwable $e) {
+            wp_send_json_error($e->getMessage());
+            return;
+        }
+
+        $today = self::today_pacific();
+        $users = self::load_wp_users_for_match();
+        $matched = self::match_rows($rows, $users);
+        $result = self::replace_roster($matched, $today);
+
+        $stamp = (new DateTimeImmutable('now', new DateTimeZone('America/Los_Angeles')))->format('Y-m-d-His');
+        $blob = self::archive_upload_to_blob($tmp_path, $original, $stamp);
+
+        update_option(self::OPTION_FILENAME, $original);
+        update_option(self::OPTION_BLOB, $blob);
+
+        wp_send_json_success(array(
+            'stats'     => $result['stats'],
+            'unmatched'  => $result['unmatched'],
+            'ambiguous'  => $result['ambiguous'],
+            'filename'  => $original,
+            'blob'      => $blob,
+            'imported_at' => get_option(self::OPTION_IMPORTED_AT, ''),
+        ));
+    }
+
+    /**
+     * Read-only view model for the admin widget.
+     *
+     * @return array{stats:array,unmatched:array,ambiguous:array,imported_at:string,filename:string,blob:string}
+     */
+    public static function widget_view_model() {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('lwsd_volunteer_roster');
+        $rows = array();
+        if ($table) {
+            $results = $wpdb->get_results("SELECT first_name, last_name, expires_on, user_id, match_state FROM {$table}");
+            foreach ($results as $r) {
+                $rows[] = array(
+                    'first'       => (string) $r->first_name,
+                    'last'        => (string) $r->last_name,
+                    'expires_on'  => (string) ($r->expires_on ?? ''),
+                    'user_id'     => (int) $r->user_id,
+                    'match_state' => (string) $r->match_state,
+                );
+            }
+        }
+
+        $today = self::today_pacific();
+        $stats = self::widget_stats($rows, $today);
+
+        $unmatched = array();
+        $ambiguous = array();
+        foreach ($rows as $row) {
+            $state = $row['match_state'] ?? '';
+            $entry = array(
+                'first'      => $row['first'],
+                'last'       => $row['last'],
+                'expires_on' => $row['expires_on'],
+            );
+            if ($state === 'unmatched') {
+                $unmatched[] = $entry;
+            } elseif ($state === 'ambiguous') {
+                $ambiguous[] = $entry;
+            }
+        }
+
+        return array(
+            'stats'       => $stats,
+            'unmatched'    => $unmatched,
+            'ambiguous'    => $ambiguous,
+            'imported_at'  => (string) get_option(self::OPTION_IMPORTED_AT, ''),
+            'filename'     => (string) get_option(self::OPTION_FILENAME, ''),
+            'blob'         => (string) get_option(self::OPTION_BLOB, ''),
+        );
+    }
+
+    /**
+     * Read-only LWSD volunteer fields on the WP user profile (admin only).
+     */
+    public static function render_user_profile_fields($user) {
+        if (!function_exists('current_user_can') || !current_user_can('manage_options')) {
+            return;
+        }
+        $expires = get_user_meta($user->ID, self::META_EXPIRES, true);
+        $active = get_user_meta($user->ID, self::META_ACTIVE, true);
+        ?>
+        <h2><?php _e('LWSD Volunteer Clearance', 'azure-plugin'); ?></h2>
+        <table class="form-table">
+            <tr>
+                <th><label><?php _e('Clearance Expires', 'azure-plugin'); ?></label></th>
+                <td><input type="text" value="<?php echo esc_attr((string) $expires); ?>" readonly disabled class="regular-text" />
+                    <p class="description"><?php _e('Managed by the LWSD roster import. Read-only.', 'azure-plugin'); ?></p></td>
+            </tr>
+            <tr>
+                <th><label><?php _e('Active', 'azure-plugin'); ?></label></th>
+                <td><input type="text" value="<?php echo esc_attr($active ? __('Yes', 'azure-plugin') : __('No', 'azure-plugin')); ?>" readonly disabled class="regular-text" /></td>
+            </tr>
+        </table>
+        <?php
+    }
+
+    /**
+     * Stub for the Email Expiring Volunteers endpoint. Filled in by Task 7.
+     */
+    public static function ajax_email_expiring() {
+        // Implemented in Task 7.
+    }
 }

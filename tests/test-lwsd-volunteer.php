@@ -81,4 +81,17 @@ $contactable = Azure_Lwsd_Volunteer::expiring_contactable(
 $t->equals(1, count($contactable), 'only matched users with email and expiry in window');
 $t->equals(11, $contactable[0]['ID'], 'Lindsay-equivalent contact');
 
+// Step 1 helpers: apply_path + blob_name (no WordPress needed).
+$t->equals('/become-an-lwsd-approved-volunteer/', Azure_Lwsd_Volunteer::apply_path(), 'apply path');
+$t->equals(
+    'lwsd-volunteer-rosters/2026-09-07-131500-wilder-approved-for-ptsa-9-2-2026.xlsx',
+    Azure_Lwsd_Volunteer::blob_name('Wilder approved for PTSA 9 2 2026.xlsx', '2026-09-07-131500'),
+    'blob prefix and sanitized name'
+);
+$t->equals(
+    'lwsd-volunteer-rosters/2026-09-07-131500-district-roster.xlsx',
+    Azure_Lwsd_Volunteer::blob_name('District Roster.XLSX', '2026-09-07-131500'),
+    'blob forces xlsx extension and lowercases'
+);
+
 exit($t->finish());
