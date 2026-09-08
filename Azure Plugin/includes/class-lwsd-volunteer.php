@@ -456,6 +456,41 @@ class Azure_Lwsd_Volunteer {
     }
 
     /**
+     * Subject for the expiring-volunteer reminder (UI send control stays off).
+     */
+    public static function expiring_email_subject() {
+        return 'Your LWSD volunteer approval expires soon';
+    }
+
+    /**
+     * Plain-text body for an expiring-volunteer reminder.
+     *
+     * @param array{first_name?:string,expires_on?:string,apply_url?:string} $ctx
+     */
+    public static function expiring_email_body(array $ctx) {
+        $first = isset($ctx['first_name']) ? (string) $ctx['first_name'] : '';
+        $expires_on = isset($ctx['expires_on']) ? (string) $ctx['expires_on'] : '';
+        $apply_url = isset($ctx['apply_url']) ? (string) $ctx['apply_url'] : '';
+
+        $when = $expires_on;
+        if ($expires_on !== '' && function_exists('date_i18n')) {
+            $ts = strtotime($expires_on);
+            if ($ts !== false) {
+                $format = function_exists('get_option') ? (string) get_option('date_format', 'Y-m-d') : 'Y-m-d';
+                if ($format === '') {
+                    $format = 'Y-m-d';
+                }
+                $when = date_i18n($format, $ts);
+            }
+        }
+
+        return 'Hi ' . $first . ",\n\n"
+            . 'Your LWSD volunteer approval expires on ' . $when . ".\n"
+            . "Please renew before volunteering at school.\n\n"
+            . $apply_url;
+    }
+
+    /**
      * Build the blob name for an archived roster upload.
      *
      * Format: lwsd-volunteer-rosters/{stamp}-{sanitized-basename}.xlsx
@@ -556,17 +591,25 @@ class Azure_Lwsd_Volunteer {
         $ids = get_users(array('fields' => array('ID')));
         $out = array();
         foreach ($ids as $uid) {
-            $id = (int) $uid;
+            $id = is_object($uid) ? (int) $uid->ID : (int) $uid;
+            if ($id <= 0) {
+                continue;
+            }
             $first = (string) get_user_meta($id, 'first_name', true);
             $last  = (string) get_user_meta($id, 'last_name', true);
             if ($first === '' || $last === '') {
                 continue;
             }
+            $email = '';
+            $user = function_exists('get_userdata') ? get_userdata($id) : false;
+            if (is_object($user) && isset($user->user_email)) {
+                $email = (string) $user->user_email;
+            }
             $out[] = array(
                 'ID'         => $id,
                 'first_name' => $first,
                 'last_name'  => $last,
-                'user_email' => (string) get_user_meta($id, 'user_email', true),
+                'user_email' => $email,
             );
         }
         return $out;
@@ -804,9 +847,99 @@ class Azure_Lwsd_Volunteer {
     }
 
     /**
-     * Stub for the Email Expiring Volunteers endpoint. Filled in by Task 7.
+     * Email volunteers whose clearance expires soon. Safe to call, but not
+     * hooked from init() until we only mail matched WordPress accounts.
      */
     public static function ajax_email_expiring() {
-        // Implemented in Task 7.
+        if (!function_exists('check_ajax_referer')) {
+            return;
+        }
+        check_ajax_referer(self::NONCE, 'nonce');
+        if (!function_exists('current_user_can') || !current_user_can('manage_options')) {
+            wp_send_json_error('Permission denied.');
+            return;
+        }
+
+        $today = self::today_pacific();
+        $rows = self::roster_rows_for_email();
+        $emails = array();
+        foreach (self::load_wp_users_for_match() as $user) {
+            $emails[(int) $user['ID']] = (string) $user['user_email'];
+        }
+
+        $candidates = array();
+        $skipped = 0;
+        $expiring_until = (new DateTimeImmutable($today))->modify('+14 days')->format('Y-m-d');
+        foreach ($rows as $row) {
+            $user_id = (int) ($row['user_id'] ?? 0);
+            $expires_on = (string) ($row['expires_on'] ?? '');
+            $match_state = (string) ($row['match_state'] ?? '');
+            $email = ($user_id > 0 && isset($emails[$user_id])) ? $emails[$user_id] : '';
+            $in_window = $expires_on !== ''
+                && self::is_active($expires_on, $today)
+                && $expires_on <= $expiring_until;
+
+            if ($in_window && ($match_state !== 'matched' || $email === '' || !self::is_usable_email($email))) {
+                $skipped++;
+            }
+
+            $candidates[] = array(
+                'ID'          => $user_id,
+                'user_email'  => $email,
+                'expires_on'  => $expires_on,
+                'match_state' => $match_state,
+                'first_name'  => (string) ($row['first'] ?? ''),
+            );
+        }
+
+        $sent = 0;
+        $apply_url = self::apply_url();
+        foreach (self::expiring_contactable($candidates, $today, 14) as $user) {
+            if (!function_exists('wp_mail')) {
+                continue;
+            }
+            $ok = wp_mail(
+                $user['user_email'],
+                self::expiring_email_subject(),
+                self::expiring_email_body(array(
+                    'first_name' => (string) ($user['first_name'] ?? ''),
+                    'expires_on' => (string) ($user['expires_on'] ?? ''),
+                    'apply_url'  => $apply_url,
+                ))
+            );
+            if ($ok) {
+                $sent++;
+            }
+        }
+
+        wp_send_json_success(array(
+            'sent'    => $sent,
+            'skipped' => $skipped,
+        ));
+    }
+
+    /**
+     * Roster rows used by the expiring-email sender (same shape as the widget).
+     *
+     * @return array<int,array{first:string,last:string,expires_on:string,user_id:int,match_state:string}>
+     */
+    private static function roster_rows_for_email() {
+        global $wpdb;
+        $table = Azure_Database::get_table_name('lwsd_volunteer_roster');
+        $rows = array();
+        if (!$table || !isset($wpdb)) {
+            return $rows;
+        }
+        $results = $wpdb->get_results("SELECT first_name, last_name, expires_on, user_id, match_state FROM {$table}");
+        foreach ($results as $r) {
+            $rows[] = array(
+                'first'       => (string) $r->first_name,
+                'last'        => (string) $r->last_name,
+                'expires_on'  => (string) ($r->expires_on ?? ''),
+                'user_id'     => (int) $r->user_id,
+                'match_state' => (string) $r->match_state,
+            );
+        }
+        return $rows;
     }
 }

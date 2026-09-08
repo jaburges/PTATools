@@ -137,4 +137,53 @@ $t->check(strpos($body, 'Pat Smith') !== false, 'name in staff body');
 $t->check(strpos($body, '2026-09-20') !== false, 'expiry in staff body');
 $t->check(strpos($body, 'Fall Carnival') !== false, 'sheet in staff body');
 
+$t->equals('Your LWSD volunteer approval expires soon', Azure_Lwsd_Volunteer::expiring_email_subject(), 'subject');
+$body = Azure_Lwsd_Volunteer::expiring_email_body(array(
+    'first_name' => 'Lindsay',
+    'expires_on' => '2026-09-18',
+    'apply_url' => 'https://wilderptsa.net/become-an-lwsd-approved-volunteer/',
+));
+$t->check(strpos($body, 'Lindsay') !== false, 'expiring email names the volunteer');
+$t->check(strpos($body, '2026-09-18') !== false, 'expiring email has the date');
+$t->check(strpos($body, 'become-an-lwsd-approved-volunteer') !== false, 'expiring email has apply link');
+$t->check(strpos($body, 'renew before volunteering at school') !== false, 'expiring email asks them to renew');
+
+if (!function_exists('get_users')) {
+    function get_users($args = array()) {
+        return isset($GLOBALS['lwsd_test_user_ids']) ? $GLOBALS['lwsd_test_user_ids'] : array();
+    }
+}
+if (!function_exists('get_user_meta')) {
+    function get_user_meta($user_id, $key, $single = true) {
+        $store = isset($GLOBALS['lwsd_test_user_meta']) ? $GLOBALS['lwsd_test_user_meta'] : array();
+        if (!isset($store[(int) $user_id][$key])) {
+            return $single ? '' : array();
+        }
+        return $store[(int) $user_id][$key];
+    }
+}
+if (!function_exists('get_userdata')) {
+    function get_userdata($user_id) {
+        $store = isset($GLOBALS['lwsd_test_wp_users']) ? $GLOBALS['lwsd_test_wp_users'] : array();
+        return isset($store[(int) $user_id]) ? $store[(int) $user_id] : false;
+    }
+}
+
+$GLOBALS['lwsd_test_user_ids'] = array(11);
+$GLOBALS['lwsd_test_user_meta'] = array(
+    11 => array(
+        'first_name' => 'Lindsay',
+        'last_name'  => 'Allan',
+        'user_email' => 'meta-must-not-be-used@example.com',
+    ),
+);
+$user = new stdClass();
+$user->ID = 11;
+$user->user_email = 'l@example.com';
+$GLOBALS['lwsd_test_wp_users'] = array(11 => $user);
+
+$loaded = Azure_Lwsd_Volunteer::load_wp_users_for_match();
+$t->equals(1, count($loaded), 'named WP user is loaded for matching');
+$t->equals('l@example.com', $loaded[0]['user_email'], 'email comes from WP_User, not user meta');
+
 exit($t->finish());
