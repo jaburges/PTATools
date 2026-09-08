@@ -567,8 +567,11 @@ class Azure_Newsletter_Queue {
                 'user_id' => $item->user_id
             ));
             
-            // Inline CSS for email client compatibility, then keep
-            // the mobile column-stack media query in a <style> tag.
+            // Same prepare as the review-step test send. Do not run
+            // the DOM CSS inliner here — it copies GrapesJS
+            // line-height:1.6 onto every #id cell and pins it with
+            // mso-line-height-rule:exactly, which Word Outlook then
+            // uses as a hard 22px cap and stacks the lines.
             $html = $this->inline_css($html);
             
             // Send email
@@ -691,8 +694,9 @@ class Azure_Newsletter_Queue {
     }
     
     /**
-     * Inline CSS styles for email client compatibility
-     * Most email clients strip <style> tags, so we need to inline CSS
+     * Match the review-step test send: convert unitless/inherit
+     * line-heights and inject stack CSS. GrapesJS already writes
+     * designer styles inline on the canvas.
      */
     private function inline_css($html) {
         if (!class_exists('Azure_Newsletter_Email_Css')) {
@@ -704,7 +708,6 @@ class Azure_Newsletter_Queue {
         if (!class_exists('Azure_Newsletter_Email_Css')) {
             return $html;
         }
-        $html = Azure_Newsletter_Email_Css::inline_keeping_media($html);
         $ensured = Azure_Newsletter_Email_Css::ensure_column_stack_style($html);
         return (is_string($ensured) && $ensured !== '') ? $ensured : $html;
     }

@@ -168,7 +168,7 @@ class Azure_Newsletter_Email_Css {
             return $html;
         }
         $rewritten = preg_replace_callback(
-            '/style\s*=\s*(["\'])(.*?)\1/is',
+            '/<([a-zA-Z][\w:-]*)\b([^>]*?)style\s*=\s*(["\'])(.*?)\3/is',
             array(__CLASS__, 'outlook_safe_line_height_attr'),
             $rewritten
         );
@@ -239,23 +239,32 @@ class Azure_Newsletter_Email_Css {
     }
 
     private static function outlook_safe_line_height_attr($match) {
-        $rewritten = self::rewrite_line_height_decls($match[2]);
-        if ($rewritten === $match[2]) {
+        $tag = strtolower($match[1]);
+        $rewritten = self::rewrite_line_height_decls($match[4], !self::is_structural_email_tag($tag));
+        if ($rewritten === $match[4]) {
             return $match[0];
         }
-        return 'style=' . $match[1] . $rewritten . $match[1];
+        return '<' . $match[1] . $match[2] . 'style=' . $match[3] . $rewritten . $match[3];
     }
 
-    private static function rewrite_line_height_decls($css) {
+    private static function is_structural_email_tag($tag) {
+        return in_array($tag, array('table', 'td', 'th', 'tr', 'tbody', 'thead', 'tfoot', 'body', 'html', 'img'), true);
+    }
+
+    private static function rewrite_line_height_decls($css, $add_mso_exactly = true) {
         if (!preg_match('/line-height\s*:\s*([^;]+)/i', $css, $lh)) {
             return $css;
         }
-        $px = self::line_height_to_px(trim($lh[1]), $css);
+        $raw = trim($lh[1]);
+        $important = (bool) preg_match('/!important\s*$/i', $raw);
+        $raw = trim(preg_replace('/!important\s*$/i', '', $raw));
+        $px = self::line_height_to_px($raw, $css);
         if ($px === null) {
             return $css;
         }
-        $css = preg_replace('/line-height\s*:\s*[^;]+/i', 'line-height: ' . $px . 'px', $css, 1);
-        if (stripos($css, 'mso-line-height-rule') === false) {
+        $repl = 'line-height: ' . $px . 'px' . ($important ? ' !important' : '');
+        $css = preg_replace('/line-height\s*:\s*[^;]+/i', $repl, $css, 1);
+        if ($add_mso_exactly && stripos($css, 'mso-line-height-rule') === false) {
             $css = rtrim($css, "; \n\t") . '; mso-line-height-rule: exactly';
         }
         return $css;

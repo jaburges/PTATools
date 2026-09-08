@@ -87,11 +87,17 @@ $t->equals(Azure_Newsletter_Email_Css::line_height_to_px('22', ''), 22, 'unitles
 $t->equals(Azure_Newsletter_Email_Css::line_height_to_px('2px', ''), null, 'divider 2px line-height is left alone');
 $t->equals(Azure_Newsletter_Email_Css::line_height_to_px('100%', ''), null, 'image reset 100% line-height is left alone');
 
-$overlap = '<td style="font-family:Arial;font-size:14px;line-height:1.6;color:#333">Hello</td>';
+$overlap = '<p style="font-family:Arial;font-size:14px;line-height:1.6;color:#333">Hello</p>';
 $fixed = Azure_Newsletter_Email_Css::ensure_column_stack_style($overlap);
 $t->check(strpos($fixed, 'line-height: 22px') !== false, 'send path converts unitless 1.6 to 22px');
-$t->check(strpos($fixed, 'mso-line-height-rule: exactly') !== false, 'send path pins Outlook to the px height');
+$t->check(strpos($fixed, 'mso-line-height-rule: exactly') !== false, 'send path pins Outlook to the px height on text');
 $t->check(strpos($fixed, 'line-height:1.6') === false, 'send path does not leave unitless 1.6 for Word Outlook');
+
+$td_lh = Azure_Newsletter_Email_Css::ensure_column_stack_style(
+    '<td style="font-family:Arial;font-size:14px;line-height:1.6;color:#333">Hello</td>'
+);
+$t->check(strpos($td_lh, 'line-height: 22px') !== false, 'unitless 1.6 on a cell becomes 22px');
+$t->check(strpos($td_lh, 'mso-line-height-rule') === false, 'cells do not get mso-line-height-rule:exactly (that stacks child lines in Word)');
 
 $hairline = Azure_Newsletter_Email_Css::outlook_safe_line_heights(
     '<td style="line-height: 2px; font-size: 1px; height: 2px;">&nbsp;</td>'
@@ -150,5 +156,25 @@ for ($i = 0; $i < 200; $i++) {
 $stress_out = Azure_Newsletter_Email_Css::ensure_column_stack_style($stress);
 $t->check(is_string($stress_out) && strpos($stress_out, 'Block 199') !== false, 'a large pasted document is not emptied by send-path CSS');
 $t->check(strpos($stress_out, 'data-olk-copy-source') !== false, 'Outlook wrappers survive a large send-path rewrite');
+
+$queue_src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-newsletter-queue.php');
+$t->check(strpos($queue_src, 'inline_keeping_media') === false, 'scheduled Mailgun send does not run the DOM CSS inliner');
+$t->check(strpos($queue_src, 'ensure_column_stack_style') !== false, 'scheduled send still converts line-heights like the test send');
+
+$grapes = '<html><head><style type="text/css">'
+    . '#cell1{font-size:14px;line-height:1.6;}'
+    . 'p { line-height: 1.6; }'
+    . '</style></head><body>'
+    . '<td id="cell1" class="nl-column" style="font-family:Arial;font-size:14px;">When: Friday</td>'
+    . '<p style="font-size:14px;line-height:1.6 !important;">Body</p>'
+    . '</body></html>';
+$test_path = Azure_Newsletter_Email_Css::ensure_column_stack_style($grapes);
+$inlined_path = Azure_Newsletter_Email_Css::ensure_column_stack_style(
+    Azure_Newsletter_Email_Css::inline_keeping_media($grapes)
+);
+$t->check(!preg_match('/<td[^>]*line-height/i', $test_path), 'test/queue path leaves stylesheet line-height in <style>, not on the cell');
+$t->check(preg_match('/<p[^>]*mso-line-height-rule:\s*exactly/i', $test_path), 'paragraphs with unitless 1.6 still get exactly');
+$t->check(strpos($test_path, '1.6 !important') === false, 'line-height: 1.6 !important is converted to px');
+$t->check(preg_match('/<td[^>]*line-height:\s*22px/i', $inlined_path), 'DOM inliner copies GrapesJS 1.6 onto the cell — that is why the queue no longer uses it');
 
 exit($t->finish() === 0 ? 0 : 1);
