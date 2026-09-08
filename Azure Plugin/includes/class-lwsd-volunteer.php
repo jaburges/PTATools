@@ -10,6 +10,11 @@ if (!defined('ABSPATH')) {
 class Azure_Lwsd_Volunteer {
 
     const META_EXPIRES = 'pta_lwsd_volunteer_expires';
+
+    /**
+     * Import-time snapshot of clearance on the day the roster was loaded.
+     * Profile UI and live checks must use is_active()/live_active() against expiry, not this key.
+     */
     const META_ACTIVE  = 'pta_lwsd_volunteer_active';
 
     const OPTION_IMPORTED_AT = 'pta_lwsd_volunteer_imported_at';
@@ -73,6 +78,14 @@ class Azure_Lwsd_Volunteer {
     }
 
     /**
+     * Live Active flag for the profile UI. Same rule as is_active();
+     * ignores any META_ACTIVE value stamped at import.
+     */
+    public static function live_active($expires_on, $today) {
+        return self::is_active($expires_on, $today);
+    }
+
+    /**
      * True when clearance covers the event date (expiry on or after event day).
      */
     public static function is_approved_for_event($expires_on, $event_date) {
@@ -133,6 +146,9 @@ class Azure_Lwsd_Volunteer {
 
     /**
      * Plan user-meta writes for a full roster replace.
+     *
+     * The `active` value is an import-time snapshot of META_ACTIVE only.
+     * Do not display it later as current clearance — use live_active() instead.
      *
      * @return array{set: array<int,array{expires_on:string,active:int}>, clear: int[]}
      */
@@ -222,16 +238,18 @@ class Azure_Lwsd_Volunteer {
     /**
      * Dashboard widget counts from matched roster rows.
      *
-     * @return array{active:int,expiring:int,expired:int,unmatched:int,ambiguous:int,total:int}
+     * @return array{active:int,expiring:int,expired:int,expiring_matched:int,expired_matched:int,unmatched:int,ambiguous:int,total:int}
      */
     public static function widget_stats(array $roster_rows, $today, $expiring_days = 14) {
         $stats = array(
-            'active'    => 0,
-            'expiring'  => 0,
-            'expired'   => 0,
-            'unmatched' => 0,
-            'ambiguous' => 0,
-            'total'     => count($roster_rows),
+            'active'            => 0,
+            'expiring'          => 0,
+            'expired'           => 0,
+            'expiring_matched'  => 0,
+            'expired_matched'   => 0,
+            'unmatched'         => 0,
+            'ambiguous'         => 0,
+            'total'             => count($roster_rows),
         );
 
         $expiring_until = (new DateTimeImmutable($today))->modify('+' . (int) $expiring_days . ' days')->format('Y-m-d');
@@ -248,6 +266,9 @@ class Azure_Lwsd_Volunteer {
 
             if ($expires_on !== '' && $expires_on < $today) {
                 $stats['expired']++;
+                if ($match_state === 'matched') {
+                    $stats['expired_matched']++;
+                }
             }
 
             if ($match_state === 'matched' && self::is_active($expires_on, $today)) {
@@ -256,10 +277,20 @@ class Azure_Lwsd_Volunteer {
 
             if ($expires_on !== '' && $expires_on >= $today && $expires_on <= $expiring_until) {
                 $stats['expiring']++;
+                if ($match_state === 'matched') {
+                    $stats['expiring_matched']++;
+                }
             }
         }
 
         return $stats;
+    }
+
+    /**
+     * Widget copy for a matched-primary count plus the roster-wide total.
+     */
+    public static function dual_count_label($matched, $roster) {
+        return (int) $matched . ' matched (' . (int) $roster . ' on roster)';
     }
 
     /**
@@ -518,6 +549,77 @@ class Azure_Lwsd_Volunteer {
         return 'lwsd-volunteer-rosters/' . $stamp . '-' . $clean . '.xlsx';
     }
 
+    /**
+     * Visible note on the last-import line when a roster loaded but blob archive failed.
+     */
+    public static function archive_note($imported_at, $blob) {
+        if ((string) $imported_at === '' || (string) $blob !== '') {
+            return '';
+        }
+        return ' — not archived';
+    }
+
+    /**
+     * Split matched roster rows into insert-ready assoc chunks.
+     *
+     * @return array<int,array<int,array{first_name:string,last_name:string,name_key:string,expires_on:?string,user_id:int,match_state:string,imported_at:string}>>
+     */
+    public static function roster_insert_chunks(array $matched_rows, $now, $chunk_size = 200) {
+        $chunk_size = (int) $chunk_size;
+        if ($chunk_size < 1) {
+            $chunk_size = 200;
+        }
+
+        $ready = array();
+        foreach ($matched_rows as $row) {
+            $first = isset($row['first']) ? (string) $row['first'] : '';
+            $last  = isset($row['last']) ? (string) $row['last'] : '';
+            $expires_on = isset($row['expires_on']) && $row['expires_on'] !== ''
+                ? (string) $row['expires_on']
+                : null;
+            $ready[] = array(
+                'first_name'  => $first,
+                'last_name'   => $last,
+                'name_key'    => self::name_key($first, $last),
+                'expires_on'  => $expires_on,
+                'user_id'     => (int) ($row['user_id'] ?? 0),
+                'match_state' => (string) ($row['match_state'] ?? 'unmatched'),
+                'imported_at' => $now,
+            );
+        }
+
+        return $ready === array() ? array() : array_chunk($ready, $chunk_size);
+    }
+
+    /**
+     * Multi-row INSERT SQL plus flattened bind values for $wpdb->prepare.
+     *
+     * @return array{sql:string,values:array}
+     */
+    public static function roster_insert_sql($table, array $chunk) {
+        $placeholders = array();
+        $values = array();
+        foreach ($chunk as $row) {
+            $placeholders[] = '(%s, %s, %s, %s, %d, %s, %s)';
+            $values[] = $row['first_name'];
+            $values[] = $row['last_name'];
+            $values[] = $row['name_key'];
+            $values[] = $row['expires_on'];
+            $values[] = (int) $row['user_id'];
+            $values[] = $row['match_state'];
+            $values[] = $row['imported_at'];
+        }
+
+        $sql = 'INSERT INTO ' . $table
+            . ' (first_name, last_name, name_key, expires_on, user_id, match_state, imported_at) VALUES '
+            . implode(', ', $placeholders);
+
+        return array(
+            'sql'    => $sql,
+            'values' => $values,
+        );
+    }
+
     // ───────────────────────────────────────────────────────────────────
     // WordPress wiring
     // ───────────────────────────────────────────────────────────────────
@@ -554,6 +656,15 @@ class Azure_Lwsd_Volunteer {
      */
     public static function archive_upload_to_blob($tmp_path, $original, $stamp) {
         if (!class_exists('Azure_Backup_Storage')) {
+            require_once AZURE_PLUGIN_PATH . 'includes/class-backup-azure-storage.php';
+        }
+        if (!class_exists('Azure_Backup_Storage')) {
+            if (class_exists('Azure_Logger')) {
+                Azure_Logger::warning(
+                    'LWSD volunteer roster blob archive skipped: Azure_Backup_Storage unavailable',
+                    array('module' => 'Volunteer')
+                );
+            }
             return '';
         }
 
@@ -654,31 +765,32 @@ class Azure_Lwsd_Volunteer {
         $plan = self::plan_meta_writes($matched_rows, $prev, $today);
 
         if ($table) {
-            // Full replace: delete every row, then insert the new set.
-            $wpdb->query("DELETE FROM {$table}");
-
-            foreach ($matched_rows as $row) {
-                $first = isset($row['first']) ? (string) $row['first'] : '';
-                $last  = isset($row['last']) ? (string) $row['last'] : '';
-                $expires_on = isset($row['expires_on']) && $row['expires_on'] !== ''
-                    ? (string) $row['expires_on']
-                    : null;
-                $user_id = (int) ($row['user_id'] ?? 0);
-                $match_state = (string) ($row['match_state'] ?? 'unmatched');
-
-                $wpdb->insert($table, array(
-                    'first_name'  => $first,
-                    'last_name'   => $last,
-                    'name_key'    => self::name_key($first, $last),
-                    'expires_on'  => $expires_on,
-                    'user_id'     => $user_id,
-                    'match_state' => $match_state,
-                    'imported_at' => $now,
-                ));
+            $wpdb->query('START TRANSACTION');
+            try {
+                $deleted = $wpdb->query("DELETE FROM {$table}");
+                if ($deleted === false) {
+                    throw new Exception('LWSD roster delete failed');
+                }
+                foreach (self::roster_insert_chunks($matched_rows, $now, 200) as $chunk) {
+                    $built = self::roster_insert_sql($table, $chunk);
+                    $inserted = $wpdb->query($wpdb->prepare($built['sql'], $built['values']));
+                    if ($inserted === false) {
+                        throw new Exception('LWSD roster insert failed');
+                    }
+                }
+                $wpdb->query('COMMIT');
+            } catch (\Throwable $e) {
+                $wpdb->query('ROLLBACK');
+                if (class_exists('Azure_Logger')) {
+                    Azure_Logger::warning(
+                        'LWSD volunteer roster replace failed: ' . $e->getMessage(),
+                        array('module' => 'Volunteer')
+                    );
+                }
+                throw $e;
             }
         }
 
-        // Apply user-meta plan: set matched users, clear users who left.
         foreach ($plan['set'] as $user_id => $meta) {
             update_user_meta($user_id, self::META_EXPIRES, $meta['expires_on']);
             update_user_meta($user_id, self::META_ACTIVE, $meta['active']);
@@ -752,7 +864,12 @@ class Azure_Lwsd_Volunteer {
         $today = self::today_pacific();
         $users = self::load_wp_users_for_match();
         $matched = self::match_rows($rows, $users);
-        $result = self::replace_roster($matched, $today);
+        try {
+            $result = self::replace_roster($matched, $today);
+        } catch (\Throwable $e) {
+            wp_send_json_error('Roster replace failed. The previous roster was left unchanged.');
+            return;
+        }
 
         $stamp = (new DateTimeImmutable('now', new DateTimeZone('America/Los_Angeles')))->format('Y-m-d-His');
         $blob = self::archive_upload_to_blob($tmp_path, $original, $stamp);
@@ -828,8 +945,8 @@ class Azure_Lwsd_Volunteer {
         if (!function_exists('current_user_can') || !current_user_can('manage_options')) {
             return;
         }
-        $expires = get_user_meta($user->ID, self::META_EXPIRES, true);
-        $active = get_user_meta($user->ID, self::META_ACTIVE, true);
+        $expires = (string) get_user_meta($user->ID, self::META_EXPIRES, true);
+        $active = self::live_active($expires, self::today_pacific());
         ?>
         <h2><?php _e('LWSD Volunteer Clearance', 'azure-plugin'); ?></h2>
         <table class="form-table">

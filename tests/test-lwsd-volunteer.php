@@ -20,6 +20,10 @@ $t->check(Azure_Lwsd_Volunteer::is_active('2026-09-07', '2026-09-07'), 'expires 
 $t->check(!Azure_Lwsd_Volunteer::is_active('2026-09-06', '2026-09-07'), 'yesterday is expired');
 $t->check(!Azure_Lwsd_Volunteer::is_active('', '2026-09-07'), 'missing expiry is not active');
 
+$t->check(!Azure_Lwsd_Volunteer::live_active('2026-09-06', '2026-09-07'), 'expired-yesterday is not live even if import stamped active=1');
+$t->check(Azure_Lwsd_Volunteer::live_active('2026-09-07', '2026-09-07'), 'expires today is still live');
+$t->check(!Azure_Lwsd_Volunteer::live_active('', '2026-09-07'), 'empty expiry is not live');
+
 $t->check(Azure_Lwsd_Volunteer::is_approved_for_event('2026-10-17', '2026-10-17'), 'expiry on event day covers it');
 $t->check(!Azure_Lwsd_Volunteer::is_approved_for_event('2026-10-16', '2026-10-17'), 'expiry before event does not');
 
@@ -64,9 +68,55 @@ $t->check($soon['active'] && !$soon['approved_for_event'], 'active today but not
 $stats = Azure_Lwsd_Volunteer::widget_stats($matched, '2026-09-07', 14);
 $t->equals(1, $stats['active'], 'Lindsay is active');
 $t->equals(1, $stats['expiring'], 'Pat expires 10 Sep, within 14 days, even if ambiguous');
+$t->equals(0, $stats['expiring_matched'], 'Pat is ambiguous so expiring_matched is 0');
 $t->equals(1, $stats['unmatched'], 'No Account unmatched');
 $t->equals(1, $stats['ambiguous'], 'Pat ambiguous');
 $t->equals(3, $stats['total'], 'roster total');
+
+$dual = array(
+    array('first' => 'Lindsay', 'last' => 'Allan', 'expires_on' => '2028-08-21', 'match_state' => 'matched', 'user_id' => 11),
+    array('first' => 'Soon', 'last' => 'Match', 'expires_on' => '2026-09-12', 'match_state' => 'matched', 'user_id' => 12),
+    array('first' => 'Old', 'last' => 'Match', 'expires_on' => '2026-09-01', 'match_state' => 'matched', 'user_id' => 13),
+    array('first' => 'Old', 'last' => 'Ghost', 'expires_on' => '2026-08-01', 'match_state' => 'unmatched', 'user_id' => 0),
+);
+$dual_stats = Azure_Lwsd_Volunteer::widget_stats($dual, '2026-09-07', 14);
+$t->equals(1, $dual_stats['expiring_matched'], 'Soon Match is matched and in the 14-day window');
+$t->equals(1, $dual_stats['expired_matched'], 'Old Match is matched and already expired');
+$t->equals(2, $dual_stats['expired'], 'expired counts all roster rows before today');
+$t->equals('1 matched (1 on roster)', Azure_Lwsd_Volunteer::dual_count_label(1, 1), 'widget dual-population copy');
+
+$t->equals('', Azure_Lwsd_Volunteer::archive_note('', ''), 'no import means no archive note');
+$t->equals('', Azure_Lwsd_Volunteer::archive_note('2026-09-07 13:15:00', 'lwsd-volunteer-rosters/file.xlsx'), 'archived blob has no warning');
+$t->equals(' — not archived', Azure_Lwsd_Volunteer::archive_note('2026-09-07 13:15:00', ''), 'import without blob shows not archived');
+
+$chunk_rows = array(
+    array('first' => 'A', 'last' => 'One', 'expires_on' => '2027-01-01', 'user_id' => 1, 'match_state' => 'matched'),
+    array('first' => 'B', 'last' => 'Two', 'expires_on' => '', 'user_id' => 0, 'match_state' => 'unmatched'),
+    array('first' => 'C', 'last' => 'Three', 'expires_on' => '2026-12-01', 'user_id' => 3, 'match_state' => 'matched'),
+);
+$chunks = Azure_Lwsd_Volunteer::roster_insert_chunks($chunk_rows, '2026-09-07 13:15:00', 2);
+$t->equals(2, count($chunks), 'chunk size 2 splits 3 rows into 2 batches');
+$t->equals(2, count($chunks[0]), 'first chunk is full');
+$t->equals(1, count($chunks[1]), 'second chunk has the remainder');
+$t->equals('a|one', $chunks[0][0]['name_key'], 'chunk rows include name_key');
+$t->equals('2026-09-07 13:15:00', $chunks[0][0]['imported_at'], 'chunk rows stamp imported_at');
+$t->equals(null, $chunks[0][1]['expires_on'], 'empty expiry becomes null for insert');
+
+$built = Azure_Lwsd_Volunteer::roster_insert_sql('wp_lwsd_volunteer_roster', $chunks[0]);
+$t->check(strpos($built['sql'], 'INSERT INTO wp_lwsd_volunteer_roster') === 0, 'insert SQL targets the roster table');
+$t->check(substr_count($built['sql'], '(%s, %s, %s, %s, %d, %s, %s)') === 2, 'one placeholder group per chunk row');
+$t->equals(14, count($built['values']), 'flattened bind values are 7 columns times 2 rows');
+$t->equals('A', $built['values'][0], 'first bind value is first_name');
+$t->equals(1, $built['values'][4], 'user_id binds as integer position');
+
+$many = array();
+for ($i = 0; $i < 201; $i++) {
+    $many[] = array('first' => 'F' . $i, 'last' => 'L' . $i, 'expires_on' => '2027-01-01', 'user_id' => $i + 1, 'match_state' => 'matched');
+}
+$default_chunks = Azure_Lwsd_Volunteer::roster_insert_chunks($many, '2026-09-07 13:15:00');
+$t->equals(2, count($default_chunks), 'default chunk size is 200');
+$t->equals(200, count($default_chunks[0]), 'first default chunk holds 200 rows');
+$t->equals(1, count($default_chunks[1]), '201st row is in the next chunk');
 
 $contactable = Azure_Lwsd_Volunteer::expiring_contactable(
     array(

@@ -35,13 +35,24 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
         $lwsd_ambiguous = $lwsd_vm['ambiguous'];
         $lwsd_imported_at = $lwsd_vm['imported_at'];
         $lwsd_filename = $lwsd_vm['filename'];
+        $lwsd_blob = $lwsd_vm['blob'];
         $lwsd_nonce = function_exists('wp_create_nonce') ? wp_create_nonce(Azure_Lwsd_Volunteer::NONCE) : '';
     } else {
-        $lwsd_stats = array('active' => 0, 'expiring' => 0, 'expired' => 0, 'unmatched' => 0, 'ambiguous' => 0, 'total' => 0);
+        $lwsd_stats = array(
+            'active' => 0,
+            'expiring' => 0,
+            'expired' => 0,
+            'expiring_matched' => 0,
+            'expired_matched' => 0,
+            'unmatched' => 0,
+            'ambiguous' => 0,
+            'total' => 0,
+        );
         $lwsd_unmatched = array();
         $lwsd_ambiguous = array();
         $lwsd_imported_at = '';
         $lwsd_filename = '';
+        $lwsd_blob = '';
         $lwsd_nonce = '';
     }
     ?>
@@ -67,11 +78,13 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
             </div>
             <div>
                 <span class="azure-lwsd-stat-label"><?php _e('Expiring in 14 days', 'azure-plugin'); ?></span>
-                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['expiring']; ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) ($lwsd_stats['expiring_matched'] ?? 0); ?></span>
+                <span class="description"><?php echo esc_html(Azure_Lwsd_Volunteer::dual_count_label($lwsd_stats['expiring_matched'] ?? 0, $lwsd_stats['expiring'] ?? 0)); ?></span>
             </div>
             <div>
                 <span class="azure-lwsd-stat-label"><?php _e('Expired', 'azure-plugin'); ?></span>
-                <span class="azure-lwsd-stat-value"><?php echo (int) $lwsd_stats['expired']; ?></span>
+                <span class="azure-lwsd-stat-value"><?php echo (int) ($lwsd_stats['expired_matched'] ?? 0); ?></span>
+                <span class="description"><?php echo esc_html(Azure_Lwsd_Volunteer::dual_count_label($lwsd_stats['expired_matched'] ?? 0, $lwsd_stats['expired'] ?? 0)); ?></span>
             </div>
             <div>
                 <span class="azure-lwsd-stat-label"><?php _e('Unmatched', 'azure-plugin'); ?></span>
@@ -91,10 +104,11 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
             <?php if ($lwsd_imported_at !== ''): ?>
                 <?php
                 printf(
-                    /* translators: 1: timestamp, 2: filename */
-                    __('Last import: %1$s — %2$s', 'azure-plugin'),
+                    /* translators: 1: timestamp, 2: filename, 3: archive note */
+                    __('Last import: %1$s — %2$s%3$s', 'azure-plugin'),
                     esc_html($lwsd_imported_at),
-                    esc_html($lwsd_filename)
+                    esc_html($lwsd_filename),
+                    esc_html(Azure_Lwsd_Volunteer::archive_note($lwsd_imported_at, $lwsd_blob))
                 );
                 ?>
             <?php else: ?>
