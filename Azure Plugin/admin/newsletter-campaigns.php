@@ -279,10 +279,10 @@ $status_counts = $wpdb->get_results("
                                     <?php _e('Duplicate', 'azure-plugin'); ?>
                                 </a> |
                             </span>
-                            <?php if ($campaign->status === 'draft'): ?>
+                            <?php if (Azure_Newsletter_Module::campaign_can_delete($campaign->status)): ?>
                             <span class="delete">
                                 <a href="<?php echo wp_nonce_url(admin_url('admin.php?page=azure-plugin-newsletter&tab=campaigns&action=delete&id=' . $campaign->id), 'delete_' . $campaign->id); ?>" 
-                                   class="submitdelete" onclick="return confirm('<?php _e('Are you sure?', 'azure-plugin'); ?>')">
+                                   class="submitdelete" onclick="return confirm('<?php echo esc_js(($campaign->status === 'sent' || $campaign->status === 'scheduled') ? __('This campaign was already sent or scheduled. Delete it from the list?', 'azure-plugin') : __('Are you sure?', 'azure-plugin')); ?>')">
                                     <?php _e('Delete', 'azure-plugin'); ?>
                                 </a> |
                             </span>

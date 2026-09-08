@@ -854,12 +854,8 @@ class Azure_Newsletter_Ajax {
             $email_html .= "<body style=\"margin:0;padding:0;\">\n";
             $email_html .= trim($html);
             $email_html .= "\n</body>\n</html>";
-            
-            return $email_html;
-        }
-        
-        // Already has structure - just move styles to head if they're in body
-        if (!empty($styles) && preg_match('/<head[^>]*>(.*?)<\/head>/is', $html, $head_match)) {
+            $html = $email_html;
+        } elseif (!empty($styles) && preg_match('/<head[^>]*>(.*?)<\/head>/is', $html, $head_match)) {
             $new_head = $head_match[1] . "\n<style type=\"text/css\">\n" . $styles . "\n</style>\n";
             $html = str_replace($head_match[1], $new_head, $html);
         }

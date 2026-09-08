@@ -4215,7 +4215,7 @@
         if (!el || !el.querySelectorAll) {
             return;
         }
-        var nodes = el.querySelectorAll('[style]');
+        var nodes = el.querySelectorAll('[style], [data-olk-copy-source], [data-ogsc]');
         for (var i = 0; i < nodes.length; i++) {
             var tag = String(nodes[i].tagName || '').toLowerCase();
             if (/^h[1-6]$/.test(tag)) {
@@ -4226,6 +4226,13 @@
             }
             nodes[i].style.fontFamily = '';
             nodes[i].style.fontSize = '';
+            if (nodes[i].style.lineHeight === 'inherit' || nodes[i].style.lineHeight === 'normal') {
+                nodes[i].style.lineHeight = '22px';
+            }
+            nodes[i].removeAttribute('data-olk-copy-source');
+            nodes[i].removeAttribute('data-ogsc');
+            nodes[i].removeAttribute('data-ogsb');
+            nodes[i].removeAttribute('draggable');
             if (nodes[i].getAttribute('style') === '') {
                 nodes[i].removeAttribute('style');
             }

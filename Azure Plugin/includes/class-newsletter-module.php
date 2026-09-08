@@ -49,6 +49,18 @@ class Azure_Newsletter_Module {
 
         return $original;
     }
+
+    /**
+     * Hover/bulk Delete is hidden for in-flight sends so the queue is
+     * not yanked mid-batch. Drafts, copies, sent, and scheduled rows
+     * can all be removed from the list.
+     *
+     * @param string $status
+     * @return bool
+     */
+    public static function campaign_can_delete($status) {
+        return strtolower(trim((string) $status)) !== 'sending';
+    }
     
     private function __construct() {
         // Initialize hooks

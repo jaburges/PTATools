@@ -112,4 +112,24 @@ $t->check(strpos($ensured_sheet, 'div { display: block; }') !== false, 'Outlook 
 $img_reset = Azure_Newsletter_Email_Css::rewrite_line_height_blocks('img { border: 0; line-height: 100%; }');
 $t->check(strpos($img_reset, 'line-height: 100%') !== false, 'image reset 100% in a stylesheet is left alone');
 
+$t->equals(Azure_Newsletter_Email_Css::line_height_to_px('inherit', 'font-size: 12pt'), 26, 'Outlook inherit at 12pt becomes 26px');
+
+$pasted = '<td width="50%" class="nl-column">'
+    . '<span data-olk-copy-source="MessageBody" style="font-family:Arial, Helvetica, sans-serif;font-size:14px;">'
+    . '<b>When:</b> 8AM Tuesday<br/>'
+    . '<span data-olk-copy-source="MessageBody">'
+    . '<div data-ogsc="black" data-olk-copy-source="MessageBody" '
+    . 'style="font-size:12pt;line-height:inherit;font-family:Aptos, Aptos_MSFontService, Arial, sans-serif;'
+    . 'margin:0px;padding:0px;vertical-align:baseline;font-variant-numeric:inherit;">'
+    . 'Step into the magical land.</div>'
+    . '</span></span></td>';
+$flat = Azure_Newsletter_Email_Css::ensure_column_stack_style($pasted);
+$t->check(strpos($flat, 'data-olk-copy-source') === false, 'send path strips Outlook paste markers');
+$t->check(strpos($flat, 'Aptos') === false, 'send path replaces Aptos with Arial');
+$t->check(strpos($flat, '12pt') === false, 'send path converts pasted 12pt to px');
+$t->check(strpos($flat, 'line-height:inherit') === false && strpos($flat, 'line-height: inherit') === false, 'send path does not leave line-height:inherit');
+$t->check(strpos($flat, '<p') !== false, 'Outlook paste divs become paragraphs');
+$t->check(preg_match('/line-height:\s*\d+px/', $flat), 'Outlook paste gets a px line-height');
+$t->check(strpos($flat, 'When:') !== false && strpos($flat, 'magical land') !== false, 'pasted words survive sanitizing');
+
 exit($t->finish() === 0 ? 0 : 1);

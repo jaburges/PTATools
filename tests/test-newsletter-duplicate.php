@@ -60,10 +60,24 @@ $t->check(
     'archive token is not reused (UNIQUE would silently fail the insert)'
 );
 
+$t->check(Azure_Newsletter_Module::campaign_can_delete('draft'), 'drafts can be deleted');
+$t->check(Azure_Newsletter_Module::campaign_can_delete('sent'), 'sent campaigns can be deleted');
+$t->check(Azure_Newsletter_Module::campaign_can_delete('scheduled'), 'scheduled campaigns can be deleted');
+$t->check(Azure_Newsletter_Module::campaign_can_delete($copy['status'] ?? ''), 'a duplicated copy can be deleted');
+$t->check(!Azure_Newsletter_Module::campaign_can_delete('sending'), 'an in-flight send cannot be deleted');
+
 $campaigns = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/newsletter-campaigns.php');
 $t->check(
     strpos($campaigns, 'prepare_duplicate_campaign') !== false,
     'row and bulk Duplicate use the shared prepare helper'
+);
+$t->check(
+    strpos($campaigns, 'campaign_can_delete') !== false,
+    'hover Delete is not limited to status === draft'
+);
+$t->check(
+    strpos($campaigns, "if (\$campaign->status === 'draft')") === false,
+    'campaigns list no longer hides Delete on non-draft rows'
 );
 
 exit($t->finish() === 0 ? 0 : 1);
