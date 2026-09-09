@@ -186,8 +186,29 @@
                 return;
             }
             select.html('<option value="">— Select Outlook calendar —</option>');
+            var groups = {};
             (response.data || []).forEach(function (cal) {
-                $('<option/>').val(cal.id).text(cal.name).appendTo(select);
+                var mailbox = cal.mailbox_email || '';
+                if (!groups[mailbox]) { groups[mailbox] = []; }
+                groups[mailbox].push(cal);
+            });
+            Object.keys(groups).forEach(function (mailbox) {
+                var $group = mailbox
+                    ? $('<optgroup/>').attr('label', mailbox)
+                    : select;
+                groups[mailbox].forEach(function (cal) {
+                    var value = mailbox ? (mailbox + '::' + cal.id) : cal.id;
+                    var $opt = $('<option/>').val(value).text(cal.name);
+                    if (mailbox) {
+                        $opt.attr('data-mailbox', mailbox).attr('data-calendar-id', cal.id);
+                        $group.append($opt);
+                    } else {
+                        select.append($opt);
+                    }
+                });
+                if (mailbox) {
+                    select.append($group);
+                }
             });
         }).fail(function () {
             select.html('<option value="">Failed to load calendars</option>');
@@ -367,7 +388,13 @@
                         return;
                     }
                     var m = response.data || {};
-                    $('#outlook-calendar-select').val(m.outlook_calendar_id || '');
+                    var mailbox = m.mailbox_email || '';
+                    var calId = m.outlook_calendar_id || '';
+                    var optionVal = mailbox && calId ? (mailbox + '::' + calId) : calId;
+                    $('#outlook-calendar-select').val(optionVal);
+                    if (!$('#outlook-calendar-select').val() && calId) {
+                        $('#outlook-calendar-select').val(calId);
+                    }
                     $('#pta-category-select').val(m.category_id || '');
                     var mode = m.mapping_mode === 'rules' ? 'rules' : 'single';
                     setMappingMode(mode);
@@ -463,7 +490,12 @@
             var mappingId = parseInt($('#mapping-id').val(), 10) || 0;
             var $outlookSelect = $('#outlook-calendar-select');
             var outlookCalendarId = $outlookSelect.val();
-            var outlookCalendarName = $outlookSelect.find('option:selected').text();
+            var $selectedCal = $outlookSelect.find('option:selected');
+            var outlookCalendarName = $selectedCal.text();
+            var mailboxEmail = $selectedCal.data('mailbox') || '';
+            if (!mailboxEmail && outlookCalendarId && outlookCalendarId.indexOf('::') !== -1) {
+                mailboxEmail = outlookCalendarId.split('::')[0];
+            }
             var mappingMode = $('#mapping-mode-rules').is(':checked') ? 'rules' : 'single';
             var $catSelect = $('#pta-category-select');
             var categoryId = parseInt($catSelect.val(), 10) || 0;
@@ -514,6 +546,7 @@
             var basePayload = {
                 mapping_id: mappingId,
                 outlook_calendar_id: outlookCalendarId,
+                mailbox_email: mailboxEmail,
                 outlook_calendar_name: outlookCalendarName,
                 mapping_mode: mappingMode,
                 category_rules: JSON.stringify(collected.rules),

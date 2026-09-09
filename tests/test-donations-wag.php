@@ -93,9 +93,12 @@ WP_Shim::$settings['donations_wag_levels'] = Azure_Donations_Module::sanitize_wa
     array('amount' => 150, 'name' => 'Paw', 'suffix' => 'per student', 'product_id' => 22, 'variation_id' => 0),
 ));
 $t->check(Azure_Donations_Module::is_wag_mapped_item(10, 99), 'mapped variation matches');
-$t->check(!Azure_Donations_Module::is_wag_mapped_item(10, 77), 'unmapped variation of the same parent does not match');
+$t->check(Azure_Donations_Module::is_wag_mapped_item(10, 77), 'Custom / unmapped variation of a mapped parent still counts');
 $t->check(Azure_Donations_Module::is_wag_mapped_item(22, 0), 'parent-only mapping matches the product');
 $t->check(!Azure_Donations_Module::is_wag_mapped_item(33, 0), 'unrelated product does not match');
+$ids = Azure_Donations_Module::wag_mapped_ids();
+$t->check(in_array(99, $ids['variations'], true), 'mapped variation id is listed');
+$t->check(in_array(10, $ids['products'], true), 'mapped parent is listed even when variations are set');
 
 $t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('WAG'), 'WAG alias');
 $t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('donation-items'), 'donation-items alias');

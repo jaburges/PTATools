@@ -269,7 +269,7 @@ class Azure_Donations_Module {
 
     /**
      * A line item matches Donation Items when its variation is mapped, or
-     * (if that row has no variation) when the parent product is mapped.
+     * when the parent product is mapped (covers Custom / typed amounts).
      */
     public static function is_wag_mapped_item($product_id, $variation_id = 0) {
         $product_id = (int) $product_id;
@@ -277,11 +277,8 @@ class Azure_Donations_Module {
         foreach (self::get_wag_levels() as $level) {
             $pid = (int) $level['product_id'];
             $vid = (int) $level['variation_id'];
-            if ($vid > 0) {
-                if ($variation_id === $vid) {
-                    return true;
-                }
-                continue;
+            if ($vid > 0 && $variation_id === $vid) {
+                return true;
             }
             if ($pid > 0 && ($product_id === $pid || $variation_id === $pid)) {
                 return true;
@@ -298,7 +295,8 @@ class Azure_Donations_Module {
             $vid = (int) $level['variation_id'];
             if ($vid > 0) {
                 $variations[$vid] = true;
-            } elseif ($pid > 0) {
+            }
+            if ($pid > 0) {
                 $products[$pid] = true;
             }
         }

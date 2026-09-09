@@ -43,9 +43,17 @@ class Azure_Calendar_Mapping_Manager {
      * @param string $outlook_calendar_id
      * @return object|null
      */
-    public function get_mapping_by_calendar_id($outlook_calendar_id) {
+    public function get_mapping_by_calendar_id($outlook_calendar_id, $mailbox_email = '') {
         global $wpdb;
         if (!$this->table_name) return null;
+        $mailbox_email = sanitize_email((string) $mailbox_email);
+        if ($mailbox_email !== '') {
+            return $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$this->table_name} WHERE outlook_calendar_id = %s AND mailbox_email = %s",
+                $outlook_calendar_id,
+                $mailbox_email
+            ));
+        }
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$this->table_name} WHERE outlook_calendar_id = %s",
             $outlook_calendar_id
@@ -79,15 +87,17 @@ class Azure_Calendar_Mapping_Manager {
      *
      * @return int|false
      */
-    public function create_mapping($outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '') {
+    public function create_mapping($outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '', $mailbox_email = '') {
         global $wpdb;
         if (!$this->table_name) return false;
 
         $mode  = self::sanitize_mapping_mode($mapping_mode);
         $rules = self::encode_category_rules($category_rules);
+        $mailbox_email = self::normalize_mailbox($mailbox_email);
 
         $data = array(
             'outlook_calendar_id'     => $outlook_calendar_id,
+            'mailbox_email'           => $mailbox_email,
             'outlook_calendar_name'   => $outlook_calendar_name,
             'category_id'             => (int) $category_id,
             'category_name'           => $category_name,
@@ -101,7 +111,7 @@ class Azure_Calendar_Mapping_Manager {
             'created_at'              => current_time('mysql'),
             'updated_at'              => current_time('mysql'),
         );
-        $formats = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s', '%s');
+        $formats = array('%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s', '%s');
 
         $result = $wpdb->insert($this->table_name, $data, $formats);
         if (!$result) {
@@ -124,16 +134,18 @@ class Azure_Calendar_Mapping_Manager {
      *
      * @return bool
      */
-    public function update_mapping($mapping_id, $outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '') {
+    public function update_mapping($mapping_id, $outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '', $mailbox_email = '') {
         global $wpdb;
         if (!$this->table_name) return false;
 
         $old = $this->get_mapping_by_id($mapping_id);
         $mode  = self::sanitize_mapping_mode($mapping_mode);
         $rules = self::encode_category_rules($category_rules);
+        $mailbox_email = self::normalize_mailbox($mailbox_email);
 
         $data = array(
             'outlook_calendar_id'     => $outlook_calendar_id,
+            'mailbox_email'           => $mailbox_email,
             'outlook_calendar_name'   => $outlook_calendar_name,
             'category_id'             => (int) $category_id,
             'category_name'           => $category_name,
@@ -146,7 +158,7 @@ class Azure_Calendar_Mapping_Manager {
             'schedule_lookahead_days' => (int) $schedule_lookahead_days,
             'updated_at'              => current_time('mysql'),
         );
-        $formats = array('%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s');
+        $formats = array('%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s');
 
         $result = $wpdb->update($this->table_name, $data, array('id' => (int) $mapping_id), $formats, array('%d'));
         if ($result === false) {
@@ -208,16 +220,38 @@ class Azure_Calendar_Mapping_Manager {
      *
      * @return bool
      */
-    public function update_last_sync($outlook_calendar_id) {
+    public function update_last_sync($outlook_calendar_id, $mailbox_email = '') {
         global $wpdb;
         if (!$this->table_name) return false;
+        $where = array('outlook_calendar_id' => $outlook_calendar_id);
+        $where_fmt = array('%s');
+        $mailbox_email = sanitize_email((string) $mailbox_email);
+        if ($mailbox_email !== '') {
+            $where['mailbox_email'] = $mailbox_email;
+            $where_fmt[] = '%s';
+        }
         return $wpdb->update(
             $this->table_name,
             array('last_sync' => current_time('mysql'), 'updated_at' => current_time('mysql')),
-            array('outlook_calendar_id' => $outlook_calendar_id),
+            $where,
             array('%s', '%s'),
-            array('%s')
+            $where_fmt
         ) !== false;
+    }
+
+    /**
+     * @param string $mailbox_email
+     * @return string
+     */
+    public static function normalize_mailbox($mailbox_email) {
+        $mailbox_email = sanitize_email((string) $mailbox_email);
+        if ($mailbox_email !== '') {
+            return $mailbox_email;
+        }
+        if (class_exists('Azure_Calendar_Connections')) {
+            return Azure_Calendar_Connections::primary_mailbox();
+        }
+        return '';
     }
 
     /**

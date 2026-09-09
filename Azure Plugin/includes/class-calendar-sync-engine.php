@@ -47,9 +47,8 @@ class Azure_Calendar_Sync_Engine {
     public function run_scheduled_sync() {
         Azure_Logger::info('Calendar Sync Engine: Scheduled sync starting', 'Calendar');
 
-        $settings      = Azure_Settings::get_all_settings();
-        $user_email    = $settings['calendar_embed_user_email'] ?? '';
-        $mailbox_email = $settings['calendar_embed_mailbox_email'] ?? '';
+        $user_email    = class_exists('Azure_Calendar_Connections') ? Azure_Calendar_Connections::user_email() : '';
+        $mailbox_email = class_exists('Azure_Calendar_Connections') ? Azure_Calendar_Connections::primary_mailbox() : '';
 
         if (empty($user_email) || empty($mailbox_email)) {
             Azure_Logger::warning('Calendar Sync Engine: Scheduled sync skipped, mailbox not configured', 'Calendar');
@@ -97,9 +96,10 @@ class Azure_Calendar_Sync_Engine {
             return;
         }
 
-        $settings      = Azure_Settings::get_all_settings();
-        $user_email    = $settings['calendar_embed_user_email'] ?? '';
-        $mailbox_email = $settings['calendar_embed_mailbox_email'] ?? '';
+        $user_email    = class_exists('Azure_Calendar_Connections') ? Azure_Calendar_Connections::user_email() : '';
+        $mailbox_email = class_exists('Azure_Calendar_Connections')
+            ? Azure_Calendar_Connections::mailbox_for_mapping($mapping)
+            : '';
         if (empty($user_email) || empty($mailbox_email)) {
             Azure_Logger::warning("Calendar Sync Engine: scheduled mapping {$mapping_id} skipped, mailbox not configured", 'Calendar');
             return;
@@ -119,7 +119,7 @@ class Azure_Calendar_Sync_Engine {
             $mailbox_email
         );
 
-        $manager->update_last_sync($mapping->outlook_calendar_id);
+        $manager->update_last_sync($mapping->outlook_calendar_id, $mailbox_email);
 
         if (class_exists('Azure_Database')) {
             Azure_Database::log_activity(
@@ -203,16 +203,20 @@ class Azure_Calendar_Sync_Engine {
         );
 
         foreach ($mappings as $mapping) {
+            $mapping_mailbox = class_exists('Azure_Calendar_Connections')
+                ? Azure_Calendar_Connections::mailbox_for_mapping($mapping, $mailbox_email)
+                : $mailbox_email;
             $result = $this->sync_single_calendar(
                 $mapping->outlook_calendar_id,
                 $mapping,
                 $start_date,
                 $end_date,
                 $user_email,
-                $mailbox_email
+                $mapping_mailbox
             );
 
-            $overall['calendar_results'][$mapping->outlook_calendar_id] = $result;
+            $result_key = $mapping_mailbox . '::' . $mapping->outlook_calendar_id;
+            $overall['calendar_results'][$result_key] = $result;
             $overall['total_events_synced']  += (int) ($result['events_synced']  ?? 0);
             $overall['total_events_deleted'] += (int) ($result['events_deleted'] ?? 0);
             $overall['total_errors']         += (int) ($result['errors']         ?? 0);
@@ -221,7 +225,7 @@ class Azure_Calendar_Sync_Engine {
                 $overall['success'] = false;
             }
 
-            $manager->update_last_sync($mapping->outlook_calendar_id);
+            $manager->update_last_sync($mapping->outlook_calendar_id, $mapping_mailbox);
         }
 
         Azure_Logger::info(
@@ -333,7 +337,7 @@ class Azure_Calendar_Sync_Engine {
                     : (is_string($category_or_mapping) ? array($category_or_mapping) : array());
                 $wrote = false;
                 foreach ($write_types as $post_type) {
-                    if ($this->upsert_event($event, $calendar_id, $categories, $post_type)) {
+                    if ($this->upsert_event($event, $calendar_id, $categories, $post_type, $mailbox_email)) {
                         $wrote = true;
                     }
                 }
@@ -500,7 +504,7 @@ class Azure_Calendar_Sync_Engine {
      * @param string $post_type Event store post type (pta_event or tribe_events).
      * @return int|false post ID on success, false on failure.
      */
-    private function upsert_event(array $event, $calendar_id, $category_name, $post_type = 'pta_event') {
+    private function upsert_event(array $event, $calendar_id, $category_name, $post_type = 'pta_event', $mailbox_email = '') {
         if (empty($event['id'])) {
             return false;
         }
@@ -582,6 +586,9 @@ class Azure_Calendar_Sync_Engine {
         // Sync bookkeeping
         update_post_meta($post_id, '_outlook_event_id',    $outlook_event_id);
         update_post_meta($post_id, '_outlook_calendar_id', (string) $calendar_id);
+        if ($mailbox_email !== '') {
+            update_post_meta($post_id, '_outlook_mailbox_email', sanitize_email($mailbox_email));
+        }
         update_post_meta($post_id, '_outlook_last_sync',   current_time('mysql'));
         update_post_meta($post_id, '_outlook_sync_status', 'synced');
         update_post_meta($post_id, '_sync_direction',      'from_outlook');

@@ -3487,10 +3487,19 @@ class Azure_Diagnostics_API {
             ? Azure_Settings::get_all_settings()
             : (array) get_option('azure_plugin_settings', array());
 
+        if (!class_exists('Azure_Calendar_Connections') && file_exists(AZURE_PLUGIN_PATH . 'includes/class-calendar-connections.php')) {
+            require_once AZURE_PLUGIN_PATH . 'includes/class-calendar-connections.php';
+        }
+
+        $mailboxes = class_exists('Azure_Calendar_Connections')
+            ? Azure_Calendar_Connections::mailboxes()
+            : array_filter(array($settings['calendar_embed_mailbox_email'] ?? ''));
+
         $cfg = array(
             'enable_calendar'                => !empty($settings['enable_calendar']),
             'calendar_embed_user_email'      => $settings['calendar_embed_user_email']    ?? '',
-            'calendar_embed_mailbox_email'   => $settings['calendar_embed_mailbox_email'] ?? '',
+            'calendar_embed_mailbox_email'   => $mailboxes[0] ?? ($settings['calendar_embed_mailbox_email'] ?? ''),
+            'calendar_embed_mailboxes'       => $mailboxes,
             'tec_calendar_user_email'        => $settings['tec_calendar_user_email']      ?? '',
             'calendar_default_timezone'      => $settings['calendar_default_timezone']    ?? '',
             'calendar_cache_duration'        => $settings['calendar_cache_duration']      ?? null,
@@ -3572,10 +3581,11 @@ class Azure_Diagnostics_API {
         if (class_exists('Azure_Calendar_GraphAPI') && !empty($cfg['calendar_embed_user_email'])) {
             $api = new \Azure_Calendar_GraphAPI();
             $u   = $cfg['calendar_embed_user_email'];
-            $mb  = $cfg['calendar_embed_mailbox_email'];
             $cal_list = array();
-            if (!empty($mb) && method_exists($api, 'get_mailbox_calendars')) {
-                $cal_list = $api->get_mailbox_calendars($u, $mb);
+            if (!empty($mailboxes) && method_exists($api, 'get_all_mailbox_calendars')) {
+                $cal_list = $api->get_all_mailbox_calendars($u, $mailboxes);
+            } elseif (!empty($cfg['calendar_embed_mailbox_email']) && method_exists($api, 'get_mailbox_calendars')) {
+                $cal_list = $api->get_mailbox_calendars($u, $cfg['calendar_embed_mailbox_email']);
             } elseif (method_exists($api, 'get_calendars')) {
                 $cal_list = $api->get_calendars($u, true);
             }
@@ -3583,16 +3593,17 @@ class Azure_Diagnostics_API {
             if (is_array($cal_list)) {
                 foreach ($cal_list as $cal) {
                     $list_compact[] = array(
-                        'id'    => $cal['id']    ?? '',
-                        'name'  => $cal['name']  ?? ($cal['displayName'] ?? ''),
-                        'owner' => $cal['owner'] ?? null,
+                        'id'      => $cal['id']    ?? '',
+                        'name'    => $cal['name']  ?? ($cal['displayName'] ?? ''),
+                        'mailbox' => $cal['mailbox_email'] ?? ($cfg['calendar_embed_mailbox_email'] ?? ''),
+                        'owner'   => $cal['owner'] ?? null,
                     );
                 }
             }
             $result['calendars'] = array(
                 'count'  => is_array($cal_list) ? count($cal_list) : 0,
                 'list'   => $list_compact,
-                'method' => !empty($mb) ? 'get_mailbox_calendars' : 'get_calendars',
+                'method' => !empty($mailboxes) ? 'get_all_mailbox_calendars' : 'get_calendars',
             );
         }
 
@@ -3621,7 +3632,10 @@ class Azure_Diagnostics_API {
             }
 
             $user_email    = $cfg['calendar_embed_user_email'] ?: $cfg['tec_calendar_user_email'];
-            $mailbox_email = $cfg['calendar_embed_mailbox_email'] ?: null;
+            $mailbox_email = sanitize_email((string) $request->get_param('mailbox_email'));
+            if ($mailbox_email === '') {
+                $mailbox_email = $cfg['calendar_embed_mailbox_email'] ?: null;
+            }
 
             $events = $api->get_calendar_events(
                 $calendar_id,

@@ -212,6 +212,7 @@ class Azure_Database {
         $sql_calendar_mappings = "CREATE TABLE $table_calendar_mappings (
             id mediumint(9) NOT NULL AUTO_INCREMENT,
             outlook_calendar_id varchar(255) NOT NULL,
+            mailbox_email varchar(255) NOT NULL DEFAULT '',
             outlook_calendar_name varchar(255) NOT NULL,
             category_id bigint(20) UNSIGNED,
             category_name varchar(255) NOT NULL,
@@ -226,7 +227,8 @@ class Azure_Database {
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            UNIQUE KEY outlook_calendar_id (outlook_calendar_id),
+            UNIQUE KEY mailbox_calendar (mailbox_email, outlook_calendar_id),
+            KEY outlook_calendar_id (outlook_calendar_id),
             KEY sync_enabled (sync_enabled),
             KEY schedule_enabled (schedule_enabled),
             KEY last_sync (last_sync)
@@ -551,6 +553,8 @@ class Azure_Database {
         dbDelta($sql_donation_campaigns);
         dbDelta($sql_donation_records);
         dbDelta($sql_order_rules);
+
+        self::migrate_calendar_mapping_mailboxes();
         
         // One-time back-fill of new columns on the product fields table.
         // Safe to run on every dbDelta call: the option flag prevents repeats.
@@ -576,6 +580,65 @@ class Azure_Database {
 
         // Log successful table creation
         Azure_Logger::info('Azure Plugin database tables created successfully');
+    }
+
+    /**
+     * v3.147.80: store mailbox_email on each mapping and unique on
+     * (mailbox, calendar_id) so calendars from math@ and calendar@
+     * can both be synced.
+     */
+    public static function migrate_calendar_mapping_mailboxes() {
+        if (get_option('azure_calendar_mapping_mailbox_v1') === 'yes') {
+            return;
+        }
+
+        global $wpdb;
+        $table = self::get_table_name('calendar_mappings');
+        if (!$table) {
+            return;
+        }
+
+        $col = $wpdb->get_results($wpdb->prepare(
+            "SHOW COLUMNS FROM {$table} LIKE %s",
+            'mailbox_email'
+        ));
+        if (empty($col)) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN mailbox_email varchar(255) NOT NULL DEFAULT '' AFTER outlook_calendar_id");
+        }
+
+        $primary = '';
+        $helper  = AZURE_PLUGIN_PATH . 'includes/class-calendar-connections.php';
+        if (!class_exists('Azure_Calendar_Connections') && file_exists($helper)) {
+            require_once $helper;
+        }
+        if (class_exists('Azure_Calendar_Connections')) {
+            $primary = Azure_Calendar_Connections::primary_mailbox();
+        }
+        if ($primary === '') {
+            $settings = get_option('azure_plugin_settings', array());
+            $primary  = is_array($settings) ? sanitize_email((string) ($settings['calendar_embed_mailbox_email'] ?? '')) : '';
+        }
+        if ($primary !== '') {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$table} SET mailbox_email = %s WHERE mailbox_email = ''",
+                $primary
+            ));
+        }
+
+        $old_unique = $wpdb->get_results("SHOW INDEX FROM {$table} WHERE Key_name = 'outlook_calendar_id' AND Non_unique = 0");
+        if (!empty($old_unique)) {
+            $wpdb->query("ALTER TABLE {$table} DROP INDEX outlook_calendar_id");
+        }
+        $new_unique = $wpdb->get_results("SHOW INDEX FROM {$table} WHERE Key_name = 'mailbox_calendar'");
+        if (empty($new_unique)) {
+            $wpdb->query("ALTER TABLE {$table} ADD UNIQUE KEY mailbox_calendar (mailbox_email, outlook_calendar_id)");
+        }
+        $id_index = $wpdb->get_results("SHOW INDEX FROM {$table} WHERE Key_name = 'outlook_calendar_id'");
+        if (empty($id_index)) {
+            $wpdb->query("ALTER TABLE {$table} ADD KEY outlook_calendar_id (outlook_calendar_id)");
+        }
+
+        update_option('azure_calendar_mapping_mailbox_v1', 'yes');
     }
 
     /**

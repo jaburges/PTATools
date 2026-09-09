@@ -37,6 +37,7 @@ $t->equals(true, Azure_Membership_Module::guest_may_use_express_pay(false, true,
 $t->equals(false, Azure_Membership_Module::guest_may_use_express_pay(false, true, 'cart'), 'guests cannot Apple Pay a membership from the cart');
 $t->equals(false, Azure_Membership_Module::guest_may_use_express_pay(false, true, 'product'), 'guests cannot Apple Pay a membership from the product page');
 $t->equals(true, Azure_Membership_Module::guest_may_use_express_pay(false, false, 'cart'), 'non-membership carts keep express pay');
+$t->equals(true, Azure_Membership_Module::guest_may_use_express_pay(false, false, 'product'), 'staff guests may see product-page wallets at the membership layer — required fields hide them separately');
 
 $module = new ReflectionClass('Azure_Membership_Module');
 $t->equals(true, $module->hasMethod('enable_registration_for_membership_cart'), 'checkout signup is forced on for membership carts');

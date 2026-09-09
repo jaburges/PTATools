@@ -76,6 +76,12 @@ class Azure_Product_Fields_Module {
 
         // Quick-add child from the product-page "+ Child" button.
         add_action('wp_ajax_azure_pf_quick_add_child', array($this, 'ajax_quick_add_child'));
+
+        // Stripe ECE on the product page never submits these fields.
+        add_filter('wc_stripe_show_payment_request_on_product_page', array($this, 'hide_product_page_express_pay'), 20);
+        add_filter('wcpay_payment_request_is_product_supported', array($this, 'hide_product_page_express_pay'), 20);
+        add_filter('should_show_express_checkout_button', array($this, 'hide_product_page_express_pay'), 20);
+        add_action('woocommerce_after_add_to_cart_button', array($this, 'render_express_pay_after_fields_note'));
     }
 
     /**
@@ -415,6 +421,62 @@ class Azure_Product_Fields_Module {
         return $name !== ''
             && strpos($name, 'family') !== false
             && (strpos($name, 'membership') !== false || strpos($name, 'ptsa') !== false || strpos($name, 'pta ') !== false);
+    }
+
+    /**
+     * True when Add to Cart needs PTA fields (or a family child roster)
+     * that Apple Pay / Google Pay / Amazon Pay will not collect.
+     */
+    public static function product_has_required_fields($product_id) {
+        $product_id = (int) $product_id;
+        if ($product_id < 1) {
+            return false;
+        }
+        if (self::is_family_membership_product($product_id)) {
+            return true;
+        }
+        foreach (self::get_groups_for_product($product_id) as $group) {
+            if (empty($group->fields) || !is_array($group->fields)) {
+                continue;
+            }
+            foreach ($group->fields as $field) {
+                if (!empty($field->required)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static function current_product_has_required_fields() {
+        global $product;
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return false;
+        }
+        return self::product_has_required_fields((int) $product->get_id());
+    }
+
+    public function hide_product_page_express_pay($allowed) {
+        if (!$allowed) {
+            return false;
+        }
+        if (function_exists('is_product') && !is_product()) {
+            return $allowed;
+        }
+        if (class_exists('Azure_Express_Checkout')
+            && Azure_Express_Checkout::hide_product_page_wallets(self::current_product_has_required_fields())) {
+            return false;
+        }
+        return $allowed;
+    }
+
+    public function render_express_pay_after_fields_note() {
+        if (!self::current_product_has_required_fields()) {
+            return;
+        }
+        echo '<p class="azure-pf-express-pay-note" style="margin-top:0.75em;font-size:0.92em;">'
+            . esc_html__('Apple Pay, Google Pay, and Amazon Pay are on the cart after you add this item. We need the name fields first.', 'azure-plugin')
+            . '</p>';
     }
 
     /**

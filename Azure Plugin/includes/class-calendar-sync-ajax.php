@@ -78,15 +78,18 @@ class Azure_Calendar_Sync_Ajax {
     public function ajax_get_outlook_calendars() {
         if (!$this->guard()) return;
 
-        $settings      = Azure_Settings::get_all_settings();
-        $user_email    = $settings['calendar_embed_user_email'] ?? '';
-        $mailbox_email = $settings['calendar_embed_mailbox_email'] ?? '';
+        $user_email = class_exists('Azure_Calendar_Connections')
+            ? Azure_Calendar_Connections::user_email()
+            : '';
+        $mailboxes = class_exists('Azure_Calendar_Connections')
+            ? Azure_Calendar_Connections::mailboxes()
+            : array();
 
         if (empty($user_email)) {
             wp_send_json_error('M365 user email not configured on the Config page.');
             return;
         }
-        if (empty($mailbox_email)) {
+        if (empty($mailboxes)) {
             wp_send_json_error('Shared mailbox email not configured on the Config page.');
             return;
         }
@@ -97,7 +100,7 @@ class Azure_Calendar_Sync_Ajax {
 
         try {
             $graph_api = new Azure_Calendar_GraphAPI();
-            $calendars = $graph_api->get_mailbox_calendars($user_email, $mailbox_email, true);
+            $calendars = $graph_api->get_all_mailbox_calendars($user_email, $mailboxes, true);
             if (!is_array($calendars)) {
                 $calendars = array();
             }
@@ -222,6 +225,7 @@ class Azure_Calendar_Sync_Ajax {
 
         $mapping_id              = (int) ($_POST['mapping_id'] ?? 0);
         $outlook_calendar_id     = sanitize_text_field($_POST['outlook_calendar_id'] ?? '');
+        $mailbox_email           = sanitize_email($_POST['mailbox_email'] ?? '');
         $outlook_calendar_name   = sanitize_text_field($_POST['outlook_calendar_name'] ?? '');
         $category_id             = (int) ($_POST['category_id'] ?? 0);
         $category_name           = sanitize_text_field($_POST['category_name'] ?? '');
@@ -232,6 +236,19 @@ class Azure_Calendar_Sync_Ajax {
         $schedule_frequency      = sanitize_text_field($_POST['schedule_frequency'] ?? 'hourly');
         $schedule_lookback_days  = (int) ($_POST['schedule_lookback_days'] ?? 30);
         $schedule_lookahead_days = (int) ($_POST['schedule_lookahead_days'] ?? 365);
+
+        if (strpos($outlook_calendar_id, '::') !== false && class_exists('Azure_Calendar_Connections')) {
+            $parsed = Azure_Calendar_Connections::parse_embed_key($outlook_calendar_id);
+            if ($mailbox_email === '' && $parsed['mailbox'] !== '') {
+                $mailbox_email = sanitize_email($parsed['mailbox']);
+            }
+            if ($parsed['calendar_id'] !== '') {
+                $outlook_calendar_id = $parsed['calendar_id'];
+            }
+        }
+        if ($mailbox_email === '' && class_exists('Azure_Calendar_Connections')) {
+            $mailbox_email = Azure_Calendar_Connections::primary_mailbox();
+        }
 
         if ($outlook_calendar_id === '' || $outlook_calendar_name === '') {
             wp_send_json_error('Missing required fields (calendar required).');
@@ -285,7 +302,8 @@ class Azure_Calendar_Sync_Ajax {
                 $schedule_lookback_days,
                 $schedule_lookahead_days,
                 $mapping_mode,
-                $category_rules
+                $category_rules,
+                $mailbox_email
             );
             if ($ok) {
                 wp_send_json_success(array('mapping_id' => $mapping_id, 'action' => 'updated'));
@@ -307,7 +325,8 @@ class Azure_Calendar_Sync_Ajax {
             $schedule_lookback_days,
             $schedule_lookahead_days,
             $mapping_mode,
-            $category_rules
+            $category_rules,
+            $mailbox_email
         );
         if ($new_id) {
             wp_send_json_success(array('mapping_id' => $new_id, 'action' => 'created'));
@@ -402,9 +421,8 @@ class Azure_Calendar_Sync_Ajax {
             return;
         }
 
-        $settings      = Azure_Settings::get_all_settings();
-        $user_email    = $settings['calendar_embed_user_email'] ?? '';
-        $mailbox_email = $settings['calendar_embed_mailbox_email'] ?? '';
+        $user_email    = class_exists('Azure_Calendar_Connections') ? Azure_Calendar_Connections::user_email() : '';
+        $mailbox_email = class_exists('Azure_Calendar_Connections') ? Azure_Calendar_Connections::primary_mailbox() : '';
 
         if (empty($user_email) || empty($mailbox_email)) {
             wp_send_json_error('Calendar mailbox is not configured on the Config page.');

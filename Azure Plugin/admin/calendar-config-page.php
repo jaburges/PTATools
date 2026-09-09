@@ -28,8 +28,13 @@ if (!defined('ABSPATH')) {
 $settings = Azure_Settings::get_all_settings();
 
 $use_common      = (bool) ($settings['use_common_credentials'] ?? true);
-$cal_user_email  = (string) ($settings['calendar_embed_user_email'] ?? '');
-$cal_mailbox     = (string) ($settings['calendar_embed_mailbox_email'] ?? '');
+$cal_user_email  = class_exists('Azure_Calendar_Connections')
+    ? Azure_Calendar_Connections::user_email()
+    : (string) ($settings['calendar_embed_user_email'] ?? '');
+$cal_mailboxes   = class_exists('Azure_Calendar_Connections')
+    ? Azure_Calendar_Connections::mailboxes()
+    : array_filter(array((string) ($settings['calendar_embed_mailbox_email'] ?? '')));
+$cal_mailbox     = $cal_mailboxes[0] ?? '';
 $cal_module_on   = !empty($settings['enable_calendar']);
 
 $cal_creds = class_exists('Azure_Settings') ? Azure_Settings::get_credentials('calendar') : array(
@@ -187,7 +192,7 @@ if (!in_array($event_source, array('tribe', 'pta'), true)) {
             <?php esc_html_e('Microsoft 365 Connection', 'azure-plugin'); ?>
         </h2>
         <p class="description">
-            <?php esc_html_e('Sign in with the Microsoft 365 account that has delegated access to your shared mailbox. The Embed and Sync tabs both read this connection.', 'azure-plugin'); ?>
+            <?php esc_html_e('Sign in with the Microsoft 365 account that has delegated access to your shared mailboxes. The Embed and Sync tabs both read this connection. Use a separate shared mailbox (not an M365 Group) for any calendar that people need to invite, e.g. math@.', 'azure-plugin'); ?>
         </p>
 
         <table class="form-table">
@@ -208,17 +213,31 @@ if (!in_array($event_source, array('tribe', 'pta'), true)) {
             </tr>
             <tr>
                 <th scope="row">
-                    <label for="calendar_embed_mailbox_email"><?php esc_html_e('Shared mailbox email', 'azure-plugin'); ?></label>
+                    <label for="calendar-mailbox-list"><?php esc_html_e('Shared mailboxes', 'azure-plugin'); ?></label>
                 </th>
                 <td>
-                    <input type="email"
-                           id="calendar_embed_mailbox_email"
-                           name="calendar_embed_mailbox_email"
-                           value="<?php echo esc_attr($cal_mailbox); ?>"
-                           placeholder="calendar@yourorg.net"
-                           class="regular-text"
-                           <?php disabled(!$cal_module_on); ?>>
-                    <p class="description"><?php esc_html_e('The mailbox that owns the calendars you want to embed / sync.', 'azure-plugin'); ?></p>
+                    <div id="calendar-mailbox-list">
+                        <?php
+                        $mailbox_rows = !empty($cal_mailboxes) ? $cal_mailboxes : array('');
+                        foreach ($mailbox_rows as $mb):
+                        ?>
+                        <p class="calendar-mailbox-row" style="margin:0 0 6px; display:flex; gap:6px; align-items:center;">
+                            <input type="email"
+                                   class="regular-text calendar-mailbox-input"
+                                   value="<?php echo esc_attr($mb); ?>"
+                                   placeholder="calendar@yourorg.net"
+                                   <?php disabled(!$cal_module_on); ?>>
+                            <button type="button" class="button calendar-mailbox-remove" <?php disabled(!$cal_module_on); ?>>&times;</button>
+                        </p>
+                        <?php endforeach; ?>
+                    </div>
+                    <p>
+                        <button type="button" class="button" id="calendar-mailbox-add" <?php disabled(!$cal_module_on); ?>>
+                            <?php esc_html_e('Add mailbox', 'azure-plugin'); ?>
+                        </button>
+                    </p>
+                    <p class="description"><?php esc_html_e('Each address is a shared mailbox the signed-in account can access. Secondary calendars inside one mailbox stay here; inviteable calendars (Math Adventures) need their own mailbox.', 'azure-plugin'); ?></p>
+                    <input type="hidden" id="calendar_embed_mailbox_email" value="<?php echo esc_attr($cal_mailbox); ?>">
                     <button type="button" class="button button-primary" id="save-calendar-emails" style="margin-top:6px;" <?php disabled(!$cal_module_on); ?>>
                         <span class="dashicons dashicons-saved"></span> <?php esc_html_e('Save Connection', 'azure-plugin'); ?>
                     </button>
@@ -242,9 +261,9 @@ if (!in_array($event_source, array('tribe', 'pta'), true)) {
                             <p class="description" style="margin-top:6px;">
                                 <?php
                                 printf(
-                                    /* translators: %s = shared mailbox email address */
+                                    /* translators: %s = shared mailbox email addresses */
                                     esc_html__('Reading calendars from: %s', 'azure-plugin'),
-                                    '<strong>' . esc_html($cal_mailbox) . '</strong>'
+                                    '<strong>' . esc_html(implode(', ', $cal_mailboxes)) . '</strong>'
                                 );
                                 ?>
                             </p>
@@ -258,12 +277,12 @@ if (!in_array($event_source, array('tribe', 'pta'), true)) {
                                 <?php esc_html_e('Not authenticated', 'azure-plugin'); ?>
                             </span>
                             <div class="auth-actions-inline" style="margin-top:10px;">
-                                <?php if (!empty($cal_user_email) && !empty($cal_mailbox)): ?>
+                                <?php if (!empty($cal_user_email) && !empty($cal_mailboxes)): ?>
                                     <button type="button" class="button button-primary" id="calendar-auth" <?php disabled(!$cal_module_on); ?>>
                                         <span class="dashicons dashicons-admin-network"></span> <?php esc_html_e('Authenticate Calendar', 'azure-plugin'); ?>
                                     </button>
                                 <?php else: ?>
-                                    <p class="description"><?php esc_html_e('Enter and save both email addresses above, then authenticate.', 'azure-plugin'); ?></p>
+                                    <p class="description"><?php esc_html_e('Enter and save your M365 account and at least one shared mailbox, then authenticate.', 'azure-plugin'); ?></p>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
@@ -441,18 +460,44 @@ jQuery(function ($) {
     var nonce = (window.azure_plugin_ajax && azure_plugin_ajax.nonce) ? azure_plugin_ajax.nonce : '';
     var ajaxUrl = (window.azure_plugin_ajax && azure_plugin_ajax.ajax_url) ? azure_plugin_ajax.ajax_url : (window.ajaxurl || '/wp-admin/admin-ajax.php');
 
+    function collectMailboxes() {
+        var list = [];
+        $('.calendar-mailbox-input').each(function () {
+            var v = ($(this).val() || '').trim();
+            if (v) { list.push(v); }
+        });
+        return list;
+    }
+
+    $('#calendar-mailbox-add').on('click', function () {
+        var $row = $('<p class="calendar-mailbox-row" style="margin:0 0 6px; display:flex; gap:6px; align-items:center;">' +
+            '<input type="email" class="regular-text calendar-mailbox-input" placeholder="math@yourorg.net">' +
+            '<button type="button" class="button calendar-mailbox-remove">&times;</button></p>');
+        $('#calendar-mailbox-list').append($row);
+        $row.find('input').focus();
+    });
+
+    $(document).on('click', '.calendar-mailbox-remove', function () {
+        var $rows = $('.calendar-mailbox-row');
+        if ($rows.length <= 1) {
+            $rows.find('input').val('');
+            return;
+        }
+        $(this).closest('.calendar-mailbox-row').remove();
+    });
+
     $('#save-calendar-emails').on('click', function () {
         var $btn = $(this);
         var userEmail = $('#calendar_embed_user_email').val();
-        var mailboxEmail = $('#calendar_embed_mailbox_email').val();
+        var mailboxes = collectMailboxes();
         if (!userEmail) { alert('Enter your M365 account email.'); return; }
-        if (!mailboxEmail) { alert('Enter the shared mailbox email.'); return; }
+        if (!mailboxes.length) { alert('Enter at least one shared mailbox email.'); return; }
 
         $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span> Saving...');
         $.post(ajaxUrl, {
             action: 'azure_save_calendar_embed_email',
             user_email: userEmail,
-            mailbox_email: mailboxEmail,
+            mailbox_emails: mailboxes.join('\n'),
             nonce: nonce
         }).done(function (resp) {
             if (resp && resp.success) {
@@ -496,7 +541,7 @@ jQuery(function ($) {
     $('#revoke-calendar-auth').on('click', function () {
         if (!window.confirm('Revoke calendar access? You will need to re-authenticate before syncing or embedding.')) return;
         var $btn = $(this);
-        var mailboxEmail = $('#calendar_embed_mailbox_email').val();
+        var mailboxEmail = collectMailboxes()[0] || $('#calendar_embed_mailbox_email').val();
         $btn.prop('disabled', true).text('Revoking...');
         $.post(ajaxUrl, {
             action: 'azure_calendar_embed_revoke',

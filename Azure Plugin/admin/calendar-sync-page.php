@@ -23,8 +23,13 @@ if (!defined('ABSPATH')) {
 global $wpdb;
 
 $settings              = Azure_Settings::get_all_settings();
-$calendar_user_email   = (string) ($settings['calendar_embed_user_email'] ?? '');
-$calendar_mailbox      = (string) ($settings['calendar_embed_mailbox_email'] ?? '');
+$calendar_user_email   = class_exists('Azure_Calendar_Connections')
+    ? Azure_Calendar_Connections::user_email()
+    : (string) ($settings['calendar_embed_user_email'] ?? '');
+$calendar_mailboxes    = class_exists('Azure_Calendar_Connections')
+    ? Azure_Calendar_Connections::mailboxes()
+    : array_filter(array((string) ($settings['calendar_embed_mailbox_email'] ?? '')));
+$calendar_mailbox      = $calendar_mailboxes[0] ?? '';
 $calendar_authenticated = false;
 if (!empty($calendar_user_email) && class_exists('Azure_Calendar_Auth')) {
     try {
@@ -161,7 +166,7 @@ $frequency_labels = array(
         <div class="notice notice-warning inline" style="padding:14px 16px;">
             <p>
                 <strong><?php esc_html_e('Calendar sign-in required.', 'azure-plugin'); ?></strong><br>
-                <?php esc_html_e('Calendar Sync needs an authenticated M365 account and a shared mailbox configured on the Config tab.', 'azure-plugin'); ?>
+                <?php esc_html_e('Calendar Sync needs an authenticated M365 account and at least one shared mailbox configured on the Config tab.', 'azure-plugin'); ?>
                 <a class="button button-primary" style="margin-left:8px;" href="<?php echo esc_url($config_url); ?>">
                     <?php esc_html_e('Open Calendar Config', 'azure-plugin'); ?>
                 </a>
@@ -207,6 +212,7 @@ $frequency_labels = array(
                     <tr>
                         <th style="width:70px;"><?php esc_html_e('Sync', 'azure-plugin'); ?></th>
                         <th><?php esc_html_e('Outlook Calendar', 'azure-plugin'); ?></th>
+                        <th><?php esc_html_e('Mailbox', 'azure-plugin'); ?></th>
                         <th><?php esc_html_e('PTA Category', 'azure-plugin'); ?></th>
                         <th style="width:180px;"><?php esc_html_e('Schedule', 'azure-plugin'); ?></th>
                         <th style="width:160px;"><?php esc_html_e('Last Sync', 'azure-plugin'); ?></th>
@@ -231,6 +237,7 @@ $frequency_labels = array(
                                     <code><?php echo esc_html($mapping->outlook_calendar_id); ?></code>
                                 </div>
                             </td>
+                            <td><?php echo esc_html(!empty($mapping->mailbox_email) ? $mapping->mailbox_email : $calendar_mailbox); ?></td>
                             <td>
                                 <?php
                                 $mode = isset($mapping->mapping_mode) ? $mapping->mapping_mode : 'single';

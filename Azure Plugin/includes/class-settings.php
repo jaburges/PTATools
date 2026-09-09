@@ -337,6 +337,7 @@ class Azure_Settings {
             'calendar_tenant_id' => '',
             'calendar_embed_user_email' => '',
             'calendar_embed_mailbox_email' => '',
+            'calendar_embed_mailboxes' => array(),
             'calendar_embed_enabled_calendars' => array(),
             'calendar_embed_timezones' => array(),
             'calendar_default_timezone' => 'America/Los_Angeles',

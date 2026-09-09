@@ -136,7 +136,7 @@ class Azure_Calendar_GraphAPI {
         if (!$force_refresh) {
             $cached_data = $this->get_cached_data($cache_key);
             if ($cached_data !== false) {
-                return $cached_data;
+                return $this->stamp_mailbox_on_calendars($cached_data, $mailbox_email);
             }
         }
         
@@ -175,7 +175,7 @@ class Azure_Calendar_GraphAPI {
             }
             
             $data = json_decode($response_body, true);
-            $calendars = $data['value'] ?? array();
+            $calendars = $this->stamp_mailbox_on_calendars($data['value'] ?? array(), $mailbox_email);
             
             // Cache the results
             $this->cache_data($cache_key, $calendars, $this->cache_duration);
@@ -188,6 +188,49 @@ class Azure_Calendar_GraphAPI {
             Azure_Logger::error('Calendar API: Exception getting mailbox calendars - ' . $e->getMessage());
             return array();
         }
+    }
+
+    /**
+     * @param mixed  $calendars
+     * @param string $mailbox_email
+     * @return array
+     */
+    private function stamp_mailbox_on_calendars($calendars, $mailbox_email) {
+        if (!is_array($calendars)) {
+            return array();
+        }
+        foreach ($calendars as &$calendar) {
+            if (is_array($calendar)) {
+                $calendar['mailbox_email'] = $mailbox_email;
+            }
+        }
+        unset($calendar);
+        return $calendars;
+    }
+
+    /**
+     * Discover calendars from every configured shared mailbox.
+     *
+     * @param string   $authenticated_user_email
+     * @param string[] $mailbox_emails
+     * @param bool     $force_refresh
+     * @return array
+     */
+    public function get_all_mailbox_calendars($authenticated_user_email, $mailbox_emails, $force_refresh = false) {
+        $mailbox_emails = class_exists('Azure_Calendar_Connections')
+            ? Azure_Calendar_Connections::normalize_mailboxes($mailbox_emails)
+            : (array) $mailbox_emails;
+        $all = array();
+        foreach ($mailbox_emails as $mailbox_email) {
+            $calendars = $this->get_mailbox_calendars($authenticated_user_email, $mailbox_email, $force_refresh);
+            if (!is_array($calendars)) {
+                continue;
+            }
+            foreach ($calendars as $calendar) {
+                $all[] = $calendar;
+            }
+        }
+        return $all;
     }
     
     /**

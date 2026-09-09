@@ -6,9 +6,14 @@ if (!defined('ABSPATH')) {
 // Get plugin settings
 $settings = Azure_Settings::get_all_settings();
 
-// Get calendar user email (who authenticates) and mailbox email (shared mailbox to access)
-$calendar_user_email = $settings['calendar_embed_user_email'] ?? '';
-$calendar_mailbox_email = $settings['calendar_embed_mailbox_email'] ?? '';
+// Get calendar user email (who authenticates) and mailbox emails to access
+$calendar_user_email = class_exists('Azure_Calendar_Connections')
+    ? Azure_Calendar_Connections::user_email()
+    : ($settings['calendar_embed_user_email'] ?? '');
+$calendar_mailboxes = class_exists('Azure_Calendar_Connections')
+    ? Azure_Calendar_Connections::mailboxes()
+    : array_filter(array($settings['calendar_embed_mailbox_email'] ?? ''));
+$calendar_mailbox_email = $calendar_mailboxes[0] ?? '';
 $calendar_authenticated = false;
 
 // Check authentication status for the user
@@ -22,18 +27,25 @@ if (!empty($calendar_user_email) && class_exists('Azure_Calendar_Auth')) {
     }
 }
 
-// Get calendars from the shared mailbox if authenticated
+// Get calendars from every configured shared mailbox if authenticated
 $mailbox_calendars = array();
-if ($calendar_authenticated && !empty($calendar_user_email) && !empty($calendar_mailbox_email) && class_exists('Azure_Calendar_GraphAPI')) {
+if ($calendar_authenticated && !empty($calendar_user_email) && !empty($calendar_mailboxes) && class_exists('Azure_Calendar_GraphAPI')) {
     try {
         $graph_api = new Azure_Calendar_GraphAPI();
-        // Use authenticated user's token to access mailbox's calendars
-        $mailbox_calendars = $graph_api->get_mailbox_calendars($calendar_user_email, $calendar_mailbox_email);
+        $mailbox_calendars = $graph_api->get_all_mailbox_calendars($calendar_user_email, $calendar_mailboxes);
     } catch (Exception $e) {
-        // Silently handle error
         Azure_Logger::error('Calendar Page: Failed to get mailbox calendars - ' . $e->getMessage());
         $mailbox_calendars = array();
     }
+}
+
+$calendars_by_mailbox = array();
+foreach ($mailbox_calendars as $calendar) {
+    $mb = $calendar['mailbox_email'] ?? $calendar_mailbox_email;
+    if (!isset($calendars_by_mailbox[$mb])) {
+        $calendars_by_mailbox[$mb] = array();
+    }
+    $calendars_by_mailbox[$mb][] = $calendar;
 }
 
 // Handle auth success message
@@ -77,13 +89,19 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
         <!-- Available Calendars from Mailbox -->
         <?php if ($calendar_authenticated): ?>
         <div class="calendar-list-section">
-            <h2><span class="dashicons dashicons-calendar-alt"></span> Available Calendars from Mailbox</h2>
-            <p class="description">Select which calendars from <?php echo esc_html($calendar_mailbox_email); ?> you want to enable for embedding.</p>
+            <h2><span class="dashicons dashicons-calendar-alt"></span> Available Calendars from Mailboxes</h2>
+            <p class="description">Select which calendars from <?php echo esc_html(implode(', ', $calendar_mailboxes)); ?> you want to enable for embedding.</p>
             
-            <?php if (!empty($mailbox_calendars)): ?>
+            <?php if (!empty($calendars_by_mailbox)): ?>
+            <?php foreach ($calendars_by_mailbox as $mailbox_email => $calendars): ?>
+            <h3 style="margin-top:20px;"><?php echo esc_html($mailbox_email); ?></h3>
             <div class="calendars-grid">
-                <?php foreach ($mailbox_calendars as $calendar): ?>
-                <div class="calendar-item" data-calendar-id="<?php echo esc_attr($calendar['id']); ?>">
+                <?php foreach ($calendars as $calendar):
+                    $embed_enabled = class_exists('Azure_Calendar_Connections')
+                        ? Azure_Calendar_Connections::is_embed_enabled($settings['calendar_embed_enabled_calendars'] ?? array(), $mailbox_email, $calendar['id'])
+                        : in_array($calendar['id'], $settings['calendar_embed_enabled_calendars'] ?? array(), true);
+                ?>
+                <div class="calendar-item" data-calendar-id="<?php echo esc_attr($calendar['id']); ?>" data-mailbox-email="<?php echo esc_attr($mailbox_email); ?>">
                     <div class="calendar-header">
                         <div class="calendar-title-section">
                         <h3><?php echo esc_html($calendar['name']); ?></h3>
@@ -92,7 +110,8 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                                        class="calendar-embed-toggle" 
                                        data-calendar-id="<?php echo esc_attr($calendar['id']); ?>"
                                        data-calendar-name="<?php echo esc_attr($calendar['name']); ?>"
-                                       <?php checked(in_array($calendar['id'], $settings['calendar_embed_enabled_calendars'] ?? [])); ?> />
+                                       data-mailbox-email="<?php echo esc_attr($mailbox_email); ?>"
+                                       <?php checked($embed_enabled); ?> />
                                 <span>Enable for embedding</span>
                             </label>
                         </div>
@@ -151,13 +170,13 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                                 <div class="shortcode">
                                     <label>Calendar View:</label>
                                     <input type="text" readonly 
-                                           value='[azure_calendar email="<?php echo esc_attr($calendar_mailbox_email); ?>" id="<?php echo esc_attr($calendar['id']); ?>" view="month"]' 
+                                           value='[azure_calendar email="<?php echo esc_attr($mailbox_email); ?>" id="<?php echo esc_attr($calendar['id']); ?>" view="month"]' 
                                            onclick="this.select();" class="shortcode-input">
                                 </div>
                                 <div class="shortcode">
                                     <label>Events List:</label>
                                     <input type="text" readonly 
-                                           value='[azure_calendar_events email="<?php echo esc_attr($calendar_mailbox_email); ?>" id="<?php echo esc_attr($calendar['id']); ?>" limit="10"]' 
+                                           value='[azure_calendar_events email="<?php echo esc_attr($mailbox_email); ?>" id="<?php echo esc_attr($calendar['id']); ?>" limit="10"]' 
                                            onclick="this.select();" class="shortcode-input">
                                 </div>
                             </div>
@@ -166,6 +185,7 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                 </div>
                 <?php endforeach; ?>
             </div>
+            <?php endforeach; ?>
             <?php else: ?>
             <div class="notice notice-info inline">
                 <p>No calendars found in this mailbox. Make sure you have delegated access to the shared mailbox.</p>
@@ -417,12 +437,14 @@ jQuery(document).ready(function($) {
     $('.calendar-embed-toggle').change(function() {
         var calendarId = $(this).data('calendar-id');
         var calendarName = $(this).data('calendar-name');
+        var mailboxEmail = $(this).data('mailbox-email') || '';
         var enabled = $(this).is(':checked');
         
         $.post(ajaxurl, {
             action: 'azure_toggle_calendar_embed',
             calendar_id: calendarId,
             calendar_name: calendarName,
+            mailbox_email: mailboxEmail,
             enabled: enabled,
             nonce: azure_plugin_ajax.nonce
         }, function(response) {

@@ -2108,33 +2108,43 @@ class Azure_Admin {
         }
         
         $user_email = sanitize_email($_POST['user_email'] ?? '');
-        $mailbox_email = sanitize_email($_POST['mailbox_email'] ?? '');
+        $mailbox_raw = $_POST['mailbox_emails'] ?? ($_POST['mailboxes'] ?? ($_POST['mailbox_email'] ?? ''));
+        if (is_string($mailbox_raw)) {
+            $mailbox_raw = wp_unslash($mailbox_raw);
+        }
+        $mailboxes = class_exists('Azure_Calendar_Connections')
+            ? Azure_Calendar_Connections::normalize_mailboxes($mailbox_raw)
+            : array_filter(array(sanitize_email((string) $mailbox_raw)));
         
         if (empty($user_email)) {
             wp_send_json_error('Your M365 account email is required');
         }
         
-        if (empty($mailbox_email)) {
-            wp_send_json_error('Shared mailbox email is required');
+        if (empty($mailboxes)) {
+            wp_send_json_error('At least one shared mailbox email is required');
         }
         
         try {
-            // Use update_settings to save both emails
-            Azure_Settings::update_settings(array(
-                'calendar_embed_user_email' => $user_email,
-                'calendar_embed_mailbox_email' => $mailbox_email
-            ));
+            if (class_exists('Azure_Calendar_Connections')) {
+                Azure_Calendar_Connections::save($user_email, $mailboxes);
+            } else {
+                Azure_Settings::update_settings(array(
+                    'calendar_embed_user_email' => $user_email,
+                    'calendar_embed_mailbox_email' => $mailboxes[0],
+                    'calendar_embed_mailboxes' => $mailboxes,
+                ));
+            }
             
             // Verify the emails were saved by reading them back
             $saved_user_email = Azure_Settings::get_setting('calendar_embed_user_email', '');
             $saved_mailbox_email = Azure_Settings::get_setting('calendar_embed_mailbox_email', '');
             
-            if ($saved_user_email === $user_email && $saved_mailbox_email === $mailbox_email) {
+            if ($saved_user_email === $user_email && $saved_mailbox_email === $mailboxes[0]) {
                 if (class_exists('Azure_Logger')) {
                     try {
                         Azure_Logger::info('Calendar Embed: Settings saved', array(
                             'user_email' => $user_email,
-                            'mailbox_email' => $mailbox_email
+                            'mailboxes' => $mailboxes
                         ));
                     } catch (Exception $e) {
                         // Ignore logging errors
@@ -2250,27 +2260,38 @@ class Azure_Admin {
             wp_send_json_error('Unauthorized access');
         }
         
-        $calendar_id = sanitize_text_field($_POST['calendar_id'] ?? '');
+            $calendar_id = sanitize_text_field($_POST['calendar_id'] ?? '');
         $calendar_name = sanitize_text_field($_POST['calendar_name'] ?? '');
+        $mailbox_email = sanitize_email($_POST['mailbox_email'] ?? '');
         $enabled = filter_var($_POST['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        
+
         if (empty($calendar_id)) {
             wp_send_json_error('Calendar ID is required');
         }
-        
+
         try {
             $settings = Azure_Settings::get_all_settings();
             $enabled_calendars = $settings['calendar_embed_enabled_calendars'] ?? array();
-            
-            if ($enabled) {
-                // Add to enabled list
-                if (!in_array($calendar_id, $enabled_calendars)) {
+            if (!is_array($enabled_calendars)) {
+                $enabled_calendars = array();
+            }
+            if ($mailbox_email === '' && class_exists('Azure_Calendar_Connections')) {
+                $mailbox_email = Azure_Calendar_Connections::primary_mailbox();
+            }
+
+            if (class_exists('Azure_Calendar_Connections')) {
+                $enabled_calendars = Azure_Calendar_Connections::set_embed_enabled(
+                    $enabled_calendars,
+                    $mailbox_email,
+                    $calendar_id,
+                    $enabled
+                );
+            } elseif ($enabled) {
+                if (!in_array($calendar_id, $enabled_calendars, true)) {
                     $enabled_calendars[] = $calendar_id;
                 }
             } else {
-                // Remove from enabled list
-                $enabled_calendars = array_diff($enabled_calendars, array($calendar_id));
-                $enabled_calendars = array_values($enabled_calendars); // Re-index
+                $enabled_calendars = array_values(array_diff($enabled_calendars, array($calendar_id)));
             }
             
             Azure_Settings::update_settings(array(
