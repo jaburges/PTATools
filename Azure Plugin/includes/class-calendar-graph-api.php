@@ -297,7 +297,7 @@ class Azure_Calendar_GraphAPI {
                 'endDateTime'   => $end_date,
                 '$top'          => $max_events,
                 '$orderby'      => 'start/dateTime',
-                '$select'       => 'id,subject,start,end,location,attendees,body,isAllDay,showAs,sensitivity,categories,isCancelled,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,webLink',
+                '$select'       => 'id,subject,start,end,location,attendees,body,isAllDay,showAs,sensitivity,categories,isCancelled,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,onlineMeetingProvider,webLink,seriesMasterId,type,iCalUId',
             );
             
             // Use /users/{mailbox}/calendars/ for shared mailbox, otherwise /me/calendars/
@@ -611,6 +611,9 @@ class Azure_Calendar_GraphAPI {
                 'joinUrl'         => is_string($join_url) ? $join_url : '',
                 'onlineProvider'  => is_string($online_provider) ? $online_provider : '',
                 'webLink'         => $event['webLink'] ?? '',
+                'seriesMasterId'  => $event['seriesMasterId'] ?? '',
+                'type'            => $event['type'] ?? '',
+                'iCalUId'         => $event['iCalUId'] ?? '',
             );
         }
 

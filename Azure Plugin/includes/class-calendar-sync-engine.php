@@ -589,6 +589,17 @@ class Azure_Calendar_Sync_Engine {
         if ($mailbox_email !== '') {
             update_post_meta($post_id, '_outlook_mailbox_email', sanitize_email($mailbox_email));
         }
+        $event_type = (string) ($event['type'] ?? '');
+        $series_master = (string) ($event['seriesMasterId'] ?? '');
+        if ($series_master === '' && in_array($event_type, array('seriesMaster', 'occurrence', 'exception'), true)) {
+            $series_master = (string) $outlook_event_id;
+        }
+        if ($series_master !== '') {
+            update_post_meta($post_id, '_outlook_series_master_id', $series_master);
+        }
+        if ($event_type !== '') {
+            update_post_meta($post_id, '_outlook_event_type', $event_type);
+        }
         update_post_meta($post_id, '_outlook_last_sync',   current_time('mysql'));
         update_post_meta($post_id, '_outlook_sync_status', 'synced');
         update_post_meta($post_id, '_sync_direction',      'from_outlook');
@@ -650,6 +661,10 @@ class Azure_Calendar_Sync_Engine {
             if (!empty($terms)) {
                 wp_set_object_terms($post_id, $terms, $taxonomy, false);
             }
+        }
+
+        if (class_exists('Azure_Volunteer_Signup') && $post_type === 'pta_event') {
+            Azure_Volunteer_Signup::on_event_synced($post_id);
         }
 
         return $post_id;

@@ -22,13 +22,16 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
 <?php endif; ?>
 
 <p class="description" style="margin: 8px 0 16px;">
-    <?php _e('Create sign-up sheets. Assign a sheet to an event to show it on that event page automatically. You can still paste the shortcode on any other page.', 'azure-plugin'); ?>
+    <?php _e('Create a single sheet, or a recurring template that copies itself onto every event in an Outlook series. Each occurrence gets its own sheet and its own signups. To change volunteers for one date only, edit that event’s sheet — not the template.', 'azure-plugin'); ?>
 </p>
 
 <div class="azure-module-content">
     <div class="azure-action-row" style="margin-bottom: 16px;">
         <button type="button" class="button button-primary" id="azure-vs-new-sheet">
             <span class="dashicons dashicons-plus-alt2"></span> <?php _e('New Sign-Up Sheet', 'azure-plugin'); ?>
+        </button>
+        <button type="button" class="button" id="azure-vs-new-recurring-sheet">
+            <span class="dashicons dashicons-plus-alt2"></span> <?php _e('Recurring Sign-Up Sheet', 'azure-plugin'); ?>
         </button>
     </div>
 
@@ -39,6 +42,7 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
         <thead>
             <tr>
                 <th style="width:22%;"><?php _e('Title', 'azure-plugin'); ?></th>
+                <th><?php _e('Type', 'azure-plugin'); ?></th>
                 <th><?php _e('Assigned event', 'azure-plugin'); ?></th>
                 <th><?php _e('Event Date', 'azure-plugin'); ?></th>
                 <th><?php _e('Location', 'azure-plugin'); ?></th>
@@ -60,6 +64,15 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
         ?>
             <tr>
                 <td><strong><?php echo esc_html($s->title); ?></strong></td>
+                <td><?php
+                    if (!empty($s->is_template)) {
+                        echo esc_html__('Recurring template', 'azure-plugin');
+                    } elseif (!empty($s->template_id)) {
+                        echo esc_html__('Series event', 'azure-plugin');
+                    } else {
+                        echo esc_html__('Single', 'azure-plugin');
+                    }
+                ?></td>
                 <td><?php
                     $linked = (int) ($s->pta_event_id ?? 0);
                     if ($linked && function_exists('get_the_title') && get_the_title($linked)) {
@@ -104,6 +117,10 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
         </div>
         <div class="azure-vs-modal-body">
             <input type="hidden" id="azure-vs-sheet-id" value="0" />
+            <input type="hidden" id="azure-vs-is-recurring" value="0" />
+            <p id="azure-vs-recurring-help" class="description" style="display:none;margin:0 0 12px;">
+                <?php _e('Pick any event in the series (for example Grade 1 Math Adventures). We copy this sheet onto every matching event. Later Outlook dates get a new sheet automatically. Editing one event’s sheet does not change the others.', 'azure-plugin'); ?>
+            </p>
             <table class="form-table">
                 <tr>
                     <th><label for="azure-vs-title"><?php _e('Title', 'azure-plugin'); ?></label></th>
@@ -226,7 +243,23 @@ jQuery(function($) {
         $('.azure-vs-new-event-fields').toggle(assign && choice === '__new__');
     }
 
-    function openModal(editId) {
+    function setRecurringMode(on) {
+        $('#azure-vs-is-recurring').val(on ? '1' : '0');
+        $('#azure-vs-recurring-help').toggle(!!on);
+        if (on) {
+            $('#azure-vs-assign-event').prop('checked', true).prop('disabled', true);
+            $('#azure-vs-pta-event option[value="__new__"]').hide();
+            if ($('#azure-vs-pta-event').val() === '__new__') {
+                $('#azure-vs-pta-event').val(0);
+            }
+        } else {
+            $('#azure-vs-assign-event').prop('disabled', false);
+            $('#azure-vs-pta-event option[value="__new__"]').show();
+        }
+        syncEventFields();
+    }
+
+    function openModal(editId, recurring) {
         activityIdx = 0;
         $('#azure-vs-activities-list').empty();
         $('#azure-vs-sheet-id').val(0);
@@ -238,8 +271,11 @@ jQuery(function($) {
         $('#azure-vs-event-date').val('');
         $('#azure-vs-event-location').val('');
         $('#azure-vs-status').val('open');
-        syncEventFields();
-        $('#azure-vs-modal-title').text(editId ? '<?php echo esc_js(__('Edit Sign-Up Sheet', 'azure-plugin')); ?>' : '<?php echo esc_js(__('New Sign-Up Sheet', 'azure-plugin')); ?>');
+        setRecurringMode(!!recurring);
+        var newTitle = recurring
+            ? '<?php echo esc_js(__('New Recurring Sign-Up Sheet', 'azure-plugin')); ?>'
+            : '<?php echo esc_js(__('New Sign-Up Sheet', 'azure-plugin')); ?>';
+        $('#azure-vs-modal-title').text(editId ? '<?php echo esc_js(__('Edit Sign-Up Sheet', 'azure-plugin')); ?>' : newTitle);
 
         if (editId) {
             $.get(ajaxurl, { action: 'azure_volunteer_get_sheet', sheet_id: editId, nonce: azure_plugin_ajax.nonce }, function(res) {
@@ -264,6 +300,12 @@ jQuery(function($) {
                 }
                 $('#azure-vs-event-location').val(s.event_location || '');
                 $('#azure-vs-status').val(s.status);
+                setRecurringMode(!!res.data.is_template);
+                if (res.data.is_instance) {
+                    $('#azure-vs-modal-title').text('<?php echo esc_js(__('Edit this event’s sign-up', 'azure-plugin')); ?>');
+                } else if (res.data.is_template) {
+                    $('#azure-vs-modal-title').text('<?php echo esc_js(__('Edit recurring template', 'azure-plugin')); ?>');
+                }
                 syncEventFields();
                 (res.data.activities || []).forEach(function(a) { addActivityRow(a); });
             });
@@ -274,7 +316,8 @@ jQuery(function($) {
         $('#azure-vs-modal').show();
     }
 
-    $('#azure-vs-new-sheet').on('click', function() { openModal(0); });
+    $('#azure-vs-new-sheet').on('click', function() { openModal(0, false); });
+    $('#azure-vs-new-recurring-sheet').on('click', function() { openModal(0, true); });
     $(document).on('click', '.azure-vs-edit-sheet', function() { openModal($(this).data('id')); });
     $(document).on('click', '.azure-vs-modal-close', function() { $('#azure-vs-modal').hide(); });
     $('#azure-vs-modal').on('click', function(e) { if (e.target === this) $(this).hide(); });
@@ -300,7 +343,13 @@ jQuery(function($) {
             eventDate = eventDate.replace('T', ' ') + ':00';
         }
 
-        if ($('#azure-vs-assign-event').is(':checked')) {
+        if ($('#azure-vs-is-recurring').val() === '1') {
+            var recEv = $('#azure-vs-pta-event').val();
+            if (!recEv || recEv === '0' || recEv === '__new__') {
+                alert('<?php echo esc_js(__('Pick an existing event in the series.', 'azure-plugin')); ?>');
+                return;
+            }
+        } else if ($('#azure-vs-assign-event').is(':checked')) {
             var ev = $('#azure-vs-pta-event').val();
             if (!ev || ev === '0') {
                 alert('<?php echo esc_js(__('Select an event or choose Create new event.', 'azure-plugin')); ?>');
@@ -321,6 +370,7 @@ jQuery(function($) {
             event_date: eventDate,
             event_location: $('#azure-vs-event-location').val(),
             status: $('#azure-vs-status').val(),
+            is_recurring: $('#azure-vs-is-recurring').val() === '1' ? 1 : 0,
             activities: JSON.stringify(activities)
         }, function(res) {
             $btn.prop('disabled', false).text('<?php echo esc_js(__('Save Sheet', 'azure-plugin')); ?>');
@@ -343,6 +393,11 @@ jQuery(function($) {
             else alert(res.data || 'Error');
         });
     });
+
+    var editFromUrl = <?php echo (int) (isset($_GET['edit_sheet']) ? $_GET['edit_sheet'] : 0); ?>;
+    if (editFromUrl) {
+        openModal(editFromUrl);
+    }
 
     $('#azure-vs-assign-event').on('change', syncEventFields);
     $('#azure-vs-pta-event').on('change', function() {

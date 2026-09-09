@@ -445,12 +445,19 @@ class Azure_Database {
             event_date datetime DEFAULT NULL,
             event_location varchar(500) DEFAULT '',
             status varchar(20) DEFAULT 'open',
+            is_template tinyint(1) NOT NULL DEFAULT 0,
+            template_id bigint(20) UNSIGNED DEFAULT 0,
+            series_key varchar(255) DEFAULT '',
+            outlook_calendar_id varchar(255) DEFAULT '',
             created_by bigint(20) UNSIGNED DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY pta_event_id (pta_event_id),
-            KEY status (status)
+            KEY status (status),
+            KEY is_template (is_template),
+            KEY template_id (template_id),
+            KEY series_key (series_key(191))
         ) $charset_collate;";
 
         // Volunteer Activities table (roles/slots within a sheet)

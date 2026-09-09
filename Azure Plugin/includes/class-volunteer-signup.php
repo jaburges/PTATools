@@ -31,11 +31,15 @@ class Azure_Volunteer_Signup {
 
     private function init_hooks() {
         self::ensure_slot_columns();
+        self::ensure_recurring_columns();
 
         // Admin AJAX
         add_action('wp_ajax_azure_volunteer_save_sheet', array($this, 'ajax_save_sheet'));
         add_action('wp_ajax_azure_volunteer_delete_sheet', array($this, 'ajax_delete_sheet'));
         add_action('wp_ajax_azure_volunteer_get_sheet', array($this, 'ajax_get_sheet'));
+
+        add_action('wp_trash_post', array($this, 'on_event_trashed'));
+        add_action('untrashed_post', array($this, 'on_event_untrashed'));
 
         // Frontend AJAX (logged-in users)
         add_action('wp_ajax_azure_volunteer_signup', array($this, 'ajax_signup'));
@@ -71,8 +75,10 @@ class Azure_Volunteer_Signup {
         $sql = "SELECT * FROM {$t}";
         if ($status !== 'all') {
             $sql .= $wpdb->prepare(" WHERE status = %s", $status);
+        } else {
+            $sql .= " WHERE status <> 'trashed'";
         }
-        $sql .= " ORDER BY event_date ASC, created_at DESC";
+        $sql .= " ORDER BY is_template DESC, event_date ASC, created_at DESC";
         return $wpdb->get_results($sql);
     }
 
@@ -151,6 +157,9 @@ class Azure_Volunteer_Signup {
         $out = array();
         foreach ($sheets as $sheet) {
             if (!is_object($sheet)) {
+                continue;
+            }
+            if (!empty($sheet->is_template) || ($sheet->status ?? '') === 'trashed') {
                 continue;
             }
             $activities = self::get_activities((int) $sheet->id);
@@ -249,6 +258,322 @@ class Azure_Volunteer_Signup {
         }
     }
 
+    public static function ensure_recurring_columns() {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t || !isset($wpdb)) {
+            return;
+        }
+        $cols = $wpdb->get_col("SHOW COLUMNS FROM {$t}", 0);
+        if (!is_array($cols)) {
+            return;
+        }
+        $adds = array(
+            'is_template'         => 'tinyint(1) NOT NULL DEFAULT 0',
+            'template_id'         => 'bigint(20) UNSIGNED DEFAULT 0',
+            'series_key'          => 'varchar(255) DEFAULT \'\'',
+            'outlook_calendar_id' => 'varchar(255) DEFAULT \'\'',
+        );
+        foreach ($adds as $col => $def) {
+            if (!in_array($col, $cols, true)) {
+                $wpdb->query("ALTER TABLE {$t} ADD COLUMN {$col} {$def}");
+            }
+        }
+    }
+
+    /**
+     * Prefer Outlook seriesMasterId; fall back to calendar + title.
+     *
+     * @param string $calendar_id
+     * @param string $series_master_id
+     * @param string $title
+     * @return string
+     */
+    public static function build_series_key($calendar_id, $series_master_id, $title) {
+        $cal    = trim((string) $calendar_id);
+        $master = trim((string) $series_master_id);
+        if ($master !== '') {
+            return 'series:' . $cal . ':' . $master;
+        }
+        $norm = strtolower(trim(preg_replace('/\s+/', ' ', (string) $title)));
+        if ($cal !== '' && $norm !== '') {
+            return 'title:' . $cal . ':' . $norm;
+        }
+        if ($norm !== '') {
+            return 'title::' . $norm;
+        }
+        return '';
+    }
+
+    public static function series_key_for_event($event_id) {
+        $event_id = (int) $event_id;
+        if (!$event_id) {
+            return '';
+        }
+        $master = (string) get_post_meta($event_id, '_outlook_series_master_id', true);
+        $cal    = (string) get_post_meta($event_id, '_outlook_calendar_id', true);
+        $title  = function_exists('get_the_title') ? (string) get_the_title($event_id) : '';
+        return self::build_series_key($cal, $master, $title);
+    }
+
+    public static function title_series_key_for_event($event_id) {
+        $event_id = (int) $event_id;
+        if (!$event_id) {
+            return '';
+        }
+        $cal   = (string) get_post_meta($event_id, '_outlook_calendar_id', true);
+        $title = function_exists('get_the_title') ? (string) get_the_title($event_id) : '';
+        return self::build_series_key($cal, '', $title);
+    }
+
+    /**
+     * After Outlook sync updates a pta_event: keep instance dates in sync
+     * and create a sheet from any matching recurring template.
+     */
+    public static function on_event_synced($event_id) {
+        $event_id = (int) $event_id;
+        if (!$event_id) {
+            return;
+        }
+        self::ensure_recurring_columns();
+        self::refresh_instance_from_event($event_id);
+        $keys = array_values(array_unique(array_filter(array(
+            self::series_key_for_event($event_id),
+            self::title_series_key_for_event($event_id),
+        ))));
+        if (empty($keys)) {
+            return;
+        }
+        foreach (self::get_templates_for_series_keys($keys) as $template) {
+            self::ensure_instance_for_event($template, $event_id);
+        }
+    }
+
+    public function on_event_trashed($post_id) {
+        $post_id = (int) $post_id;
+        if (!$post_id || !function_exists('get_post_type') || get_post_type($post_id) !== 'pta_event') {
+            return;
+        }
+        self::set_instance_status_for_event($post_id, 'trashed');
+    }
+
+    public function on_event_untrashed($post_id) {
+        $post_id = (int) $post_id;
+        if (!$post_id || !function_exists('get_post_type') || get_post_type($post_id) !== 'pta_event') {
+            return;
+        }
+        self::set_instance_status_for_event($post_id, 'open');
+        self::on_event_synced($post_id);
+    }
+
+    /**
+     * @param string[] $keys
+     * @return object[]
+     */
+    public static function get_templates_for_series_keys(array $keys) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        $keys = array_values(array_filter($keys));
+        if (!$t || empty($keys)) {
+            return array();
+        }
+        $placeholders = implode(',', array_fill(0, count($keys), '%s'));
+        $sql = "SELECT * FROM {$t} WHERE is_template = 1 AND status <> 'trashed' AND series_key IN ({$placeholders})";
+        return $wpdb->get_results($wpdb->prepare($sql, $keys)) ?: array();
+    }
+
+    public static function refresh_instance_from_event($event_id) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t) {
+            return;
+        }
+        $meta = self::event_sheet_fields($event_id);
+        if ($meta === null) {
+            return;
+        }
+        $wpdb->update(
+            $t,
+            array(
+                'title'          => $meta['title'],
+                'event_date'     => $meta['event_date'],
+                'event_location' => $meta['event_location'],
+            ),
+            array('pta_event_id' => (int) $event_id, 'is_template' => 0)
+        );
+    }
+
+    public static function set_instance_status_for_event($event_id, $status) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t) {
+            return;
+        }
+        $status = in_array($status, array('open', 'closed', 'trashed'), true) ? $status : 'trashed';
+        $wpdb->update(
+            $t,
+            array('status' => $status),
+            array('pta_event_id' => (int) $event_id, 'is_template' => 0)
+        );
+    }
+
+    /**
+     * @return array{title:string,event_date:string,event_location:string}|null
+     */
+    public static function event_sheet_fields($event_id) {
+        $event_id = (int) $event_id;
+        $post = function_exists('get_post') ? get_post($event_id) : null;
+        if (!$post) {
+            return null;
+        }
+        $location = (string) get_post_meta($event_id, '_EventVenue', true);
+        $venue_id = (int) get_post_meta($event_id, '_EventVenueID', true);
+        if ($location === '' && $venue_id) {
+            $location = (string) get_the_title($venue_id);
+        }
+        return array(
+            'title'          => (string) $post->post_title,
+            'event_date'     => (string) get_post_meta($event_id, '_EventStartDate', true),
+            'event_location' => $location,
+        );
+    }
+
+    /**
+     * Clone template activities onto an event if no instance exists yet.
+     *
+     * @param object $template
+     * @param int    $event_id
+     * @return int Instance sheet id, or 0.
+     */
+    public static function ensure_instance_for_event($template, $event_id) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        $event_id = (int) $event_id;
+        $template_id = (int) ($template->id ?? 0);
+        if (!$t || !$event_id || !$template_id) {
+            return 0;
+        }
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$t} WHERE template_id = %d AND pta_event_id = %d AND status <> 'trashed' LIMIT 1",
+            $template_id,
+            $event_id
+        ));
+        if ($existing) {
+            return (int) $existing;
+        }
+        $meta = self::event_sheet_fields($event_id);
+        if ($meta === null) {
+            return 0;
+        }
+        $wpdb->insert($t, array(
+            'title'               => $meta['title'] !== '' ? $meta['title'] : (string) $template->title,
+            'description'         => (string) ($template->description ?? ''),
+            'pta_event_id'        => $event_id,
+            'event_date'          => $meta['event_date'] ?: null,
+            'event_location'      => $meta['event_location'],
+            'status'              => ($template->status ?? 'open') === 'closed' ? 'closed' : 'open',
+            'is_template'         => 0,
+            'template_id'         => $template_id,
+            'series_key'          => (string) ($template->series_key ?? ''),
+            'outlook_calendar_id' => (string) ($template->outlook_calendar_id ?? ''),
+            'created_by'          => (int) ($template->created_by ?? 0),
+        ));
+        $instance_id = (int) $wpdb->insert_id;
+        if (!$instance_id) {
+            return 0;
+        }
+        self::copy_activities((int) $template->id, $instance_id, $meta['event_date']);
+        return $instance_id;
+    }
+
+    public static function copy_activities($from_sheet_id, $to_sheet_id, $event_date = '') {
+        global $wpdb;
+        $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        if (!$activities_t) {
+            return;
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$activities_t} WHERE sheet_id = %d ORDER BY sort_order ASC, id ASC",
+            (int) $from_sheet_id
+        ));
+        foreach ((array) $rows as $row) {
+            $slot_start = (string) ($row->slot_start ?? '');
+            $slot_end   = (string) ($row->slot_end ?? '');
+            if ($event_date !== '') {
+                $slot_start = self::redate_slot_to_event($slot_start, $event_date);
+                $slot_end   = self::redate_slot_to_event($slot_end, $event_date);
+            }
+            $wpdb->insert($activities_t, array(
+                'sheet_id'     => (int) $to_sheet_id,
+                'name'         => (string) $row->name,
+                'description'  => (string) ($row->description ?? ''),
+                'spots_needed' => (int) $row->spots_needed,
+                'slot_start'   => $slot_start !== '' ? $slot_start : null,
+                'slot_end'     => $slot_end !== '' ? $slot_end : null,
+                'sort_order'   => (int) ($row->sort_order ?? 0),
+            ));
+        }
+    }
+
+    public static function apply_template_to_matching_events($template) {
+        $event_ids = self::find_event_ids_for_series_key((string) ($template->series_key ?? ''));
+        foreach ($event_ids as $event_id) {
+            self::ensure_instance_for_event($template, $event_id);
+        }
+    }
+
+    /**
+     * @param string $series_key
+     * @return int[]
+     */
+    public static function find_event_ids_for_series_key($series_key) {
+        $series_key = (string) $series_key;
+        if ($series_key === '' || !function_exists('get_posts')) {
+            return array();
+        }
+        $query = array(
+            'post_type'      => 'pta_event',
+            'post_status'    => 'publish',
+            'posts_per_page' => 200,
+            'fields'         => 'ids',
+        );
+        if (strpos($series_key, 'series:') === 0) {
+            $parts  = explode(':', $series_key, 3);
+            $master = $parts[2] ?? '';
+            if ($master === '') {
+                return array();
+            }
+            $query['meta_query'] = array(array(
+                'key'   => '_outlook_series_master_id',
+                'value' => $master,
+            ));
+            return array_map('intval', get_posts($query));
+        }
+        if (strpos($series_key, 'title:') === 0) {
+            $parts = explode(':', $series_key, 3);
+            $cal   = $parts[1] ?? '';
+            $title = $parts[2] ?? '';
+            if ($title === '') {
+                return array();
+            }
+            if ($cal !== '') {
+                $query['meta_query'] = array(array(
+                    'key'   => '_outlook_calendar_id',
+                    'value' => $cal,
+                ));
+            }
+            $ids = array();
+            foreach (get_posts($query) as $id) {
+                $event_title = strtolower(trim(preg_replace('/\s+/', ' ', (string) get_the_title($id))));
+                if ($event_title === $title) {
+                    $ids[] = (int) $id;
+                }
+            }
+            return $ids;
+        }
+        return array();
+    }
+
     public static function pacific_timezone() {
         return 'America/Los_Angeles';
     }
@@ -279,6 +604,20 @@ class Azure_Volunteer_Signup {
             return $date_part . ' ' . $time . ':00';
         }
         return '';
+    }
+
+    /**
+     * Keep the clock time, move it onto another occurrence date.
+     */
+    public static function redate_slot_to_event($slot, $event_date) {
+        $slot = trim((string) $slot);
+        if ($slot === '') {
+            return '';
+        }
+        if (preg_match('/(\d{2}:\d{2})/', $slot, $m)) {
+            return self::normalize_slot_datetime($m[1], $event_date);
+        }
+        return self::normalize_slot_datetime($slot, $event_date);
     }
 
     /**
@@ -402,7 +741,8 @@ class Azure_Volunteer_Signup {
         $description = sanitize_textarea_field($_POST['description'] ?? '');
         // `pta_event_id` is the new field; accept the legacy `tec_event_id` POST
         // key too so any cached admin JS keeps working until the next refresh.
-        $assign      = !empty($_POST['assign_to_event']);
+        $is_recurring = !empty($_POST['is_recurring']);
+        $assign      = $is_recurring ? true : !empty($_POST['assign_to_event']);
         $event_choice = isset($_POST['pta_event_id']) ? wp_unslash($_POST['pta_event_id']) : ($_POST['tec_event_id'] ?? '0');
         $event_date  = sanitize_text_field($_POST['event_date'] ?? '');
         $event_loc   = sanitize_text_field($_POST['event_location'] ?? '');
@@ -413,15 +753,23 @@ class Azure_Volunteer_Signup {
         }
 
         $new_event_title = sanitize_text_field($_POST['new_event_title'] ?? '');
-        $event_id = self::resolve_assigned_event_id(
-            $assign,
-            $event_choice,
-            $new_event_title !== '' ? $new_event_title : $title,
-            $event_date,
-            $event_loc
-        );
-        if ($assign && $event_id <= 0) {
-            wp_send_json_error('Select an event or create a new one.');
+        $event_id = 0;
+        if ($is_recurring) {
+            $event_id = absint($event_choice);
+            if (!$event_id || (function_exists('get_post_type') && get_post_type($event_id) !== 'pta_event')) {
+                wp_send_json_error('Pick an existing event in the series. Recurring sheets cannot create a new event.');
+            }
+        } else {
+            $event_id = self::resolve_assigned_event_id(
+                $assign,
+                $event_choice,
+                $new_event_title !== '' ? $new_event_title : $title,
+                $event_date,
+                $event_loc
+            );
+            if ($assign && $event_id <= 0) {
+                wp_send_json_error('Select an event or create a new one.');
+            }
         }
 
         // Auto-populate from the linked pta_event if the admin picked one.
@@ -444,14 +792,28 @@ class Azure_Volunteer_Signup {
             }
         }
 
+        $existing_sheet = $sheet_id ? self::get_sheet($sheet_id) : null;
+        $editing_instance = $existing_sheet && empty($existing_sheet->is_template) && !empty($existing_sheet->template_id);
+        $make_template = $is_recurring && !$editing_instance;
+
         $data = array(
             'title'          => $title,
             'description'    => $description,
-            'pta_event_id'   => $event_id,
-            'event_date'     => $event_date ?: null,
+            'pta_event_id'   => $make_template ? 0 : $event_id,
+            'event_date'     => $make_template ? null : ($event_date ?: null),
             'event_location' => $event_loc,
             'status'         => $status,
         );
+        if ($make_template) {
+            $series_key = self::series_key_for_event($event_id);
+            if ($series_key === '') {
+                wp_send_json_error('That event has no series key yet. Sync the Outlook calendar, or pick an event whose title matches the rest of the series.');
+            }
+            $data['is_template'] = 1;
+            $data['template_id'] = 0;
+            $data['series_key'] = $series_key;
+            $data['outlook_calendar_id'] = (string) get_post_meta($event_id, '_outlook_calendar_id', true);
+        }
 
         if ($sheet_id) {
             $wpdb->update($sheets_t, $data, array('id' => $sheet_id));
@@ -512,6 +874,13 @@ class Azure_Volunteer_Signup {
         foreach ($remove_ids as $rid) {
             $wpdb->delete($signups_t, array('activity_id' => $rid));
             $wpdb->delete($activities_t, array('id' => $rid));
+        }
+
+        if ($make_template) {
+            $template = self::get_sheet($sheet_id);
+            if ($template) {
+                self::apply_template_to_matching_events($template);
+            }
         }
 
         wp_send_json_success(array('sheet_id' => $sheet_id));
@@ -578,6 +947,8 @@ class Azure_Volunteer_Signup {
             'sheet'       => $sheet,
             'activities'  => $acts_out,
             'event_title' => $event_title,
+            'is_template' => !empty($sheet->is_template),
+            'is_instance' => empty($sheet->is_template) && !empty($sheet->template_id),
         ));
     }
 
@@ -657,7 +1028,7 @@ class Azure_Volunteer_Signup {
             return array();
         }
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$t} WHERE pta_event_id = %d ORDER BY event_date ASC, id ASC",
+            "SELECT * FROM {$t} WHERE pta_event_id = %d AND status <> 'trashed' AND (is_template = 0 OR is_template IS NULL) ORDER BY event_date ASC, id ASC",
             $event_id
         ));
     }
@@ -676,6 +1047,10 @@ class Azure_Volunteer_Signup {
         echo '<section class="pta-event-volunteer-signups">';
         echo '<h2 class="pta-event-section">' . esc_html__('Volunteer Sign Up', 'azure-plugin') . '</h2>';
         foreach ($sheets as $sheet) {
+            if (function_exists('current_user_can') && current_user_can('manage_options')) {
+                $edit = admin_url('admin.php?page=azure-plugin-calendar&tab=volunteer&edit_sheet=' . (int) $sheet->id);
+                echo '<p class="azure-vs-admin-edit"><a href="' . esc_url($edit) . '">' . esc_html__('Edit this event’s sign-up sheet', 'azure-plugin') . '</a></p>';
+            }
             $self->render_frontend($sheet, self::get_activities($sheet->id), $user_id);
         }
         echo '</section>';
