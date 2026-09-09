@@ -65,6 +65,18 @@ check "admin-ajax 200" \
 check "TLS cert valid" \
   "echo | openssl s_client -servername $(echo $URL | sed 's|https*://||;s|/.*||') -connect $(echo $URL | sed 's|https*://||;s|/.*||'):443 2>/dev/null | openssl x509 -noout -checkend 604800"
 
+# The 3.147.81 image dropped Woo Stripe / Redis / Multiple Roles because
+# Dockerfile RUN into VOLUME /var/www/html is discarded. A 200 on readme.txt
+# means the plugin directory is actually in the running image.
+check "stripe plugin present" \
+  "curl -fsS --max-time 30 '$URL/wp-content/plugins/woocommerce-gateway-stripe/readme.txt' | grep -qi stripe"
+
+check "redis-cache plugin present" \
+  "curl -fsS --max-time 30 '$URL/wp-content/plugins/redis-cache/readme.txt' | grep -qi redis"
+
+check "multiple-roles plugin present" \
+  "curl -fsS --max-time 30 '$URL/wp-content/plugins/multiple-roles/readme.txt' | grep -qi 'multiple'"
+
 echo ""
 if [ "$FAIL" = "0" ]; then
   echo "==> [PASS] All $PASS checks passed against $URL"

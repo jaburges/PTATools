@@ -55,39 +55,24 @@ COPY --chown=www-data:www-data mu-plugins/ /var/www/html/wp-content/mu-plugins/
 # of COPY cannot express.
 COPY --chown=www-data:www-data ["azure-plugin/", "/var/www/html/wp-content/plugins/Azure Plugin/"]
 
-# Redis object cache. The drop-in has to be baked in rather than installed from
-# wp-admin: wp-content is part of the image, so anything the plugin writes at
-# runtime would vanish on the next restart.
-ARG REDIS_CACHE_VERSION=2.8.0
+# The official WordPress image declares VOLUME /var/www/html. RUN changes
+# under that path are discarded by the builder (verified: Stripe / Redis /
+# Multiple Roles unzipped during the 3.147.81 build, then vanished from the
+# pushed image). Required plugins are therefore staged by build.sh and
+# arrive only via COPY. Mirror them under /usr/src/wordpress so the
+# entrypoint copy on boot cannot drop them.
+COPY --chown=www-data:www-data wp-content/object-cache.php /var/www/html/wp-content/object-cache.php
+COPY --chown=www-data:www-data wp-content/object-cache.php /usr/src/wordpress/wp-content/object-cache.php
+COPY --chown=www-data:www-data wp-content/plugins/ /usr/src/wordpress/wp-content/plugins/
+COPY --chown=www-data:www-data ["azure-plugin/", "/usr/src/wordpress/wp-content/plugins/Azure Plugin/"]
+
 RUN set -eux; \
-    curl -fSL -o /tmp/redis-cache.zip \
-      "https://downloads.wordpress.org/plugin/redis-cache.${REDIS_CACHE_VERSION}.zip"; \
-    unzip -q /tmp/redis-cache.zip -d /var/www/html/wp-content/plugins/; \
-    rm -f /tmp/redis-cache.zip; \
-    cp /var/www/html/wp-content/plugins/redis-cache/includes/object-cache.php \
-       /var/www/html/wp-content/object-cache.php; \
+    test -f /var/www/html/wp-content/plugins/woocommerce-gateway-stripe/woocommerce-gateway-stripe.php; \
+    test -f /var/www/html/wp-content/plugins/redis-cache/redis-cache.php; \
+    test -f /var/www/html/wp-content/plugins/multiple-roles/multiple-roles.php; \
+    test -f /var/www/html/wp-content/plugins/woocommerce/woocommerce.php; \
+    test -f /usr/src/wordpress/wp-content/plugins/woocommerce-gateway-stripe/woocommerce-gateway-stripe.php; \
     test -f /var/www/html/wp-content/object-cache.php
-
-# Multiple Roles: checklist UI on the user edit screen. Same reason as
-# redis-cache — a wp-admin install lands on ephemeral disk and disappears
-# on the next revision.
-ARG MULTIPLE_ROLES_VERSION=1.3.8
-RUN set -eux; \
-    curl -fSL -o /tmp/multiple-roles.zip \
-      "https://downloads.wordpress.org/plugin/multiple-roles.${MULTIPLE_ROLES_VERSION}.zip"; \
-    unzip -q /tmp/multiple-roles.zip -d /var/www/html/wp-content/plugins/; \
-    rm -f /tmp/multiple-roles.zip; \
-    test -f /var/www/html/wp-content/plugins/multiple-roles/multiple-roles.php
-
-# WooCommerce Stripe. A wp-admin install writes to the running replica only and
-# disappears on the next image revision. Keep the version pin here.
-ARG STRIPE_VERSION=10.9.0
-RUN set -eux; \
-    curl -fSL -o /tmp/woocommerce-gateway-stripe.zip \
-      "https://downloads.wordpress.org/plugin/woocommerce-gateway-stripe.${STRIPE_VERSION}.zip"; \
-    unzip -q /tmp/woocommerce-gateway-stripe.zip -d /var/www/html/wp-content/plugins/; \
-    rm -f /tmp/woocommerce-gateway-stripe.zip; \
-    test -f /var/www/html/wp-content/plugins/woocommerce-gateway-stripe/woocommerce-gateway-stripe.php
 
 # Keep one core theme so WordPress has something to fall back to if the active
 # theme raises a fatal error. Without it a broken theme means a blank site with

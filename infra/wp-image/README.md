@@ -8,6 +8,14 @@ the stock WordPress one. Theme, plugins and mu-plugins are baked in; only
 file share no longer affects the running site at all — see
 [Why file-copy deploys are a no-op](#why-file-copy-deploys-are-a-no-op).
 
+Required store plugins (WooCommerce Stripe, Redis Cache, Multiple Roles) are
+listed in `required-plugins.conf` and staged by `ensure-required-plugins.sh`
+**before** `docker build`. Do not install them with `Dockerfile RUN` into
+`/var/www/html`: the WordPress base image declares `VOLUME /var/www/html`, so
+those files are discarded. The 3.147.81 image lost Stripe that way when the
+migration export no longer contained `woocommerce-gateway-stripe`. `build.sh`
+fails if a required plugin is still missing after the fetch.
+
 ## Deploying a code change
 
 ```bash
@@ -143,6 +151,10 @@ theme changes go through `build.sh`.
 - `wordpress:6.9.4-php8.3-apache` as the base.
 - The theme, plugins and mu-plugins from the migration export, with the
   `Azure Plugin` overlaid from this repository so the released version wins.
+- WooCommerce Stripe, Redis Cache, and Multiple Roles from
+  `required-plugins.conf` (fetched at assemble time if the export omitted
+  them). `build.sh` prints the plugin **names** and refuses to ship if any
+  required directory is missing from the published image.
 - `twentytwentyfive`, kept purely as a fallback so a fatal error in the active
   theme still leaves a route into wp-admin.
 - `phpredis` plus the Redis Object Cache drop-in at

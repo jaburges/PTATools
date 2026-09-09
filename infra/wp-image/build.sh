@@ -104,26 +104,54 @@ echo "==> staging plugin $TAG from the repository"
 cp -R "$REPO_ROOT/Azure Plugin/." "$CONTEXT/azure-plugin/"
 find "$CONTEXT/azure-plugin" \( -name '._*' -o -name '.DS_Store' \) -delete
 
+echo "==> ensuring required plugins (export is not trusted for Stripe / Redis / Roles)"
+# The WordPress base image declares VOLUME /var/www/html, so Dockerfile RUN
+# installs into that path are discarded. Plugins must arrive via COPY.
+bash "$HERE/ensure-required-plugins.sh" \
+  "$CONTEXT/wp-content/plugins" \
+  "$HERE/required-plugins.conf" \
+  "$CONTEXT/wp-content/object-cache.php"
+
 cp "$HERE/Dockerfile" "$HERE/php-opcache.ini" "$HERE/php-wordpress.ini" \
    "$HERE/apache-wp.conf" "$HERE/healthz.php" "$CONTEXT/"
 cp -R "$HERE/mu-plugins" "$CONTEXT/mu-plugins"
 
 echo "==> contents going into the image"
 printf '    themes    : %s\n' "$(ls -1 "$CONTEXT/wp-content/themes"    2>/dev/null | tr '\n' ' ')"
-printf '    plugins   : %s\n' "$(ls -1 "$CONTEXT/wp-content/plugins"   2>/dev/null | wc -l | tr -d ' ') directories"
+printf '    plugins   : %s\n' "$(ls -1 "$CONTEXT/wp-content/plugins"   2>/dev/null | tr '\n' ' ')"
 printf '    mu-plugins: %s\n' "$(ls -1 "$CONTEXT/wp-content/mu-plugins" 2>/dev/null | wc -l | tr -d ' ') entries"
 
-BUILD_ARGS=(--platform "$PLATFORM" -t "$IMAGE:$TAG" -t "$IMAGE:latest" -f "$CONTEXT/Dockerfile" "$CONTEXT")
 if [[ "$PUSH" -eq 1 ]]; then
   echo "==> signing in to $REGISTRY"
   az acr login --subscription "$SUB" -n "${REGISTRY%%.*}" >/dev/null
-  BUILD_ARGS+=(--push)
-else
-  BUILD_ARGS+=(--load)
 fi
 
-echo "==> building"
-docker buildx build "${BUILD_ARGS[@]}"
+if docker info >/dev/null 2>&1; then
+  BUILD_ARGS=(--platform "$PLATFORM" -t "$IMAGE:$TAG" -t "$IMAGE:latest" -f "$CONTEXT/Dockerfile" "$CONTEXT")
+  if [[ "$PUSH" -eq 1 ]]; then
+    BUILD_ARGS+=(--push)
+  else
+    BUILD_ARGS+=(--load)
+  fi
+  echo "==> building locally"
+  docker buildx build "${BUILD_ARGS[@]}"
+elif [[ "$PUSH" -eq 1 ]]; then
+  echo "==> local Docker unavailable; cloud-building in ACR"
+  (
+    cd "$CONTEXT"
+    az acr build --subscription "$SUB" -r "${REGISTRY%%.*}" --platform "$PLATFORM" \
+      -t "wilderptsa-wp:$TAG" -t wilderptsa-wp:latest \
+      -f Dockerfile .
+  )
+else
+  echo "local Docker is required for --local builds" >&2
+  exit 1
+fi
+
+if [[ "$PUSH" -eq 1 ]]; then
+  echo "==> verifying required plugins survived in the published image"
+  bash "$HERE/verify-image-plugins.sh" "$IMAGE:$TAG"
+fi
 
 echo
 echo "done: $IMAGE:$TAG"
