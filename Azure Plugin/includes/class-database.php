@@ -481,6 +481,23 @@ class Azure_Database {
             KEY reminder_sent (reminder_sent)
         ) $charset_collate;";
 
+        // LWSD volunteer roster (full-replace on each import)
+        $table_lwsd_volunteer_roster = $wpdb->prefix . 'azure_lwsd_volunteer_roster';
+        $sql_lwsd_volunteer_roster = "CREATE TABLE $table_lwsd_volunteer_roster (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            first_name varchar(191) NOT NULL DEFAULT '',
+            last_name varchar(191) NOT NULL DEFAULT '',
+            name_key varchar(383) NOT NULL DEFAULT '',
+            expires_on date DEFAULT NULL,
+            user_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            match_state varchar(20) NOT NULL DEFAULT '',
+            imported_at datetime DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY name_key (name_key),
+            KEY user_id (user_id),
+            KEY expires_on (expires_on)
+        ) $charset_collate;";
+
         // Donation Records table
         $table_donation_records = $wpdb->prefix . 'azure_donation_records';
         $sql_donation_records = "CREATE TABLE $table_donation_records (
@@ -548,6 +565,7 @@ class Azure_Database {
         dbDelta($sql_volunteer_sheets);
         dbDelta($sql_volunteer_activities);
         dbDelta($sql_volunteer_signups);
+        dbDelta($sql_lwsd_volunteer_roster);
         dbDelta($sql_donation_campaigns);
         dbDelta($sql_donation_records);
         dbDelta($sql_order_rules);
@@ -1209,6 +1227,7 @@ class Azure_Database {
             'volunteer_sheets' => $wpdb->prefix . 'azure_volunteer_sheets',
             'volunteer_activities' => $wpdb->prefix . 'azure_volunteer_activities',
             'volunteer_signups' => $wpdb->prefix . 'azure_volunteer_signups',
+            'lwsd_volunteer_roster' => $wpdb->prefix . 'azure_lwsd_volunteer_roster',
             'donation_campaigns' => $wpdb->prefix . 'azure_donation_campaigns',
             'donation_records' => $wpdb->prefix . 'azure_donation_records',
             'order_rules' => $wpdb->prefix . 'azure_order_rules',

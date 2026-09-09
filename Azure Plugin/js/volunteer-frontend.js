@@ -27,6 +27,23 @@
         var name = $row.data('activity-name') || '';
         var time = $row.data('activity-time') || '';
         var title = $row.data('sheet-title') || '';
+        var showLink = String($row.attr('data-lwsd-show-link') || '') === '1';
+        var warningTitle = $row.attr('data-lwsd-warning-title') || '';
+        var warningBody = $row.attr('data-lwsd-warning') || '';
+        var applyUrl = (azureVolunteer.lwsd && azureVolunteer.lwsd.apply_url) || '';
+        var warningHtml = '';
+        if (showLink && warningBody) {
+            warningHtml = '<p class="azure-vs-lwsd-warning">';
+            if (warningTitle) {
+                warningHtml += '<strong>' + $('<div>').text(warningTitle).html() + '</strong><br />';
+            }
+            warningHtml += $('<div>').text(warningBody).html();
+            if (applyUrl) {
+                warningHtml += '<br /><a href="' + $('<div>').text(applyUrl).html() + '" target="_blank" rel="noopener noreferrer">' +
+                    $('<div>').text(i18n.apply_link || 'Become an LWSD approved volunteer').html() + '</a>';
+            }
+            warningHtml += '</p>';
+        }
         var html = '<div id="azure-vs-confirm-modal" class="azure-vs-modal-overlay">' +
             '<div class="azure-vs-modal-card" role="dialog" aria-modal="true">' +
             '<h3>' + $('<div>').text(i18n.confirm_title || 'Confirm sign-up').html() + '</h3>' +
@@ -34,6 +51,7 @@
             '<p>' + $('<div>').text(name).html() +
             (time ? '<br /><span class="azure-vs-modal-time">' + $('<div>').text(time).html() + '</span>' : '') +
             '</p>' +
+            warningHtml +
             '<div class="azure-vs-modal-actions">' +
             '<button type="button" class="button button-primary azure-vs-confirm-yes">' +
             $('<div>').text(i18n.confirm_btn || 'Confirm sign-up').html() + '</button>' +

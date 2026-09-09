@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.78
+ * Version: 3.147.79
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.78');
+define('AZURE_PLUGIN_VERSION', '3.147.79');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -1793,6 +1793,15 @@ class AzurePlugin {
             $this->require_module_files(array('class-volunteer-signup.php'));
             if (class_exists('Azure_Volunteer_Signup')) {
                 Azure_Volunteer_Signup::get_instance();
+            }
+
+            // LWSD approved-volunteer roster: xlsx import + private blob archive.
+            $this->require_module_files(array(
+                'class-lwsd-volunteer.php',
+                'class-lwsd-volunteer-xlsx.php',
+            ));
+            if (class_exists('Azure_Lwsd_Volunteer')) {
+                Azure_Lwsd_Volunteer::init();
             }
         } catch (\Throwable $e) {
             Azure_Logger::error('Volunteer init failed: ' . $e->getMessage(), array('module' => 'Volunteer', 'file' => $e->getFile(), 'line' => $e->getLine()));

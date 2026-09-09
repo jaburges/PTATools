@@ -333,6 +333,20 @@
     margin-top: 16px;
 }
 
+.azure-vs-lwsd-warning {
+    background: #fff8e5;
+    border-left: 3px solid #dba617;
+    padding: 10px 12px;
+    margin: 12px 0 0;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.azure-vs-lwsd-warning a {
+    display: inline-block;
+    margin-top: 6px;
+}
+
 .pta-event-volunteer-signups {
     margin: 8px 0 24px;
 }

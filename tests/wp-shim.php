@@ -266,7 +266,17 @@ function home_url($path = '') { return 'https://example.test' . $path; }
 function admin_url($path = '') { return 'https://example.test/wp-admin/' . ltrim($path, '/'); }
 function size_format($bytes, $decimals = 0) { return $bytes . 'B'; }
 function sanitize_title($t) { return strtolower(preg_replace('/[^A-Za-z0-9\-]+/', '-', $t)); }
-function sanitize_file_name($f) { return $f; }
+function sanitize_file_name($f) {
+    // Mimic the relevant parts of WP's sanitize_file_name: replace whitespace
+    // and non-alphanumeric characters (except ._-) with dashes, collapse
+    // repeated dashes, and trim leading/trailing dashes. Case is preserved
+    // (callers strtolower when they need to).
+    $f = (string) $f;
+    $f = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $f);
+    $f = preg_replace('/-{2,}/', '-', $f);
+    $f = trim($f, '-.');
+    return $f;
+}
 function wp_max_upload_size() { return 256 * 1024 * 1024; }
 function wp_upload_dir() {
     return array(
