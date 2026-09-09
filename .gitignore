@@ -11,16 +11,15 @@ wiki-temp/
 /build/
 /azure-plugin.zip
 /azure-plugin-flat.zip
+/pta-tools.zip
 
 # Unrelated vendor drop sitting next to the repo (don't ship)
 /Junotoys_v2.30.0/
 
-# Xcode / iOS app — user-specific and machine-specific state
-ios-app/**/xcuserdata/
-ios-app/**/*.xcuserstate
-ios-app/**/xcshareddata/swiftpm/configuration/
-ios-app/build/
-ios-app/DerivedData/
+# Site salvage, summer park assets, and the iOS app (own private repo)
+/salvage/
+/summer-placeholder/
+/ios-app/
 
 # Local summer park backups (DB dumps, secrets)
 .local-backups/
