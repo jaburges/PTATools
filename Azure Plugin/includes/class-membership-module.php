@@ -76,6 +76,7 @@ class Azure_Membership_Module {
         add_action('woocommerce_created_customer', array($this, 'ensure_parent_role_for_membership_customer'));
         add_action('woocommerce_after_checkout_validation', array($this, 'validate_membership_checkout_account'), 10, 2);
         add_action('woocommerce_store_api_checkout_update_order_from_request', array($this, 'validate_store_api_membership_account'), 10, 2);
+        add_action('woocommerce_store_api_checkout_order_processed', array($this, 'require_membership_order_customer'), 5);
         add_action('woocommerce_before_add_to_cart_form', array($this, 'render_product_account_notice'));
         add_action('woocommerce_before_cart', array($this, 'render_cart_account_notice'));
         add_action('woocommerce_before_checkout_form', array($this, 'render_checkout_account_notice'));
@@ -651,6 +652,59 @@ class Azure_Membership_Module {
     }
 
     /**
+     * Store API creates the draft order, then the WP user. A guest who
+     * is creating an account this request is not logged in yet and the
+     * order still has customer_id 0 — that must still be allowed.
+     *
+     * @param string[] $types
+     */
+    public static function guest_membership_checkout_can_proceed($is_logged_in, array $types, $will_create_account, $order_customer_id = 0) {
+        if (self::guest_membership_checkout_allowed($is_logged_in, $types)) {
+            return true;
+        }
+        if ((int) $order_customer_id > 0) {
+            return true;
+        }
+        return (bool) $will_create_account;
+    }
+
+    /**
+     * Classic checkout posts createaccount; Blocks Store API posts
+     * create_account. Registration-required (which we force for Family
+     * / Individual carts) also means WooCommerce will create the user
+     * after this validation hook.
+     *
+     * @param array             $data    Classic checkout posted data.
+     * @param object|null       $request Store API request.
+     */
+    public static function request_will_create_account($data = array(), $request = null) {
+        if (is_array($data) && (!empty($data['createaccount']) || !empty($data['create_account']))) {
+            return true;
+        }
+        if (is_object($request)) {
+            $flag = null;
+            if (method_exists($request, 'get_param')) {
+                $flag = $request->get_param('create_account');
+            } elseif (isset($request['create_account'])) {
+                $flag = $request['create_account'];
+            }
+            if (filter_var($flag, FILTER_VALIDATE_BOOLEAN)) {
+                return true;
+            }
+        }
+        if (function_exists('WC')) {
+            $wc = WC();
+            if (is_object($wc) && method_exists($wc, 'checkout')) {
+                $checkout = $wc->checkout();
+                if (is_object($checkout) && method_exists($checkout, 'is_registration_required') && $checkout->is_registration_required()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * @param object|null $cart Woo cart
      * @return string[]
      */
@@ -776,9 +830,11 @@ class Azure_Membership_Module {
     }
 
     public function validate_membership_checkout_account($data, $errors) {
-        if (self::guest_membership_checkout_allowed(
+        if (self::guest_membership_checkout_can_proceed(
             function_exists('is_user_logged_in') && is_user_logged_in(),
-            self::cart_membership_types()
+            self::cart_membership_types(),
+            self::request_will_create_account(is_array($data) ? $data : array(), null),
+            0
         )) {
             return;
         }
@@ -787,19 +843,46 @@ class Azure_Membership_Module {
         }
     }
 
+    /**
+     * Fires while the draft order is still a guest. Do not require
+     * customer_id yet — WooCommerce creates the user in process_customer
+     * immediately after this hook.
+     */
     public function validate_store_api_membership_account($order, $request) {
-        if (self::guest_membership_checkout_allowed(
-            function_exists('is_user_logged_in') && is_user_logged_in(),
-            self::cart_membership_types()
-        )) {
-            return;
-        }
         $customer_id = (is_object($order) && method_exists($order, 'get_customer_id'))
             ? (int) $order->get_customer_id()
             : 0;
-        if ($customer_id > 0) {
+        if (self::guest_membership_checkout_can_proceed(
+            function_exists('is_user_logged_in') && is_user_logged_in(),
+            self::cart_membership_types(),
+            self::request_will_create_account(array(), $request),
+            $customer_id
+        )) {
             return;
         }
+        self::throw_membership_account_required();
+    }
+
+    /**
+     * After process_customer: the membership order must be attached to
+     * a WP user before payment runs.
+     */
+    public function require_membership_order_customer($order) {
+        $customer_id = (is_object($order) && method_exists($order, 'get_customer_id'))
+            ? (int) $order->get_customer_id()
+            : 0;
+        if (self::guest_membership_checkout_can_proceed(
+            function_exists('is_user_logged_in') && is_user_logged_in(),
+            self::cart_membership_types(),
+            false,
+            $customer_id
+        )) {
+            return;
+        }
+        self::throw_membership_account_required();
+    }
+
+    private static function throw_membership_account_required() {
         $message = self::account_required_message();
         if (class_exists('\Automattic\WooCommerce\StoreApi\Exceptions\RouteException')) {
             throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(

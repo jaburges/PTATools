@@ -32,6 +32,14 @@ $t->equals(false, Azure_Membership_Module::guest_membership_checkout_allowed(fal
 $t->equals(true, Azure_Membership_Module::guest_membership_checkout_allowed(false, array('staff')), 'guests can still buy staff membership');
 $t->equals(true, Azure_Membership_Module::guest_membership_checkout_allowed(false, array()), 'guests can check out a cart with no membership');
 
+$t->equals(true, Azure_Membership_Module::guest_membership_checkout_can_proceed(false, array('family'), true, 0), 'guest creating an account this request can proceed');
+$t->equals(true, Azure_Membership_Module::guest_membership_checkout_can_proceed(false, array('family'), false, 42), 'guest order already attached to a user can proceed');
+$t->equals(false, Azure_Membership_Module::guest_membership_checkout_can_proceed(false, array('family'), false, 0), 'guest with no account and no create-account still blocked');
+$t->equals(true, Azure_Membership_Module::guest_membership_checkout_can_proceed(true, array('family'), false, 0), 'logged-in shopper can proceed without create-account');
+$t->equals(true, Azure_Membership_Module::request_will_create_account(array('createaccount' => '1')), 'classic createaccount flag counts');
+$t->equals(true, Azure_Membership_Module::request_will_create_account(array('create_account' => true)), 'blocks create_account flag counts');
+$t->equals(false, Azure_Membership_Module::request_will_create_account(array()), 'empty checkout data is not an account-creation request');
+
 $t->equals(true, Azure_Membership_Module::guest_may_use_express_pay(true, true, 'cart'), 'logged-in members can use Apple Pay anywhere');
 $t->equals(true, Azure_Membership_Module::guest_may_use_express_pay(false, true, 'checkout'), 'guests can use Apple Pay on checkout after the account fields');
 $t->equals(false, Azure_Membership_Module::guest_may_use_express_pay(false, true, 'cart'), 'guests cannot Apple Pay a membership from the cart');
@@ -43,5 +51,6 @@ $module = new ReflectionClass('Azure_Membership_Module');
 $t->equals(true, $module->hasMethod('enable_registration_for_membership_cart'), 'checkout signup is forced on for membership carts');
 $t->equals(true, $module->hasMethod('require_registration_for_membership_cart'), 'guest checkout is blocked for membership carts');
 $t->equals(true, $module->hasMethod('validate_store_api_membership_account'), 'blocks checkout is validated server-side');
+$t->equals(true, $module->hasMethod('require_membership_order_customer'), 'blocks checkout re-checks after WooCommerce creates the user');
 
 exit($t->finish() === 0 ? 0 : 1);
