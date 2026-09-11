@@ -1,0 +1,23 @@
+.pta-express-locked {
+    position: relative;
+}
+
+.pta-express-lock-cover {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    cursor: not-allowed;
+}
+
+.pta-express-locked .wc-block-components-express-payment,
+.pta-express-locked #wc-stripe-payment-request-button,
+.pta-express-locked #wcpay-payment-request-wrapper,
+.pta-express-locked iframe {
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+.pta-express-account-hint {
+    margin: 0 0 0.75rem;
+    font-size: 0.95em;
+}

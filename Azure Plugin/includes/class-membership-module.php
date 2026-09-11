@@ -54,6 +54,7 @@ class Azure_Membership_Module {
 
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_frontend'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_badge_assets'));
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_checkout_express_account'));
         add_filter('get_avatar', array($this, 'filter_member_avatar'), 20, 6);
         add_action('template_redirect', array($this, 'maybe_gate_directory_page'));
 
@@ -86,6 +87,8 @@ class Azure_Membership_Module {
         add_filter('wc_stripe_show_payment_request_on_checkout', array($this, 'allow_express_pay_when_account_optional'));
         add_filter('wcpay_payment_request_is_product_supported', array($this, 'allow_express_pay_when_account_optional'));
         add_filter('wcpay_payment_request_is_cart_supported', array($this, 'allow_express_pay_when_account_optional'));
+        add_filter('wcpay_payment_request_is_checkout_supported', array($this, 'allow_express_pay_when_account_optional'));
+        add_filter('rest_pre_dispatch', array($this, 'force_store_api_membership_create_account'), 10, 3);
 
         if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX)) {
             add_action('admin_menu', array($this, 'register_admin_page'), 25);
@@ -763,9 +766,8 @@ class Azure_Membership_Module {
     }
 
     /**
-     * Card checkout shows a password field. Apple Pay / Google Pay do
-     * not send one, so generate it in that path and still create the
-     * required parent account.
+     * Card checkout and checkout-page wallets send a password. If a
+     * wallet still omits one, generate it so the parent account is created.
      */
     public function generate_password_when_express_omits_it($generate) {
         if ($generate || !self::cart_requires_membership_account()) {
@@ -774,13 +776,55 @@ class Azure_Membership_Module {
         return self::posted_account_password() === '';
     }
 
-    public static function posted_account_password() {
-        foreach (array('account_password', 'password', 'account-password') as $key) {
+    /**
+     * Classic checkout posts account_password. Blocks Store API posts
+     * customer_password on the REST body (not $_POST).
+     *
+     * @param object|null $request Store API request.
+     */
+    public static function posted_account_password($request = null) {
+        $from_request = self::password_from_store_request($request);
+        if ($from_request !== '') {
+            return $from_request;
+        }
+        foreach (array('account_password', 'password', 'account-password', 'customer_password') as $key) {
             if (!empty($_POST[$key]) && is_string($_POST[$key])) {
                 return (string) $_POST[$key];
             }
         }
         return '';
+    }
+
+    /**
+     * @param object|null $request
+     */
+    public static function password_from_store_request($request) {
+        if (!is_object($request)) {
+            return '';
+        }
+        $value = null;
+        if (method_exists($request, 'get_param')) {
+            $value = $request->get_param('customer_password');
+        } elseif (isset($request['customer_password'])) {
+            $value = $request['customer_password'];
+        }
+        return is_string($value) ? $value : '';
+    }
+
+    /**
+     * Checkout wallets stay disabled until the shopper has typed an
+     * email and a password for the account that membership requires.
+     */
+    public static function express_account_fields_ready($email, $password) {
+        $email = strtolower(trim((string) $email));
+        $password = (string) $password;
+        if ($email === '' || $password === '') {
+            return false;
+        }
+        if (function_exists('is_email')) {
+            return (bool) is_email($email);
+        }
+        return (bool) filter_var($email, FILTER_VALIDATE_EMAIL);
     }
 
     /**
@@ -861,6 +905,41 @@ class Azure_Membership_Module {
             return;
         }
         self::throw_membership_account_required();
+    }
+
+    /**
+     * Express pay (Apple Pay / Google Pay) uses the same Store API
+     * POST as Place order. Force create_account so a wallet that
+     * omits the Blocks checkbox still creates the parent user.
+     *
+     * @param mixed            $result
+     * @param object           $server
+     * @param object           $request
+     * @return mixed
+     */
+    public function force_store_api_membership_create_account($result, $server, $request) {
+        unset($server);
+        if (!is_object($request) || !method_exists($request, 'get_route')) {
+            return $result;
+        }
+        $route = (string) $request->get_route();
+        if (stripos($route, '/wc/store') === false || stripos($route, 'checkout') === false) {
+            return $result;
+        }
+        $method = method_exists($request, 'get_method') ? strtoupper((string) $request->get_method()) : 'POST';
+        if ($method !== 'POST' && $method !== 'PUT') {
+            return $result;
+        }
+        if (function_exists('is_user_logged_in') && is_user_logged_in()) {
+            return $result;
+        }
+        if (!self::cart_requires_membership_account()) {
+            return $result;
+        }
+        if (method_exists($request, 'set_param')) {
+            $request->set_param('create_account', true);
+        }
+        return $result;
     }
 
     /**
@@ -984,7 +1063,7 @@ class Azure_Membership_Module {
         } elseif ($context === 'cart') {
             $text = __('PTSA membership requires an account. Create one at checkout (it only takes a minute), or log in if you already have one.', 'azure-plugin');
         } else {
-            $text = __('Create a free PTSA account below (email and password), or log in if you already have one. After that you can pay with a card, Apple Pay, or Google Pay. Membership has to be tied to an account so we can keep your family on the roster.', 'azure-plugin');
+            $text = __('Enter your email and password below to create a free PTSA account (or log in if you already have one). Then you can pay with a card, Apple Pay, or Google Pay. Membership has to be tied to an account so we can keep your family on the roster.', 'azure-plugin');
         }
         $login_html = '';
         if ($login !== '') {
@@ -3069,6 +3148,43 @@ HTML;
         </div>
         <?php
         return ob_get_clean();
+    }
+
+    public function enqueue_checkout_express_account() {
+        if (!function_exists('is_checkout') || !is_checkout()) {
+            return;
+        }
+        if (function_exists('is_order_received_page') && is_order_received_page()) {
+            return;
+        }
+        if (function_exists('is_user_logged_in') && is_user_logged_in()) {
+            return;
+        }
+        if (!self::cart_requires_membership_account()) {
+            return;
+        }
+        $css = AZURE_PLUGIN_PATH . 'css/membership-checkout-express.css';
+        $js  = AZURE_PLUGIN_PATH . 'js/membership-checkout-express.js';
+        wp_enqueue_style(
+            'pta-membership-checkout-express',
+            AZURE_PLUGIN_URL . 'css/membership-checkout-express.css',
+            array(),
+            file_exists($css) ? (string) filemtime($css) : AZURE_PLUGIN_VERSION
+        );
+        wp_enqueue_script(
+            'pta-membership-checkout-express',
+            AZURE_PLUGIN_URL . 'js/membership-checkout-express.js',
+            array(),
+            file_exists($js) ? (string) filemtime($js) : AZURE_PLUGIN_VERSION,
+            true
+        );
+        wp_localize_script(
+            'pta-membership-checkout-express',
+            'ptaMembershipCheckout',
+            array(
+                'hint' => __('Enter your email and password first, then you can use Apple Pay or Google Pay.', 'azure-plugin'),
+            )
+        );
     }
 
     public function maybe_enqueue_frontend() {

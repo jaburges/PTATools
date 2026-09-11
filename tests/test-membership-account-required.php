@@ -47,10 +47,44 @@ $t->equals(false, Azure_Membership_Module::guest_may_use_express_pay(false, true
 $t->equals(true, Azure_Membership_Module::guest_may_use_express_pay(false, false, 'cart'), 'non-membership carts keep express pay');
 $t->equals(true, Azure_Membership_Module::guest_may_use_express_pay(false, false, 'product'), 'staff guests may see product-page wallets at the membership layer — required fields hide them separately');
 
+$t->equals(true, Azure_Membership_Module::express_account_fields_ready('parent@example.com', 'secret'), 'email plus password unlocks checkout wallets');
+$t->equals(false, Azure_Membership_Module::express_account_fields_ready('parent@example.com', ''), 'password is required before Apple Pay');
+$t->equals(false, Azure_Membership_Module::express_account_fields_ready('not-an-email', 'secret'), 'invalid email does not unlock wallets');
+$t->equals(false, Azure_Membership_Module::express_account_fields_ready('', 'secret'), 'blank email does not unlock wallets');
+
+$_POST['account_password'] = 'classic-secret';
+$t->equals('classic-secret', Azure_Membership_Module::posted_account_password(), 'classic checkout password is read from POST');
+unset($_POST['account_password']);
+
+class PtaFakeStoreCheckoutRequest {
+    private $params;
+    public function __construct($params) {
+        $this->params = $params;
+    }
+    public function get_param($key) {
+        return isset($this->params[$key]) ? $this->params[$key] : null;
+    }
+    public function get_route() {
+        return '/wc/store/v1/checkout';
+    }
+    public function get_method() {
+        return 'POST';
+    }
+    public function set_param($key, $value) {
+        $this->params[$key] = $value;
+    }
+}
+
+$storeReq = new PtaFakeStoreCheckoutRequest(array('customer_password' => 'blocks-secret'));
+$t->equals('blocks-secret', Azure_Membership_Module::posted_account_password($storeReq), 'blocks checkout password is read from customer_password');
+$t->equals('blocks-secret', Azure_Membership_Module::password_from_store_request($storeReq), 'Store API helper finds customer_password');
+
 $module = new ReflectionClass('Azure_Membership_Module');
 $t->equals(true, $module->hasMethod('enable_registration_for_membership_cart'), 'checkout signup is forced on for membership carts');
 $t->equals(true, $module->hasMethod('require_registration_for_membership_cart'), 'guest checkout is blocked for membership carts');
 $t->equals(true, $module->hasMethod('validate_store_api_membership_account'), 'blocks checkout is validated server-side');
 $t->equals(true, $module->hasMethod('require_membership_order_customer'), 'blocks checkout re-checks after WooCommerce creates the user');
+$t->equals(true, $module->hasMethod('force_store_api_membership_create_account'), 'express pay Store API requests can force create_account');
+$t->equals(true, $module->hasMethod('enqueue_checkout_express_account'), 'checkout loads the wallet lock until email and password are filled');
 
 exit($t->finish() === 0 ? 0 : 1);
