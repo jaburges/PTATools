@@ -33,6 +33,22 @@ if ($wag_footer === '') {
 }
 $wag_bg = Azure_Donations_Module::get_wag_bg();
 $wag_fg = Azure_Donations_Module::get_wag_fg();
+$receipt_category_ids = Azure_Donations_Module::get_receipt_category_ids();
+$receipt_text = (string) Azure_Settings::get_setting('donations_receipt_text', '');
+if (trim($receipt_text) === '') {
+    $receipt_text = Azure_Donations_Module::default_receipt_text();
+}
+$receipt_include_fees = Azure_Donations_Module::receipt_include_fees();
+$product_cats = array();
+if (function_exists('get_terms')) {
+    $terms = get_terms(array(
+        'taxonomy'   => 'product_cat',
+        'hide_empty' => false,
+    ));
+    if (!is_wp_error($terms) && is_array($terms)) {
+        $product_cats = $terms;
+    }
+}
 if (strlen(ltrim($wag_bg, '#')) === 3) {
     $h = ltrim($wag_bg, '#');
     $wag_bg = '#' . $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
@@ -203,6 +219,31 @@ if (function_exists('wc_get_products')) {
                         </table>
                         <p class="description"><?php esc_html_e('The first button is shown filled; the other two use an outline. Map each row to the donation product and the matching variation.', 'azure-plugin'); ?></p>
                     </div>
+                </td>
+            </tr>
+            <tr>
+                <th>Donation Receipts</th>
+                <td>
+                    <p class="description" style="margin-top:0;">Adds a Receipt button on My Account → Orders for paid orders that include a matching donation. Gift memberships should not be checked — those include goods or services and must not use the “no goods or services” wording.</p>
+                    <label style="display:block; margin:8px 0;">
+                        <input type="checkbox" id="donations_receipt_include_fees" <?php checked($receipt_include_fees); ?> />
+                        <?php esc_html_e('Also issue receipts for checkout donation fees (round-up and named amounts)', 'azure-plugin'); ?>
+                    </label>
+                    <p style="margin:10px 0 6px;"><strong><?php esc_html_e('Product categories', 'azure-plugin'); ?></strong></p>
+                    <?php if (empty($product_cats)): ?>
+                        <p class="description"><?php esc_html_e('No WooCommerce product categories found.', 'azure-plugin'); ?></p>
+                    <?php else: ?>
+                        <div style="max-height:180px; overflow:auto; border:1px solid #dcdcde; padding:8px 10px; background:#fff;">
+                            <?php foreach ($product_cats as $term): ?>
+                                <label style="display:block; margin:4px 0;">
+                                    <input type="checkbox" class="donations-receipt-cat" value="<?php echo (int) $term->term_id; ?>" <?php checked(in_array((int) $term->term_id, $receipt_category_ids, true)); ?> />
+                                    <?php echo esc_html($term->name); ?>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                    <p style="margin:12px 0 6px;"><label for="donations_receipt_text"><strong><?php esc_html_e('Receipt language', 'azure-plugin'); ?></strong></label></p>
+                    <textarea id="donations_receipt_text" class="large-text" rows="6"><?php echo esc_textarea($receipt_text); ?></textarea>
                 </td>
             </tr>
             <tr>
@@ -493,7 +534,10 @@ jQuery(function($) {
             donations_wag_footer: $('#donations_wag_footer').val(),
             donations_wag_bg: $('#donations_wag_bg').val(),
             donations_wag_fg: $('#donations_wag_fg').val(),
-            donations_wag_levels: JSON.stringify(collectWagLevels())
+            donations_wag_levels: JSON.stringify(collectWagLevels()),
+            donations_receipt_include_fees: $('#donations_receipt_include_fees').is(':checked') ? '1' : '0',
+            donations_receipt_category_ids: JSON.stringify($('.donations-receipt-cat:checked').map(function() { return parseInt($(this).val(), 10) || 0; }).get()),
+            donations_receipt_text: $('#donations_receipt_text').val()
         }, function(r) {
             $btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:middle;line-height:1;margin-right:4px;"></span> Save Settings');
             $res.css('color', r.success ? '#00a32a' : '#d63638').text(r.success ? 'Saved!' : (r.data || 'Error')).show();

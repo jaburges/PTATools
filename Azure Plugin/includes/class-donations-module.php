@@ -152,6 +152,8 @@ class Azure_Donations_Module {
         add_filter('woocommerce_add_to_cart_quantity', array($this, 'force_custom_amount_quantity'), 10, 2);
         add_action('woocommerce_before_calculate_totals', array($this, 'apply_custom_amount_price'), 25, 1);
         add_filter('woocommerce_cart_item_quantity', array($this, 'lock_custom_amount_cart_qty'), 10, 3);
+        add_filter('woocommerce_my_account_my_orders_actions', array($this, 'add_receipt_order_action'), 20, 2);
+        add_action('template_redirect', array($this, 'maybe_download_receipt'));
     }
 
     // ─── Campaign Helpers ────────────────────────────────────────────
@@ -2147,6 +2149,7 @@ class Azure_Donations_Module {
             'donations_wag_heading',
             'donations_wag_label',
             'donations_wag_footer',
+            'donations_receipt_include_fees',
         );
 
         foreach ($fields as $field) {
@@ -2183,6 +2186,18 @@ class Azure_Donations_Module {
             Azure_Settings::update_setting('donations_wag_levels', self::sanitize_wag_levels($raw));
         }
 
+        if (isset($_POST['donations_receipt_category_ids'])) {
+            $raw = json_decode(wp_unslash($_POST['donations_receipt_category_ids']), true);
+            Azure_Settings::update_setting('donations_receipt_category_ids', self::sanitize_receipt_category_ids($raw));
+        }
+
+        if (isset($_POST['donations_receipt_text'])) {
+            Azure_Settings::update_setting(
+                'donations_receipt_text',
+                self::sanitize_receipt_text(wp_unslash($_POST['donations_receipt_text']))
+            );
+        }
+
         wp_send_json_success(array('message' => 'Settings saved'));
     }
 
@@ -2202,5 +2217,278 @@ class Azure_Donations_Module {
             }
         }
         return $out;
+    }
+
+    const RECEIPT_DEFAULT_TEXT = "Thank you for your support. Laura Ingalls Wilder PTSA 2.8.66 is a 501(c)(3) nonprofit organization, Tax ID 91-1461125. Your Wilder About Giving donation is tax deductible and no goods or services were provided to you for this donation.\n\nDouble your donation with an employer matching gift! Please submit your gift to be matched by your company as soon as possible.";
+
+    public static function default_receipt_text() {
+        return self::RECEIPT_DEFAULT_TEXT;
+    }
+
+    public static function sanitize_receipt_category_ids($raw) {
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : array();
+        }
+        if (!is_array($raw)) {
+            return array();
+        }
+        $ids = array();
+        foreach ($raw as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+        return array_values(array_unique($ids));
+    }
+
+    public static function sanitize_receipt_text($text) {
+        $text = is_string($text) ? $text : '';
+        if (function_exists('sanitize_textarea_field')) {
+            return sanitize_textarea_field($text);
+        }
+        $text = str_replace(array("\r\n", "\r"), "\n", $text);
+        return trim(strip_tags($text));
+    }
+
+    public static function get_receipt_category_ids() {
+        return self::sanitize_receipt_category_ids(
+            Azure_Settings::get_setting('donations_receipt_category_ids', array())
+        );
+    }
+
+    public static function get_receipt_text() {
+        $text = self::sanitize_receipt_text(
+            Azure_Settings::get_setting('donations_receipt_text', '')
+        );
+        if ($text === '') {
+            return self::default_receipt_text();
+        }
+        return $text;
+    }
+
+    public static function receipt_include_fees() {
+        $value = Azure_Settings::get_setting('donations_receipt_include_fees', '1');
+        return $value === '1' || $value === 1 || $value === true || $value === 'yes';
+    }
+
+    public static function product_in_receipt_categories($product_category_ids, $selected_category_ids) {
+        if (empty($product_category_ids) || empty($selected_category_ids)) {
+            return false;
+        }
+        $product_category_ids = array_map('intval', (array) $product_category_ids);
+        $selected_category_ids = array_map('intval', (array) $selected_category_ids);
+        return (bool) array_intersect($product_category_ids, $selected_category_ids);
+    }
+
+    public static function fee_is_donation($fee_name) {
+        return strpos((string) $fee_name, 'Donation') !== false;
+    }
+
+    public static function order_has_receipt_content($has_category_match, $has_donation_fee, $include_fees) {
+        return (bool) $has_category_match || ($include_fees && $has_donation_fee);
+    }
+
+    public static function filter_receipt_line_items($items, $selected_category_ids) {
+        $out = array();
+        if (!is_array($items)) {
+            return $out;
+        }
+        foreach ($items as $item) {
+            $cats = isset($item['category_ids']) ? $item['category_ids'] : array();
+            if (!self::product_in_receipt_categories($cats, $selected_category_ids)) {
+                continue;
+            }
+            $out[] = array(
+                'name'  => isset($item['name']) ? (string) $item['name'] : '',
+                'total' => isset($item['total']) ? (float) $item['total'] : 0.0,
+            );
+        }
+        return $out;
+    }
+
+    public static function filter_receipt_fees($fees, $include_fees) {
+        $out = array();
+        if (!$include_fees || !is_array($fees)) {
+            return $out;
+        }
+        foreach ($fees as $fee) {
+            $name = isset($fee['name']) ? (string) $fee['name'] : '';
+            if (!self::fee_is_donation($name)) {
+                continue;
+            }
+            $out[] = array(
+                'name'  => $name,
+                'total' => isset($fee['total']) ? (float) $fee['total'] : 0.0,
+            );
+        }
+        return $out;
+    }
+
+    public static function receipt_lines_total($lines) {
+        $sum = 0.0;
+        foreach ((array) $lines as $line) {
+            $sum += isset($line['total']) ? (float) $line['total'] : 0.0;
+        }
+        return round($sum, 2);
+    }
+
+    public static function format_receipt_money($amount) {
+        return '$' . number_format((float) $amount, 2);
+    }
+
+    /**
+     * @param WC_Order $order
+     */
+    public static function collect_order_receipt_lines($order) {
+        $selected = self::get_receipt_category_ids();
+        $items = array();
+        foreach ($order->get_items() as $item) {
+            $product = $item->get_product();
+            $cats = array();
+            if ($product) {
+                $cats = $product->get_category_ids();
+                if (empty($cats) && $product->get_parent_id() && function_exists('wc_get_product')) {
+                    $parent = wc_get_product($product->get_parent_id());
+                    if ($parent) {
+                        $cats = $parent->get_category_ids();
+                    }
+                }
+            }
+            $items[] = array(
+                'name'         => $item->get_name(),
+                'total'        => (float) $item->get_total(),
+                'category_ids' => $cats,
+            );
+        }
+        $fees = array();
+        foreach ($order->get_fees() as $fee) {
+            $fees[] = array(
+                'name'  => $fee->get_name(),
+                'total' => (float) $fee->get_total(),
+            );
+        }
+        $lines = self::filter_receipt_line_items($items, $selected);
+        $lines = array_merge($lines, self::filter_receipt_fees($fees, self::receipt_include_fees()));
+        return $lines;
+    }
+
+    /**
+     * @param WC_Order $order
+     */
+    public static function order_qualifies_for_receipt($order) {
+        if (!$order || !is_object($order) || !method_exists($order, 'get_status')) {
+            return false;
+        }
+        $status = $order->get_status();
+        if (!in_array($status, array('processing', 'completed'), true)) {
+            return false;
+        }
+        $lines = self::collect_order_receipt_lines($order);
+        return !empty($lines);
+    }
+
+    public function add_receipt_order_action($actions, $order) {
+        if (!self::order_qualifies_for_receipt($order)) {
+            return $actions;
+        }
+        $order_id = $order->get_id();
+        $url = add_query_arg(
+            array('azure_donation_receipt' => $order_id),
+            wc_get_account_endpoint_url('orders')
+        );
+        $actions['donation_receipt'] = array(
+            'url'  => wp_nonce_url($url, 'azure_donation_receipt_' . $order_id),
+            'name' => __('Receipt', 'azure-plugin'),
+        );
+        return $actions;
+    }
+
+    public function maybe_download_receipt() {
+        if (empty($_GET['azure_donation_receipt'])) {
+            return;
+        }
+        $order_id = (int) $_GET['azure_donation_receipt'];
+        if ($order_id <= 0) {
+            return;
+        }
+        if (!is_user_logged_in()) {
+            auth_redirect();
+            return;
+        }
+        $nonce = isset($_GET['_wpnonce']) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'azure_donation_receipt_' . $order_id)) {
+            wp_die(esc_html__('Invalid receipt link.', 'azure-plugin'), '', array('response' => 403));
+        }
+        if (!function_exists('wc_get_order')) {
+            wp_die(esc_html__('Receipts are not available.', 'azure-plugin'));
+        }
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            wp_die(esc_html__('Order not found.', 'azure-plugin'), '', array('response' => 404));
+        }
+        $owner_ok = ((int) $order->get_user_id() === (int) get_current_user_id());
+        $staff_ok = current_user_can('manage_woocommerce') || self::current_user_can_manage();
+        if (!$owner_ok && !$staff_ok) {
+            wp_die(esc_html__('You cannot download this receipt.', 'azure-plugin'), '', array('response' => 403));
+        }
+        if (!self::order_qualifies_for_receipt($order)) {
+            wp_die(esc_html__('This order does not include a donation receipt.', 'azure-plugin'), '', array('response' => 404));
+        }
+        $this->stream_receipt_pdf($order);
+    }
+
+    /**
+     * @param WC_Order $order
+     */
+    private function stream_receipt_pdf($order) {
+        $path = AZURE_PLUGIN_PATH . 'includes/class-donation-receipt-pdf.php';
+        if (!class_exists('Azure_Donation_Receipt_Pdf') && file_exists($path)) {
+            require_once $path;
+        }
+        if (!class_exists('Azure_Donation_Receipt_Pdf')) {
+            wp_die(esc_html__('Receipt generator is missing.', 'azure-plugin'));
+        }
+
+        $org = (string) Azure_Settings::get_setting('org_name', '');
+        if ($org === '') {
+            $org = function_exists('get_bloginfo') ? get_bloginfo('name') : '';
+        }
+
+        $created = $order->get_date_created();
+        $date = '';
+        if ($created) {
+            if (function_exists('wp_date')) {
+                $date = wp_date(get_option('date_format', 'F j, Y'), $created->getTimestamp());
+            } else {
+                $date = $created->date_i18n('F j, Y');
+            }
+        }
+
+        $donor = trim($order->get_formatted_billing_full_name());
+        if ($donor === '') {
+            $donor = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+        }
+
+        $lines = self::collect_order_receipt_lines($order);
+        $pdf = Azure_Donation_Receipt_Pdf::build(array(
+            'org'          => $org,
+            'order_number' => $order->get_order_number(),
+            'date'         => $date,
+            'donor'        => $donor,
+            'email'        => $order->get_billing_email(),
+            'lines'        => $lines,
+            'total'        => self::receipt_lines_total($lines),
+            'footer'       => self::get_receipt_text(),
+        ));
+
+        $filename = 'donation-receipt-' . preg_replace('/[^A-Za-z0-9\-]/', '', (string) $order->get_order_number()) . '.pdf';
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($pdf));
+        echo $pdf;
+        exit;
     }
 }
