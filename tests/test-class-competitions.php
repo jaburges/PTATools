@@ -128,7 +128,8 @@ $html = Azure_Class_Competitions::render_table(
     $rows
 );
 $t->check(strpos($html, '$') === false, 'board HTML never includes a dollar sign');
-$t->check(strpos($html, 'purchases') !== false, 'count is labeled as purchases');
+$t->check(strpos($html, '2 Donations') !== false, 'count is labeled as Donations');
+$t->check(strpos($html, 'purchase') === false, 'board no longer says purchases');
 $t->check(strpos($html, 'pta-class-race') !== false, 'board uses the race layout');
 $t->check(strpos($html, 'pta-class-race-wolf') !== false, 'each lane has a wolf');
 $t->check(strpos($html, 'Ms. Rivera') !== false, 'teacher names render');

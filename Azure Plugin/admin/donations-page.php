@@ -260,7 +260,7 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
                     <code>[Donation-progress campaign="WAG"]</code>
                     <p class="description">Standalone thermometer if you need it on a different page. Optional once the bar is shown inside <code>[WAG]</code>.</p>
                     <code>[class-competition]</code>
-                    <p class="description">Class purchase board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition.</p>
+                    <p class="description">Class donation board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition.</p>
                 </td>
             </tr>
         </table>
@@ -356,7 +356,7 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
-        <p class="description" style="margin:10px 0 0;"><?php esc_html_e('Saved with Donation Settings above. Percent on a competition board is purchases ÷ this number. Leave 0 if you do not know the size yet — the % column will stay blank for that class.', 'azure-plugin'); ?></p>
+        <p class="description" style="margin:10px 0 0;"><?php esc_html_e('Saved with Donation Settings above. Percent on a competition board is donations ÷ this number. Leave 0 if you do not know the size yet — the % column will stay blank for that class.', 'azure-plugin'); ?></p>
     </div>
 
     <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin-bottom:20px; box-shadow:0 1px 1px rgba(0,0,0,.04);">

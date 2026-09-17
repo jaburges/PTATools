@@ -549,7 +549,7 @@ class Azure_Class_Competitions {
         <div class="pta-class-competition pta-class-race">
             <div class="pta-class-race-head">
                 <h3 class="pta-class-competition-title"><?php echo esc_html($competition['name']); ?></h3>
-                <p class="pta-class-race-kicker"><?php esc_html_e('Classroom race — each wolf is a class. Distance is purchases ÷ class size.', 'azure-plugin'); ?></p>
+                <p class="pta-class-race-kicker"><?php esc_html_e('Classroom race — each wolf is a class. Distance is donations ÷ class size.', 'azure-plugin'); ?></p>
             </div>
             <?php if (empty($rows)): ?>
                 <p class="pta-class-race-empty"><?php esc_html_e('Add teachers in Child Info, then enter class sizes.', 'azure-plugin'); ?></p>
@@ -563,7 +563,7 @@ class Azure_Class_Competitions {
                         if ($show_count) {
                             $score_bits[] = sprintf(
                                 /* translators: %d: number of WAG line items */
-                                _n('%d purchase', '%d purchases', (int) $row['count'], 'azure-plugin'),
+                                _n('%d Donation', '%d Donations', (int) $row['count'], 'azure-plugin'),
                                 (int) $row['count']
                             );
                         }
