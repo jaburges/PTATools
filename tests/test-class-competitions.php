@@ -137,7 +137,11 @@ $t->check(strpos($html, '--sweater:') !== false, 'lanes get a sweater color');
 $t->check(strpos($html, 'pta-class-race-num') !== false, 'lanes are numbered like a track');
 $t->check(strpos($html, 'pta-class-race-finish') !== false, 'track has a finish line');
 $t->check(strpos($html, 'assets/race/wolf-') !== false, 'each lane uses a rendered wolf marker');
-$t->check(strpos($html, 'left: calc(10px + (100% - 148px) * 10 / 100)') !== false, 'wolf marker is placed by percent');
+$t->check(strpos($html, 'left: calc(10px + (100% - 124px) * 10 / 100)') !== false, 'wolf marker is placed by percent');
+$t->check(strpos($html, 'pta-class-race-trail') !== false, 'each lane has a trail');
+$t->check(strpos($html, 'width: calc(62px + (100% - 124px) * 10 / 100)') !== false, 'trail reaches the wolf');
+$t->check(strpos($html, 'pta-class-race-grade') === false, 'grade line is gone from the lane');
+$t->check(strpos($html, 'Distance is % of class donated') !== false, 'kicker copy updated');
 $t->check(strpos($html, '10%') !== false, 'percent renders in the score block');
 
 exit($t->finish() === 0 ? 0 : 1);

@@ -658,9 +658,9 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
     --lane: #e8eef2;
     --sweater: #8aa4b3;
     display: grid;
-    grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) minmax(6rem, 8rem);
+    grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) minmax(5.5rem, 7rem);
     align-items: center;
-    min-height: 76px;
+    min-height: 58px;
     background: var(--lane);
     border-radius: 6px;
 }
@@ -675,19 +675,19 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
 .pta-class-race-meta {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.7rem;
     min-width: 0;
-    padding: 0 0.6rem 0 0.75rem;
+    padding: 0 0.6rem 0 0.7rem;
 }
 .pta-class-race-num {
     flex: 0 0 auto;
-    width: 30px;
-    height: 30px;
+    width: 38px;
+    height: 38px;
     border-radius: 50%;
     background: var(--pta-race-line);
     color: var(--pta-race-ink);
     font-weight: 800;
-    font-size: 0.85rem;
+    font-size: 1.05rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -705,16 +705,9 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.pta-class-race-grade {
-    display: block;
-    margin-top: 0.1rem;
-    font-size: 0.75rem;
-    color: var(--pta-race-muted);
-    letter-spacing: 0.02em;
-}
 .pta-class-race-run {
     position: relative;
-    height: 76px;
+    height: 58px;
     overflow: hidden;
 }
 .pta-class-race-start {
@@ -724,6 +717,18 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
     bottom: 0;
     width: 3px;
     background: var(--pta-race-line);
+}
+.pta-class-race-trail {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    height: 6px;
+    width: 62px;
+    margin-top: 6px;
+    border-radius: 0 3px 3px 0;
+    background: var(--sweater);
+    opacity: 0.55;
+    animation: pta-trail-grow 1.2s cubic-bezier(0.22, 0.7, 0.28, 1) both;
 }
 .pta-class-race-finish {
     position: absolute;
@@ -737,9 +742,9 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
 .pta-class-race-runner {
     position: absolute;
     top: 50%;
-    left: calc(10px + (100% - 148px) * var(--progress) / 100);
-    width: 128px;
-    height: 66px;
+    left: calc(10px + (100% - 124px) * var(--progress) / 100);
+    width: 104px;
+    height: 54px;
     transform: translateY(-50%);
     animation: pta-wolf-run 1.2s cubic-bezier(0.22, 0.7, 0.28, 1) both;
     z-index: 1;
@@ -747,7 +752,7 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
 }
 .pta-class-race-wolf {
     display: block;
-    width: 128px;
+    width: 104px;
     height: auto;
     max-width: none;
     margin: 0;
@@ -759,24 +764,28 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
     flex-direction: column;
     align-items: flex-end;
     text-align: right;
-    line-height: 1.15;
+    line-height: 1.1;
     padding: 0 0.85rem 0 0.5rem;
     color: var(--pta-race-ink);
 }
 .pta-class-race-pct {
-    font-size: 1.25rem;
+    font-size: 1.2rem;
     font-weight: 800;
     letter-spacing: -0.02em;
 }
 .pta-class-race-count {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 600;
     color: var(--pta-race-muted);
     white-space: nowrap;
 }
 @keyframes pta-wolf-run {
     from { left: 10px; }
-    to { left: calc(10px + (100% - 148px) * var(--progress) / 100); }
+    to { left: calc(10px + (100% - 124px) * var(--progress) / 100); }
+}
+@keyframes pta-trail-grow {
+    from { width: 62px; }
+    to { width: calc(62px + (100% - 124px) * var(--progress) / 100); }
 }
 @media (max-width: 720px) {
     .pta-class-race-lane {
@@ -784,18 +793,24 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
         grid-template-areas:
             "meta score"
             "run run";
-        padding-top: 0.5rem;
+        padding-top: 0.4rem;
     }
     .pta-class-race-meta { grid-area: meta; }
     .pta-class-race-score { grid-area: score; align-self: center; }
-    .pta-class-race-run { grid-area: run; height: 68px; }
-    .pta-class-race-runner { left: calc(10px + (100% - 130px) * var(--progress) / 100) !important; width: 110px; height: 57px; }
-    .pta-class-race-wolf { width: 110px; }
+    .pta-class-race-run { grid-area: run; height: 54px; }
+    .pta-class-race-runner { left: calc(10px + (100% - 112px) * var(--progress) / 100) !important; width: 92px; height: 48px; }
+    .pta-class-race-wolf { width: 92px; }
+    .pta-class-race-trail { width: calc(56px + (100% - 112px) * var(--progress) / 100) !important; }
     @keyframes pta-wolf-run {
         from { left: 10px; }
-        to { left: calc(10px + (100% - 130px) * var(--progress) / 100); }
+        to { left: calc(10px + (100% - 112px) * var(--progress) / 100); }
+    }
+    @keyframes pta-trail-grow {
+        from { width: 56px; }
+        to { width: calc(56px + (100% - 112px) * var(--progress) / 100); }
     }
 }
 @media (prefers-reduced-motion: reduce) {
-    .pta-class-race-runner { animation: none; }
+    .pta-class-race-runner,
+    .pta-class-race-trail { animation: none; }
 }

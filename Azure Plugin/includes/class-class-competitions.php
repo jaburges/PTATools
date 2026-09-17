@@ -549,7 +549,7 @@ class Azure_Class_Competitions {
         <div class="pta-class-competition pta-class-race">
             <div class="pta-class-race-head">
                 <h3 class="pta-class-competition-title"><?php echo esc_html($competition['name']); ?></h3>
-                <p class="pta-class-race-kicker"><?php esc_html_e('Classroom race — each wolf is a class. Distance is donations ÷ class size.', 'azure-plugin'); ?></p>
+                <p class="pta-class-race-kicker"><?php esc_html_e('Distance is % of class donated', 'azure-plugin'); ?></p>
             </div>
             <?php if (empty($rows)): ?>
                 <p class="pta-class-race-empty"><?php esc_html_e('Add teachers in Child Info, then enter class sizes.', 'azure-plugin'); ?></p>
@@ -585,14 +585,14 @@ class Azure_Class_Competitions {
                                 <span class="pta-class-race-num" aria-hidden="true"><?php echo (int) ($i + 1); ?></span>
                                 <span class="pta-class-race-names">
                                     <span class="pta-class-race-teacher"><?php echo esc_html($row['teacher']); ?></span>
-                                    <span class="pta-class-race-grade"><?php echo $row['grade'] !== '' ? esc_html($row['grade']) : '—'; ?></span>
                                 </span>
                             </div>
                             <div class="pta-class-race-run">
                                 <span class="pta-class-race-start" aria-hidden="true"></span>
+                                <span class="pta-class-race-trail" aria-hidden="true" style="<?php echo esc_attr('width: calc(62px + (100% - 124px) * ' . $progress . ' / 100);'); ?>"></span>
                                 <span class="pta-class-race-finish" aria-hidden="true"></span>
-                                <span class="pta-class-race-runner" style="<?php echo esc_attr('left: calc(10px + (100% - 148px) * ' . $progress . ' / 100);'); ?>">
-                                    <img class="pta-class-race-wolf" src="<?php echo esc_url(self::wolf_image_url($lane['image'])); ?>" alt="" width="128" height="66" loading="lazy" decoding="async" />
+                                <span class="pta-class-race-runner" style="<?php echo esc_attr('left: calc(10px + (100% - 124px) * ' . $progress . ' / 100);'); ?>">
+                                    <img class="pta-class-race-wolf" src="<?php echo esc_url(self::wolf_image_url($lane['image'])); ?>" alt="" width="104" height="54" loading="lazy" decoding="async" />
                                 </span>
                             </div>
                             <div class="pta-class-race-score">
