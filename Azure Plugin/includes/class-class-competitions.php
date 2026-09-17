@@ -534,7 +534,31 @@ class Azure_Class_Competitions {
         return $base . 'assets/race/wolf-' . $image . '.png';
     }
 
-    public static function render_table($competition, $rows) {
+    /**
+     * Normalise the shortcode's enable_link value. Only http(s) URLs pass.
+     *
+     * @param mixed $raw
+     * @return string '' when not linkable
+     */
+    public static function sanitize_link($raw) {
+        $raw = is_string($raw) ? trim($raw) : '';
+        if ($raw === '') {
+            return '';
+        }
+        $url = function_exists('esc_url_raw') ? esc_url_raw($raw, array('http', 'https')) : $raw;
+        if (!is_string($url) || $url === '' || !preg_match('#^https?://#i', $url)) {
+            return '';
+        }
+        return $url;
+    }
+
+    /**
+     * @param array  $competition
+     * @param array  $rows
+     * @param string $link Optional URL; when set the whole board is a link.
+     * @return string
+     */
+    public static function render_table($competition, $rows, $link = '') {
         if (!is_array($competition)) {
             return '';
         }
@@ -543,10 +567,18 @@ class Azure_Class_Competitions {
         if (!$show_count && !$show_percent) {
             $show_count = true;
         }
+        $link = self::sanitize_link($link);
         $palette = self::track_palette();
         ob_start();
+        if ($link !== '') {
+            printf(
+                '<a class="pta-class-race-link" href="%s" aria-label="%s">',
+                esc_url($link),
+                esc_attr($competition['name'])
+            );
+        }
         ?>
-        <div class="pta-class-competition pta-class-race">
+        <div class="pta-class-competition pta-class-race<?php echo $link !== '' ? ' pta-class-race--linked' : ''; ?>">
             <div class="pta-class-race-head">
                 <h3 class="pta-class-competition-title"><?php echo esc_html($competition['name']); ?></h3>
                 <p class="pta-class-race-kicker"><?php esc_html_e('Distance is % of class donated', 'azure-plugin'); ?></p>
@@ -609,14 +641,19 @@ class Azure_Class_Competitions {
             <?php endif; ?>
         </div>
         <?php
+        if ($link !== '') {
+            echo '</a>';
+        }
         return ob_get_clean();
     }
 
     public static function shortcode($atts) {
         $atts = shortcode_atts(array(
-            'id' => 0,
+            'id'          => 0,
+            'enable_link' => '',
         ), $atts, 'class-competition');
         $id = (int) $atts['id'];
+        $link = self::sanitize_link($atts['enable_link']);
         $comps = self::get_competitions();
         if (empty($comps)) {
             return '';
@@ -631,6 +668,6 @@ class Azure_Class_Competitions {
             array(),
             defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : null
         );
-        return self::render_table($comp, self::competition_rows($comp));
+        return self::render_table($comp, self::competition_rows($comp), $link);
     }
 }

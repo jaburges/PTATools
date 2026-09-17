@@ -260,7 +260,7 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
                     <code>[Donation-progress campaign="WAG"]</code>
                     <p class="description">Standalone thermometer if you need it on a different page. Optional once the bar is shown inside <code>[WAG]</code>.</p>
                     <code>[class-competition]</code>
-                    <p class="description">Class donation board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition.</p>
+                    <p class="description">Class donation board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition, <code>enable_link="https://wilderptsa.net/giving/"</code> to make the whole board clickable.</p>
                 </td>
             </tr>
         </table>

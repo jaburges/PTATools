@@ -142,6 +142,21 @@ $t->check(strpos($html, 'pta-class-race-trail') !== false, 'each lane has a trai
 $t->check(strpos($html, 'width: calc(62px + (100% - 124px) * 10 / 100)') !== false, 'trail reaches the wolf');
 $t->check(strpos($html, 'pta-class-race-grade') === false, 'grade line is gone from the lane');
 $t->check(strpos($html, 'Distance is % of class donated') !== false, 'kicker copy updated');
+$t->check(strpos($html, 'pta-class-race-link') === false, 'board is not a link by default');
+
+$t->equals('https://wilderptsa.net', Azure_Class_Competitions::sanitize_link('https://wilderptsa.net'), 'https link is kept');
+$t->equals('', Azure_Class_Competitions::sanitize_link(''), 'empty link is dropped');
+$t->equals('', Azure_Class_Competitions::sanitize_link('javascript:alert(1)'), 'javascript link is dropped');
+$t->equals('', Azure_Class_Competitions::sanitize_link('wilderptsa.net'), 'bare host without scheme is dropped');
+
+$linked = Azure_Class_Competitions::render_table(
+    array('name' => 'WAG classrooms', 'show_count' => true, 'show_percent' => true),
+    $rows,
+    'https://wilderptsa.net/giving/'
+);
+$t->check(strpos($linked, '<a class="pta-class-race-link" href="https://wilderptsa.net/giving/"') === 0, 'enable_link wraps the board in an anchor');
+$t->check(substr(trim($linked), -4) === '</a>', 'anchor is closed after the board');
+$t->check(strpos($linked, 'pta-class-race--linked') !== false, 'linked board gets a hover class');
 $t->check(strpos($html, '10%') !== false, 'percent renders in the score block');
 
 exit($t->finish() === 0 ? 0 : 1);
