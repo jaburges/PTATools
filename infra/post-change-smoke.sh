@@ -68,14 +68,18 @@ check "TLS cert valid" \
 # The 3.147.81 image dropped Woo Stripe / Redis / Multiple Roles because
 # Dockerfile RUN into VOLUME /var/www/html is discarded. A 200 on readme.txt
 # means the plugin directory is actually in the running image.
+#
+# `grep -c` (not -q) on purpose: -q exits on first match, curl then dies
+# with SIGPIPE on the larger readmes, and pipefail turns that into a bogus
+# FAIL. Seen flapping after every revision swap in 2026-09.
 check "stripe plugin present" \
-  "curl -fsS --max-time 30 '$URL/wp-content/plugins/woocommerce-gateway-stripe/readme.txt' | grep -qi stripe"
+  "curl -fsS --max-time 30 '$URL/wp-content/plugins/woocommerce-gateway-stripe/readme.txt' | grep -ci stripe >/dev/null"
 
 check "redis-cache plugin present" \
-  "curl -fsS --max-time 30 '$URL/wp-content/plugins/redis-cache/readme.txt' | grep -qi redis"
+  "curl -fsS --max-time 30 '$URL/wp-content/plugins/redis-cache/readme.txt' | grep -ci redis >/dev/null"
 
 check "multiple-roles plugin present" \
-  "curl -fsS --max-time 30 '$URL/wp-content/plugins/multiple-roles/readme.txt' | grep -qi 'multiple'"
+  "curl -fsS --max-time 30 '$URL/wp-content/plugins/multiple-roles/readme.txt' | grep -ci 'multiple' >/dev/null"
 
 echo ""
 if [ "$FAIL" = "0" ]; then
