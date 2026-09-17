@@ -606,23 +606,196 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
     margin: 0 0 0.75rem;
     font-size: 1.25rem;
 }
-.pta-class-competition-table {
-    width: 100%;
-    border-collapse: collapse;
-    background: #fff;
+
+.pta-class-race {
+    --pta-race-ink: #3d4a55;
+    --pta-race-muted: #6b7782;
+    --pta-race-line: #ffffff;
+    --pta-race-grass: #d6e6c3;
+    padding: 1.1rem 1.15rem 1.15rem;
+    background: var(--pta-race-grass);
+    border: 1px solid #c3d6ad;
+    border-radius: 14px;
+    color: var(--pta-race-ink);
 }
-.pta-class-competition-table th,
-.pta-class-competition-table td {
-    padding: 0.6rem 0.75rem;
-    text-align: left;
-    border-bottom: 1px solid #dcdcde;
+.pta-class-race-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 1rem;
+    margin-bottom: 0.75rem;
 }
-.pta-class-competition-table th {
+.pta-class-race .pta-class-competition-title {
+    margin: 0;
+    font-size: 1.35rem;
+    letter-spacing: -0.02em;
+}
+.pta-class-race-kicker {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--pta-race-muted);
+}
+.pta-class-race-empty {
+    margin: 0.5rem 0 0;
+    color: var(--pta-race-muted);
+}
+
+/* The track: contiguous lanes divided by white lines */
+.pta-class-race-track {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--pta-race-line);
+    border-radius: 10px;
+    counter-reset: lane;
+}
+.pta-class-race-lane {
+    --progress: 0;
+    --lane: #e8eef2;
+    --sweater: #8aa4b3;
+    display: grid;
+    grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr) minmax(6rem, 8rem);
+    align-items: center;
+    min-height: 76px;
+    background: var(--lane);
+    border-radius: 6px;
+}
+.pta-class-race-track .pta-class-race-lane:first-child {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+.pta-class-race-track .pta-class-race-lane:last-child {
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+.pta-class-race-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+    padding: 0 0.6rem 0 0.75rem;
+}
+.pta-class-race-num {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--pta-race-line);
+    color: var(--pta-race-ink);
+    font-weight: 800;
     font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-    color: #50575e;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgba(58, 64, 72, 0.25);
 }
-.pta-class-competition-table tbody tr:last-child td {
-    border-bottom: 0;
+.pta-class-race-names {
+    min-width: 0;
+}
+.pta-class-race-teacher {
+    display: block;
+    font-weight: 700;
+    font-size: 0.95rem;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pta-class-race-grade {
+    display: block;
+    margin-top: 0.1rem;
+    font-size: 0.75rem;
+    color: var(--pta-race-muted);
+    letter-spacing: 0.02em;
+}
+.pta-class-race-run {
+    position: relative;
+    height: 76px;
+    overflow: hidden;
+}
+.pta-class-race-start {
+    position: absolute;
+    left: 6px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--pta-race-line);
+}
+.pta-class-race-finish {
+    position: absolute;
+    right: 6px;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    background:
+        repeating-conic-gradient(#3a4048 0 25%, var(--pta-race-line) 0 50%) 0 0 / 12px 12px;
+}
+.pta-class-race-runner {
+    position: absolute;
+    top: 50%;
+    left: calc(10px + (100% - 148px) * var(--progress) / 100);
+    width: 128px;
+    height: 66px;
+    transform: translateY(-50%);
+    animation: pta-wolf-run 1.2s cubic-bezier(0.22, 0.7, 0.28, 1) both;
+    z-index: 1;
+    filter: drop-shadow(0 3px 2px rgba(58, 64, 72, 0.18));
+}
+.pta-class-race-wolf {
+    display: block;
+    width: 128px;
+    height: auto;
+    max-width: none;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+}
+.pta-class-race-score {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    text-align: right;
+    line-height: 1.15;
+    padding: 0 0.85rem 0 0.5rem;
+    color: var(--pta-race-ink);
+}
+.pta-class-race-pct {
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+.pta-class-race-count {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--pta-race-muted);
+    white-space: nowrap;
+}
+@keyframes pta-wolf-run {
+    from { left: 10px; }
+    to { left: calc(10px + (100% - 148px) * var(--progress) / 100); }
+}
+@media (max-width: 720px) {
+    .pta-class-race-lane {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "meta score"
+            "run run";
+        padding-top: 0.5rem;
+    }
+    .pta-class-race-meta { grid-area: meta; }
+    .pta-class-race-score { grid-area: score; align-self: center; }
+    .pta-class-race-run { grid-area: run; height: 68px; }
+    .pta-class-race-runner { left: calc(10px + (100% - 130px) * var(--progress) / 100) !important; width: 110px; height: 57px; }
+    .pta-class-race-wolf { width: 110px; }
+    @keyframes pta-wolf-run {
+        from { left: 10px; }
+        to { left: calc(10px + (100% - 130px) * var(--progress) / 100); }
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pta-class-race-runner { animation: none; }
 }

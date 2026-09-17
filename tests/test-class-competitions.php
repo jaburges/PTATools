@@ -17,6 +17,16 @@ if (!function_exists('esc_html_e')) {
         echo esc_html(__($text, $domain));
     }
 }
+if (!function_exists('esc_url')) {
+    function esc_url($url) {
+        return htmlspecialchars((string) $url, ENT_QUOTES, 'UTF-8');
+    }
+}
+if (!function_exists('_n')) {
+    function _n($single, $plural, $number, $domain = null) {
+        return ((int) $number === 1) ? $single : $plural;
+    }
+}
 
 if (!defined('AZURE_PLUGIN_PATH')) {
     define('AZURE_PLUGIN_PATH', dirname(__DIR__) . '/Azure Plugin/');
@@ -118,8 +128,15 @@ $html = Azure_Class_Competitions::render_table(
     $rows
 );
 $t->check(strpos($html, '$') === false, 'board HTML never includes a dollar sign');
-$t->check(strpos($html, 'Purchases') !== false, 'count column is labeled as purchases');
-$t->check(strpos($html, '% of class') !== false, 'percent column is present');
+$t->check(strpos($html, 'purchases') !== false, 'count is labeled as purchases');
+$t->check(strpos($html, 'pta-class-race') !== false, 'board uses the race layout');
+$t->check(strpos($html, 'pta-class-race-wolf') !== false, 'each lane has a wolf');
 $t->check(strpos($html, 'Ms. Rivera') !== false, 'teacher names render');
+$t->check(strpos($html, '--sweater:') !== false, 'lanes get a sweater color');
+$t->check(strpos($html, 'pta-class-race-num') !== false, 'lanes are numbered like a track');
+$t->check(strpos($html, 'pta-class-race-finish') !== false, 'track has a finish line');
+$t->check(strpos($html, 'assets/race/wolf-') !== false, 'each lane uses a rendered wolf marker');
+$t->check(strpos($html, 'left: calc(10px + (100% - 148px) * 10 / 100)') !== false, 'wolf marker is placed by percent');
+$t->check(strpos($html, '10%') !== false, 'percent renders in the score block');
 
 exit($t->finish() === 0 ? 0 : 1);

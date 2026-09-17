@@ -501,6 +501,39 @@ class Azure_Class_Competitions {
         return $out === false ? $value : $out;
     }
 
+    /**
+     * Lane tint + sweater colour + marker image, one set per lane.
+     * Tints stay pale; the wolf sweater carries the colour.
+     *
+     * @return array<int, array{tint:string,sweater:string,image:int}>
+     */
+    public static function track_palette() {
+        return array(
+            array('tint' => '#e4f1f8', 'sweater' => '#3f7fc0', 'image' => 1),
+            array('tint' => '#e5f5ec', 'sweater' => '#4f9d6b', 'image' => 2),
+            array('tint' => '#f8eee2', 'sweater' => '#d2883a', 'image' => 3),
+            array('tint' => '#eee8f6', 'sweater' => '#7d68b5', 'image' => 4),
+            array('tint' => '#f5f0dc', 'sweater' => '#b99f2f', 'image' => 5),
+            array('tint' => '#f6e8ee', 'sweater' => '#c25d8b', 'image' => 6),
+            array('tint' => '#e2f2f1', 'sweater' => '#3f9c96', 'image' => 7),
+            array('tint' => '#e8eef6', 'sweater' => '#6b84b0', 'image' => 8),
+            array('tint' => '#f4ebe2', 'sweater' => '#a97a4c', 'image' => 9),
+            array('tint' => '#f7e6e6', 'sweater' => '#c65c5c', 'image' => 10),
+        );
+    }
+
+    /**
+     * URL of the rendered wolf marker for a lane.
+     *
+     * @param int $image 1-based index into assets/race/wolf-N.png
+     * @return string
+     */
+    public static function wolf_image_url($image) {
+        $image = max(1, (int) $image);
+        $base = defined('AZURE_PLUGIN_URL') ? AZURE_PLUGIN_URL : '';
+        return $base . 'assets/race/wolf-' . $image . '.png';
+    }
+
     public static function render_table($competition, $rows) {
         if (!is_array($competition)) {
             return '';
@@ -510,45 +543,70 @@ class Azure_Class_Competitions {
         if (!$show_count && !$show_percent) {
             $show_count = true;
         }
-        $colspan = 2 + ($show_count ? 1 : 0) + ($show_percent ? 1 : 0);
+        $palette = self::track_palette();
         ob_start();
         ?>
-        <div class="pta-class-competition">
-            <h3 class="pta-class-competition-title"><?php echo esc_html($competition['name']); ?></h3>
-            <table class="pta-class-competition-table">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e('Teacher', 'azure-plugin'); ?></th>
-                        <th><?php esc_html_e('Grade', 'azure-plugin'); ?></th>
-                        <?php if ($show_count): ?>
-                            <th><?php esc_html_e('Purchases', 'azure-plugin'); ?></th>
-                        <?php endif; ?>
-                        <?php if ($show_percent): ?>
-                            <th><?php esc_html_e('% of class', 'azure-plugin'); ?></th>
-                        <?php endif; ?>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($rows)): ?>
-                        <tr>
-                            <td colspan="<?php echo (int) $colspan; ?>"><?php esc_html_e('Add teachers in Child Info, then enter class sizes.', 'azure-plugin'); ?></td>
-                        </tr>
-                    <?php else: ?>
-                        <?php foreach ($rows as $row): ?>
-                            <tr>
-                                <td><?php echo esc_html($row['teacher']); ?></td>
-                                <td><?php echo $row['grade'] !== '' ? esc_html($row['grade']) : '—'; ?></td>
-                                <?php if ($show_count): ?>
-                                    <td><?php echo (int) $row['count']; ?></td>
-                                <?php endif; ?>
+        <div class="pta-class-competition pta-class-race">
+            <div class="pta-class-race-head">
+                <h3 class="pta-class-competition-title"><?php echo esc_html($competition['name']); ?></h3>
+                <p class="pta-class-race-kicker"><?php esc_html_e('Classroom race — each wolf is a class. Distance is purchases ÷ class size.', 'azure-plugin'); ?></p>
+            </div>
+            <?php if (empty($rows)): ?>
+                <p class="pta-class-race-empty"><?php esc_html_e('Add teachers in Child Info, then enter class sizes.', 'azure-plugin'); ?></p>
+            <?php else: ?>
+                <ol class="pta-class-race-track">
+                    <?php foreach (array_values($rows) as $i => $row): ?>
+                        <?php
+                        $lane = $palette[$i % count($palette)];
+                        $progress = $row['percent'] === null ? 0 : max(0, min(100, (int) $row['percent']));
+                        $score_bits = array();
+                        if ($show_count) {
+                            $score_bits[] = sprintf(
+                                /* translators: %d: number of WAG line items */
+                                _n('%d purchase', '%d purchases', (int) $row['count'], 'azure-plugin'),
+                                (int) $row['count']
+                            );
+                        }
+                        if ($show_percent) {
+                            $score_bits[] = $row['percent'] === null
+                                ? '—'
+                                : ((int) $row['percent'] . '%');
+                        }
+                        $aria = $row['teacher'];
+                        if ($row['grade'] !== '') {
+                            $aria .= ', ' . $row['grade'];
+                        }
+                        if ($score_bits) {
+                            $aria .= ', ' . implode(', ', $score_bits);
+                        }
+                        ?>
+                        <li class="pta-class-race-lane" style="<?php echo esc_attr('--lane:' . $lane['tint'] . ';--sweater:' . $lane['sweater'] . ';--progress:' . $progress . ';'); ?>" aria-label="<?php echo esc_attr($aria); ?>">
+                            <div class="pta-class-race-meta">
+                                <span class="pta-class-race-num" aria-hidden="true"><?php echo (int) ($i + 1); ?></span>
+                                <span class="pta-class-race-names">
+                                    <span class="pta-class-race-teacher"><?php echo esc_html($row['teacher']); ?></span>
+                                    <span class="pta-class-race-grade"><?php echo $row['grade'] !== '' ? esc_html($row['grade']) : '—'; ?></span>
+                                </span>
+                            </div>
+                            <div class="pta-class-race-run">
+                                <span class="pta-class-race-start" aria-hidden="true"></span>
+                                <span class="pta-class-race-finish" aria-hidden="true"></span>
+                                <span class="pta-class-race-runner" style="<?php echo esc_attr('left: calc(10px + (100% - 148px) * ' . $progress . ' / 100);'); ?>">
+                                    <img class="pta-class-race-wolf" src="<?php echo esc_url(self::wolf_image_url($lane['image'])); ?>" alt="" width="128" height="66" loading="lazy" decoding="async" />
+                                </span>
+                            </div>
+                            <div class="pta-class-race-score">
                                 <?php if ($show_percent): ?>
-                                    <td><?php echo $row['percent'] === null ? '—' : esc_html((string) $row['percent'] . '%'); ?></td>
+                                    <span class="pta-class-race-pct"><?php echo $row['percent'] === null ? '—' : esc_html((int) $row['percent'] . '%'); ?></span>
                                 <?php endif; ?>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+                                <?php if ($show_count): ?>
+                                    <span class="pta-class-race-count"><?php echo esc_html($score_bits[0]); ?></span>
+                                <?php endif; ?>
+                            </div>
+                        </li>
+                    <?php endforeach; ?>
+                </ol>
+            <?php endif; ?>
         </div>
         <?php
         return ob_get_clean();
