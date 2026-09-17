@@ -628,11 +628,13 @@ class Azure_UpNext_Themes {
                 $out .= "{$sel} .upcoming-time-only{display:none;}\n";
             }
 
-            // Join button
+            // Join control (icon in the time row, top-right)
             if ($hide_join) {
                 $out .= "{$sel} .upcoming-join-meeting,{$sel} .upcoming-online-meeting{display:none;}\n";
             } else {
-                $out .= "{$sel} .upcoming-join-meeting .pta-join-meeting{background:" . self::c($t['accent_color']) . ";color:" . self::c($t['accent_text_color']) . ";border-radius:" . max(2, (int) $t['border_radius'] - 2) . "px;padding:4px 10px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-size:" . max(11, (int) $t['date_size'] - 1) . "px;}\n";
+                $out .= "{$sel} .upcoming-join-meeting .pta-join-meeting--icon{background:" . self::c($t['accent_color']) . ";color:#ffffff !important;border-color:" . self::c($t['accent_color']) . ";border-radius:" . max(2, (int) $t['border_radius'] - 2) . "px;}\n";
+                $out .= "{$sel} .upcoming-join-meeting .pta-join-meeting--icon:hover,"
+                     . "{$sel} .upcoming-join-meeting .pta-join-meeting--icon:focus{filter:brightness(0.92);color:#ffffff !important;}\n";
             }
 
             // Date pill (v3.128). When date_pill='left', a
@@ -655,8 +657,10 @@ class Azure_UpNext_Themes {
                 $out .= "}\n";
                 $out .= "{$sel} .upcoming-date-pill-day{font-size:" . max(12, (int) $t['date_size']) . "px;font-weight:700;}\n";
                 $out .= "{$sel} .upcoming-date-pill-num{font-size:" . max(18, (int) $t['title_size'] + 4) . "px;font-weight:800;margin-top:2px;}\n";
-                // Card body grows to fill remaining width.
+                // Card body grows to fill remaining width. Time + title
+                // stack; the join icon sits on the time row at the right.
                 $out .= "{$itemSel} .upcoming-body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:4px;}\n";
+                $out .= "{$itemSel} .upcoming-body-copy{display:flex;flex-direction:column;align-items:flex-start;gap:2px;}\n";
             } else {
                 $out .= "{$sel} .upcoming-date-pill{display:none;}\n";
             }

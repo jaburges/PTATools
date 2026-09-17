@@ -16,7 +16,7 @@ class Azure_Upcoming_Module {
     private static $instance = null;
     private const CACHE_VERSION_OPTION = 'azure_up_next_cache_version';
     /** Bump when query/render logic changes so stale transients are ignored. */
-    private const CACHE_SCHEMA = '7';
+    private const CACHE_SCHEMA = '8';
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -711,6 +711,16 @@ class Azure_Upcoming_Module {
             $badge_cls = 'upcoming-location-badge ' . ($is_online ? 'is-online' : 'is-in-person');
             $output .= '<span class="' . esc_attr($badge_cls) . '">' . esc_html($badge_lbl) . '</span>';
 
+            $join_html = '';
+            if ($show_join_meeting && class_exists('Azure_Event_CPT')) {
+                $join_html = Azure_Event_CPT::render_join_meeting_button((int) $event['id'], 'icon');
+                if ($join_html === '' && !empty($event['online_url'])) {
+                    $join_html = Azure_Event_CPT::render_join_meeting_markup((string) $event['online_url'], 'icon');
+                }
+            }
+
+            $output .= '<div class="upcoming-body-main">';
+            $output .= '<div class="upcoming-body-copy">';
             $output .= '<span class="upcoming-date">' . esc_html($date_str) . '</span>';
             if ($time_str !== '') {
                 $output .= '<span class="upcoming-separator"> – </span>';
@@ -723,20 +733,13 @@ class Azure_Upcoming_Module {
             } else {
                 $output .= '<span class="upcoming-title">' . esc_html($event['title']) . '</span>';
             }
+            $output .= '</div>'; // .upcoming-body-copy
 
-            if ($show_join_meeting && class_exists('Azure_Event_CPT')) {
-                $join_btn = Azure_Event_CPT::render_join_meeting_button((int) $event['id'], 'inline');
-                if ($join_btn !== '') {
-                    $output .= '<div class="upcoming-join-meeting">' . $join_btn . '</div>';
-                }
-            } elseif (!empty($event['online_url'])) {
-                $output .= '<div class="upcoming-online-meeting">';
-                $output .= '<a href="' . esc_url($event['online_url']) . '" target="_blank" rel="noopener noreferrer">';
-                $output .= esc_html__('Join online meeting', 'azure-plugin');
-                $output .= '</a>';
-                $output .= '</div>';
+            if ($join_html !== '') {
+                $output .= '<div class="upcoming-join-meeting">' . $join_html . '</div>';
             }
 
+            $output .= '</div>'; // .upcoming-body-main
             $output .= '</div>'; // .upcoming-body
             $output .= '</li>';
         }

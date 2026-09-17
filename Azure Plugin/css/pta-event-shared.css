@@ -74,6 +74,21 @@
     margin-left: auto;
 }
 
+/* Icon-only join control (Upcoming cards) */
+.pta-join-meeting--icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    flex: 0 0 28px;
+}
+.pta-join-meeting--icon .pta-join-meeting-svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+
 /* ============================================================
    [azure_calendar_events] card grid (pta_event-backed)
    ============================================================ */

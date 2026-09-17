@@ -85,15 +85,47 @@ a.upcoming-title:hover {
     color: #0073aa;
 }
 
-.upcoming-online-meeting,
-.upcoming-join-meeting {
-    margin: 0.35rem 0 0 0;
-    display: block;
+.upcoming-body-main {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
 }
 
-.upcoming-join-meeting .pta-join-meeting {
-    font-size: 0.85em;
-    padding: 0.35em 0.65em;
+.upcoming-body-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.upcoming-online-meeting,
+.upcoming-join-meeting {
+    flex: 0 0 auto;
+    margin: 0;
+    display: flex;
+    align-items: flex-start;
+    line-height: 1;
+}
+
+.upcoming-join-meeting .pta-join-meeting--icon,
+.upcoming-join-meeting .pta-join-meeting--icon:hover,
+.upcoming-join-meeting .pta-join-meeting--icon:focus {
+    color: #ffffff !important;
+}
+
+.upcoming-join-meeting .pta-join-meeting--icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    flex: 0 0 28px;
+}
+
+.upcoming-join-meeting .pta-join-meeting-svg {
+    width: 16px;
+    height: 16px;
+    display: block;
 }
 
 .upcoming-online-meeting a {

@@ -346,7 +346,7 @@ if (class_exists('Azure_UpNext_Themes')) {
                                             <label>Date size (px) <input type="number" min="9" max="28" class="t-date-size small-text" value="<?php echo esc_attr((int) ($t['date_size'] ?? 13)); ?>"></label>
                                             <label><input type="checkbox" class="t-show-time" <?php checked(!empty($t['show_time'])); ?>> Show time</label>
                                             <label><input type="checkbox" class="t-show-section-headers" <?php checked(!empty($t['show_section_headers'])); ?>> Show "This Week" / "Next Week" headers</label>
-                                            <label><input type="checkbox" class="t-show-join-button" <?php checked(!empty($t['show_join_button'])); ?>> Show Join meeting button</label>
+                                            <label><input type="checkbox" class="t-show-join-button" <?php checked(!empty($t['show_join_button'])); ?>> Show join meeting icon</label>
                                         </div>
                                     </fieldset>
                                 </div>

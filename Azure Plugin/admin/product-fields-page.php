@@ -62,6 +62,9 @@ if (is_wp_error($product_categories)) {
     <?php endif; ?>
 
     <p class="description" style="margin: 8px 0 16px;"><?php _e('Create reusable field groups and assign them to WooCommerce product categories. Fields with "Save to Profile" will remember values for returning customers.', 'azure-plugin'); ?></p>
+    <div class="notice notice-info inline" style="margin: 0 0 16px;">
+        <p><?php _e('The Child Teacher dropdown is the source of truth for teacher names. Class sizes and class competitions on Selling → Donations use this list. Add or rename teachers here, then update class sizes on the Donations tab.', 'azure-plugin'); ?></p>
+    </div>
 
     <div class="azure-pf-layout" style="display: flex; gap: 20px; margin-top: 20px;">
 

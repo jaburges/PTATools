@@ -66,6 +66,10 @@ if (function_exists('wc_get_products')) {
         'order'   => 'ASC',
     ));
 }
+$class_teachers = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::teacher_list() : array();
+$class_sizes = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::get_class_sizes() : array();
+$class_competitions = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::get_competitions() : array();
+$teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product-fields');
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -255,8 +259,8 @@ if (function_exists('wc_get_products')) {
                     <p class="description">Suggested giving levels from Donation Items above. Includes the campaign thermometer when Display progress bar is checked. Hidden when Donation Items is disabled.</p>
                     <code>[Donation-progress campaign="WAG"]</code>
                     <p class="description">Standalone thermometer if you need it on a different page. Optional once the bar is shown inside <code>[WAG]</code>.</p>
-                    <code>[donations-list]</code>
-                    <p class="description">Public table: date, role (Parent / Staff / Guest), and product or amount. Never includes names or emails. Optional: <code>limit="25"</code></p>
+                    <code>[class-competition]</code>
+                    <p class="description">Class participation board (kids, not dollars). Optional: <code>id="1"</code> for a specific competition.</p>
                 </td>
             </tr>
         </table>
@@ -328,6 +332,75 @@ if (function_exists('wc_get_products')) {
                     <?php endforeach; ?>
                 </tbody>
             </table>
+        <?php endif; ?>
+    </div>
+
+    <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin-bottom:20px; box-shadow:0 1px 1px rgba(0,0,0,.04);">
+        <h2 style="margin:0 0 8px;"><span class="dashicons dashicons-groups"></span> Class sizes</h2>
+        <p class="description" style="margin:0 0 12px;">
+            Teacher names come from <strong>Child Info</strong> (the teacher dropdown). That list is the source of truth — add or rename teachers there, then set headcount here. Update these numbers whenever students join or leave.
+            <a href="<?php echo esc_url($teacher_fields_url); ?>">Edit teacher list</a>
+        </p>
+        <?php if (empty($class_teachers)): ?>
+            <p><?php esc_html_e('No teachers yet. Add them as dropdown options on the Child Teacher field in Product Fields.', 'azure-plugin'); ?></p>
+        <?php else: ?>
+            <div id="class-size-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:8px 16px; max-height:420px; overflow:auto; border:1px solid #dcdcde; padding:12px; background:#f6f7f7;">
+                <?php foreach ($class_teachers as $teacher): ?>
+                    <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fff; border:1px solid #dcdcde; padding:6px 10px;">
+                        <span style="min-width:0; overflow:hidden; text-overflow:ellipsis;"><?php echo esc_html($teacher); ?></span>
+                        <input type="number" class="small-text class-size-input" min="0" max="500" step="1"
+                               data-teacher="<?php echo esc_attr($teacher); ?>"
+                               value="<?php echo isset($class_sizes[$teacher]) ? (int) $class_sizes[$teacher] : 0; ?>"
+                               style="width:72px;" />
+                    </label>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+        <p class="description" style="margin:10px 0 0;"><?php esc_html_e('Saved with Donation Settings above. Percent on a competition board is participating kids ÷ this number. Leave 0 if you do not know the size yet — the % column will stay blank for that class.', 'azure-plugin'); ?></p>
+    </div>
+
+    <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin-bottom:20px; box-shadow:0 1px 1px rgba(0,0,0,.04);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap;">
+            <h2 style="margin:0;"><span class="dashicons dashicons-awards"></span> Class competitions</h2>
+            <button type="button" class="button add-class-competition"><?php esc_html_e('Add competition', 'azure-plugin'); ?></button>
+        </div>
+        <p class="description" style="margin:0 0 12px;"><?php esc_html_e('Boards count kids whose parent gave the chosen product or campaign. They never show dollar amounts.', 'azure-plugin'); ?></p>
+        <div id="class-competition-rows"></div>
+        <template id="class-competition-row-tpl">
+            <div class="class-competition-row" style="border:1px solid #dcdcde; padding:12px; margin-bottom:10px; background:#f6f7f7;">
+                <input type="hidden" class="comp-id" value="0" />
+                <p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 8px;">
+                    <input type="text" class="comp-name regular-text" placeholder="WAG classroom challenge" />
+                    <select class="comp-source-type">
+                        <option value="campaign">Campaign</option>
+                        <option value="product">Product</option>
+                    </select>
+                    <select class="comp-source-id-campaign">
+                        <option value="0">— Select campaign —</option>
+                        <?php foreach ($campaigns as $c): ?>
+                            <option value="<?php echo (int) $c->id; ?>"><?php echo esc_html($c->name); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <select class="comp-source-id-product" style="display:none;">
+                        <option value="0">— Select product —</option>
+                        <?php foreach ($wc_products as $product): ?>
+                            <option value="<?php echo (int) $product->get_id(); ?>"><?php echo esc_html($product->get_name()); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <label style="white-space:nowrap;"><input type="checkbox" class="comp-show-count" checked /> Count</label>
+                    <label style="white-space:nowrap;"><input type="checkbox" class="comp-show-percent" checked /> %</label>
+                    <button type="button" class="button-link-delete remove-class-competition"><?php esc_html_e('Remove', 'azure-plugin'); ?></button>
+                </p>
+                <p class="description comp-shortcode" style="margin:0;"></p>
+            </div>
+        </template>
+        <?php if (!empty($class_competitions)): ?>
+            <div style="margin-top:16px;">
+                <h3 style="margin:0 0 8px;"><?php esc_html_e('Live board', 'azure-plugin'); ?></h3>
+                <?php foreach ($class_competitions as $comp): ?>
+                    <?php echo Azure_Class_Competitions::render_table($comp, Azure_Class_Competitions::competition_rows($comp)); ?>
+                <?php endforeach; ?>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -513,6 +586,72 @@ jQuery(function($) {
         return rows;
     }
 
+    function collectClassSizes() {
+        var out = {};
+        $('.class-size-input').each(function() {
+            out[$(this).attr('data-teacher')] = parseInt($(this).val(), 10) || 0;
+        });
+        return out;
+    }
+
+    function syncCompetitionSource($row) {
+        var isProduct = $row.find('.comp-source-type').val() === 'product';
+        $row.find('.comp-source-id-campaign').toggle(!isProduct);
+        $row.find('.comp-source-id-product').toggle(isProduct);
+    }
+
+    function updateCompetitionShortcode($row) {
+        var id = parseInt($row.find('.comp-id').val(), 10) || 0;
+        $row.find('.comp-shortcode').text(id > 0 ? '[class-competition id="' + id + '"]' : '[class-competition] (saved id appears after Save Settings)');
+    }
+
+    function addCompetitionRow(data) {
+        data = data || {};
+        var $row = $($('#class-competition-row-tpl').html());
+        $row.find('.comp-id').val(data.id || 0);
+        $row.find('.comp-name').val(data.name || '');
+        $row.find('.comp-source-type').val(data.source_type || 'campaign');
+        $row.find('.comp-source-id-campaign').val(data.source_type === 'product' ? 0 : (data.source_id || 0));
+        $row.find('.comp-source-id-product').val(data.source_type === 'product' ? (data.source_id || 0) : 0);
+        $row.find('.comp-show-count').prop('checked', data.show_count !== false);
+        $row.find('.comp-show-percent').prop('checked', data.show_percent !== false);
+        syncCompetitionSource($row);
+        updateCompetitionShortcode($row);
+        $('#class-competition-rows').append($row);
+    }
+
+    var existingCompetitions = <?php echo wp_json_encode($class_competitions); ?>;
+    (existingCompetitions || []).forEach(addCompetitionRow);
+
+    $('.add-class-competition').on('click', function() {
+        addCompetitionRow({ show_count: true, show_percent: true, source_type: 'campaign' });
+    });
+
+    $('#class-competition-rows').on('click', '.remove-class-competition', function() {
+        $(this).closest('.class-competition-row').remove();
+    });
+
+    $('#class-competition-rows').on('change', '.comp-source-type', function() {
+        syncCompetitionSource($(this).closest('.class-competition-row'));
+    });
+
+    function collectClassCompetitions() {
+        var rows = [];
+        $('#class-competition-rows .class-competition-row').each(function() {
+            var $row = $(this);
+            var type = $row.find('.comp-source-type').val();
+            rows.push({
+                id: parseInt($row.find('.comp-id').val(), 10) || 0,
+                name: $row.find('.comp-name').val(),
+                source_type: type,
+                source_id: parseInt($row.find(type === 'product' ? '.comp-source-id-product' : '.comp-source-id-campaign').val(), 10) || 0,
+                show_count: $row.find('.comp-show-count').is(':checked'),
+                show_percent: $row.find('.comp-show-percent').is(':checked')
+            });
+        });
+        return rows;
+    }
+
     $('.save-donation-settings').on('click', function() {
         var $btn = $(this), $res = $('#donation-settings-result');
         $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 5px 0 0;"></span> Saving...');
@@ -537,7 +676,9 @@ jQuery(function($) {
             donations_wag_levels: JSON.stringify(collectWagLevels()),
             donations_receipt_include_fees: $('#donations_receipt_include_fees').is(':checked') ? '1' : '0',
             donations_receipt_category_ids: JSON.stringify($('.donations-receipt-cat:checked').map(function() { return parseInt($(this).val(), 10) || 0; }).get()),
-            donations_receipt_text: $('#donations_receipt_text').val()
+            donations_receipt_text: $('#donations_receipt_text').val(),
+            donations_class_sizes: JSON.stringify(collectClassSizes()),
+            donations_class_competitions: JSON.stringify(collectClassCompetitions())
         }, function(r) {
             $btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:middle;line-height:1;margin-right:4px;"></span> Save Settings');
             $res.css('color', r.success ? '#00a32a' : '#d63638').text(r.success ? 'Saved!' : (r.data || 'Error')).show();

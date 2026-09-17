@@ -144,6 +144,8 @@ class Azure_Donations_Module {
         add_shortcode('WAG', array($this, 'shortcode_wag'));
         add_shortcode('donation-progress', array($this, 'shortcode_donation_progress'));
         add_shortcode('Donation-progress', array($this, 'shortcode_donation_progress'));
+        add_shortcode('class-competition', array('Azure_Class_Competitions', 'shortcode'));
+        add_shortcode('Class-competition', array('Azure_Class_Competitions', 'shortcode'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
         add_action('woocommerce_before_add_to_cart_button', array($this, 'render_custom_amount_field'));
         add_filter('woocommerce_available_variation', array($this, 'flag_custom_amount_variation'), 10, 3);
@@ -1989,7 +1991,8 @@ class Azure_Donations_Module {
             || has_shortcode($content, 'wag')
             || has_shortcode($content, 'WAG')
             || has_shortcode($content, 'donation-progress')
-            || has_shortcode($content, 'Donation-progress')
+            || has_shortcode($content, 'class-competition')
+            || has_shortcode($content, 'Class-competition')
         );
         $is_wag_product = function_exists('is_product') && is_product() && self::is_wag_donation_product((int) get_the_ID());
         if (!is_checkout() && !is_cart() && !$has_shortcode && !$is_wag_product) {
@@ -2195,6 +2198,22 @@ class Azure_Donations_Module {
             Azure_Settings::update_setting(
                 'donations_receipt_text',
                 self::sanitize_receipt_text(wp_unslash($_POST['donations_receipt_text']))
+            );
+        }
+
+        if (class_exists('Azure_Class_Competitions') && isset($_POST['donations_class_sizes'])) {
+            $raw = json_decode(wp_unslash($_POST['donations_class_sizes']), true);
+            Azure_Settings::update_setting(
+                Azure_Class_Competitions::SIZES_KEY,
+                Azure_Class_Competitions::sanitize_class_sizes($raw, Azure_Class_Competitions::teacher_list())
+            );
+        }
+
+        if (class_exists('Azure_Class_Competitions') && isset($_POST['donations_class_competitions'])) {
+            $raw = json_decode(wp_unslash($_POST['donations_class_competitions']), true);
+            Azure_Settings::update_setting(
+                Azure_Class_Competitions::COMPS_KEY,
+                Azure_Class_Competitions::sanitize_competitions($raw)
             );
         }
 
