@@ -2044,17 +2044,17 @@ class Azure_Event_CPT {
     public static function join_meeting_icon_svg($slug) {
         $slug = is_string($slug) ? $slug : 'generic';
         if ($slug === 'teams') {
-            return '<svg class="pta-join-meeting-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+            return '<svg class="pta-join-meeting-svg" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
                 . '<path fill="currentColor" d="M19.14 7.5h-4.05A4.12 4.12 0 0 0 11.1 4.5a4.1 4.1 0 0 0-4.05 3.15H5.86A2.86 2.86 0 0 0 3 10.51v5.63A2.86 2.86 0 0 0 5.86 19h3.2A3.64 3.64 0 0 0 12.5 21.5h6.64A3.86 3.86 0 0 0 23 17.64V11.36A3.86 3.86 0 0 0 19.14 7.5zM11.1 6.2c.96 0 1.78.64 2.03 1.51H9.07A2.1 2.1 0 0 1 11.1 6.2zM5.86 17.3A1.16 1.16 0 0 1 4.7 16.14v-5.63c0-.64.52-1.16 1.16-1.16h2.05v7.95H5.86zm13.28 2.5h-6.64c-1.18 0-2.14-.96-2.14-2.14V11.36c0-1.18.96-2.14 2.14-2.14h6.64c1.18 0 2.14.96 2.14 2.14v6.28c0 1.18-.96 2.16-2.14 2.16z"/>'
                 . '</svg>';
         }
         if ($slug === 'meet') {
-            return '<svg class="pta-join-meeting-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+            return '<svg class="pta-join-meeting-svg" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
                 . '<path fill="currentColor" d="M17 10.2V7.5A1.5 1.5 0 0 0 15.5 6h-11A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h11a1.5 1.5 0 0 0 1.5-1.5v-2.7l4 2.7V7.5l-4 2.7z"/>'
                 . '</svg>';
         }
         // Zoom, Webex, GoTo, Skype, and unknown providers share a camera.
-        return '<svg class="pta-join-meeting-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+        return '<svg class="pta-join-meeting-svg" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
             . '<path fill="currentColor" d="M17 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3.5l5 3.5V7l-5 3.5z"/>'
             . '</svg>';
     }
@@ -2064,7 +2064,7 @@ class Azure_Event_CPT {
      * no URL so callers can include it unconditionally.
      *
      * @param int    $post_id pta_event ID.
-     * @param string $variant 'inline' (default), 'block', or 'icon'.
+     * @param string $variant 'inline' (default), 'block', 'icon', or 'compact'.
      * @return string HTML or empty string.
      */
     public static function render_join_meeting_button($post_id, $variant = 'inline') {
@@ -2073,7 +2073,7 @@ class Azure_Event_CPT {
 
     /**
      * @param string $url
-     * @param string $variant 'inline', 'block', or 'icon'.
+     * @param string $variant 'inline', 'block', 'icon', or 'compact'.
      * @return string HTML or empty string.
      */
     public static function render_join_meeting_markup($url, $variant = 'inline') {
@@ -2083,6 +2083,21 @@ class Azure_Event_CPT {
         }
         $label = self::online_meeting_provider_label($url);
         $slug  = self::online_meeting_provider_slug($url);
+        if ($variant === 'compact') {
+            $aria = sprintf(
+                /* translators: %s: meeting provider name, e.g. Microsoft Teams */
+                __('Join %s meeting', 'azure-plugin'),
+                $label
+            );
+            return sprintf(
+                '<a class="pta-join-meeting pta-join-meeting--compact" href="%s" target="_blank" rel="noopener noreferrer" data-provider="%s" aria-label="%s" title="%s">%s</a>',
+                esc_url($url),
+                esc_attr($slug),
+                esc_attr($aria),
+                esc_attr($aria),
+                esc_html__('Join', 'azure-plugin')
+            );
+        }
         if ($variant === 'icon') {
             $aria = sprintf(
                 /* translators: %s: meeting provider name, e.g. Microsoft Teams */

@@ -16,7 +16,7 @@ class Azure_Upcoming_Module {
     private static $instance = null;
     private const CACHE_VERSION_OPTION = 'azure_up_next_cache_version';
     /** Bump when query/render logic changes so stale transients are ignored. */
-    private const CACHE_SCHEMA = '8';
+    private const CACHE_SCHEMA = '9';
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -713,9 +713,9 @@ class Azure_Upcoming_Module {
 
             $join_html = '';
             if ($show_join_meeting && class_exists('Azure_Event_CPT')) {
-                $join_html = Azure_Event_CPT::render_join_meeting_button((int) $event['id'], 'icon');
+                $join_html = Azure_Event_CPT::render_join_meeting_button((int) $event['id'], 'compact');
                 if ($join_html === '' && !empty($event['online_url'])) {
-                    $join_html = Azure_Event_CPT::render_join_meeting_markup((string) $event['online_url'], 'icon');
+                    $join_html = Azure_Event_CPT::render_join_meeting_markup((string) $event['online_url'], 'compact');
                 }
             }
 

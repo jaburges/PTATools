@@ -1,6 +1,6 @@
 <?php
 /**
- * Icon-only join-meeting control for Upcoming cards.
+ * Compact Join control for Upcoming cards.
  *
  * Run: php tests/test-join-meeting-icon.php
  */
@@ -29,30 +29,33 @@ if (!defined('AZURE_PLUGIN_PATH')) {
 
 require_once dirname(__DIR__) . '/Azure Plugin/includes/class-event-cpt.php';
 
-$t = new TestRunner('Join meeting icon');
+$t = new TestRunner('Join meeting control');
 
 $t->equals('teams', Azure_Event_CPT::online_meeting_provider_slug('https://teams.microsoft.com/l/meetup-join/19%3a'), 'Teams host');
 $t->equals('zoom', Azure_Event_CPT::online_meeting_provider_slug('https://us02web.zoom.us/j/123'), 'Zoom host');
 $t->equals('meet', Azure_Event_CPT::online_meeting_provider_slug('https://meet.google.com/abc-defg'), 'Meet host');
 $t->equals('generic', Azure_Event_CPT::online_meeting_provider_slug('https://example.com/room'), 'unknown host is generic');
 
-$teams_svg = Azure_Event_CPT::join_meeting_icon_svg('teams');
-$zoom_svg  = Azure_Event_CPT::join_meeting_icon_svg('zoom');
-$t->check(strpos($teams_svg, '<svg') !== false, 'Teams icon is SVG');
-$t->check(strpos($zoom_svg, '<svg') !== false, 'Zoom icon is SVG');
-$t->check($teams_svg !== $zoom_svg, 'Teams and Zoom icons differ');
-
-$html = Azure_Event_CPT::render_join_meeting_markup('https://teams.microsoft.com/l/meetup-join/x', 'icon');
-$t->check(strpos($html, 'pta-join-meeting--icon') !== false, 'icon variant class');
-$t->check(strpos($html, 'data-provider="teams"') !== false, 'icon data-provider is slug');
+$html = Azure_Event_CPT::render_join_meeting_markup('https://teams.microsoft.com/l/meetup-join/x', 'compact');
+$t->check(strpos($html, 'pta-join-meeting--compact') !== false, 'compact variant class');
+$t->check(strpos($html, 'data-provider="teams"') !== false, 'compact data-provider is slug');
 $t->check(strpos($html, 'Join Microsoft Teams meeting') !== false, 'accessible label names Teams');
-$t->check(strpos($html, 'pta-join-meeting-label') === false, 'icon variant has no visible Join meeting label');
-$t->check(strpos($html, '<svg') !== false, 'icon variant embeds SVG');
+$t->check(preg_match('/>Join<\/a>/', $html) === 1, 'visible label is Join');
+$t->check(strpos($html, '<svg') === false, 'compact variant has no SVG');
+$t->check(strpos($html, 'pta-join-meeting-provider') === false, 'compact variant has no provider chip');
+
+$icon = Azure_Event_CPT::render_join_meeting_markup('https://teams.microsoft.com/l/meetup-join/x', 'icon');
+$t->check(strpos($icon, 'width="16"') !== false, 'icon SVG has an explicit width');
+$t->check(strpos($icon, 'height="16"') !== false, 'icon SVG has an explicit height');
 
 $inline = Azure_Event_CPT::render_join_meeting_markup('https://teams.microsoft.com/l/meetup-join/x', 'inline');
 $t->check(strpos($inline, 'pta-join-meeting-label') !== false, 'inline variant still has the text button');
-$t->check(strpos($inline, 'pta-join-meeting--icon') === false, 'inline variant is not icon-only');
+$t->check(strpos($inline, 'pta-join-meeting--compact') === false, 'inline variant is not compact');
 
-$t->equals('', Azure_Event_CPT::render_join_meeting_markup('', 'icon'), 'empty URL yields no markup');
+$t->equals('', Azure_Event_CPT::render_join_meeting_markup('', 'compact'), 'empty URL yields no markup');
+
+$src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-upcoming-module.php');
+$t->check(strpos($src, "'compact'") !== false, 'Upcoming cards use the compact Join control');
+$t->check(strpos($src, "CACHE_SCHEMA = '9'") !== false, 'Upcoming cache schema bumped for join markup');
 
 exit($t->finish() === 0 ? 0 : 1);

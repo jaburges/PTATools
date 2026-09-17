@@ -78,15 +78,28 @@
 .pta-join-meeting--icon {
     width: 28px;
     height: 28px;
+    max-width: 28px;
+    max-height: 28px;
     padding: 0;
     gap: 0;
     justify-content: center;
     flex: 0 0 28px;
+    overflow: hidden;
 }
 .pta-join-meeting--icon .pta-join-meeting-svg {
     width: 16px;
     height: 16px;
+    max-width: 16px;
+    max-height: 16px;
     display: block;
+}
+.pta-join-meeting--compact {
+    padding: 3px 10px;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+    flex: 0 0 auto;
+    align-self: flex-start;
 }
 
 /* ============================================================

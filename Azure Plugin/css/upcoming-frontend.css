@@ -101,10 +101,20 @@ a.upcoming-title:hover {
 .upcoming-online-meeting,
 .upcoming-join-meeting {
     flex: 0 0 auto;
+    align-self: flex-start;
     margin: 0;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     line-height: 1;
+}
+
+.upcoming-join-meeting .pta-join-meeting--compact {
+    padding: 3px 10px;
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 700;
+    white-space: nowrap;
+    flex: 0 0 auto;
 }
 
 .upcoming-join-meeting .pta-join-meeting--icon,
@@ -116,15 +126,20 @@ a.upcoming-title:hover {
 .upcoming-join-meeting .pta-join-meeting--icon {
     width: 28px;
     height: 28px;
+    max-width: 28px;
+    max-height: 28px;
     padding: 0;
     gap: 0;
     justify-content: center;
     flex: 0 0 28px;
+    overflow: hidden;
 }
 
 .upcoming-join-meeting .pta-join-meeting-svg {
     width: 16px;
     height: 16px;
+    max-width: 16px;
+    max-height: 16px;
     display: block;
 }
 
