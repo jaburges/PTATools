@@ -1,6 +1,6 @@
 <?php
 /**
- * Class competitions: kids and percent, never dollars.
+ * Class competitions: purchases and percent, never dollars.
  *
  * Run: php tests/test-class-competitions.php
  */
@@ -56,42 +56,58 @@ $t->equals(2, $comps[1]['id'], 'second competition gets next id');
 $t->equals('product', $comps[1]['source_type'], 'product source is kept');
 $t->check($comps[1]['show_percent'] && !$comps[1]['show_count'], 'percent-only board is allowed');
 
-$t->check(
-    Azure_Class_Competitions::child_participates(array(10, 11), array(11, 99)),
-    'child counts when any family parent donated'
-);
-$t->check(
-    !Azure_Class_Competitions::child_participates(array(10), array(11)),
-    'child does not count without a donor parent'
-);
-$t->check(
-    !Azure_Class_Competitions::child_participates(array(0), array(0)),
-    'guest user id 0 does not count'
+$from_pta = Azure_Class_Competitions::purchase_from_item_meta(array(
+    '_pta_child_teacher' => 'Ms. Rivera',
+    '_pta_childsgrade'   => '3',
+));
+$t->equals('Ms. Rivera', $from_pta['teacher'], 'teacher from _pta_child_teacher');
+$t->equals('3', $from_pta['grade'], 'grade from _pta_childsgrade');
+
+$from_raw = Azure_Class_Competitions::purchase_from_item_meta(array(
+    '_azure_product_fields_raw' => array(
+        array('field_key' => 'child_teacher', 'label' => 'Teacher', 'value' => 'Mr. Chen'),
+        array('field_key' => 'childsgrade', 'label' => 'Grade', 'value' => '4'),
+    ),
+));
+$t->equals('Mr. Chen', $from_raw['teacher'], 'teacher from product-fields raw');
+$t->equals('4', $from_raw['grade'], 'grade from product-fields raw');
+
+$from_children = Azure_Class_Competitions::purchase_from_item_meta(array(
+    '_azure_pf_children' => array(
+        array('name' => 'Sam', 'grade' => '2', 'teacher' => 'Ms. Rivera'),
+    ),
+));
+$t->equals('Ms. Rivera', $from_children['teacher'], 'teacher from azure_pf_children');
+
+$t->equals(
+    null,
+    Azure_Class_Competitions::purchase_from_item_meta(array('Color' => 'Blue')),
+    'line item without a teacher is skipped'
 );
 
-$t->equals(50, Azure_Class_Competitions::percent(12, 24), 'percent is kids over class size');
+$t->equals(50, Azure_Class_Competitions::percent(12, 24), 'percent is purchases over class size');
 $t->equals(null, Azure_Class_Competitions::percent(12, 0), 'percent is blank when class size is unknown');
 $t->equals(100, Azure_Class_Competitions::percent(30, 24), 'percent caps at 100');
 
-$children = array(
-    array('id' => 1, 'teacher' => 'Ms. Rivera', 'grade' => '3', 'parent_ids' => array(10)),
-    array('id' => 2, 'teacher' => 'Ms. Rivera', 'grade' => '3', 'parent_ids' => array(11)),
-    array('id' => 3, 'teacher' => 'Mr. Chen', 'grade' => '4', 'parent_ids' => array(12)),
-    array('id' => 3, 'teacher' => 'Mr. Chen', 'grade' => '4', 'parent_ids' => array(12)),
+$purchases = array(
+    array('teacher' => 'Ms. Rivera', 'grade' => '3'),
+    array('teacher' => 'Ms. Rivera', 'grade' => '3'),
+    array('teacher' => 'Mr. Chen', 'grade' => '4'),
+    array('teacher' => '', 'grade' => '4'),
 );
 $rows = Azure_Class_Competitions::build_rows(
     $teachers,
     array('Ms. Rivera' => 20, 'Mr. Chen' => 10),
-    $children,
-    array(10, 12),
+    $purchases,
     true,
     true
 );
 $t->equals(2, count($rows), 'one row per teacher');
-$t->equals('Mr. Chen', $rows[0]['teacher'], 'higher percent sorts first');
-$t->equals(1, $rows[0]['count'], 'duplicate child id is counted once');
-$t->equals(1, $rows[1]['count'], 'only donor families count');
-$t->equals(5, $rows[1]['percent'], 'Rivera is 1 of 20');
+$t->equals('Ms. Rivera', $rows[0]['teacher'], 'higher purchase percent sorts first');
+$t->equals(2, $rows[0]['count'], 'two line items on Rivera count as two purchases');
+$t->equals(1, $rows[1]['count'], 'one line item on Chen');
+$t->equals(10, $rows[0]['percent'], 'Rivera is 2 of 20');
+$t->equals(10, $rows[1]['percent'], 'Chen is 1 of 10');
 $encoded = json_encode($rows);
 $t->check(strpos($encoded, 'amount') === false, 'rows have no amount field');
 $t->check(strpos($encoded, 'raised') === false, 'rows have no raised field');
@@ -102,8 +118,8 @@ $html = Azure_Class_Competitions::render_table(
     $rows
 );
 $t->check(strpos($html, '$') === false, 'board HTML never includes a dollar sign');
-$t->check(strpos($html, 'Participating kids') !== false, 'count column is labeled as kids');
+$t->check(strpos($html, 'Purchases') !== false, 'count column is labeled as purchases');
 $t->check(strpos($html, '% of class') !== false, 'percent column is present');
-$t->check(strpos($html, 'Mr. Chen') !== false, 'teacher names render');
+$t->check(strpos($html, 'Ms. Rivera') !== false, 'teacher names render');
 
 exit($t->finish() === 0 ? 0 : 1);

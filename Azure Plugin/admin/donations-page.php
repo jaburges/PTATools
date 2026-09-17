@@ -260,7 +260,7 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
                     <code>[Donation-progress campaign="WAG"]</code>
                     <p class="description">Standalone thermometer if you need it on a different page. Optional once the bar is shown inside <code>[WAG]</code>.</p>
                     <code>[class-competition]</code>
-                    <p class="description">Class participation board (kids, not dollars). Optional: <code>id="1"</code> for a specific competition.</p>
+                    <p class="description">Class purchase board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition.</p>
                 </td>
             </tr>
         </table>
@@ -356,7 +356,7 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
-        <p class="description" style="margin:10px 0 0;"><?php esc_html_e('Saved with Donation Settings above. Percent on a competition board is participating kids ÷ this number. Leave 0 if you do not know the size yet — the % column will stay blank for that class.', 'azure-plugin'); ?></p>
+        <p class="description" style="margin:10px 0 0;"><?php esc_html_e('Saved with Donation Settings above. Percent on a competition board is purchases ÷ this number. Leave 0 if you do not know the size yet — the % column will stay blank for that class.', 'azure-plugin'); ?></p>
     </div>
 
     <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin-bottom:20px; box-shadow:0 1px 1px rgba(0,0,0,.04);">
@@ -364,7 +364,7 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
             <h2 style="margin:0;"><span class="dashicons dashicons-awards"></span> Class competitions</h2>
             <button type="button" class="button add-class-competition"><?php esc_html_e('Add competition', 'azure-plugin'); ?></button>
         </div>
-        <p class="description" style="margin:0 0 12px;"><?php esc_html_e('Boards count kids whose parent gave the chosen product or campaign. They never show dollar amounts.', 'azure-plugin'); ?></p>
+        <p class="description" style="margin:0 0 12px;"><?php esc_html_e('Boards count each paid line item for the chosen product or campaign. A WAG campaign uses the same gifts as the progress bar (mapped levels and custom amounts). Teacher and grade come from the fields on that line item. They never show dollar amounts.', 'azure-plugin'); ?></p>
         <div id="class-competition-rows"></div>
         <template id="class-competition-row-tpl">
             <div class="class-competition-row" style="border:1px solid #dcdcde; padding:12px; margin-bottom:10px; background:#f6f7f7;">

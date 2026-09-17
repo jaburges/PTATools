@@ -1,9 +1,10 @@
 <?php
 /**
- * Class competitions: participation by teacher, never dollars.
+ * Class competitions: purchases by teacher, never dollars.
  *
- * Teachers come from Child Info. Class sizes are staff-entered headcounts.
- * A child counts when any parent in their family has a qualifying gift.
+ * Teachers and class sizes still come from Child Info / the Donations grid.
+ * Each qualifying line item (WAG gift, custom WAG amount, or chosen product)
+ * counts once for the teacher saved on that order item.
  */
 
 if (!defined('ABSPATH')) {
@@ -124,19 +125,6 @@ class Azure_Class_Competitions {
     }
 
     /**
-     * @param int[] $parent_user_ids
-     * @param int[] $donor_user_ids
-     */
-    public static function child_participates($parent_user_ids, $donor_user_ids) {
-        if (empty($parent_user_ids) || empty($donor_user_ids)) {
-            return false;
-        }
-        $parent_user_ids = array_filter(array_map('intval', (array) $parent_user_ids));
-        $donor_user_ids = array_filter(array_map('intval', (array) $donor_user_ids));
-        return $parent_user_ids && $donor_user_ids && (bool) array_intersect($parent_user_ids, $donor_user_ids);
-    }
-
-    /**
      * @param int $count
      * @param int $size
      * @return int|null
@@ -153,15 +141,14 @@ class Azure_Class_Competitions {
     /**
      * Build leaderboard rows. Never includes money.
      *
-     * @param string[] $teachers Canonical teacher names.
-     * @param array    $sizes    teacher => int
-     * @param array    $children [{id, teacher, grade, parent_ids}]
-     * @param int[]    $donor_ids
+     * @param string[] $teachers  Canonical teacher names.
+     * @param array    $sizes     teacher => int
+     * @param array    $purchases [{teacher, grade}] one entry per line item
      * @param bool     $show_count
      * @param bool     $show_percent
      * @return array
      */
-    public static function build_rows($teachers, $sizes, $children, $donor_ids, $show_count, $show_percent) {
+    public static function build_rows($teachers, $sizes, $purchases, $show_count, $show_percent) {
         $rows = array();
         $show_count = (bool) $show_count;
         $show_percent = (bool) $show_percent;
@@ -169,16 +156,22 @@ class Azure_Class_Competitions {
             $show_count = true;
         }
 
-        $by_key = array();
-        foreach ((array) $children as $child) {
-            $key = self::normalize_teacher(isset($child['teacher']) ? $child['teacher'] : '');
+        $counts = array();
+        $grades = array();
+        foreach ((array) $purchases as $purchase) {
+            $key = self::normalize_teacher(isset($purchase['teacher']) ? $purchase['teacher'] : '');
             if ($key === '') {
                 continue;
             }
-            if (!isset($by_key[$key])) {
-                $by_key[$key] = array();
+            if (!isset($counts[$key])) {
+                $counts[$key] = 0;
+                $grades[$key] = array();
             }
-            $by_key[$key][] = $child;
+            $counts[$key]++;
+            $grade = isset($purchase['grade']) ? trim((string) $purchase['grade']) : '';
+            if ($grade !== '') {
+                $grades[$key][$grade] = true;
+            }
         }
 
         foreach ((array) $teachers as $teacher) {
@@ -187,31 +180,11 @@ class Azure_Class_Competitions {
                 continue;
             }
             $key = self::normalize_teacher($teacher);
-            $class_children = isset($by_key[$key]) ? $by_key[$key] : array();
-            $grades = array();
-            $participating = 0;
-            $seen = array();
-            foreach ($class_children as $child) {
-                $grade = isset($child['grade']) ? trim((string) $child['grade']) : '';
-                if ($grade !== '') {
-                    $grades[$grade] = true;
-                }
-                $cid = isset($child['id']) ? (int) $child['id'] : 0;
-                if ($cid && isset($seen[$cid])) {
-                    continue;
-                }
-                $parents = isset($child['parent_ids']) ? $child['parent_ids'] : array();
-                if (self::child_participates($parents, $donor_ids)) {
-                    $participating++;
-                    if ($cid) {
-                        $seen[$cid] = true;
-                    }
-                }
-            }
+            $count = isset($counts[$key]) ? (int) $counts[$key] : 0;
             $size = 0;
             if (isset($sizes[$teacher])) {
                 $size = (int) $sizes[$teacher];
-            } elseif (isset($by_key[$key])) {
+            } else {
                 foreach ((array) $sizes as $name => $n) {
                     if (self::normalize_teacher($name) === $key) {
                         $size = (int) $n;
@@ -219,15 +192,16 @@ class Azure_Class_Competitions {
                     }
                 }
             }
-            $pct = $show_percent ? self::percent($participating, $size) : null;
+            $grade_list = isset($grades[$key]) ? implode(', ', array_keys($grades[$key])) : '';
+            $pct = $show_percent ? self::percent($count, $size) : null;
             $rows[] = array(
-                'teacher'       => $teacher,
-                'grade'         => implode(', ', array_keys($grades)),
-                'count'         => $participating,
-                'size'          => $size,
-                'percent'       => $pct,
-                'show_count'    => $show_count,
-                'show_percent'  => $show_percent,
+                'teacher'      => $teacher,
+                'grade'        => $grade_list,
+                'count'        => $count,
+                'size'         => $size,
+                'percent'      => $pct,
+                'show_count'   => $show_count,
+                'show_percent' => $show_percent,
             );
         }
 
@@ -253,141 +227,278 @@ class Azure_Class_Competitions {
         return self::build_rows(
             self::teacher_list(),
             self::get_class_sizes(),
-            self::load_children(),
-            self::load_donor_user_ids($competition),
+            self::load_purchases($competition),
             !empty($competition['show_count']),
             !empty($competition['show_percent'])
         );
     }
 
-    /**
-     * @param array $competition
-     * @return int[]
-     */
-    public static function load_donor_user_ids($competition) {
-        global $wpdb;
-        $ids = array();
-        $type = isset($competition['source_type']) ? $competition['source_type'] : '';
-        $source_id = isset($competition['source_id']) ? (int) $competition['source_id'] : 0;
-        if ($source_id <= 0 || !$wpdb) {
-            return $ids;
+    public static function is_wag_campaign_source($competition) {
+        if (!is_array($competition) || (isset($competition['source_type']) ? $competition['source_type'] : '') !== 'campaign') {
+            return false;
         }
-
-        $records = class_exists('Azure_Database')
-            ? Azure_Database::get_table_name('donation_records')
-            : '';
-        if ($records) {
-            if ($type === 'campaign') {
-                $found = $wpdb->get_col($wpdb->prepare(
-                    "SELECT DISTINCT user_id FROM {$records} WHERE campaign_id = %d AND user_id > 0",
-                    $source_id
-                ));
-            } else {
-                $found = $wpdb->get_col($wpdb->prepare(
-                    "SELECT DISTINCT user_id FROM {$records} WHERE product_id = %d AND user_id > 0",
-                    $source_id
-                ));
-            }
-            foreach ((array) $found as $uid) {
-                $ids[(int) $uid] = true;
-            }
+        $id = isset($competition['source_id']) ? (int) $competition['source_id'] : 0;
+        if ($id <= 0 || !class_exists('Azure_Donations_Module')) {
+            return false;
         }
-
-        if ($type === 'product') {
-            $lookup = $wpdb->prefix . 'wc_order_product_lookup';
-            $orders = $wpdb->prefix . 'wc_orders';
-            $has_lookup = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $lookup));
-            $has_orders = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $orders));
-            if ($has_lookup === $lookup && $has_orders === $orders) {
-                $found = $wpdb->get_col($wpdb->prepare(
-                    "SELECT DISTINCT l.customer_id
-                     FROM {$lookup} l
-                     INNER JOIN {$orders} o ON o.id = l.order_id
-                     WHERE (l.product_id = %d OR l.variation_id = %d)
-                       AND l.customer_id > 0
-                       AND o.type = 'shop_order'
-                       AND o.status IN ('wc-processing','wc-completed','processing','completed')",
-                    $source_id,
-                    $source_id
-                ));
-                foreach ((array) $found as $uid) {
-                    $ids[(int) $uid] = true;
-                }
-            }
-        }
-
-        return array_map('intval', array_keys($ids));
+        return $id === (int) Azure_Donations_Module::get_wag_campaign_id();
     }
 
     /**
-     * @return array
+     * Teacher + grade from WooCommerce line-item meta (product fields).
+     *
+     * @param array $meta meta_key => meta_value
+     * @return array{teacher:string,grade:string}|null
      */
-    public static function load_children() {
+    public static function purchase_from_item_meta($meta) {
+        if (!is_array($meta)) {
+            return null;
+        }
+        $teacher = '';
+        $grade = '';
+
+        $raw = self::maybe_unserialize_meta(isset($meta['_azure_product_fields_raw']) ? $meta['_azure_product_fields_raw'] : null);
+        if (is_array($raw)) {
+            foreach ($raw as $field) {
+                if (!is_array($field)) {
+                    continue;
+                }
+                $val = isset($field['value']) ? trim((string) $field['value']) : '';
+                if ($val === '') {
+                    continue;
+                }
+                $hay = strtolower(
+                    (isset($field['field_key']) ? $field['field_key'] : '') . ' '
+                    . (isset($field['label']) ? $field['label'] : '')
+                );
+                if (strpos($hay, 'teacher') !== false) {
+                    $teacher = $val;
+                } elseif (strpos($hay, 'grade') !== false || preg_match('/\byear\b/', $hay)) {
+                    $grade = $val;
+                }
+            }
+        }
+
+        $children = self::maybe_unserialize_meta(isset($meta['_azure_pf_children']) ? $meta['_azure_pf_children'] : null);
+        if (is_array($children)) {
+            foreach ($children as $child) {
+                if (!is_array($child)) {
+                    continue;
+                }
+                if ($teacher === '' && !empty($child['teacher'])) {
+                    $teacher = trim((string) $child['teacher']);
+                }
+                if ($grade === '' && !empty($child['grade'])) {
+                    $grade = trim((string) $child['grade']);
+                }
+            }
+        }
+
+        foreach ($meta as $key => $value) {
+            if (!is_scalar($value) && $value !== null) {
+                continue;
+            }
+            $val = trim((string) $value);
+            if ($val === '') {
+                continue;
+            }
+            $hay = strtolower((string) $key);
+            if ($teacher === '' && strpos($hay, 'teacher') !== false) {
+                $teacher = $val;
+            } elseif ($grade === '' && (strpos($hay, 'grade') !== false || strpos($hay, 'childsgrade') !== false)) {
+                $grade = $val;
+            }
+        }
+
+        if ($teacher === '') {
+            return null;
+        }
+        return array(
+            'teacher' => $teacher,
+            'grade'   => $grade,
+        );
+    }
+
+    /**
+     * @param array $competition
+     * @return array [{teacher, grade}]
+     */
+    public static function load_purchases($competition) {
+        $item_ids = self::qualifying_order_item_ids($competition);
+        return self::purchases_from_order_item_ids($item_ids);
+    }
+
+    /**
+     * Paid line items that belong to the competition source.
+     * WAG campaigns use the same mapped products as the progress bar.
+     *
+     * @param array $competition
+     * @return int[]
+     */
+    public static function qualifying_order_item_ids($competition) {
         global $wpdb;
         $out = array();
-        if (!class_exists('Azure_Database') || !class_exists('Azure_User_Children')) {
+        if (!is_array($competition) || !$wpdb) {
             return $out;
         }
-        $children_table = Azure_Database::get_table_name('user_children');
-        $meta_table = Azure_Database::get_table_name('user_children_meta');
-        $family_table = Azure_Database::get_table_name('connected_family');
-        if (!$children_table) {
-            return $out;
-        }
-
-        $kids = $wpdb->get_results("SELECT id, user_id, family_id FROM {$children_table} WHERE is_active = 1");
-        if (empty($kids)) {
+        $type = isset($competition['source_type']) ? $competition['source_type'] : '';
+        $source_id = isset($competition['source_id']) ? (int) $competition['source_id'] : 0;
+        if ($source_id <= 0) {
             return $out;
         }
 
-        $families = array();
-        if ($family_table) {
-            foreach ((array) $wpdb->get_results("SELECT id, primary_user_id, secondary_user_id FROM {$family_table}") as $fam) {
-                $families[(int) $fam->id] = array(
-                    (int) $fam->primary_user_id,
-                    (int) $fam->secondary_user_id,
-                );
+        $product_ids = array();
+        $variation_ids = array();
+        if ($type === 'product') {
+            $product_ids[] = $source_id;
+            $variation_ids[] = $source_id;
+        } elseif ($type === 'campaign' && self::is_wag_campaign_source($competition) && class_exists('Azure_Donations_Module')) {
+            $mapped = Azure_Donations_Module::wag_mapped_ids();
+            $product_ids = isset($mapped['products']) ? $mapped['products'] : array();
+            $variation_ids = isset($mapped['variations']) ? $mapped['variations'] : array();
+        }
+
+        foreach (self::paid_line_item_ids_for_catalog($product_ids, $variation_ids) as $id) {
+            $out[(int) $id] = true;
+        }
+
+        if ($type === 'campaign') {
+            foreach (self::paid_line_item_ids_for_campaign_records($source_id) as $id) {
+                $out[(int) $id] = true;
             }
         }
 
-        $meta_by_child = array();
-        if ($meta_table) {
-            $keys = array_merge(
-                Azure_User_Children::child_grade_meta_keys(),
-                Azure_User_Children::child_teacher_meta_keys()
-            );
-            $in = implode(',', array_fill(0, count($keys), '%s'));
-            $sql = $wpdb->prepare(
-                "SELECT child_id, meta_key, meta_value FROM {$meta_table} WHERE meta_key IN ({$in})",
-                $keys
-            );
-            foreach ((array) $wpdb->get_results($sql) as $row) {
-                $cid = (int) $row->child_id;
-                if (!isset($meta_by_child[$cid])) {
-                    $meta_by_child[$cid] = array();
-                }
-                $meta_by_child[$cid][$row->meta_key] = $row->meta_value;
-            }
-        }
+        return array_map('intval', array_keys($out));
+    }
 
-        foreach ($kids as $kid) {
-            $cid = (int) $kid->id;
-            $meta = isset($meta_by_child[$cid]) ? $meta_by_child[$cid] : array();
-            $teacher = Azure_User_Children::teacher_from_meta($meta);
-            $parents = array((int) $kid->user_id);
-            $fid = (int) $kid->family_id;
-            if ($fid && isset($families[$fid])) {
-                $parents = array_merge($parents, $families[$fid]);
+    /**
+     * @param int[] $item_ids
+     * @return array
+     */
+    public static function purchases_from_order_item_ids($item_ids) {
+        global $wpdb;
+        $item_ids = array_values(array_filter(array_map('intval', (array) $item_ids)));
+        if (empty($item_ids) || !$wpdb) {
+            return array();
+        }
+        $meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $meta_table)) !== $meta_table) {
+            return array();
+        }
+        $in = implode(',', $item_ids);
+        $rows = $wpdb->get_results("SELECT order_item_id, meta_key, meta_value FROM {$meta_table} WHERE order_item_id IN ({$in})");
+        $by_item = array();
+        foreach ((array) $rows as $row) {
+            $id = (int) $row->order_item_id;
+            if (!isset($by_item[$id])) {
+                $by_item[$id] = array();
             }
-            $parents = array_values(array_unique(array_filter(array_map('intval', $parents))));
-            $out[] = array(
-                'id'         => $cid,
-                'teacher'    => $teacher,
-                'grade'      => Azure_User_Children::grade_from_meta($meta),
-                'parent_ids' => $parents,
-            );
+            $by_item[$id][$row->meta_key] = $row->meta_value;
+        }
+        $out = array();
+        foreach ($item_ids as $id) {
+            $purchase = self::purchase_from_item_meta(isset($by_item[$id]) ? $by_item[$id] : array());
+            if ($purchase) {
+                $out[] = $purchase;
+            }
         }
         return $out;
+    }
+
+    /**
+     * @param int[] $product_ids
+     * @param int[] $variation_ids
+     * @return int[]
+     */
+    public static function paid_line_item_ids_for_catalog($product_ids, $variation_ids) {
+        global $wpdb;
+        $product_ids = array_values(array_unique(array_filter(array_map('intval', (array) $product_ids))));
+        $variation_ids = array_values(array_unique(array_filter(array_map('intval', (array) $variation_ids))));
+        if ((empty($product_ids) && empty($variation_ids)) || !$wpdb) {
+            return array();
+        }
+        $lookup = $wpdb->prefix . 'wc_order_product_lookup';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $lookup)) !== $lookup) {
+            return array();
+        }
+        $match = array();
+        if (!empty($product_ids)) {
+            $match[] = 'l.product_id IN (' . implode(',', $product_ids) . ')';
+        }
+        if (!empty($variation_ids)) {
+            $match[] = 'l.variation_id IN (' . implode(',', $variation_ids) . ')';
+        }
+        return self::paid_lookup_item_ids($lookup, implode(' OR ', $match));
+    }
+
+    /**
+     * @param int $campaign_id
+     * @return int[]
+     */
+    public static function paid_line_item_ids_for_campaign_records($campaign_id) {
+        global $wpdb;
+        $campaign_id = (int) $campaign_id;
+        if ($campaign_id <= 0 || !$wpdb || !class_exists('Azure_Database')) {
+            return array();
+        }
+        $records = Azure_Database::get_table_name('donation_records');
+        $lookup = $wpdb->prefix . 'wc_order_product_lookup';
+        if (!$records || $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $lookup)) !== $lookup) {
+            return array();
+        }
+        $match = "EXISTS (
+            SELECT 1 FROM {$records} r
+            WHERE r.campaign_id = " . $campaign_id . "
+              AND r.order_id = l.order_id
+              AND r.product_id > 0
+              AND (r.product_id = l.product_id OR r.product_id = l.variation_id)
+        )";
+        return self::paid_lookup_item_ids($lookup, $match);
+    }
+
+    /**
+     * @param string $lookup
+     * @param string $match_sql already-safe fragment
+     * @return int[]
+     */
+    private static function paid_lookup_item_ids($lookup, $match_sql) {
+        global $wpdb;
+        $orders = $wpdb->prefix . 'wc_orders';
+        $paid = "'wc-completed','wc-processing'";
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $orders)) === $orders) {
+            $sql = "SELECT l.order_item_id
+                    FROM {$lookup} l
+                    INNER JOIN {$orders} o ON o.id = l.order_id
+                    WHERE o.type = 'shop_order'
+                      AND o.status IN ({$paid})
+                      AND ({$match_sql})";
+        } else {
+            $sql = "SELECT l.order_item_id
+                    FROM {$lookup} l
+                    INNER JOIN {$wpdb->posts} o ON o.ID = l.order_id
+                    WHERE o.post_status IN ({$paid})
+                      AND ({$match_sql})";
+        }
+        $found = $wpdb->get_col($sql);
+        return array_values(array_unique(array_filter(array_map('intval', (array) $found))));
+    }
+
+    private static function maybe_unserialize_meta($value) {
+        if ($value === null || $value === '') {
+            return $value;
+        }
+        if (function_exists('maybe_unserialize')) {
+            return maybe_unserialize($value);
+        }
+        if (!is_string($value)) {
+            return $value;
+        }
+        $trim = trim($value);
+        if ($trim === '' || ($trim[0] !== 'a' && $trim[0] !== 'O')) {
+            return $value;
+        }
+        $out = @unserialize($trim);
+        return $out === false ? $value : $out;
     }
 
     public static function render_table($competition, $rows) {
@@ -410,7 +521,7 @@ class Azure_Class_Competitions {
                         <th><?php esc_html_e('Teacher', 'azure-plugin'); ?></th>
                         <th><?php esc_html_e('Grade', 'azure-plugin'); ?></th>
                         <?php if ($show_count): ?>
-                            <th><?php esc_html_e('Participating kids', 'azure-plugin'); ?></th>
+                            <th><?php esc_html_e('Purchases', 'azure-plugin'); ?></th>
                         <?php endif; ?>
                         <?php if ($show_percent): ?>
                             <th><?php esc_html_e('% of class', 'azure-plugin'); ?></th>
