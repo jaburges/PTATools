@@ -411,24 +411,19 @@ class Azure_Class_Competitions {
      * @return int[]
      */
     public static function paid_line_item_ids_for_catalog($product_ids, $variation_ids) {
-        global $wpdb;
         $product_ids = array_values(array_unique(array_filter(array_map('intval', (array) $product_ids))));
         $variation_ids = array_values(array_unique(array_filter(array_map('intval', (array) $variation_ids))));
-        if ((empty($product_ids) && empty($variation_ids)) || !$wpdb) {
-            return array();
-        }
-        $lookup = $wpdb->prefix . 'wc_order_product_lookup';
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $lookup)) !== $lookup) {
+        if (empty($product_ids) && empty($variation_ids)) {
             return array();
         }
         $match = array();
         if (!empty($product_ids)) {
-            $match[] = 'l.product_id IN (' . implode(',', $product_ids) . ')';
+            $match[] = 'pm.meta_value IN (' . implode(',', $product_ids) . ')';
         }
         if (!empty($variation_ids)) {
-            $match[] = 'l.variation_id IN (' . implode(',', $variation_ids) . ')';
+            $match[] = 'vm.meta_value IN (' . implode(',', $variation_ids) . ')';
         }
-        return self::paid_lookup_item_ids($lookup, implode(' OR ', $match));
+        return self::paid_order_item_ids(implode(' OR ', $match));
     }
 
     /**
@@ -442,43 +437,61 @@ class Azure_Class_Competitions {
             return array();
         }
         $records = Azure_Database::get_table_name('donation_records');
-        $lookup = $wpdb->prefix . 'wc_order_product_lookup';
-        if (!$records || $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $lookup)) !== $lookup) {
+        if (!$records) {
             return array();
         }
         $match = "EXISTS (
             SELECT 1 FROM {$records} r
             WHERE r.campaign_id = " . $campaign_id . "
-              AND r.order_id = l.order_id
+              AND r.order_id = i.order_id
               AND r.product_id > 0
-              AND (r.product_id = l.product_id OR r.product_id = l.variation_id)
+              AND (r.product_id = pm.meta_value OR r.product_id = vm.meta_value)
         )";
-        return self::paid_lookup_item_ids($lookup, $match);
+        return self::paid_order_item_ids($match);
     }
 
     /**
-     * @param string $lookup
-     * @param string $match_sql already-safe fragment
+     * Paid line items matching $match_sql, read from the order item tables.
+     *
+     * Deliberately not WooCommerce's `wc_order_product_lookup`: that table is
+     * filled by the Analytics batch (`wc-admin_process_pending_orders_batch`),
+     * which on this site runs roughly twice a day, so the board sat hours
+     * behind checkout and parents saw donations missing. The order item rows
+     * exist the moment an order is paid. `pm` / `vm` are the line item's
+     * `_product_id` and `_variation_id`.
+     *
+     * @param string $match_sql already-safe fragment, matching on pm/vm/i
      * @return int[]
      */
-    private static function paid_lookup_item_ids($lookup, $match_sql) {
+    private static function paid_order_item_ids($match_sql) {
         global $wpdb;
+        if (!$wpdb || $match_sql === '') {
+            return array();
+        }
+        $items = $wpdb->prefix . 'woocommerce_order_items';
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $items)) !== $items) {
+            return array();
+        }
+        $itemmeta = $wpdb->prefix . 'woocommerce_order_itemmeta';
         $orders = $wpdb->prefix . 'wc_orders';
         $paid = "'wc-completed','wc-processing'";
         if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $orders)) === $orders) {
-            $sql = "SELECT l.order_item_id
-                    FROM {$lookup} l
-                    INNER JOIN {$orders} o ON o.id = l.order_id
-                    WHERE o.type = 'shop_order'
-                      AND o.status IN ({$paid})
-                      AND ({$match_sql})";
+            $join = "INNER JOIN {$orders} o ON o.id = i.order_id";
+            $where = "o.type = 'shop_order' AND o.status IN ({$paid})";
         } else {
-            $sql = "SELECT l.order_item_id
-                    FROM {$lookup} l
-                    INNER JOIN {$wpdb->posts} o ON o.ID = l.order_id
-                    WHERE o.post_status IN ({$paid})
-                      AND ({$match_sql})";
+            $join = "INNER JOIN {$wpdb->posts} o ON o.ID = i.order_id";
+            $where = "o.post_status IN ({$paid})";
         }
+        $sql = "SELECT i.order_item_id
+                FROM {$items} i
+                {$join}
+                LEFT JOIN {$itemmeta} pm
+                  ON pm.order_item_id = i.order_item_id AND pm.meta_key = '_product_id'
+                LEFT JOIN {$itemmeta} vm
+                  ON vm.order_item_id = i.order_item_id AND vm.meta_key = '_variation_id'
+                WHERE i.order_item_type = 'line_item'
+                  AND {$where}
+                  AND ({$match_sql})";
         $found = $wpdb->get_col($sql);
         return array_values(array_unique(array_filter(array_map('intval', (array) $found))));
     }

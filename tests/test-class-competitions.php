@@ -159,4 +159,64 @@ $t->check(substr(trim($linked), -4) === '</a>', 'anchor is closed after the boar
 $t->check(strpos($linked, 'pta-class-race--linked') !== false, 'linked board gets a hover class');
 $t->check(strpos($html, '10%') !== false, 'percent renders in the score block');
 
+/**
+ * Scoring must read the order item tables, not WooCommerce's Analytics
+ * lookup — that batch runs twice a day and left the board hours stale.
+ */
+class PtaFakeCompetitionWPDB {
+    public $prefix = 'wp_';
+    public $posts = 'wp_posts';
+    /** @var string[] Tables SHOW TABLES should report as existing. */
+    public $existing = array();
+    /** @var string[] Every SQL string passed to get_col(). */
+    public $queries = array();
+
+    public function prepare($sql, ...$args) {
+        foreach ($args as $arg) {
+            $sql = preg_replace('/%s/', "'" . $arg . "'", $sql, 1);
+        }
+        return $sql;
+    }
+
+    public function get_var($sql) {
+        if (preg_match("/SHOW TABLES LIKE '([^']+)'/", $sql, $m)) {
+            return in_array($m[1], $this->existing, true) ? $m[1] : null;
+        }
+        return null;
+    }
+
+    public function get_col($sql) {
+        $this->queries[] = $sql;
+        return array('11', '11', '12');
+    }
+}
+
+$wpdb = new PtaFakeCompetitionWPDB();
+$wpdb->existing = array('wp_woocommerce_order_items', 'wp_wc_orders');
+
+$ids = Azure_Class_Competitions::paid_line_item_ids_for_catalog(array(33377), array(33382, 33383));
+$catalog_sql = $wpdb->queries[0];
+$t->equals(array(11, 12), $ids, 'repeated item ids collapse to one each');
+$t->check(strpos($catalog_sql, 'wc_order_product_lookup') === false, 'scoring no longer reads the Analytics lookup table');
+$t->check(strpos($catalog_sql, 'wp_woocommerce_order_items') !== false, 'scoring reads order items directly');
+$t->check(strpos($catalog_sql, 'pm.meta_value IN (33377)') !== false, 'products match the _product_id line item meta');
+$t->check(strpos($catalog_sql, 'vm.meta_value IN (33382,33383)') !== false, 'variations match the _variation_id line item meta');
+$t->check(strpos($catalog_sql, "o.status IN ('wc-completed','wc-processing')") !== false, 'only paid orders are counted');
+$t->check(strpos($catalog_sql, "i.order_item_type = 'line_item'") !== false, 'shipping and fee rows are excluded');
+
+$wpdb->queries = array();
+Azure_Class_Competitions::paid_line_item_ids_for_campaign_records(2);
+$campaign_sql = $wpdb->queries[0];
+$t->check(strpos($campaign_sql, 'wc_order_product_lookup') === false, 'campaign records path avoids the lookup table too');
+$t->check(strpos($campaign_sql, 'r.order_id = i.order_id') !== false, 'donation records join the order item rows');
+
+$wpdb->existing = array('wp_woocommerce_order_items');
+$wpdb->queries = array();
+Azure_Class_Competitions::paid_line_item_ids_for_catalog(array(33377), array());
+$t->check(strpos($wpdb->queries[0], "o.post_status IN ('wc-completed','wc-processing')") !== false, 'sites without HPOS fall back to wp_posts');
+
+$wpdb->existing = array();
+$t->equals(array(), Azure_Class_Competitions::paid_line_item_ids_for_catalog(array(33377), array()), 'no order items table means no rows');
+$t->equals(array(), Azure_Class_Competitions::paid_line_item_ids_for_catalog(array(), array()), 'no configured products means no query');
+
 exit($t->finish() === 0 ? 0 : 1);
