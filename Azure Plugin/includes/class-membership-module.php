@@ -5,7 +5,9 @@
  * Two lists, kept separate on purpose:
  *   1. Paid members this school year — WooCommerce Family/Individual products.
  *      Powers the admin roster + the WA/LW CSV export.
+ *      Also gates who may *view* /directory (logged-in + member).
  *   2. Parent directory — only parents whose own opt-in checkbox is truthy.
+ *      Listing is independent of whether the listed parent is a member.
  *
  * No custom table. Membership is derived from orders; directory rows come
  * from existing `pta_pf_*` user meta on the purchaser / family-primary profile.
@@ -2676,24 +2678,7 @@ HTML;
         if (user_can($user, 'manage_options')) {
             return true;
         }
-        if (user_can($user, 'azure_ad_user')) {
-            return true;
-        }
-        $roles = (array) $user->roles;
-        if (in_array('parent', $roles, true) || in_array('school_staff', $roles, true)) {
-            return true;
-        }
-        self::ensure_sso_sync();
-        if (class_exists('Azure_SSO_Sync')) {
-            $sso = Azure_SSO_Sync::resolve_configured_role_slug();
-            if ($sso && in_array($sso, $roles, true)) {
-                return true;
-            }
-        }
-        if (get_user_meta($user->ID, 'azure_object_id', true)) {
-            return true;
-        }
-        return self::user_has_active_pta_role((int) $user->ID);
+        return self::user_is_member((int) $user->ID);
     }
 
     private static function user_has_active_pta_role($user_id) {
@@ -3051,7 +3036,7 @@ HTML;
         }
         if (!self::user_can_view_directory()) {
             return '<div class="pta-parent-directory pta-parent-directory--denied">'
-                . '<p>' . esc_html__('This directory is for Wilder families and staff.', 'azure-plugin') . '</p>'
+                . '<p>' . esc_html__('This directory is for current PTSA members.', 'azure-plugin') . '</p>'
                 . '</div>';
         }
 

@@ -59,7 +59,7 @@ foreach ($rows as $r) {
         <?php
         printf(
             /* translators: %s: school year label like 2026–2027 */
-            esc_html__('Paid Family, Individual, or Staff membership this school year (%s). The directory is a separate list — only parents who opted in.', 'azure-plugin'),
+            esc_html__('Paid Family, Individual, or Staff membership this school year (%s). Viewing /directory requires a current membership; the listed names are anyone who opted in.', 'azure-plugin'),
             esc_html($range['label'])
         );
         ?>
