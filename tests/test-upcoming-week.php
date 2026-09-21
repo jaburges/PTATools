@@ -12,6 +12,7 @@ if (!defined('AZURE_PLUGIN_PATH')) {
 }
 
 require_once dirname(__DIR__) . '/Azure Plugin/includes/class-upcoming-module.php';
+require_once dirname(__DIR__) . '/Azure Plugin/includes/class-calendar-mapping-manager.php';
 
 $t = new TestRunner('Upcoming week boundaries');
 
@@ -77,5 +78,39 @@ $t->check(in_array('cal-ptsa', $merged['calendar_ids'], true), 'calendar and cat
 $t->check(in_array('Private', $merged['categories'], true), 'merged excludes keep the extra category');
 
 $t->equals(array('Staff', 'Private'), Azure_Upcoming_Module::parse_csv_names(' Staff, Private '), 'csv names trim empties');
+
+$shared = array(
+    (object) array(
+        'outlook_calendar_name' => 'Calendar',
+        'outlook_calendar_id'   => 'cal-ptsa',
+        'mailbox_email'         => 'calendar@wilderptsa.net',
+        'category_name'         => 'PTA Events',
+        'display_name'          => '',
+    ),
+    (object) array(
+        'outlook_calendar_name' => 'Calendar',
+        'outlook_calendar_id'   => 'cal-math',
+        'mailbox_email'         => 'mathadventures@wilderptsa.net',
+        'category_name'         => 'Math Adventures',
+        'display_name'          => '',
+    ),
+    (object) array(
+        'outlook_calendar_name' => 'Calendar',
+        'outlook_calendar_id'   => 'cal-art',
+        'mailbox_email'         => 'artcalendar@wilderptsa.net',
+        'category_name'         => 'Art Calendar',
+        'display_name'          => 'Art Calendar',
+    ),
+);
+$named = Azure_Upcoming_Module::resolve_excludes('Math Adventures', '', $shared);
+$t->equals(array('cal-math'), $named['calendar_ids'], 'exclude-calendars Math Adventures hits the math mailbox, not all Calendars');
+$generic = Azure_Upcoming_Module::resolve_excludes('Calendar', '', $shared);
+$t->equals(array(), $generic['calendar_ids'], 'shared Outlook name Calendar does not exclude every mapping');
+$display = Azure_Upcoming_Module::resolve_excludes('Art Calendar', '', $shared);
+$t->equals(array('cal-art'), $display['calendar_ids'], 'exclude-calendars uses the mapping display name');
+$renamed = $shared;
+$renamed[1]->display_name = 'Math Calendar';
+$by_display = Azure_Upcoming_Module::resolve_excludes('Math Calendar', '', $renamed);
+$t->equals(array('cal-math'), $by_display['calendar_ids'], 'a custom mapping name is usable in exclude-calendars');
 
 exit($t->finish());

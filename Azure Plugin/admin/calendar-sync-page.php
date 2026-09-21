@@ -232,7 +232,18 @@ $frequency_labels = array(
                                 </label>
                             </td>
                             <td>
-                                <strong><?php echo esc_html($mapping->outlook_calendar_name); ?></strong>
+                                <?php
+                                $label = class_exists('Azure_Calendar_Mapping_Manager')
+                                    ? Azure_Calendar_Mapping_Manager::mapping_label($mapping)
+                                    : (string) $mapping->outlook_calendar_name;
+                                $outlook_title = (string) $mapping->outlook_calendar_name;
+                                ?>
+                                <strong><?php echo esc_html($label); ?></strong>
+                                <?php if ($label !== $outlook_title && $outlook_title !== ''): ?>
+                                    <div style="color:#646970;font-size:12px;">
+                                        <?php echo esc_html(sprintf(__('Outlook: %s', 'azure-plugin'), $outlook_title)); ?>
+                                    </div>
+                                <?php endif; ?>
                                 <div style="color:#646970;font-size:12px;">
                                     <code><?php echo esc_html($mapping->outlook_calendar_id); ?></code>
                                 </div>
@@ -363,6 +374,14 @@ $frequency_labels = array(
                         <select id="outlook-calendar-select" name="outlook_calendar_id" class="regular-text" required>
                             <option value=""><?php esc_html_e('Loading calendars...', 'azure-plugin'); ?></option>
                         </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="mapping-display-name"><?php esc_html_e('Calendar name', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <input type="text" id="mapping-display-name" name="display_name" class="regular-text"
+                               placeholder="<?php esc_attr_e('Art Calendar', 'azure-plugin'); ?>">
+                        <p class="description"><?php esc_html_e('Your name for this calendar. Outlook often calls every mailbox calendar “Calendar”, so this is what shows in the table and in newsletter exclude-calendars.', 'azure-plugin'); ?></p>
                     </td>
                 </tr>
                 <tr>

@@ -107,4 +107,30 @@ $t->equals(
     'a plain category string still works for older sync callers'
 );
 
+$t->equals(
+    'Math Calendar',
+    Azure_Calendar_Mapping_Manager::mapping_label((object) array(
+        'display_name'          => 'Math Calendar',
+        'outlook_calendar_name' => 'Calendar',
+        'category_name'         => 'Math Adventures',
+        'mailbox_email'         => 'mathadventures@wilderptsa.net',
+    )),
+    'display name wins over Outlook Calendar and the PTA category'
+);
+$t->equals(
+    'Math Adventures',
+    Azure_Calendar_Mapping_Manager::mapping_label((object) array(
+        'display_name'          => '',
+        'outlook_calendar_name' => 'Calendar',
+        'category_name'         => 'Math Adventures',
+        'mailbox_email'         => 'mathadventures@wilderptsa.net',
+    )),
+    'empty display name falls back to the PTA category'
+);
+
+$page = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/calendar-sync-page.php');
+$t->check(strpos($page, 'id="mapping-display-name"') !== false, 'mapping modal has a Calendar name field');
+$js = file_get_contents(dirname(__DIR__) . '/Azure Plugin/js/calendar-sync-admin.js');
+$t->check(strpos($js, 'display_name: displayName') !== false, 'mapping save sends display_name');
+
 exit($t->finish() === 0 ? 0 : 1);

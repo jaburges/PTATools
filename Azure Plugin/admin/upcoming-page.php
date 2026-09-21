@@ -118,7 +118,7 @@ if (class_exists('Azure_UpNext_Themes')) {
                     <tr>
                         <td><code>exclude-calendars</code></td>
                         <td><code>""</code></td>
-                        <td><?php _e('Comma-separated Outlook calendar names (or category names) to hide. Same list as Calendar → Sync mappings.', 'azure-plugin'); ?></td>
+                        <td><?php _e('Comma-separated mapping names to hide. Use the Calendar name from Calendar → Sync (not Outlook’s own title, which is often just “Calendar”). PTA category names still work.', 'azure-plugin'); ?></td>
                     </tr>
                     <tr>
                         <td><code>week-start</code></td>

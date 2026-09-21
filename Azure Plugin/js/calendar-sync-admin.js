@@ -48,6 +48,7 @@
             form[0].reset();
         }
         $('#mapping-id').val('');
+        $('#mapping-display-name').val('');
         $('#new-category-name').val('');
         $('#schedule-frequency-row, #schedule-daterange-row').hide();
         $('#mapping-mode-single').prop('checked', true);
@@ -199,6 +200,7 @@
                 groups[mailbox].forEach(function (cal) {
                     var value = mailbox ? (mailbox + '::' + cal.id) : cal.id;
                     var $opt = $('<option/>').val(value).text(cal.name);
+                    $opt.attr('data-calendar-name', cal.name || '');
                     if (mailbox) {
                         $opt.attr('data-mailbox', mailbox).attr('data-calendar-id', cal.id);
                         $group.append($opt);
@@ -395,6 +397,7 @@
                     if (!$('#outlook-calendar-select').val() && calId) {
                         $('#outlook-calendar-select').val(calId);
                     }
+                    $('#mapping-display-name').val(m.display_name || '');
                     $('#pta-category-select').val(m.category_id || '');
                     var mode = m.mapping_mode === 'rules' ? 'rules' : 'single';
                     setMappingMode(mode);
@@ -491,7 +494,8 @@
             var $outlookSelect = $('#outlook-calendar-select');
             var outlookCalendarId = $outlookSelect.val();
             var $selectedCal = $outlookSelect.find('option:selected');
-            var outlookCalendarName = $selectedCal.text();
+            var outlookCalendarName = $selectedCal.data('calendar-name') || $selectedCal.text();
+            var displayName = ($('#mapping-display-name').val() || '').trim();
             var mailboxEmail = $selectedCal.data('mailbox') || '';
             if (!mailboxEmail && outlookCalendarId && outlookCalendarId.indexOf('::') !== -1) {
                 mailboxEmail = outlookCalendarId.split('::')[0];
@@ -548,6 +552,7 @@
                 outlook_calendar_id: outlookCalendarId,
                 mailbox_email: mailboxEmail,
                 outlook_calendar_name: outlookCalendarName,
+                display_name: displayName,
                 mapping_mode: mappingMode,
                 category_rules: JSON.stringify(collected.rules),
                 sync_enabled: syncEnabled,

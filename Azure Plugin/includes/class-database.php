@@ -214,6 +214,7 @@ class Azure_Database {
             outlook_calendar_id varchar(255) NOT NULL,
             mailbox_email varchar(255) NOT NULL DEFAULT '',
             outlook_calendar_name varchar(255) NOT NULL,
+            display_name varchar(255) NOT NULL DEFAULT '',
             category_id bigint(20) UNSIGNED,
             category_name varchar(255) NOT NULL,
             mapping_mode varchar(20) DEFAULT 'single',
@@ -562,6 +563,7 @@ class Azure_Database {
         dbDelta($sql_order_rules);
 
         self::migrate_calendar_mapping_mailboxes();
+        self::migrate_calendar_mapping_display_name();
         
         // One-time back-fill of new columns on the product fields table.
         // Safe to run on every dbDelta call: the option flag prevents repeats.
@@ -646,6 +648,26 @@ class Azure_Database {
         }
 
         update_option('azure_calendar_mapping_mailbox_v1', 'yes');
+    }
+
+    /**
+     * v3.147.101: a local name for each mapping. Outlook often titles every
+     * mailbox calendar "Calendar", so newsletter exclude-calendars and the
+     * mappings table need something human.
+     */
+    public static function migrate_calendar_mapping_display_name() {
+        global $wpdb;
+        $table = self::get_table_name('calendar_mappings');
+        if (!$table) {
+            return;
+        }
+        $col = $wpdb->get_results($wpdb->prepare(
+            "SHOW COLUMNS FROM {$table} LIKE %s",
+            'display_name'
+        ));
+        if (empty($col)) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN display_name varchar(255) NOT NULL DEFAULT '' AFTER outlook_calendar_name");
+        }
     }
 
     /**

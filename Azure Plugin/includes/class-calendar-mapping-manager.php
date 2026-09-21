@@ -83,22 +83,69 @@ class Azure_Calendar_Mapping_Manager {
     }
 
     /**
+     * Read a mapping field from an object or array row.
+     *
+     * @param object|array $mapping
+     * @param string       $key
+     * @return string
+     */
+    public static function mapping_field($mapping, $key) {
+        if (is_object($mapping)) {
+            return isset($mapping->{$key}) ? (string) $mapping->{$key} : '';
+        }
+        if (is_array($mapping)) {
+            return isset($mapping[$key]) ? (string) $mapping[$key] : '';
+        }
+        return '';
+    }
+
+    /**
+     * Human name for a mapping. Outlook's own title is often just "Calendar"
+     * on every mailbox, so prefer a stored display name, then the PTA category.
+     *
+     * @param object|array $mapping
+     * @return string
+     */
+    public static function mapping_label($mapping) {
+        $display = trim(self::mapping_field($mapping, 'display_name'));
+        if ($display !== '') {
+            return $display;
+        }
+        $category = trim(self::mapping_field($mapping, 'category_name'));
+        if ($category !== '') {
+            return $category;
+        }
+        $mailbox = trim(self::mapping_field($mapping, 'mailbox_email'));
+        if ($mailbox !== '') {
+            $local = strstr($mailbox, '@', true);
+            if (is_string($local) && $local !== '') {
+                return $local;
+            }
+            return $mailbox;
+        }
+        $outlook = trim(self::mapping_field($mapping, 'outlook_calendar_name'));
+        return $outlook !== '' ? $outlook : __('Calendar', 'azure-plugin');
+    }
+
+    /**
      * Create a new mapping row. Returns the new id, or false on failure.
      *
      * @return int|false
      */
-    public function create_mapping($outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '', $mailbox_email = '') {
+    public function create_mapping($outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '', $mailbox_email = '', $display_name = '') {
         global $wpdb;
         if (!$this->table_name) return false;
 
         $mode  = self::sanitize_mapping_mode($mapping_mode);
         $rules = self::encode_category_rules($category_rules);
         $mailbox_email = self::normalize_mailbox($mailbox_email);
+        $display_name = sanitize_text_field((string) $display_name);
 
         $data = array(
             'outlook_calendar_id'     => $outlook_calendar_id,
             'mailbox_email'           => $mailbox_email,
             'outlook_calendar_name'   => $outlook_calendar_name,
+            'display_name'            => $display_name,
             'category_id'             => (int) $category_id,
             'category_name'           => $category_name,
             'mapping_mode'            => $mode,
@@ -111,7 +158,7 @@ class Azure_Calendar_Mapping_Manager {
             'created_at'              => current_time('mysql'),
             'updated_at'              => current_time('mysql'),
         );
-        $formats = array('%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s', '%s');
+        $formats = array('%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s', '%s');
 
         $result = $wpdb->insert($this->table_name, $data, $formats);
         if (!$result) {
@@ -134,7 +181,7 @@ class Azure_Calendar_Mapping_Manager {
      *
      * @return bool
      */
-    public function update_mapping($mapping_id, $outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '', $mailbox_email = '') {
+    public function update_mapping($mapping_id, $outlook_calendar_id, $outlook_calendar_name, $category_id, $category_name, $sync_enabled = 1, $schedule_enabled = 0, $schedule_frequency = 'hourly', $schedule_lookback_days = 30, $schedule_lookahead_days = 365, $mapping_mode = 'single', $category_rules = '', $mailbox_email = '', $display_name = '') {
         global $wpdb;
         if (!$this->table_name) return false;
 
@@ -142,11 +189,13 @@ class Azure_Calendar_Mapping_Manager {
         $mode  = self::sanitize_mapping_mode($mapping_mode);
         $rules = self::encode_category_rules($category_rules);
         $mailbox_email = self::normalize_mailbox($mailbox_email);
+        $display_name = sanitize_text_field((string) $display_name);
 
         $data = array(
             'outlook_calendar_id'     => $outlook_calendar_id,
             'mailbox_email'           => $mailbox_email,
             'outlook_calendar_name'   => $outlook_calendar_name,
+            'display_name'            => $display_name,
             'category_id'             => (int) $category_id,
             'category_name'           => $category_name,
             'mapping_mode'            => $mode,
@@ -158,7 +207,7 @@ class Azure_Calendar_Mapping_Manager {
             'schedule_lookahead_days' => (int) $schedule_lookahead_days,
             'updated_at'              => current_time('mysql'),
         );
-        $formats = array('%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s');
+        $formats = array('%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%d', '%s');
 
         $result = $wpdb->update($this->table_name, $data, array('id' => (int) $mapping_id), $formats, array('%d'));
         if ($result === false) {

@@ -670,15 +670,38 @@ class Azure_Upcoming_Module {
         if (!is_array($mappings)) {
             $mappings = array();
         }
+        $outlook_counts = array();
+        foreach ($mappings as $m) {
+            $outlook = strtolower(trim(class_exists('Azure_Calendar_Mapping_Manager')
+                ? Azure_Calendar_Mapping_Manager::mapping_field($m, 'outlook_calendar_name')
+                : (is_object($m) ? (string) $m->outlook_calendar_name : (string) ($m['outlook_calendar_name'] ?? ''))));
+            if ($outlook === '') {
+                continue;
+            }
+            $outlook_counts[$outlook] = isset($outlook_counts[$outlook]) ? $outlook_counts[$outlook] + 1 : 1;
+        }
         foreach ($wanted as $name) {
+            if ($name === '') {
+                continue;
+            }
             foreach ($mappings as $m) {
                 $cal_name = is_object($m) ? (string) $m->outlook_calendar_name : (string) ($m['outlook_calendar_name'] ?? '');
                 $cal_id = is_object($m) ? (string) $m->outlook_calendar_id : (string) ($m['outlook_calendar_id'] ?? '');
                 $cat = is_object($m) ? (string) $m->category_name : (string) ($m['category_name'] ?? '');
-                if ($name === '') {
-                    continue;
-                }
-                if (strcasecmp($cal_name, $name) === 0 || strcasecmp($cal_id, $name) === 0 || strcasecmp($cat, $name) === 0) {
+                $display = class_exists('Azure_Calendar_Mapping_Manager')
+                    ? Azure_Calendar_Mapping_Manager::mapping_field($m, 'display_name')
+                    : (is_object($m) ? (string) ($m->display_name ?? '') : (string) ($m['display_name'] ?? ''));
+                $label = class_exists('Azure_Calendar_Mapping_Manager')
+                    ? Azure_Calendar_Mapping_Manager::mapping_label($m)
+                    : $cal_name;
+                $outlook_key = strtolower(trim($cal_name));
+                $outlook_is_unique = $outlook_key !== '' && isset($outlook_counts[$outlook_key]) && $outlook_counts[$outlook_key] === 1;
+                $hit = strcasecmp($display, $name) === 0
+                    || strcasecmp($label, $name) === 0
+                    || strcasecmp($cal_id, $name) === 0
+                    || strcasecmp($cat, $name) === 0
+                    || ($outlook_is_unique && strcasecmp($cal_name, $name) === 0);
+                if ($hit) {
                     if ($cal_id !== '') {
                         $calendar_ids[] = $cal_id;
                     }
@@ -700,20 +723,22 @@ class Azure_Upcoming_Module {
      * @return array<int,array{id:string,name:string}>
      */
     public static function list_calendars_for_editor() {
-        $out = array();
+        $items = array();
         if (class_exists('Azure_Calendar_Mapping_Manager')) {
             foreach ((new Azure_Calendar_Mapping_Manager())->get_all_mappings() as $m) {
-                $name = trim((string) $m->outlook_calendar_name);
-                if ($name === '') {
+                $id = (string) $m->outlook_calendar_id;
+                if ($id === '') {
                     continue;
                 }
-                $out[$name] = array(
-                    'id'   => (string) $m->outlook_calendar_id,
-                    'name' => $name,
+                $items[] = array(
+                    'id'      => $id,
+                    'name'    => Azure_Calendar_Mapping_Manager::mapping_label($m),
+                    'mailbox' => (string) ($m->mailbox_email ?? ''),
                 );
             }
         }
-        if (empty($out)) {
+        if (empty($items)) {
+            $out = array();
             foreach (self::get_event_categories() as $name) {
                 $name = trim((string) $name);
                 if ($name === '') {
@@ -724,8 +749,25 @@ class Azure_Upcoming_Module {
                     'name' => $name,
                 );
             }
+            return array_values($out);
         }
-        return array_values($out);
+        $counts = array();
+        foreach ($items as $item) {
+            $key = strtolower($item['name']);
+            $counts[$key] = isset($counts[$key]) ? $counts[$key] + 1 : 1;
+        }
+        $out = array();
+        foreach ($items as $item) {
+            $name = $item['name'];
+            if ($counts[strtolower($name)] > 1 && $item['mailbox'] !== '') {
+                $name .= ' (' . $item['mailbox'] . ')';
+            }
+            $out[] = array(
+                'id'   => $item['id'],
+                'name' => $name,
+            );
+        }
+        return $out;
     }
 
     /**

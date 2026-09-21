@@ -227,6 +227,7 @@ class Azure_Calendar_Sync_Ajax {
         $outlook_calendar_id     = sanitize_text_field($_POST['outlook_calendar_id'] ?? '');
         $mailbox_email           = sanitize_email($_POST['mailbox_email'] ?? '');
         $outlook_calendar_name   = sanitize_text_field($_POST['outlook_calendar_name'] ?? '');
+        $display_name            = sanitize_text_field($_POST['display_name'] ?? '');
         $category_id             = (int) ($_POST['category_id'] ?? 0);
         $category_name           = sanitize_text_field($_POST['category_name'] ?? '');
         $mapping_mode            = Azure_Calendar_Mapping_Manager::sanitize_mapping_mode($_POST['mapping_mode'] ?? 'single');
@@ -303,7 +304,8 @@ class Azure_Calendar_Sync_Ajax {
                 $schedule_lookahead_days,
                 $mapping_mode,
                 $category_rules,
-                $mailbox_email
+                $mailbox_email,
+                $display_name
             );
             if ($ok) {
                 wp_send_json_success(array('mapping_id' => $mapping_id, 'action' => 'updated'));
@@ -326,7 +328,8 @@ class Azure_Calendar_Sync_Ajax {
             $schedule_lookahead_days,
             $mapping_mode,
             $category_rules,
-            $mailbox_email
+            $mailbox_email,
+            $display_name
         );
         if ($new_id) {
             wp_send_json_success(array('mapping_id' => $new_id, 'action' => 'created'));

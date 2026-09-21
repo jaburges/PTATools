@@ -481,7 +481,10 @@ class Azure_PTSA_REST_API {
                 'id'             => (int) $row['id'],
                 'calendar_id'    => $cid,
                 'mailbox_email'  => (string) ($row['mailbox_email'] ?? ''),
-                'name'           => (string) ($row['outlook_calendar_name'] ?? ''),
+                'name'           => class_exists('Azure_Calendar_Mapping_Manager')
+                    ? Azure_Calendar_Mapping_Manager::mapping_label($row)
+                    : (string) ($row['outlook_calendar_name'] ?? ''),
+                'display_name'   => (string) ($row['display_name'] ?? ''),
                 'category_id'    => $cat_id !== null ? (int) $cat_id : null,
                 'category_name'  => (string) $cat_name,
                 'sync_enabled'   => !empty($row['sync_enabled']),
@@ -549,12 +552,14 @@ class Azure_PTSA_REST_API {
         // Pre-fetch calendar id → name map.
         global $wpdb;
         $table = $wpdb->prefix . 'azure_calendar_mappings';
-        $name_rows = $wpdb->get_results("SELECT outlook_calendar_id, outlook_calendar_name, mailbox_email FROM $table", ARRAY_A);
+        $name_rows = $wpdb->get_results("SELECT outlook_calendar_id, outlook_calendar_name, display_name, category_name, mailbox_email FROM $table", ARRAY_A);
         $name_by_id = array();
         $mailbox_by_id = array();
         foreach ((array) $name_rows as $r) {
             $cid_key = (string) $r['outlook_calendar_id'];
-            $name_by_id[$cid_key] = (string) $r['outlook_calendar_name'];
+            $name_by_id[$cid_key] = class_exists('Azure_Calendar_Mapping_Manager')
+                ? Azure_Calendar_Mapping_Manager::mapping_label($r)
+                : (string) $r['outlook_calendar_name'];
             $mailbox_by_id[$cid_key] = (string) ($r['mailbox_email'] ?? '');
         }
 
