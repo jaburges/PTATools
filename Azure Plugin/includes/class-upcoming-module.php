@@ -16,7 +16,7 @@ class Azure_Upcoming_Module {
     private static $instance = null;
     private const CACHE_VERSION_OPTION = 'azure_up_next_cache_version';
     /** Bump when query/render logic changes so stale transients are ignored. */
-    private const CACHE_SCHEMA = '9';
+    private const CACHE_SCHEMA = '10';
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -77,7 +77,7 @@ class Azure_Upcoming_Module {
             'next-week'           => 'true',
             'columns'             => '1',
             'exclude-categories'  => '',
-            'week-start'          => 'monday',
+            'week-start'          => 'sunday',
             'show-time'           => 'true',
             'link-titles'         => 'true',
             'show-join-meeting'   => 'true',
@@ -313,7 +313,7 @@ class Azure_Upcoming_Module {
     /**
      * Compact This Week / Next Week table for the newsletter designer.
      *
-     * Same pta_event source and Monday week as [up-next], but email-safe
+     * Same pta_event source and Sunday week as [up-next], but email-safe
      * (inline 2-column table, no website theme cards).
      *
      * @param array $atts
@@ -335,7 +335,7 @@ class Azure_Upcoming_Module {
         }
 
         $atts = shortcode_atts(array(
-            'week-start'         => 'monday',
+            'week-start'         => 'sunday',
             'exclude-categories' => '',
             'this-week-title'    => __('This Week', 'azure-plugin'),
             'next-week-title'    => __('Next Week', 'azure-plugin'),
@@ -366,15 +366,27 @@ class Azure_Upcoming_Module {
     }
 
     /**
-     * Inclusive start/end of a week, matching [up-next].
+     * Inclusive start/end of a week, matching [up-next] / [nl-now-next].
+     *
+     * Weeks default to Sunday–Saturday so “this week” on a Sunday is
+     * that day onward, not the Monday–Sunday week that just ended.
      *
      * @param string $week_start monday|sunday
      * @param int    $offset_weeks 0 = current week, 1 = next week
      * @return array{0:DateTime,1:DateTime}
      */
-    private function week_boundaries($week_start = 'monday', $offset_weeks = 0) {
-        $week_start_day = strtolower((string) $week_start) === 'sunday' ? 0 : 1;
-        $today = new DateTime('today', wp_timezone());
+    private function week_boundaries($week_start = 'sunday', $offset_weeks = 0) {
+        return self::compute_week_boundaries($week_start, $offset_weeks, new DateTime('today', wp_timezone()));
+    }
+
+    /**
+     * @param string            $week_start monday|sunday
+     * @param int               $offset_weeks
+     * @param DateTimeInterface $today Site-local “today”
+     * @return array{0:DateTime,1:DateTime}
+     */
+    public static function compute_week_boundaries($week_start, $offset_weeks, DateTimeInterface $today) {
+        $week_start_day = strtolower((string) $week_start) === 'monday' ? 1 : 0;
         $current_day_of_week = (int) $today->format('w');
         if ($week_start_day === 1) {
             $days_since_start = $current_day_of_week === 0 ? 6 : $current_day_of_week - 1;
@@ -382,8 +394,10 @@ class Azure_Upcoming_Module {
             $days_since_start = $current_day_of_week;
         }
 
-        $start = clone $today;
-        $start->modify("-{$days_since_start} days");
+        $start = new DateTime($today->format('Y-m-d'), $today->getTimezone());
+        if ($days_since_start > 0) {
+            $start->modify('-' . $days_since_start . ' days');
+        }
         $offset_weeks = (int) $offset_weeks;
         if ($offset_weeks !== 0) {
             $start->modify(($offset_weeks > 0 ? '+' : '') . ($offset_weeks * 7) . ' days');

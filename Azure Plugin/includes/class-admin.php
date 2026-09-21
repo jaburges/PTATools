@@ -3229,9 +3229,26 @@ class Azure_Admin {
             ));
         };
 
+        $today = new DateTime('today', wp_timezone());
+        if (class_exists('Azure_Upcoming_Module')) {
+            list($this_start, $this_end) = Azure_Upcoming_Module::compute_week_boundaries('sunday', 0, $today);
+            list($next_start, $next_end) = Azure_Upcoming_Module::compute_week_boundaries('sunday', 1, $today);
+        } else {
+            $this_start = clone $today;
+            $this_start->modify('-' . (int) $today->format('w') . ' days');
+            $this_start->setTime(0, 0, 0);
+            $this_end = clone $this_start;
+            $this_end->modify('+6 days');
+            $this_end->setTime(23, 59, 59);
+            $next_start = clone $this_start;
+            $next_start->modify('+7 days');
+            $next_end = clone $this_end;
+            $next_end->modify('+7 days');
+        }
+
         $stats = array(
-            'this_week'      => $count_in_range(date('Y-m-d 00:00:00'), date('Y-m-d 23:59:59', strtotime('next Sunday'))),
-            'next_week'      => $count_in_range(date('Y-m-d 00:00:00', strtotime('next Monday')), date('Y-m-d 23:59:59', strtotime('next Monday +6 days'))),
+            'this_week'      => $count_in_range($this_start->format('Y-m-d H:i:s'), $this_end->format('Y-m-d H:i:s')),
+            'next_week'      => $count_in_range($next_start->format('Y-m-d H:i:s'), $next_end->format('Y-m-d H:i:s')),
             'total_upcoming' => $count_in_range(date('Y-m-d 00:00:00'), date('Y-m-d 23:59:59', strtotime('+30 days'))),
         );
         ?>

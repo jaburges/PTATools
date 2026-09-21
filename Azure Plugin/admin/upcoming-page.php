@@ -117,8 +117,8 @@ if (class_exists('Azure_UpNext_Themes')) {
                     </tr>
                     <tr>
                         <td><code>week-start</code></td>
-                        <td><code>"monday"</code></td>
-                        <td><?php _e('Day the week starts on: "monday" or "sunday".', 'azure-plugin'); ?></td>
+                        <td><code>"sunday"</code></td>
+                        <td><?php _e('Day the week starts on: "sunday" (default) or "monday".', 'azure-plugin'); ?></td>
                     </tr>
                     <tr>
                         <td><code>show-time</code></td>
@@ -162,7 +162,7 @@ if (class_exists('Azure_UpNext_Themes')) {
     next-week="true" 
     columns="2" 
     exclude-categories="Private,Staff Only" 
-    week-start="monday" 
+    week-start="sunday" 
     show-time="true" 
     link-titles="true"
     this-week-title="Happening Now"
