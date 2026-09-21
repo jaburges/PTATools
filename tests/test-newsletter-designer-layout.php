@@ -134,6 +134,10 @@ $t->check(strpos($js, 'function selectQuiet') !== false, 'promoting a text click
 $t->check(strpos($js, 'if (undoManagerBusy())') !== false, 'Settings style copy is skipped during undo');
 $t->check(strpos($js, "runCommand('core:undo')") !== false, 'toolbar Undo uses the GrapesJS undo command');
 $t->check(strpos($js, "bm.add('now-next'") !== false, 'registers Now and Next block');
+$t->check(strpos($js, "addType('nl-now-next'") !== false, 'Now and Next is a selectable designer component');
+$t->check(strpos($js, "addType('now-next-exclude'") !== false, 'Settings can tick calendars to exclude');
+$t->check(strpos($js, 'exclude-calendars="') !== false, 'Now and Next shortcode writes exclude-calendars');
+$t->check(strpos($js, 'function findAncestorNowNext') !== false, 'clicking Now and Next selects the block for Settings');
 $t->check(strpos($js, '[nl-now-next]') !== false, 'Now and Next placeholder uses nl-now-next');
 $t->check(strpos($js, 'enable_links="false"') !== false, 'Now and Next default shortcode turns event links off');
 $t->check(preg_match("/bm\\.add\\('now-next'[\\s\\S]*?bm\\.add\\('shortcode-block'/", $js, $nn_block) === 1, 'Now and Next block definition is isolated');
@@ -173,6 +177,7 @@ $t->check(strpos($editor_php, 'data-panel="styles"') === false, 'Styles tab is m
 $t->check(strpos($editor_php, 'id="styles-panel"') === false, 'separate styles panel is gone');
 $t->check(strpos($editor_php, 'id="styles-container"') !== false, 'style manager still mounts in Settings');
 $t->check(strpos($editor_php, 'id="traits-container"') !== false, 'trait manager still mounts in Settings');
+$t->check(strpos($editor_php, 'eventCalendars:') !== false, 'designer receives Outlook calendars for Now and Next exclude');
 
 $t->check(strpos($js, 'updateStyleManager: false') !== false, 'preset is not allowed to replace our style sectors');
 $t->check(strpos($js, 'function stripGrapesPanels') !== false, 'GrapesJS device/options/views chrome is removed');
@@ -186,6 +191,9 @@ $t->check(strpos($js, 'function wrapImgHrefInHtml') !== false, 'export HTML wrap
 $t->check(strpos($js, 'applyAllImageLinks()') !== false, 'getEmailReadyHtml applies image links before getHtml');
 $t->check(strpos($js, "width=\"100%\" style=\"display: block; width: 100%; max-width: 100%") !== false, 'image block default is 100% not a 600px overflow');
 $t->check(strpos($js, 'columnGapCss') !== false, 'export includes the shared column-gap CSS');
+$t->check(strpos($js, 'fluidWrapperCss') !== false, 'export includes the fluid 600px wrapper CSS');
+$t->check(strpos($js, 'function ensurePreviewFluidCss') !== false, 'Review preview injects fluid CSS into saved HTML');
+$t->check(strpos($js, 'updatePreview();') !== false, 'switching Desktop/Mobile rewrites the Review iframe');
 $t->check(strpos($js, '<td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px;') !== false, 'default text block has no inner padding');
 $t->check(strpos($js, '<td style="padding: 0;">') !== false, 'default heading block has no inner padding');
 

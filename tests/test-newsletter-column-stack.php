@@ -71,6 +71,18 @@ $t->check(strpos($btn_out, 'text-decoration: none') !== false, 'flattened CTA dr
 $t->check(strpos($btn_out, 'Theater Page') !== false, 'CTA label survives button chrome');
 $t->check(strpos($btn_out, Azure_Newsletter_Email_Css::BUTTON_MARKER) !== false, 'send path injects nl-button CSS');
 
+$fluid = Azure_Newsletter_Email_Css::fluid_wrapper_css();
+$t->check(strpos($fluid, Azure_Newsletter_Email_Css::FLUID_MARKER) !== false, 'fluid CSS is marked so it is injected once');
+$t->check(strpos($fluid, 'table[width="600"]') !== false, 'fluid CSS shrinks the 600px email table on phones');
+$t->check(strpos($fluid, 'img { max-width: 100% !important') !== false, 'fluid CSS keeps images inside the viewport');
+$already_stacked = Azure_Newsletter_Email_Css::ensure_column_stack_style('<html><head></head><body><table width="600"></table></body></html>');
+$t->check(strpos($already_stacked, Azure_Newsletter_Email_Css::FLUID_MARKER) !== false, 'send path injects fluid wrapper CSS');
+$t->equals(
+    $already_stacked,
+    Azure_Newsletter_Email_Css::ensure_column_stack_style($already_stacked),
+    'injecting twice does not duplicate the fluid CSS'
+);
+
 $img_cell = '<td align="center" bgcolor="#2271b1"><a href="https://wilderptsa.net/x/"><img src="pic.jpg" alt="x"></a></td>';
 $img_out = Azure_Newsletter_Email_Css::ensure_button_chrome($img_cell);
 $t->equals($img_out, $img_cell, 'image links are not turned into text buttons');

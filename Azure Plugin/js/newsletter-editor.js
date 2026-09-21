@@ -121,6 +121,7 @@
         emailHtml += (newsletterEditorConfig.dividerCss || '') + '\n';
         emailHtml += '/* pta-nl-stack-cols */\n';
         emailHtml += (newsletterEditorConfig.columnStackCss || '') + '\n';
+        emailHtml += (newsletterEditorConfig.fluidWrapperCss || '') + '\n';
         emailHtml += '</style>\n';
         
         emailHtml += '</head>\n<body style="margin:0;padding:0;">\n';
@@ -3522,6 +3523,74 @@
         walk(button);
     }
 
+    function parseNowNextAttrs(html) {
+        var parsed = { enable_links: 'false', exclude_calendars: '' };
+        var m = String(html || '').match(/\[nl-now-next([^\]]*)\]/i);
+        if (!m) {
+            return parsed;
+        }
+        var attrs = m[1] || '';
+        function attr(name) {
+            var hit = attrs.match(new RegExp(name + '\\s*=\\s*["\']([^"\']*)["\']', 'i'));
+            return hit ? hit[1] : '';
+        }
+        var links = attr('enable_links') || attr('enable-links');
+        if (links) {
+            parsed.enable_links = links;
+        }
+        var calendars = attr('exclude-calendars');
+        var categories = attr('exclude-categories');
+        var names = [];
+        (calendars + ',' + categories).split(',').forEach(function(part) {
+            part = part.replace(/^\s+|\s+$/g, '');
+            if (part && names.indexOf(part) === -1) {
+                names.push(part);
+            }
+        });
+        parsed.exclude_calendars = names.join(', ');
+        return parsed;
+    }
+
+    function findNowNextTextHost(component) {
+        if (!component) {
+            return null;
+        }
+        if (component.get && String(component.get('tagName') || '').toLowerCase() === 'p') {
+            var html = '';
+            try {
+                html = component.toHTML ? String(component.toHTML()) : '';
+            } catch (e) {
+                html = '';
+            }
+            if (html.indexOf('[nl-now-next') !== -1) {
+                return component;
+            }
+        }
+        var kids = wrapperChildList(component);
+        for (var i = 0; i < kids.length; i++) {
+            var found = findNowNextTextHost(kids[i]);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    function findAncestorNowNext(component) {
+        var p = component;
+        while (p) {
+            if (p.get && p.get('type') === 'nl-now-next') {
+                return p;
+            }
+            var cls = String((p.getAttributes && p.getAttributes() || {}).class || '');
+            if (cls.indexOf('nl-now-next') !== -1) {
+                return p;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        return null;
+    }
+
     /**
      * Register custom component types with traits (settings)
      */
@@ -3550,6 +3619,95 @@
             },
             onUpdate: function() {},
             onEvent: function() {}
+        });
+
+        editor.TraitManager.addType('now-next-exclude', {
+            createInput: function() {
+                var trait = this;
+                var el = document.createElement('div');
+                el.className = 'pta-nl-exclude-cals';
+                var cals = (window.newsletterEditorConfig && newsletterEditorConfig.eventCalendars) || [];
+                if (!cals.length) {
+                    el.innerHTML = '<p class="description" style="margin:0 0 8px;">No Outlook calendars mapped. Type category names below.</p>';
+                } else {
+                    cals.forEach(function(cal) {
+                        var label = document.createElement('label');
+                        label.className = 'pta-nl-exclude-cal';
+                        var cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.value = cal.name;
+                        label.appendChild(cb);
+                        label.appendChild(document.createTextNode(' ' + cal.name));
+                        el.appendChild(label);
+                    });
+                }
+                var extra = document.createElement('input');
+                extra.type = 'text';
+                extra.className = 'pta-nl-exclude-extra';
+                extra.placeholder = 'Other names, comma-separated';
+                extra.style.width = '100%';
+                extra.style.marginTop = '8px';
+                el.appendChild(extra);
+                function emit() {
+                    trait.onEvent({ elInput: el, component: trait.target });
+                }
+                el.addEventListener('pointerdown', function(e) {
+                    e.stopPropagation();
+                });
+                el.addEventListener('change', emit);
+                extra.addEventListener('input', emit);
+                return el;
+            },
+            onUpdate: function(opts) {
+                var elInput = (opts && opts.elInput) || this.elInput || this.el;
+                var component = (opts && opts.component) || this.target || (editor && editor.getSelected && editor.getSelected());
+                if (!elInput || !component) {
+                    return;
+                }
+                var current = String(component.get('exclude_calendars') || '');
+                var selected = {};
+                current.split(',').forEach(function(part) {
+                    part = part.replace(/^\s+|\s+$/g, '');
+                    if (part) {
+                        selected[part.toLowerCase()] = part;
+                    }
+                });
+                var extra = [];
+                var boxes = elInput.querySelectorAll('input[type="checkbox"]');
+                boxes.forEach(function(cb) {
+                    var key = String(cb.value || '').toLowerCase();
+                    cb.checked = !!selected[key];
+                    if (cb.checked) {
+                        delete selected[key];
+                    }
+                });
+                Object.keys(selected).forEach(function(k) {
+                    extra.push(selected[k]);
+                });
+                var extraInput = elInput.querySelector('.pta-nl-exclude-extra');
+                if (extraInput) {
+                    extraInput.value = extra.join(', ');
+                }
+            },
+            onEvent: function(opts) {
+                var elInput = (opts && opts.elInput) || this.elInput || this.el;
+                var component = (opts && opts.component) || this.target || (editor && editor.getSelected && editor.getSelected());
+                if (!elInput || !component) {
+                    return;
+                }
+                var names = [];
+                elInput.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb) {
+                    names.push(cb.value);
+                });
+                var extraInput = elInput.querySelector('.pta-nl-exclude-extra');
+                String((extraInput && extraInput.value) || '').split(',').forEach(function(part) {
+                    part = part.replace(/^\s+|\s+$/g, '');
+                    if (part && names.indexOf(part) === -1) {
+                        names.push(part);
+                    }
+                });
+                component.set('exclude_calendars', names.join(', '));
+            }
         });
 
         editor.TraitManager.addType('column-widths', {
@@ -3788,6 +3946,71 @@
             }
         });
         
+        // === NOW AND NEXT COMPONENT ===
+        dc.addType('nl-now-next', {
+            isComponent: function(el) {
+                if (!el || el.tagName !== 'TABLE') {
+                    return false;
+                }
+                if (el.classList && el.classList.contains('nl-now-next')) {
+                    return { type: 'nl-now-next' };
+                }
+                if (el.innerHTML && el.innerHTML.indexOf('[nl-now-next') !== -1) {
+                    return { type: 'nl-now-next' };
+                }
+                return false;
+            },
+            model: {
+                defaults: {
+                    tagName: 'table',
+                    draggable: true,
+                    droppable: false,
+                    attributes: { class: 'nl-now-next' },
+                    traits: [
+                        {
+                            type: 'checkbox',
+                            label: 'Link event titles',
+                            name: 'enable_links',
+                            changeProp: 1
+                        },
+                        {
+                            type: 'now-next-exclude',
+                            label: 'Exclude calendars',
+                            name: 'exclude_calendars',
+                            changeProp: 1
+                        }
+                    ],
+                    enable_links: false,
+                    exclude_calendars: ''
+                },
+                init: function() {
+                    var html = '';
+                    try {
+                        html = this.toHTML ? String(this.toHTML()) : '';
+                    } catch (e) {
+                        html = '';
+                    }
+                    var parsed = parseNowNextAttrs(html);
+                    this.set('enable_links', parsed.enable_links === 'true' || parsed.enable_links === true, { silent: true });
+                    this.set('exclude_calendars', parsed.exclude_calendars, { silent: true });
+                    this.on('change:enable_links change:exclude_calendars', this.updateNowNextShortcode);
+                },
+                updateNowNextShortcode: function() {
+                    var links = this.get('enable_links');
+                    var excl = String(this.get('exclude_calendars') || '').replace(/"/g, '');
+                    var sc = '[nl-now-next enable_links="' + (links === true || links === 'true' ? 'true' : 'false') + '"';
+                    if (excl) {
+                        sc += ' exclude-calendars="' + excl + '"';
+                    }
+                    sc += ']';
+                    var host = findNowNextTextHost(this);
+                    if (host && host.components) {
+                        host.components(sc);
+                    }
+                }
+            }
+        });
+
         // === PTA DIRECTORY COMPONENT ===
         dc.addType('pta-directory', {
             isComponent: function(el) {
@@ -4681,6 +4904,15 @@
                 }
             }
 
+            var nowNext = findAncestorNowNext(component);
+            if (nowNext) {
+                rememberSettingsHost(nowNext);
+                if (nowNext !== component) {
+                    selectQuiet(nowNext);
+                    return;
+                }
+            }
+
             if (isSectionHandle(component) || isSectionBody(component) || parentIsSectionChrome(component)) {
                 var owningSection = component.get('type') === 'nl-section'
                     ? component
@@ -5477,6 +5709,24 @@
         }
     }
 
+    function ensurePreviewFluidCss(html) {
+        if (!html || typeof html !== 'string') {
+            return html;
+        }
+        var css = newsletterEditorConfig.fluidWrapperCss || '';
+        if (!css) {
+            return html;
+        }
+        if (html.indexOf('pta-nl-fluid') !== -1) {
+            return html;
+        }
+        var tag = '<style type="text/css">' + css + '</style>';
+        if (/<\/head>/i.test(html)) {
+            return html.replace(/<\/head>/i, tag + '</head>');
+        }
+        return tag + html;
+    }
+
     /**
      * Update preview iframe (Step 3).
      * Uses full document HTML so images and styles render.
@@ -5485,6 +5735,7 @@
         var html = $('#newsletter_content_html').val();
         var frame = document.getElementById('preview-frame');
         if (frame && html) {
+            html = ensurePreviewFluidCss(html);
             var doc = frame.contentDocument || frame.contentWindow.document;
             doc.open();
             doc.write(html);
@@ -5702,6 +5953,7 @@
         } else {
             $('#preview-frame').removeClass('mobile');
         }
+        updatePreview();
     });
 
     /**

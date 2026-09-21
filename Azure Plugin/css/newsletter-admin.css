@@ -1732,8 +1732,10 @@ div.gjs-block[style] {
 
 .preview-frame.mobile {
     width: 375px;
+    max-width: 100%;
     margin: 0 auto;
     display: block;
+    overflow: auto;
 }
 
 .review-sidebar {
@@ -2491,8 +2493,14 @@ div.gjs-block[style] {
     line-height: 1;
 }
 
-#save-template-modal .template-modal-body {
-    background: #fff;
+.pta-nl-exclude-cals .pta-nl-exclude-cal {
+    display: block;
+    margin: 4px 0;
+    font-weight: 400;
+}
+
+.pta-nl-exclude-cals .pta-nl-exclude-extra {
+    box-sizing: border-box;
 }
 
 /* Responsive */

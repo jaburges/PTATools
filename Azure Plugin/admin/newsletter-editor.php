@@ -937,6 +937,8 @@ var newsletterEditorConfig = {
     columnStackCss: <?php echo json_encode(Azure_Newsletter_Email_Css::column_stack_css()); ?>,
     columnGapCss: <?php echo json_encode(Azure_Newsletter_Email_Css::column_gap_css()); ?>,
     dividerCss: <?php echo json_encode(Azure_Newsletter_Email_Css::divider_css()); ?>,
+    fluidWrapperCss: <?php echo json_encode(Azure_Newsletter_Email_Css::fluid_wrapper_css()); ?>,
+    eventCalendars: <?php echo json_encode(class_exists('Azure_Upcoming_Module') ? Azure_Upcoming_Module::list_calendars_for_editor() : array()); ?>,
     templateId: <?php echo (int) $template_id; ?>,
     templateName: <?php echo json_encode($template ? $template->name : ''); ?>,
     editTemplateId: <?php echo (int) $edit_template_id; ?>,

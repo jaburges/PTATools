@@ -20,6 +20,7 @@ class Azure_Newsletter_Email_Css {
     const DIVIDER_MARKER = '/* pta-nl-divider */';
     const OUTLOOK_LH_MARKER = '/* pta-nl-outlook-lh */';
     const BUTTON_MARKER = '/* pta-nl-button */';
+    const FLUID_MARKER = '/* pta-nl-fluid */';
     const COLUMN_GAP_PX = 10;
     const BUTTON_LINK_STYLE = 'display: inline-block; padding: 14px 30px; font-weight: bold; color: #ffffff; text-decoration: none;';
 
@@ -112,6 +113,9 @@ class Azure_Newsletter_Email_Css {
         if (strpos($html, self::BUTTON_MARKER) === false) {
             $html = self::append_style($html, self::button_css());
         }
+        if (strpos($html, self::FLUID_MARKER) === false) {
+            $html = self::append_style($html, self::fluid_wrapper_css());
+        }
         return (is_string($html) && $html !== '') ? $html : $original;
     }
 
@@ -123,6 +127,20 @@ class Azure_Newsletter_Email_Css {
         return self::BUTTON_MARKER
             . ' table.nl-button td { border-radius: 4px; }'
             . ' table.nl-button a { display: inline-block; padding: 14px 30px; font-weight: bold; color: #ffffff !important; text-decoration: none; }';
+    }
+
+    /**
+     * Shrink the 600px email canvas to the viewport. Without this, a
+     * 375px Review iframe (and many phones) clip the layout instead of
+     * stacking/reflowing it. !important beats GrapesJS inline 600px.
+     */
+    public static function fluid_wrapper_css() {
+        return self::FLUID_MARKER
+            . '@media only screen and (max-width: 600px) {'
+            . ' html, body { min-width: 0 !important; width: 100% !important; }'
+            . ' table[width="600"], table[width="600px"], table[style*="width: 600px"], table[style*="width:600px"] { width: 100% !important; max-width: 100% !important; }'
+            . ' img { max-width: 100% !important; height: auto !important; }'
+            . ' }';
     }
 
     /**

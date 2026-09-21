@@ -89,6 +89,7 @@ class Azure_Upcoming_Module {
             'empty-message'       => __('No upcoming events.', 'azure-plugin'),
             'this-week-title'     => __('This Week', 'azure-plugin'),
             'next-week-title'     => __('Next Week', 'azure-plugin'),
+            'exclude-calendars'   => '',
             // v3.125: named theme preset (defined in WP Admin >
             // Calendar > Upcoming Events). When set, the renderer:
             //   - adds the .up-next-theme-<slug> class to the
@@ -149,8 +150,9 @@ class Azure_Upcoming_Module {
         if ($columns < 1) $columns = 1;
         if ($columns > 4) $columns = 4;
         
-        // Parse excluded categories
-        $exclude_categories = array_filter(array_map('trim', explode(',', $atts['exclude-categories'])));
+        $resolved = self::resolve_excludes($atts['exclude-calendars'], $atts['exclude-categories']);
+        $exclude_categories = $resolved['categories'];
+        $exclude_calendar_ids = $resolved['calendar_ids'];
 
         list($current_week_start, $current_week_end) = $this->week_boundaries($atts['week-start'], 0);
         list($next_week_start, $next_week_end) = $this->week_boundaries($atts['week-start'], 1);
@@ -243,7 +245,7 @@ class Azure_Upcoming_Module {
         
         // Current week events
         if ($show_current_week) {
-            $current_week_events = $this->get_events_in_range($current_week_start, $current_week_end, $exclude_categories);
+            $current_week_events = $this->get_events_in_range($current_week_start, $current_week_end, $exclude_categories, false, $exclude_calendar_ids);
             if (!empty($current_week_events) || $show_empty) {
                 $output .= '<div class="upcoming-week upcoming-current-week">';
                 $output .= '<h3>' . esc_html($atts['this-week-title']) . '</h3>';
@@ -257,7 +259,7 @@ class Azure_Upcoming_Module {
         
         // Next week events
         if ($show_next_week) {
-            $next_week_events = $this->get_events_in_range($next_week_start, $next_week_end, $exclude_categories);
+            $next_week_events = $this->get_events_in_range($next_week_start, $next_week_end, $exclude_categories, false, $exclude_calendar_ids);
             if (!empty($next_week_events) || $show_empty) {
                 $output .= '<div class="upcoming-week upcoming-next-week">';
                 $output .= '<h3>' . esc_html($atts['next-week-title']) . '</h3>';
@@ -271,7 +273,7 @@ class Azure_Upcoming_Module {
 
         // When this/next week are empty, show the next N days (e.g. June events while still in May).
         if (!$has_events && $show_coming_up) {
-            $coming_events = $this->get_events_in_range($coming_up_start, $coming_up_end, $exclude_categories);
+            $coming_events = $this->get_events_in_range($coming_up_start, $coming_up_end, $exclude_categories, false, $exclude_calendar_ids);
             if (!empty($coming_events)) {
                 $output .= '<div class="upcoming-week upcoming-coming-up">';
                 $output .= '<h3>' . esc_html($atts['coming-up-title']) . '</h3>';
@@ -337,6 +339,7 @@ class Azure_Upcoming_Module {
         $atts = shortcode_atts(array(
             'week-start'         => 'sunday',
             'exclude-categories' => '',
+            'exclude-calendars'  => '',
             'this-week-title'    => __('This Week', 'azure-plugin'),
             'next-week-title'    => __('Next Week', 'azure-plugin'),
             'empty-message'      => __('No events', 'azure-plugin'),
@@ -344,7 +347,7 @@ class Azure_Upcoming_Module {
             'enable_links'       => 'false',
         ), $atts, 'nl-now-next');
 
-        $exclude = array_filter(array_map('trim', explode(',', $atts['exclude-categories'])));
+        $resolved = self::resolve_excludes($atts['exclude-calendars'], $atts['exclude-categories']);
         $limit = max(1, min(8, (int) $atts['limit']));
 
         $this_week = array();
@@ -352,8 +355,8 @@ class Azure_Upcoming_Module {
         if (class_exists('Azure_Event_CPT')) {
             list($this_start, $this_end) = $this->week_boundaries($atts['week-start'], 0);
             list($next_start, $next_end) = $this->week_boundaries($atts['week-start'], 1);
-            $this_week = $this->get_events_in_range($this_start, $this_end, $exclude);
-            $next_week = $this->get_events_in_range($next_start, $next_end, $exclude);
+            $this_week = $this->get_events_in_range($this_start, $this_end, $resolved['categories'], false, $resolved['calendar_ids']);
+            $next_week = $this->get_events_in_range($next_start, $next_end, $resolved['categories'], false, $resolved['calendar_ids']);
         }
 
         return Azure_Newsletter_Now_Next::render($this_week, $next_week, array(
@@ -511,9 +514,12 @@ class Azure_Upcoming_Module {
      * @param DateTime $start Start date
      * @param DateTime $end End date
      * @param array $exclude_categories Categories to exclude
+     * @param bool  $future_only
+     * @param array $exclude_calendar_ids Outlook calendar IDs to exclude
      * @return array Array of event post objects
      */
-    private function get_events_in_range($start, $end, $exclude_categories = array(), $future_only = false) {
+    private function get_events_in_range($start, $end, $exclude_categories = array(), $future_only = false, $exclude_calendar_ids = array()) {
+        $exclude_calendar_ids = is_array($exclude_calendar_ids) ? $exclude_calendar_ids : array();
         $post_type = 'pta_event';
         $taxonomy = class_exists('Azure_Event_CPT')
             ? Azure_Event_CPT::query_taxonomy()
@@ -585,6 +591,11 @@ class Azure_Upcoming_Module {
                 if (get_post_meta($event_id, '_EventHideFromUpcoming', true) === 'yes') {
                     continue;
                 }
+
+                $outlook_calendar_id = (string) get_post_meta($event_id, '_outlook_calendar_id', true);
+                if ($outlook_calendar_id !== '' && in_array($outlook_calendar_id, $exclude_calendar_ids, true)) {
+                    continue;
+                }
                 
                 $events[] = array(
                     'id'         => $event_id,
@@ -612,6 +623,109 @@ class Azure_Upcoming_Module {
         });
         
         return $events;
+    }
+
+    /**
+     * Split a comma-separated exclude list.
+     *
+     * @param string|array $value
+     * @return string[]
+     */
+    public static function parse_csv_names($value) {
+        if (is_array($value)) {
+            $parts = $value;
+        } else {
+            $parts = explode(',', (string) $value);
+        }
+        $out = array();
+        foreach ($parts as $part) {
+            $part = trim((string) $part);
+            if ($part !== '') {
+                $out[] = $part;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Turn exclude-calendars / exclude-categories into category names plus
+     * Outlook calendar IDs. Calendar names match mapped Outlook calendars
+     * (and their category) so newsletter editors can say “Staff calendar”.
+     *
+     * @param string|array      $calendar_names
+     * @param string|array      $category_names
+     * @param array|null        $mappings Mapping rows or null to load live ones
+     * @return array{calendar_ids:string[],categories:string[]}
+     */
+    public static function resolve_excludes($calendar_names, $category_names, $mappings = null) {
+        $wanted = array_values(array_unique(array_merge(
+            self::parse_csv_names($calendar_names),
+            self::parse_csv_names($category_names)
+        )));
+        $calendar_ids = array();
+        $categories = $wanted;
+        if ($mappings === null && class_exists('Azure_Calendar_Mapping_Manager')) {
+            $mappings = (new Azure_Calendar_Mapping_Manager())->get_all_mappings();
+        }
+        if (!is_array($mappings)) {
+            $mappings = array();
+        }
+        foreach ($wanted as $name) {
+            foreach ($mappings as $m) {
+                $cal_name = is_object($m) ? (string) $m->outlook_calendar_name : (string) ($m['outlook_calendar_name'] ?? '');
+                $cal_id = is_object($m) ? (string) $m->outlook_calendar_id : (string) ($m['outlook_calendar_id'] ?? '');
+                $cat = is_object($m) ? (string) $m->category_name : (string) ($m['category_name'] ?? '');
+                if ($name === '') {
+                    continue;
+                }
+                if (strcasecmp($cal_name, $name) === 0 || strcasecmp($cal_id, $name) === 0 || strcasecmp($cat, $name) === 0) {
+                    if ($cal_id !== '') {
+                        $calendar_ids[] = $cal_id;
+                    }
+                    if ($cat !== '') {
+                        $categories[] = $cat;
+                    }
+                }
+            }
+        }
+        return array(
+            'calendar_ids' => array_values(array_unique($calendar_ids)),
+            'categories'   => array_values(array_unique($categories)),
+        );
+    }
+
+    /**
+     * Calendars shown in the newsletter Now and Next Settings panel.
+     *
+     * @return array<int,array{id:string,name:string}>
+     */
+    public static function list_calendars_for_editor() {
+        $out = array();
+        if (class_exists('Azure_Calendar_Mapping_Manager')) {
+            foreach ((new Azure_Calendar_Mapping_Manager())->get_all_mappings() as $m) {
+                $name = trim((string) $m->outlook_calendar_name);
+                if ($name === '') {
+                    continue;
+                }
+                $out[$name] = array(
+                    'id'   => (string) $m->outlook_calendar_id,
+                    'name' => $name,
+                );
+            }
+        }
+        if (empty($out)) {
+            foreach (self::get_event_categories() as $name) {
+                $name = trim((string) $name);
+                if ($name === '') {
+                    continue;
+                }
+                $out[$name] = array(
+                    'id'   => $name,
+                    'name' => $name,
+                );
+            }
+        }
+        return array_values($out);
     }
 
     /**

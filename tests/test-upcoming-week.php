@@ -49,5 +49,33 @@ $t->check(strpos($archive, "foreach (array('Sun','Mon','Tue','Wed','Thu','Fri','
 $docs = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/upcoming-page.php');
 $t->check(strpos($docs, 'week-start="sunday"') !== false, 'Upcoming docs example uses sunday');
 $t->check(strpos($docs, '<code>"sunday"</code>') !== false, 'Upcoming docs default is sunday');
+$t->check(strpos($docs, 'exclude-calendars') !== false, 'Upcoming docs mention exclude-calendars');
+
+$mappings = array(
+    (object) array(
+        'outlook_calendar_name' => 'Staff',
+        'outlook_calendar_id'   => 'cal-staff',
+        'category_name'         => 'Staff Events',
+    ),
+    (object) array(
+        'outlook_calendar_name' => 'Wilder PTSA',
+        'outlook_calendar_id'   => 'cal-ptsa',
+        'category_name'         => 'PTSA',
+    ),
+);
+$resolved = Azure_Upcoming_Module::resolve_excludes('Staff', '', $mappings);
+$t->equals(array('cal-staff'), $resolved['calendar_ids'], 'exclude-calendars Staff maps to the Outlook calendar id');
+$t->check(in_array('Staff Events', $resolved['categories'], true), 'exclude-calendars Staff also hides the mapped category');
+$t->check(in_array('Staff', $resolved['categories'], true), 'the typed name is kept as a category match');
+
+$by_cat = Azure_Upcoming_Module::resolve_excludes('', 'Private', $mappings);
+$t->equals(array(), $by_cat['calendar_ids'], 'an unmatched category does not invent a calendar id');
+$t->equals(array('Private'), $by_cat['categories'], 'exclude-categories still works as a name list');
+
+$merged = Azure_Upcoming_Module::resolve_excludes('Wilder PTSA', 'Private', $mappings);
+$t->check(in_array('cal-ptsa', $merged['calendar_ids'], true), 'calendar and category excludes merge');
+$t->check(in_array('Private', $merged['categories'], true), 'merged excludes keep the extra category');
+
+$t->equals(array('Staff', 'Private'), Azure_Upcoming_Module::parse_csv_names(' Staff, Private '), 'csv names trim empties');
 
 exit($t->finish());

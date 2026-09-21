@@ -77,6 +77,7 @@ class plgAcymPtatools extends acymPlugin
         'this-week-title',
         'next-week-title',
         'exclude-categories',
+        'exclude-calendars',
         'week-start',
         'show-time',
         'link-titles',

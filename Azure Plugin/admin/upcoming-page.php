@@ -113,7 +113,12 @@ if (class_exists('Azure_UpNext_Themes')) {
                     <tr>
                         <td><code>exclude-categories</code></td>
                         <td><code>""</code></td>
-                        <td><?php _e('Comma-separated list of pta_event category names to exclude.', 'azure-plugin'); ?></td>
+                        <td><?php _e('Comma-separated pta_event category names to hide.', 'azure-plugin'); ?></td>
+                    </tr>
+                    <tr>
+                        <td><code>exclude-calendars</code></td>
+                        <td><code>""</code></td>
+                        <td><?php _e('Comma-separated Outlook calendar names (or category names) to hide. Same list as Calendar → Sync mappings.', 'azure-plugin'); ?></td>
                     </tr>
                     <tr>
                         <td><code>week-start</code></td>
