@@ -1530,12 +1530,17 @@ class Azure_Event_CPT {
             exit;
         }
 
-        $cache_key = 'pta_ics_feed_v2';
+        $calendar_id = isset($_GET['calendar_id'])
+            ? sanitize_text_field(wp_unslash($_GET['calendar_id']))
+            : '';
+        $cache_key = $calendar_id === ''
+            ? 'pta_ics_feed_v2'
+            : 'pta_ics_feed_cal_' . md5($calendar_id);
         $cached    = get_transient($cache_key);
 
         if (!is_array($cached) || empty($cached['body']) || empty($cached['etag'])) {
             try {
-                $cached = $this->build_ics_feed();
+                $cached = $this->build_ics_feed($calendar_id);
                 set_transient($cache_key, $cached, 5 * MINUTE_IN_SECONDS);
             } catch (\Throwable $e) {
                 // Surface the underlying error to the WordPress
@@ -1586,11 +1591,24 @@ class Azure_Event_CPT {
      *
      * @return array{ body:string, etag:string, count:int }
      */
-    private function build_ics_feed() {
+    private function build_ics_feed($calendar_id = '') {
         $back_days = 180;
         $fwd_days  = 540;
         $start_w   = date('Y-m-d 00:00:00', strtotime("-{$back_days} days"));
         $end_w     = date('Y-m-d 23:59:59', strtotime("+{$fwd_days} days"));
+
+        $meta_query = array(
+            'relation' => 'AND',
+            array(
+                'key'     => '_EventStartDate',
+                'value'   => array($start_w, $end_w),
+                'compare' => 'BETWEEN',
+                'type'    => 'DATETIME',
+            ),
+        );
+        foreach (self::calendar_scope_clauses($calendar_id) as $clause) {
+            $meta_query[] = $clause;
+        }
 
         $query = new \WP_Query(array(
             'post_type'              => self::POST_TYPE_EVENT,
@@ -1598,14 +1616,7 @@ class Azure_Event_CPT {
             'posts_per_page'         => 1000,
             'no_found_rows'          => true,
             'update_post_meta_cache' => true,
-            'meta_query'             => array(
-                array(
-                    'key'     => '_EventStartDate',
-                    'value'   => array($start_w, $end_w),
-                    'compare' => 'BETWEEN',
-                    'type'    => 'DATETIME',
-                ),
-            ),
+            'meta_query'             => $meta_query,
             'orderby'  => 'meta_value',
             'meta_key' => '_EventStartDate',
             'order'    => 'ASC',
@@ -1729,19 +1740,49 @@ class Azure_Event_CPT {
     }
 
     /**
-     * Public URLs (https + webcal) for the full calendar feed.
+     * Public URLs (https + webcal) for the calendar feed.
+     * A calendar id limits the feed to that Outlook calendar.
      * Returns array{ ics:string, webcal:string } or null when the
      * pta_event CPT isn't active.
+     *
+     * @param string $calendar_id Outlook calendar id, or '' for every event.
      */
-    public static function get_feed_urls() {
+    public static function get_feed_urls($calendar_id = '') {
         if (!post_type_exists(self::POST_TYPE_EVENT)) {
             return null;
         }
-        $base = add_query_arg(array('pta_ical_feed' => '1'), home_url('/'));
+        $args = array('pta_ical_feed' => '1');
+        $calendar_id = trim((string) $calendar_id);
+        if ($calendar_id !== '') {
+            $args['calendar_id'] = $calendar_id;
+        }
+        $base = add_query_arg($args, home_url('/'));
         $webcal = preg_replace('#^https?://#i', 'webcal://', $base);
         return array(
             'ics'    => $base,
             'webcal' => $webcal,
+        );
+    }
+
+    /**
+     * Extra meta_query clauses that keep a pta_event query on one Outlook
+     * calendar. Empty when the caller did not name a calendar, so the
+     * site-wide calendar still includes every published event.
+     *
+     * @param string $calendar_id Outlook calendar id (shortcode `id`).
+     * @return array<int, array<string, string>>
+     */
+    public static function calendar_scope_clauses($calendar_id) {
+        $calendar_id = trim((string) $calendar_id);
+        if ($calendar_id === '') {
+            return array();
+        }
+        return array(
+            array(
+                'key'     => '_outlook_calendar_id',
+                'value'   => $calendar_id,
+                'compare' => '=',
+            ),
         );
     }
 

@@ -105,7 +105,8 @@ class Azure_Admin {
                 ? Azure_Admin_Menu_Customizer::CAP
                 : 'manage_options';
 
-            // Main menu — Azure AD User can see PTA Tools; System/SSO stay manage_options.
+            // Main menu — Azure AD User can see PTA Tools. Dashboard and
+            // System/SSO require manage_options, which that role includes.
             add_menu_page(
             'PTA Tools',
             'PTA Tools',

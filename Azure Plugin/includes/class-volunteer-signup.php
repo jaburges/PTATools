@@ -279,6 +279,12 @@ class Azure_Volunteer_Signup {
                 $wpdb->query("ALTER TABLE {$t} ADD COLUMN {$col} {$def}");
             }
         }
+        // Outlook calendar ids are longer than varchar(255). A strict insert
+        // then fails and the recurring sheet never appears in the list.
+        $cal_col = $wpdb->get_row("SHOW COLUMNS FROM {$t} LIKE 'outlook_calendar_id'");
+        if ($cal_col && isset($cal_col->Type) && stripos((string) $cal_col->Type, 'varchar') !== false) {
+            $wpdb->query("ALTER TABLE {$t} MODIFY outlook_calendar_id text");
+        }
     }
 
     /**
@@ -293,16 +299,45 @@ class Azure_Volunteer_Signup {
         $cal    = trim((string) $calendar_id);
         $master = trim((string) $series_master_id);
         if ($master !== '') {
-            return 'series:' . $cal . ':' . $master;
+            return 'series:' . hash('sha256', $cal . "\n" . $master);
         }
         $norm = strtolower(trim(preg_replace('/\s+/', ' ', (string) $title)));
-        if ($cal !== '' && $norm !== '') {
-            return 'title:' . $cal . ':' . $norm;
+        if ($norm === '') {
+            return '';
         }
-        if ($norm !== '') {
-            return 'title::' . $norm;
+        return 'title:' . hash('sha256', $cal . "\n" . $norm);
+    }
+
+    /**
+     * True when an event belongs to the series stored on a template.
+     * Hashed keys fit the column; unhashed keys from older saves still match.
+     */
+    public static function event_matches_series_key($series_key, $calendar_id, $series_master_id, $title) {
+        $series_key = (string) $series_key;
+        if ($series_key === '') {
+            return false;
         }
-        return '';
+        $primary = self::build_series_key($calendar_id, $series_master_id, $title);
+        $by_title = self::build_series_key($calendar_id, '', $title);
+        if ($series_key === $primary || ($by_title !== '' && $series_key === $by_title)) {
+            return true;
+        }
+        $cal = trim((string) $calendar_id);
+        $master = trim((string) $series_master_id);
+        $norm = strtolower(trim(preg_replace('/\s+/', ' ', (string) $title)));
+        if (strpos($series_key, 'series:') === 0 && !preg_match('/^series:[a-f0-9]{64}$/', $series_key)) {
+            $parts = explode(':', $series_key, 3);
+            $want_cal = $parts[1] ?? '';
+            $want_master = $parts[2] ?? '';
+            return $want_master !== '' && $want_master === $master && ($want_cal === '' || $want_cal === $cal);
+        }
+        if (strpos($series_key, 'title:') === 0 && !preg_match('/^title:[a-f0-9]{64}$/', $series_key)) {
+            $parts = explode(':', $series_key, 3);
+            $want_cal = $parts[1] ?? '';
+            $want_title = $parts[2] ?? '';
+            return $want_title !== '' && $want_title === $norm && ($want_cal === '' || $want_cal === $cal);
+        }
+        return false;
     }
 
     public static function series_key_for_event($event_id) {
@@ -395,7 +430,6 @@ class Azure_Volunteer_Signup {
         $wpdb->update(
             $t,
             array(
-                'title'          => $meta['title'],
                 'event_date'     => $meta['event_date'],
                 'event_location' => $meta['event_location'],
             ),
@@ -465,8 +499,9 @@ class Azure_Volunteer_Signup {
         if ($meta === null) {
             return 0;
         }
+        $sheet_title = trim((string) ($template->title ?? ''));
         $wpdb->insert($t, array(
-            'title'               => $meta['title'] !== '' ? $meta['title'] : (string) $template->title,
+            'title'               => $sheet_title !== '' ? $sheet_title : $meta['title'],
             'description'         => (string) ($template->description ?? ''),
             'pta_event_id'        => $event_id,
             'event_date'          => $meta['event_date'] ?: null,
@@ -516,10 +551,14 @@ class Azure_Volunteer_Signup {
     }
 
     public static function apply_template_to_matching_events($template) {
+        $created = 0;
         $event_ids = self::find_event_ids_for_series_key((string) ($template->series_key ?? ''));
         foreach ($event_ids as $event_id) {
-            self::ensure_instance_for_event($template, $event_id);
+            if (self::ensure_instance_for_event($template, $event_id)) {
+                $created++;
+            }
         }
+        return $created;
     }
 
     /**
@@ -531,47 +570,24 @@ class Azure_Volunteer_Signup {
         if ($series_key === '' || !function_exists('get_posts')) {
             return array();
         }
-        $query = array(
+        $ids = get_posts(array(
             'post_type'      => 'pta_event',
             'post_status'    => 'publish',
-            'posts_per_page' => 200,
+            'posts_per_page' => -1,
             'fields'         => 'ids',
-        );
-        if (strpos($series_key, 'series:') === 0) {
-            $parts  = explode(':', $series_key, 3);
-            $master = $parts[2] ?? '';
-            if ($master === '') {
-                return array();
+            'no_found_rows'  => true,
+        ));
+        $matched = array();
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            $cal = function_exists('get_post_meta') ? (string) get_post_meta($id, '_outlook_calendar_id', true) : '';
+            $master = function_exists('get_post_meta') ? (string) get_post_meta($id, '_outlook_series_master_id', true) : '';
+            $title = function_exists('get_the_title') ? (string) get_the_title($id) : '';
+            if (self::event_matches_series_key($series_key, $cal, $master, $title)) {
+                $matched[] = $id;
             }
-            $query['meta_query'] = array(array(
-                'key'   => '_outlook_series_master_id',
-                'value' => $master,
-            ));
-            return array_map('intval', get_posts($query));
         }
-        if (strpos($series_key, 'title:') === 0) {
-            $parts = explode(':', $series_key, 3);
-            $cal   = $parts[1] ?? '';
-            $title = $parts[2] ?? '';
-            if ($title === '') {
-                return array();
-            }
-            if ($cal !== '') {
-                $query['meta_query'] = array(array(
-                    'key'   => '_outlook_calendar_id',
-                    'value' => $cal,
-                ));
-            }
-            $ids = array();
-            foreach (get_posts($query) as $id) {
-                $event_title = strtolower(trim(preg_replace('/\s+/', ' ', (string) get_the_title($id))));
-                if ($event_title === $title) {
-                    $ids[] = (int) $id;
-                }
-            }
-            return $ids;
-        }
-        return array();
+        return $matched;
     }
 
     public static function pacific_timezone() {
@@ -726,15 +742,33 @@ class Azure_Volunteer_Signup {
     // Admin AJAX — save sheet + activities
     // ──────────────────────────────────────────────
 
+    /**
+     * Azure AD users reach Calendar → Volunteer through access_pta_tools.
+     * They do not have manage_options, so sheet CRUD cannot require that.
+     */
+    public static function user_can_manage_sheets() {
+        if (!function_exists('current_user_can')) {
+            return false;
+        }
+        if (current_user_can('manage_options')) {
+            return true;
+        }
+        $cap = class_exists('Azure_Admin_Menu_Customizer')
+            ? Azure_Admin_Menu_Customizer::CAP
+            : 'access_pta_tools';
+        return current_user_can($cap);
+    }
+
     public function ajax_save_sheet() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!self::user_can_manage_sheets()) {
             wp_send_json_error('Permission denied.');
         }
 
         global $wpdb;
         $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
         $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        self::ensure_recurring_columns();
 
         $sheet_id    = absint($_POST['sheet_id'] ?? 0);
         $title       = sanitize_text_field($_POST['title'] ?? '');
@@ -815,12 +849,27 @@ class Azure_Volunteer_Signup {
             $data['outlook_calendar_id'] = (string) get_post_meta($event_id, '_outlook_calendar_id', true);
         }
 
+        if ($make_template) {
+            unset($data['event_date']);
+        } elseif ($data['event_date'] === null) {
+            unset($data['event_date']);
+        }
+
         if ($sheet_id) {
-            $wpdb->update($sheets_t, $data, array('id' => $sheet_id));
+            $updated = $wpdb->update($sheets_t, $data, array('id' => $sheet_id));
+            if ($updated === false) {
+                wp_send_json_error($wpdb->last_error ?: 'Could not update the sign-up sheet.');
+            }
         } else {
             $data['created_by'] = get_current_user_id();
-            $wpdb->insert($sheets_t, $data);
-            $sheet_id = $wpdb->insert_id;
+            $inserted = $wpdb->insert($sheets_t, $data);
+            if ($inserted === false) {
+                wp_send_json_error($wpdb->last_error ?: 'Could not save the sign-up sheet.');
+            }
+            $sheet_id = (int) $wpdb->insert_id;
+        }
+        if (!$sheet_id) {
+            wp_send_json_error('Could not save the sign-up sheet.');
         }
 
         // Sync activities (sent as JSON array)
@@ -876,19 +925,30 @@ class Azure_Volunteer_Signup {
             $wpdb->delete($activities_t, array('id' => $rid));
         }
 
+        $instances = 0;
         if ($make_template) {
             $template = self::get_sheet($sheet_id);
             if ($template) {
-                self::apply_template_to_matching_events($template);
+                $instances = (int) self::apply_template_to_matching_events($template);
+                if (!$instances) {
+                    $instances = self::ensure_instance_for_event($template, $event_id) ? 1 : 0;
+                }
             }
         }
 
-        wp_send_json_success(array('sheet_id' => $sheet_id));
+        $payload = array(
+            'sheet_id'  => $sheet_id,
+            'instances' => $instances,
+        );
+        if ($make_template && $instances === 0) {
+            $payload['warning'] = 'The template was saved, but it could not be copied onto the events in that series.';
+        }
+        wp_send_json_success($payload);
     }
 
     public function ajax_delete_sheet() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
-        if (!current_user_can('manage_options')) {
+        if (!self::user_can_manage_sheets()) {
             wp_send_json_error('Permission denied.');
         }
 
@@ -917,7 +977,7 @@ class Azure_Volunteer_Signup {
 
         // Admin sheet editor only. Without this any logged-in user could walk
         // sheet_id and read every sheet's activities and spot counts.
-        if (!current_user_can('manage_options')) {
+        if (!self::user_can_manage_sheets()) {
             wp_send_json_error('Permission denied.');
         }
 
@@ -1047,7 +1107,7 @@ class Azure_Volunteer_Signup {
         echo '<section class="pta-event-volunteer-signups">';
         echo '<h2 class="pta-event-section">' . esc_html__('Volunteer Sign Up', 'azure-plugin') . '</h2>';
         foreach ($sheets as $sheet) {
-            if (function_exists('current_user_can') && current_user_can('manage_options')) {
+            if (function_exists('current_user_can') && self::user_can_manage_sheets()) {
                 $edit = admin_url('admin.php?page=azure-plugin-calendar&tab=volunteer&edit_sheet=' . (int) $sheet->id);
                 echo '<p class="azure-vs-admin-edit"><a href="' . esc_url($edit) . '">' . esc_html__('Edit this event’s sign-up sheet', 'azure-plugin') . '</a></p>';
             }
@@ -1523,6 +1583,68 @@ class Azure_Volunteer_Signup {
             'date'     => $start,
             'location' => $location,
         );
+    }
+
+    /**
+     * One row per Outlook series. The option value is the next upcoming
+     * occurrence so saving can copy the sheet onto every date in the series.
+     *
+     * @return array<int,array{id:int,title:string,date:string,location:string,count:int,series_key:string}>
+     */
+    public static function get_recurring_series_for_dropdown() {
+        if (!function_exists('get_posts')) {
+            return array();
+        }
+        $events = get_posts(array(
+            'post_type'      => 'pta_event',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'meta_query'     => array(array(
+                'key'     => '_outlook_series_master_id',
+                'value'   => '',
+                'compare' => '!=',
+            )),
+        ));
+        $groups = array();
+        $today = function_exists('current_time') ? current_time('Y-m-d') : date('Y-m-d');
+        foreach ($events as $e) {
+            $cal = (string) get_post_meta($e->ID, '_outlook_calendar_id', true);
+            $master = (string) get_post_meta($e->ID, '_outlook_series_master_id', true);
+            $key = self::build_series_key($cal, $master, $e->post_title);
+            if ($key === '') {
+                continue;
+            }
+            $start = (string) get_post_meta($e->ID, '_EventStartDate', true);
+            if (!isset($groups[$key])) {
+                $row = self::event_dropdown_row($e);
+                $row['series_key'] = $key;
+                $row['count'] = 0;
+                $row['next_date'] = '';
+                $groups[$key] = $row;
+            }
+            $groups[$key]['count']++;
+            $day = substr($start, 0, 10);
+            $is_upcoming = $day !== '' && $day >= $today;
+            $picked = (string) $groups[$key]['next_date'];
+            $picked_upcoming = $picked !== '' && substr($picked, 0, 10) >= $today;
+            $replace = $picked === ''
+                || ($is_upcoming && !$picked_upcoming)
+                || ($is_upcoming && $picked_upcoming && $start < $picked)
+                || (!$picked_upcoming && !$is_upcoming && $start > $picked);
+            if ($replace) {
+                $row = self::event_dropdown_row($e);
+                $groups[$key]['id'] = $row['id'];
+                $groups[$key]['title'] = $row['title'];
+                $groups[$key]['date'] = $row['date'];
+                $groups[$key]['location'] = $row['location'];
+                $groups[$key]['next_date'] = $start;
+            }
+        }
+        $out = array_values($groups);
+        usort($out, function ($a, $b) {
+            return strcasecmp((string) $a['title'], (string) $b['title']);
+        });
+        return $out;
     }
 
     /**

@@ -299,7 +299,6 @@ $volunteer = src($plugin_dir, 'includes/class-volunteer-signup.php');
 foreach (array(
     array($tickets,   'ajax_validate_ticket', 'scan_tickets',  'ticket lookup'),
     array($tickets,   'ajax_get_venue',       'manage_options', 'venue lookup'),
-    array($volunteer, 'ajax_get_sheet',       'manage_options', 'volunteer sheet lookup'),
 ) as list($body, $method, $cap, $label)) {
     $found = preg_match('/function ' . preg_quote($method, '/') . '\(\).*?\n    }/s', $body, $m) === 1;
     $t->check($found, "{$label} handler is present");
@@ -309,6 +308,15 @@ foreach (array(
             "{$label} requires the {$cap} capability"
         );
     }
+}
+
+$t->check(strpos($volunteer, 'function user_can_manage_sheets') !== false, 'volunteer sheet CRUD has a shared capability check');
+$t->check(strpos($volunteer, "current_user_can('manage_options')") !== false, 'administrators can manage volunteer sheets');
+$t->check(strpos($volunteer, "'access_pta_tools'") !== false, 'Azure AD users with PTA Tools access can manage volunteer sheets');
+foreach (array('ajax_save_sheet', 'ajax_delete_sheet', 'ajax_get_sheet') as $method) {
+    $found = preg_match('/function ' . $method . '\(\).*?\n    }/s', $volunteer, $m) === 1;
+    $t->check($found, "volunteer {$method} is present");
+    $t->check($found && strpos($m[0], 'user_can_manage_sheets()') !== false, "volunteer {$method} uses the PTA Tools capability, not only manage_options");
 }
 
 // ---------------------------------------------------------------------------

@@ -104,8 +104,9 @@ class Azure_Calendar_Shortcode {
 
         // Determine the effective data source up front so we can skip
         // the Outlook-specific `id` requirement when reading from
-        // pta_event (where the calendar mapping is implicit — every
-        // published pta_event renders).
+        // pta_event. An embed with no `id` still shows every published
+        // event. An embed that names one calendar id shows only that
+        // calendar.
         $effective_source = 'tec';
         if (class_exists('Azure_Event_CPT')) {
             $effective_source = Azure_Event_CPT::get_data_source();
@@ -135,13 +136,16 @@ class Azure_Calendar_Shortcode {
         // method (see $reading_pta). Reading from pta_event here
         // surfaces both Outlook-synced events AND local-only school
         // entries (Spring Break, Memorial Day, etc.) that never made
-        // it back to Outlook.
+        // it back to Outlook. A declared calendar id limits the query
+        // to that Outlook calendar; local-only events stay on embeds
+        // that do not name an id.
         if ($reading_pta) {
-            $events = $this->fetch_pta_events($start_date, $end_date);
+            $calendar_id = isset($atts['id']) ? trim((string) $atts['id']) : '';
+            $events = $this->fetch_pta_events($start_date, $end_date, $calendar_id);
             $calendar_events = $this->format_events_for_calendar($events);
 
             $output  = '<div id="' . esc_attr($container_id) . '" class="azure-calendar-container" style="height: ' . esc_attr($atts['height']) . '; width: ' . esc_attr($atts['width']) . ';"></div>';
-            $output .= $this->render_subscribe_bar($container_id);
+            $output .= $this->render_subscribe_bar($container_id, $calendar_id);
             $output .= $this->get_calendar_script($container_id, $calendar_events, $atts);
             return $output;
         }
@@ -374,12 +378,10 @@ class Azure_Calendar_Shortcode {
         // Scope to one Outlook calendar mapping if the caller passed `id`.
         // Otherwise show every pta_event in the window (the common case
         // for a "site-wide upcoming events" widget).
-        if (!empty($atts['id'])) {
-            $meta_query[] = array(
-                'key'     => '_outlook_calendar_id',
-                'value'   => $atts['id'],
-                'compare' => '=',
-            );
+        if (!empty($atts['id']) && class_exists('Azure_Event_CPT')) {
+            foreach (Azure_Event_CPT::calendar_scope_clauses($atts['id']) as $clause) {
+                $meta_query[] = $clause;
+            }
         }
 
         $args = array(
@@ -526,15 +528,31 @@ class Azure_Calendar_Shortcode {
      *
      * @param string $start_date_iso ISO-8601 (e.g. 2026-02-08T00:00:00Z)
      * @param string $end_date_iso   ISO-8601
+     * @param string $calendar_id    Outlook calendar id, or '' for every event
      * @return array of events shaped like Azure_Calendar_GraphAPI::process_events()
      */
-    private function fetch_pta_events($start_date_iso, $end_date_iso) {
+    private function fetch_pta_events($start_date_iso, $end_date_iso, $calendar_id = '') {
         if (!post_type_exists('pta_event')) {
             return array();
         }
 
         $start_ymd = substr($start_date_iso, 0, 10) . ' 00:00:00';
         $end_ymd   = substr($end_date_iso, 0, 10)   . ' 23:59:59';
+
+        $meta_query = array(
+            'relation' => 'AND',
+            array(
+                'key'     => '_EventStartDate',
+                'value'   => array($start_ymd, $end_ymd),
+                'compare' => 'BETWEEN',
+                'type'    => 'DATETIME',
+            ),
+        );
+        if (class_exists('Azure_Event_CPT')) {
+            foreach (Azure_Event_CPT::calendar_scope_clauses($calendar_id) as $clause) {
+                $meta_query[] = $clause;
+            }
+        }
 
         $query = new WP_Query(array(
             'post_type'              => 'pta_event',
@@ -543,14 +561,7 @@ class Azure_Calendar_Shortcode {
             'no_found_rows'          => true,
             'update_post_term_cache' => true,
             'update_post_meta_cache' => true,
-            'meta_query'             => array(
-                array(
-                    'key'     => '_EventStartDate',
-                    'value'   => array($start_ymd, $end_ymd),
-                    'compare' => 'BETWEEN',
-                    'type'    => 'DATETIME',
-                ),
-            ),
+            'meta_query'             => $meta_query,
             'orderby'  => 'meta_value',
             'meta_key' => '_EventStartDate',
             'order'    => 'ASC',
@@ -634,9 +645,9 @@ class Azure_Calendar_Shortcode {
      * surface this when the embed is reading from pta_event (the
      * Outlook-live source has no public feed URL).
      */
-    private function render_subscribe_bar($container_id) {
+    private function render_subscribe_bar($container_id, $calendar_id = '') {
         if (!class_exists('Azure_Event_CPT')) { return ''; }
-        $urls = Azure_Event_CPT::get_feed_urls();
+        $urls = Azure_Event_CPT::get_feed_urls($calendar_id);
         if (empty($urls)) { return ''; }
 
         $ics    = esc_url($urls['ics']);

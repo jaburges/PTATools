@@ -99,7 +99,11 @@ $t->equals('access_pta_tools', Azure_Admin_Menu_Customizer::CAP, 'Azure AD users
 
 $php = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-admin.php');
 $t->check(strpos($php, 'Azure_Admin_Menu_Customizer::CAP') !== false, 'PTA Tools parent menu uses access_pta_tools');
-$t->check(strpos($php, "'Dashboard'") !== false, 'Dashboard stays manage_options so Azure AD users skip module toggles');
+$t->check(strpos($php, "'Dashboard'") !== false, 'Dashboard submenu is registered');
+
+$plugin = file_get_contents(dirname(__DIR__) . '/Azure Plugin/azure-plugin.php');
+$t->check(strpos($plugin, "\$caps['manage_options'] = true;") !== false, 'Azure AD User role copies manage_options onto editor caps');
+$t->check(preg_match("/'access_pta_tools'\\s*=>\\s*true,\\s*'manage_options'\\s*=>\\s*true,/s", $plugin) === 1, 'Azure AD User fallback caps include manage_options');
 
 $system = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/system-page.php');
 $t->check(strpos($system, 'tab=menu') !== false, 'System has an Admin Menu tab');

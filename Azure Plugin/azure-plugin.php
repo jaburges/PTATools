@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.101
+ * Version: 3.147.102
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.101');
+define('AZURE_PLUGIN_VERSION', '3.147.102');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -2227,17 +2227,21 @@ class AzurePlugin {
     }
 
     /**
-     * Capabilities for the Azure AD User role: whatever editor currently has.
+     * Capabilities for the Azure AD User role: whatever editor currently has,
+     * plus PTA Tools access and manage_options.
      *
      * Read from the live editor role so the two cannot drift, and so any
      * capability another plugin grants editor is picked up here too. The literal
      * list is only a fallback for the case where editor has been removed.
+     * manage_options is added on top of editor so SSO users pass the same
+     * settings checks as an administrator.
      */
     private function get_azuread_capabilities() {
         $editor = get_role('editor');
         if ($editor && !empty($editor->capabilities)) {
             $caps = $editor->capabilities;
             $caps['access_pta_tools'] = true;
+            $caps['manage_options'] = true;
             return $caps;
         }
 
@@ -2269,6 +2273,7 @@ class AzurePlugin {
             'moderate_comments' => true,
             'unfiltered_html' => true,
             'access_pta_tools' => true,
+            'manage_options' => true,
         );
     }
 }

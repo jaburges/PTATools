@@ -7,6 +7,7 @@ $settings = Azure_Settings::get_all_settings();
 $volunteer_enabled = $settings['enable_volunteer'] ?? false;
 $sheets = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::get_sheets() : array();
 $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::get_pta_events_for_dropdown() : array();
+$recurring_series = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::get_recurring_series_for_dropdown() : array();
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -145,14 +146,39 @@ $pta_events = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Signup::g
                     <td>
                         <select id="azure-vs-pta-event" class="regular-text">
                             <option value="0"><?php _e('— Select an event —', 'azure-plugin'); ?></option>
-                            <?php foreach ($pta_events as $ev): ?>
-                                <option value="<?php echo esc_attr($ev['id']); ?>"
-                                        data-date="<?php echo esc_attr($ev['date']); ?>"
-                                        data-location="<?php echo esc_attr($ev['location'] ?? ''); ?>"
-                                ><?php echo esc_html($ev['title']); ?><?php echo !empty($ev['date']) ? ' (' . esc_html(date_i18n('M j', strtotime($ev['date']))) . ')' : ''; ?></option>
-                            <?php endforeach; ?>
+                            <optgroup label="<?php esc_attr_e('Recurring series', 'azure-plugin'); ?>" id="azure-vs-series-events">
+                                <?php foreach ($recurring_series as $ev):
+                                    $count = (int) ($ev['count'] ?? 0);
+                                    $when = !empty($ev['date']) ? date_i18n('M j, Y', strtotime($ev['date'])) : '';
+                                    $label = $ev['title'];
+                                    if ($when !== '') {
+                                        $label .= ' — ' . sprintf(
+                                            /* translators: 1: next date, 2: number of dates in the series */
+                                            _n('next %1$s, %2$d date', 'next %1$s, %2$d dates', $count, 'azure-plugin'),
+                                            $when,
+                                            $count
+                                        );
+                                    }
+                                ?>
+                                    <option value="<?php echo esc_attr($ev['id']); ?>"
+                                            data-recurring="1"
+                                            data-series-key="<?php echo esc_attr($ev['series_key'] ?? ''); ?>"
+                                            data-date="<?php echo esc_attr($ev['date']); ?>"
+                                            data-location="<?php echo esc_attr($ev['location'] ?? ''); ?>"
+                                    ><?php echo esc_html($label); ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <optgroup label="<?php esc_attr_e('Single events', 'azure-plugin'); ?>" id="azure-vs-single-events">
+                                <?php foreach ($pta_events as $ev): ?>
+                                    <option value="<?php echo esc_attr($ev['id']); ?>"
+                                            data-date="<?php echo esc_attr($ev['date']); ?>"
+                                            data-location="<?php echo esc_attr($ev['location'] ?? ''); ?>"
+                                    ><?php echo esc_html($ev['title']); ?><?php echo !empty($ev['date']) ? ' (' . esc_html(date_i18n('M j', strtotime($ev['date']))) . ')' : ''; ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
                             <option value="__new__"><?php _e('Create new event…', 'azure-plugin'); ?></option>
                         </select>
+                        <p id="azure-vs-no-series" class="description" style="display:none;"><?php _e('No recurring Outlook events are synced yet. Sync a calendar that has a repeating event, then pick that series here.', 'azure-plugin'); ?></p>
                     </td>
                 </tr>
                 <tr class="azure-vs-new-event-fields" style="display:none;">
@@ -246,15 +272,22 @@ jQuery(function($) {
     function setRecurringMode(on) {
         $('#azure-vs-is-recurring').val(on ? '1' : '0');
         $('#azure-vs-recurring-help').toggle(!!on);
+        $('#azure-vs-series-events').toggle(!!on);
+        $('#azure-vs-single-events').toggle(!on);
+        $('#azure-vs-no-series').toggle(!!on && $('#azure-vs-series-events option').length === 0);
         if (on) {
             $('#azure-vs-assign-event').prop('checked', true).prop('disabled', true);
             $('#azure-vs-pta-event option[value="__new__"]').hide();
-            if ($('#azure-vs-pta-event').val() === '__new__') {
+            var selected = $('#azure-vs-pta-event option:selected');
+            if (selected.attr('data-recurring') !== '1') {
                 $('#azure-vs-pta-event').val(0);
             }
         } else {
             $('#azure-vs-assign-event').prop('disabled', false);
             $('#azure-vs-pta-event option[value="__new__"]').show();
+            if ($('#azure-vs-pta-event option:selected').attr('data-recurring') === '1') {
+                $('#azure-vs-pta-event').val(0);
+            }
         }
         syncEventFields();
     }
@@ -301,6 +334,13 @@ jQuery(function($) {
                 $('#azure-vs-event-location').val(s.event_location || '');
                 $('#azure-vs-status').val(s.status);
                 setRecurringMode(!!res.data.is_template);
+                if (res.data.is_template && s.series_key) {
+                    $('#azure-vs-pta-event option[data-series-key]').each(function() {
+                        if ($(this).attr('data-series-key') === s.series_key) {
+                            $('#azure-vs-pta-event').val($(this).val());
+                        }
+                    });
+                }
                 if (res.data.is_instance) {
                     $('#azure-vs-modal-title').text('<?php echo esc_js(__('Edit this event’s sign-up', 'azure-plugin')); ?>');
                 } else if (res.data.is_template) {
@@ -345,8 +385,9 @@ jQuery(function($) {
 
         if ($('#azure-vs-is-recurring').val() === '1') {
             var recEv = $('#azure-vs-pta-event').val();
-            if (!recEv || recEv === '0' || recEv === '__new__') {
-                alert('<?php echo esc_js(__('Pick an existing event in the series.', 'azure-plugin')); ?>');
+            var recOpt = $('#azure-vs-pta-event option:selected');
+            if (!recEv || recEv === '0' || recEv === '__new__' || recOpt.attr('data-recurring') !== '1') {
+                alert('<?php echo esc_js(__('Pick a recurring event series.', 'azure-plugin')); ?>');
                 return;
             }
         } else if ($('#azure-vs-assign-event').is(':checked')) {
@@ -375,6 +416,9 @@ jQuery(function($) {
         }, function(res) {
             $btn.prop('disabled', false).text('<?php echo esc_js(__('Save Sheet', 'azure-plugin')); ?>');
             if (res.success) {
+                if (res.data && res.data.warning) {
+                    alert(res.data.warning);
+                }
                 location.reload();
             } else {
                 alert(res.data || 'Error saving sheet.');
