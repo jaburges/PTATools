@@ -191,8 +191,8 @@
                         },
                         { 
                             name: 'Mobile', 
-                            width: '320px',
-                            widthMedia: '480px'
+                            width: '375px',
+                            widthMedia: '600px'
                         },
                     ]
                 },
@@ -481,7 +481,8 @@
             'body.pta-nl-dragging td.nl-section-body > .nl-section-hint{border-color:#2271b1;background:rgba(34,113,177,.10);color:#2271b1;}',
             'td.nl-section-body > .nl-row-gap{display:none;}',
             'body.pta-nl-dragging table.nl-section:not(.nl-section-empty) td.nl-section-body{background:rgba(34,113,177,.06);}',
-            'table[width="600"]{width:600px !important;max-width:600px !important;}',
+            '@media only screen and (min-width: 601px){table[width="600"]{width:600px !important;max-width:600px !important;}}',
+            '@media only screen and (max-width: 600px){table[width="600"]{width:100% !important;max-width:100% !important;} body{min-width:0 !important; width:100% !important;}}',
             'table.nl-divider hr,.nl-divider hr{display:block !important;width:100% !important;height:0 !important;margin:0 !important;border:0 !important;border-top:2px solid #dddddd !important;}',
             'table.nl-divider .nl-divider-rule{height:2px !important;line-height:2px !important;font-size:1px !important;background-color:#dddddd !important;border:0 !important;}'
         ].join('');
@@ -1388,10 +1389,20 @@
      * content (not other column rows) goes inside each cell.
      */
     function sectionGroupHtml() {
-        return '<table class="nl-section nl-section-empty" width="100%" height="260" cellpadding="0" cellspacing="0" border="0" style="height: 260px;">'
-            + '<tr><td class="nl-section-body" height="260" valign="middle" style="height: 260px; padding: 56px 24px;">'
+        return '<table class="nl-section" width="100%" cellpadding="0" cellspacing="0" border="0">'
+            + '<tr><td class="nl-section-body" valign="top" style="padding: 16px 20px;">'
             + '<div class="nl-section-handle" title="Select section"></div>'
-            + '<div class="nl-section-hint"></div>'
+            + '<table width="100%" cellpadding="0" cellspacing="0" border="0">'
+            + '<tr><td style="padding: 0 0 12px 0;">'
+            + '<h1 style="margin: 0; font-family: Arial, sans-serif; font-size: 28px; font-weight: bold; color: #1d2327;">Your Heading Here</h1>'
+            + '</td></tr></table>'
+            + '<table class="nl-stack-cols" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+            + '<td class="nl-stack-col nl-column" width="50%" valign="top" style="padding: 10px; width: 50%;">'
+            + '<img src="https://via.placeholder.com/600x300/e0e0e0/666666?text=Click+to+add+image" alt="Image" width="100%" style="display: block; width: 100%; max-width: 100%; height: auto;">'
+            + '</td>'
+            + '<td class="nl-stack-col nl-column" width="50%" valign="top" style="padding: 10px; width: 50%;">'
+            + '<p style="margin: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">Add your text content here. You can style this text in Settings.</p>'
+            + '</td></tr></table>'
             + '</td></tr></table>';
     }
 
@@ -2380,9 +2391,33 @@
         return candidates[candidates.length - 1];
     }
 
+    function isMobilePreview() {
+        if (!editor) {
+            return false;
+        }
+        var devices = editor.Devices || editor.DeviceManager;
+        var selected = devices && devices.getSelected && devices.getSelected();
+        var name = '';
+        if (selected) {
+            if (typeof selected.get === 'function') {
+                name = String(selected.get('name') || selected.get('id') || '');
+            } else {
+                name = String(selected.name || selected.id || '');
+            }
+        }
+        if (!name && $('.device-buttons .device-btn.active').data('device')) {
+            name = String($('.device-buttons .device-btn.active').data('device'));
+        }
+        return name.toLowerCase() === 'mobile';
+    }
+
     function pinEmailCanvasWidth() {
         var table = findEmailCanvasTable();
         if (!table || !table.addStyle) {
+            return;
+        }
+        if (isMobilePreview()) {
+            table.addStyle({ width: '100%', 'max-width': '100%' });
             return;
         }
         table.addStyle({ width: '600px', 'max-width': '600px' });
@@ -2579,24 +2614,106 @@
         $('#btn-row-down').prop('disabled', !state.canDown);
         var selected = editor && editor.getSelected && editor.getSelected();
         $('#btn-swap-cols').prop('disabled', !getSwappableColumnRow(selected));
-        $('#btn-delete-section').prop('disabled', !(selected && selected.get && selected.get('type') === 'nl-section'));
+        var deletable = getDeletableComponent(selected);
+        var $del = $('#btn-delete-section');
+        $del.prop('disabled', !deletable);
+        if (deletable && deletable.get && deletable.get('type') === 'nl-section') {
+            $del.attr('title', 'Delete section');
+        } else if (deletable && deletable.get && deletable.get('type') === 'nl-columns') {
+            $del.attr('title', 'Delete columns');
+        } else {
+            $del.attr('title', deletable ? 'Delete block' : 'Delete selected block');
+        }
+    }
+
+    function isProtectedCanvas(component) {
+        if (!component || !component.get) {
+            return true;
+        }
+        var type = component.get('type');
+        if (type === 'wrapper' || type === 'wrapper-component') {
+            return true;
+        }
+        return isEmailCanvasTable(component) || isRowGap(component) || isSectionHint(component)
+            || isSectionHandle(component) || isSectionBody(component);
+    }
+
+    function getDeletableComponent(selected) {
+        if (!selected || !selected.get) {
+            return null;
+        }
+        var type = selected.get('type');
+        if (type === 'nl-section') {
+            return selected;
+        }
+        if (isSectionHandle(selected) || isSectionBody(selected) || isSectionHint(selected) || parentIsSectionChrome(selected)) {
+            return findAncestorSection(selected);
+        }
+        var button = findAncestorButton(selected);
+        if (button) {
+            return button;
+        }
+        if (type === 'email-button' || type === 'image' || type === 'email-image') {
+            return selected;
+        }
+        if (type === 'nl-columns') {
+            return selected;
+        }
+        if (type === 'nl-column') {
+            return findAncestorColumns(selected);
+        }
+        if (isProtectedCanvas(selected)) {
+            return null;
+        }
+        var p = selected;
+        while (p && p.get) {
+            if (isEmailCanvasTable(p)) {
+                return null;
+            }
+            type = p.get('type');
+            if (type === 'nl-section') {
+                return p;
+            }
+            if (type === 'nl-columns') {
+                return p;
+            }
+            if (type === 'email-button') {
+                return p;
+            }
+            if (type === 'nl-column') {
+                p = p.parent && p.parent();
+                continue;
+            }
+            var removable = p.get('removable');
+            var tag = String(p.get('tagName') || '').toLowerCase();
+            var textTags = { table: 1, img: 1, p: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, div: 1, a: 1 };
+            if (removable !== false && typeof p.remove === 'function'
+                && (textTags[tag] || type === 'image' || type === 'text' || type === 'link')) {
+                return p;
+            }
+            if (!p.parent || !p.parent()) {
+                break;
+            }
+            p = p.parent();
+        }
+        var row = getMovableRow(selected);
+        if (row && !isProtectedCanvas(row) && typeof row.remove === 'function') {
+            return row;
+        }
+        return null;
     }
 
     function deleteSelectedSection() {
+        return deleteSelectedComponent();
+    }
+
+    function deleteSelectedComponent() {
         var selected = editor && editor.getSelected && editor.getSelected();
-        if (!selected || !selected.get) {
+        var target = getDeletableComponent(selected);
+        if (!target || typeof target.remove !== 'function') {
             return false;
         }
-        var section = null;
-        if (selected.get('type') === 'nl-section') {
-            section = selected;
-        } else if (isSectionBody(selected) || parentIsSectionChrome(selected)) {
-            section = findAncestorSection(selected) || (selected.get('type') === 'nl-section' ? selected : null);
-        }
-        if (!section || typeof section.remove !== 'function') {
-            return false;
-        }
-        section.remove();
+        target.remove();
         updateMoveButtons(null);
         return true;
     }
@@ -2765,7 +2882,7 @@
         } catch (e3) { hasDeleteSectionCmd = false; }
         if (editor.Commands && !hasDeleteSectionCmd) {
             editor.Commands.add('pta-delete-section', {
-                run: function() { deleteSelectedSection(); }
+                run: function() { deleteSelectedComponent(); }
             });
         }
     }
@@ -2811,6 +2928,8 @@
         return Math.round(num) + 'px';
     }
     var lastTextStyleHost = null;
+    var lastSettingsHost = null;
+    var lastPointerTarget = null;
     var holdingSettingsSelection = false;
 
     var ptaUndoBusy = false;
@@ -2907,11 +3026,11 @@
                 val = safeLh;
             }
         }
-        if (findAncestorButton(comp)) {
+        if (findAncestorButton(comp) || isImageComponent(comp) || findSettingsImage(comp)) {
             return;
         }
         var root = findTextStyleHost(comp) || findTextBlockStyleRoot(comp) || lastTextStyleHost || comp;
-        if (findAncestorButton(root)) {
+        if (findAncestorButton(root) || isImageComponent(root) || findSettingsImage(root)) {
             return;
         }
         if (root) {
@@ -2964,15 +3083,42 @@
         } catch (e) { /* Style Manager optional */ }
     }
 
+    function settingsRestoreTarget() {
+        return lastSettingsHost || lastTextStyleHost;
+    }
+
+    function rememberSettingsHost(component) {
+        if (!component || !component.get || isProtectedCanvas(component)) {
+            return;
+        }
+        var button = findAncestorButton(component);
+        if (button) {
+            lastSettingsHost = button;
+            return;
+        }
+        var image = findSettingsImage(component);
+        if (image) {
+            lastSettingsHost = image;
+            return;
+        }
+        lastSettingsHost = component;
+        var textHost = findTextStyleHost(component) || findTextBlockStyleRoot(component);
+        if (textHost && !findAncestorButton(textHost) && !isImageComponent(textHost)) {
+            lastTextStyleHost = textHost;
+            lastSettingsHost = textHost;
+        }
+    }
+
     function restoreStyleHost() {
-        if (!editor || !lastTextStyleHost) {
+        var host = settingsRestoreTarget();
+        if (!editor || !host) {
             return;
         }
         var sel = editor.getSelected && editor.getSelected();
-        if (sel !== lastTextStyleHost) {
-            selectQuiet(lastTextStyleHost);
+        if (sel !== host) {
+            selectQuiet(host);
         }
-        pinStyleManager(lastTextStyleHost);
+        pinStyleManager(host);
     }
 
     function setupStyleApply() {
@@ -2995,7 +3141,7 @@
             if (undoManagerBusy()) {
                 return;
             }
-            var comp = (editor.getSelected && editor.getSelected()) || lastTextStyleHost;
+            var comp = (editor.getSelected && editor.getSelected()) || settingsRestoreTarget();
             if (!comp || !prop) {
                 return;
             }
@@ -3006,14 +3152,15 @@
 
         // Capture-phase: Settings lives outside the canvas iframe, so a
         // click there blurs the frame and GrapesJS drops the selection
-        // before Font/Size can write. Re-select the last text block first
-        // and do not preventDefault — GrapesJS selects are custom divs.
+        // before Font/Size or traits can write. Re-select the last block
+        // (text, button, image, …) first and do not preventDefault.
         var onSettingsPointer = function(e) {
+            lastPointerTarget = e.target;
             if (!isSettingsUi(e.target)) {
                 return;
             }
             holdingSettingsSelection = true;
-            if (lastTextStyleHost && !undoManagerBusy()) {
+            if (settingsRestoreTarget() && !undoManagerBusy()) {
                 restoreStyleHost();
             }
         };
@@ -3254,9 +3401,62 @@
             if (tag === 'table' && cls.indexOf('nl-button') !== -1) {
                 return p;
             }
+            var el = p.getEl && p.getEl();
+            if (el && isNewsletterButtonTable(el)) {
+                return p;
+            }
             p = p.parent ? p.parent() : null;
         }
         return null;
+    }
+
+    function isImageComponent(component) {
+        if (!component || !component.get) {
+            return false;
+        }
+        var type = component.get('type');
+        if (type === 'image' || type === 'email-image') {
+            return true;
+        }
+        return String(component.get('tagName') || '').toLowerCase() === 'img';
+    }
+
+    function findContainedImage(component, depth) {
+        if (!component || depth > 6) {
+            return null;
+        }
+        if (isImageComponent(component)) {
+            return component;
+        }
+        var kids = wrapperChildList(component);
+        var found = null;
+        var count = 0;
+        for (var i = 0; i < kids.length; i++) {
+            var img = findContainedImage(kids[i], depth + 1);
+            if (!img) {
+                continue;
+            }
+            count++;
+            found = img;
+            if (count > 1) {
+                return null;
+            }
+        }
+        return count === 1 ? found : null;
+    }
+
+    function findSettingsImage(component) {
+        var p = component;
+        while (p) {
+            if (isImageComponent(p)) {
+                return p;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        if (!component || findAncestorButton(component) || blockHasTypographicText(component)) {
+            return null;
+        }
+        return findContainedImage(component, 0);
     }
 
     /**
@@ -4439,6 +4639,7 @@
             }
 
             if (undoManagerBusy()) {
+                rememberSettingsHost(component);
                 lastTextStyleHost = findTextStyleHost(component) || lastTextStyleHost;
                 updateElementIndicator(component);
                 updateMoveButtons(getMovableRow(component));
@@ -4448,9 +4649,11 @@
             if (component.get('type') === 'nl-column') {
                 if (blockHasTypographicText(component)) {
                     lastTextStyleHost = component;
+                    rememberSettingsHost(component);
                 } else {
                     var row = findAncestorColumns(component);
                     if (row && row !== component) {
+                        rememberSettingsHost(row);
                         selectQuiet(row);
                         return;
                     }
@@ -4462,8 +4665,18 @@
                 withoutUndo(function() {
                     ensureButtonLinkChrome(button);
                 });
+                rememberSettingsHost(button);
                 if (button !== component) {
                     selectQuiet(button);
+                    return;
+                }
+            }
+
+            var image = findSettingsImage(component);
+            if (image) {
+                rememberSettingsHost(image);
+                if (image !== component) {
+                    selectQuiet(image);
                     return;
                 }
             }
@@ -4473,14 +4686,16 @@
                     ? component
                     : findAncestorSection(component);
                 if (owningSection && owningSection !== component) {
+                    rememberSettingsHost(owningSection);
                     selectQuiet(owningSection);
                     return;
                 }
             }
 
             var styleRoot = findTextStyleHost(component) || findTextBlockStyleRoot(component);
-            if (styleRoot && styleRoot !== component) {
+            if (styleRoot && styleRoot !== component && !findSettingsImage(component) && !findAncestorButton(component)) {
                 lastTextStyleHost = styleRoot;
+                rememberSettingsHost(styleRoot);
                 styleRoot._ptaRteTarget = isEditableTextComponent(component)
                     ? component
                     : findTextEditTarget(component);
@@ -4489,8 +4704,11 @@
             }
             if (styleRoot) {
                 lastTextStyleHost = styleRoot;
+                rememberSettingsHost(styleRoot);
                 pinStyleManager(styleRoot);
             }
+
+            rememberSettingsHost(component);
 
             var textTarget = component._ptaRteTarget || null;
             component._ptaRteTarget = null;
@@ -4579,29 +4797,22 @@
             if (rteInputCleanup) {
                 rteInputCleanup();
             }
-            if (holdingSettingsSelection || isSettingsUi(document.activeElement)) {
-                window.setTimeout(function() {
-                    if (lastTextStyleHost && !(editor.getSelected && editor.getSelected())) {
-                        restoreStyleHost();
-                    }
-                }, 0);
-                return;
-            }
             window.setTimeout(function() {
-                if (holdingSettingsSelection || (editor.getSelected && editor.getSelected())) {
+                if (editor.getSelected && editor.getSelected()) {
                     return;
                 }
-                if (lastTextStyleHost && isSettingsUi(document.activeElement)) {
+                if (holdingSettingsSelection || isSettingsUi(document.activeElement)) {
                     restoreStyleHost();
                     return;
                 }
                 lastTextStyleHost = null;
+                lastSettingsHost = null;
                 $('.settings-placeholder').show();
                 $('#traits-container').hide();
                 $('#styles-container').hide();
                 $('#selected-element-name .element-name').text('No element selected');
                 updateMoveButtons(null);
-            }, 0);
+            }, 50);
         });
 
         editor.on('component:dblclick', function(component) {
@@ -4738,9 +4949,12 @@
      * Setup device preview buttons
      */
     function setupDeviceButtons() {
-        $('.device-btn').on('click', function() {
+        $('.device-buttons .device-btn').on('click', function() {
             var device = $(this).data('device');
-            $('.device-btn').removeClass('active');
+            if (!device) {
+                return;
+            }
+            $('.device-buttons .device-btn').removeClass('active');
             $(this).addClass('active');
             
             if (editor) {
@@ -4759,14 +4973,16 @@
                 
                 editor.setDevice(deviceName);
                 
-                // Add data attribute for CSS targeting
                 var frameWrapper = document.querySelector('.gjs-frame-wrapper');
                 if (frameWrapper) {
                     frameWrapper.setAttribute('data-device', deviceName);
                 }
+
+                pinEmailCanvasWidth();
+                injectColumnStackCss();
                 
-                // Force canvas to recalculate scroll area after device change
                 setTimeout(function() {
+                    pinEmailCanvasWidth();
                     var canvas = editor.Canvas;
                     if (canvas && canvas.refresh) {
                         canvas.refresh();
@@ -4831,7 +5047,7 @@
             cycleSelectedColumns();
         });
         $('#btn-delete-section').on('click', function() {
-            deleteSelectedSection();
+            deleteSelectedComponent();
         });
         $('#btn-format-text').on('click', function() {
             formatTextToDefault();
@@ -5748,76 +5964,11 @@
     });
 
     /**
-     * Update Design - syncs editor content and saves draft
+     * Update Design and Save Draft both persist the campaign without sending.
      */
     $(document).on('click', '#btn-update-design', function(e) {
         e.preventDefault();
-        var btn = $(this);
-        var originalHtml = btn.html();
-        
-        btn.prop('disabled', true);
-        btn.html('<span class="dashicons dashicons-update spin"></span> Updating...');
-        
-        if (editor) {
-            var inlinedHtml = getEmailReadyHtml();
-            var json = JSON.stringify(editor.getProjectData());
-            $('#newsletter_content_html').val(inlinedHtml);
-            $('#newsletter_content_json').val(json);
-        }
-        
-        // Trigger save draft via AJAX
-        var selectedLists = [];
-        $('input[name="newsletter_lists[]"]:checked').each(function() {
-            selectedLists.push($(this).val());
-        });
-        
-        var formData = {
-            action: 'azure_newsletter_save',
-            nonce: newsletterEditorConfig.nonce,
-            newsletter_id: $('#newsletter_id').val(),
-            newsletter_name: $('#newsletter_name').val(),
-            newsletter_subject: $('#newsletter_subject').val(),
-            newsletter_from: $('#newsletter_from').val(),
-            newsletter_content_html: $('#newsletter_content_html').val(),
-            newsletter_content_json: $('#newsletter_content_json').val(),
-            newsletter_lists: JSON.stringify(selectedLists),
-            send_option: 'draft'
-        };
-        
-        $.post(newsletterEditorConfig.ajaxUrl, formData, function(response) {
-            btn.prop('disabled', false);
-            
-            if (response.success) {
-                if (response.data.newsletter_id) {
-                    $('#newsletter_id').val(response.data.newsletter_id);
-                    var newUrl = newsletterEditorConfig.ajaxUrl.replace('admin-ajax.php', 
-                        'admin.php?page=azure-plugin-newsletter&action=new&id=' + response.data.newsletter_id);
-                    if (window.history.replaceState) {
-                        window.history.replaceState({}, '', newUrl);
-                    }
-                }
-                
-                btn.html('<span class="dashicons dashicons-yes-alt"></span> Updated!');
-                $('#save-status').html('<span class="saved">✓ Design updated</span>');
-                if (response.data.content_html !== undefined) {
-                    $('#newsletter_content_html').val(response.data.content_html);
-                }
-                if (response.data.content_json !== undefined) {
-                    $('#newsletter_content_json').val(response.data.content_json);
-                }
-                setTimeout(function() {
-                    btn.html(originalHtml);
-                    $('#save-status').html('');
-                }, 2500);
-            } else {
-                btn.html(originalHtml);
-                alert('Error saving: ' + (response.data || 'Unknown error'));
-            }
-        }).fail(function() {
-            btn.prop('disabled', false);
-            btn.html(originalHtml);
-            alert('Network error. Please try again.');
-        });
+        saveDraft($(this));
     });
 
     /**
@@ -5970,10 +6121,11 @@
     function saveDraft(btn) {
         var statusEl = $('#save-status');
         var originalText = btn.find('.dashicons').length ? btn.html() : btn.text();
+        var iconBtn = btn.attr('id') === 'save-draft-top' || btn.attr('id') === 'btn-update-design';
         
         // Update button state
         btn.prop('disabled', true);
-        if (btn.attr('id') === 'save-draft-top') {
+        if (iconBtn) {
             btn.html('<span class="dashicons dashicons-update-alt spin"></span> Saving...');
         } else {
             btn.text('Saving...');
@@ -6024,7 +6176,7 @@
                     }
                 }
                 
-                if (btn.attr('id') === 'save-draft-top') {
+                if (iconBtn) {
                     btn.html('<span class="dashicons dashicons-cloud-saved"></span> Save Draft');
                 } else {
                     btn.text('Save Draft');
@@ -6040,7 +6192,7 @@
                     statusEl.html('');
                 }, 3000);
             } else {
-                if (btn.attr('id') === 'save-draft-top') {
+                if (iconBtn) {
                     btn.html('<span class="dashicons dashicons-cloud-saved"></span> Save Draft');
                 } else {
                     btn.text('Save Draft');
@@ -6050,7 +6202,7 @@
             }
         }).fail(function() {
             btn.prop('disabled', false);
-            if (btn.attr('id') === 'save-draft-top') {
+            if (iconBtn) {
                 btn.html('<span class="dashicons dashicons-cloud-saved"></span> Save Draft');
             } else {
                 btn.text('Save Draft');

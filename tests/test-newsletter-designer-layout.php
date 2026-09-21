@@ -48,6 +48,10 @@ $t->check(strpos($js, 'function findAncestorSection') !== false, 'finds the encl
 $t->check(strpos($js, 'function hoistNestedSection') !== false, 'nested sections are hoisted to siblings');
 $t->check(strpos($js, 'function stripSectionHints') !== false, 'export strips section placeholder hints');
 $t->check(strpos($js, 'function sectionGroupHtml') !== false, 'section group markup helper exists');
+$t->check(preg_match('/function sectionGroupHtml\(\) \{[\s\S]*?Your Heading Here[\s\S]*?nl-stack-cols[\s\S]*?<img[\s\S]*?Add your text content here/', $js) === 1, 'dropped Section is heading plus image/text columns');
+preg_match('/function sectionGroupHtml\(\) \{[^}]+\}/', $js, $section_html);
+$t->check(isset($section_html[0]) && strpos($section_html[0], 'nl-section-empty') === false, 'dropped Section is not an empty well');
+$t->check(isset($section_html[0]) && strpos($section_html[0], 'nl-section-hint') === false, 'dropped Section has no centered hint well');
 $t->check(strpos($js, 'class="nl-section') !== false, 'section wrapper class is present');
 $t->check(strpos($js, "addType('column-widths'") !== false, 'column width slider trait exists');
 $t->check(strpos($js, 'redistributeColumnWidths') !== false, 'width slider redistributes leftover space');
@@ -83,7 +87,7 @@ $t->check(strpos($js, 'bgcolor="#dddddd"') !== false, 'divider rule is a 2px col
 $t->check(strpos($js, 'dividerCss') !== false, 'export includes divider CSS');
 $t->check(strpos($js, 'function applySectionFrame') !== false, 'filled sections drop the empty-frame height');
 $t->check(strpos($js, 'min-height:140px') !== false, 'centered drop well is a distinct middle target');
-$t->check(strpos($js, "class=\"nl-section-hint\"") !== false, 'empty section ships a centered hint well');
+$t->check(strpos($js, "addType('nl-section-hint'") !== false, 'empty saved sections still recognise a hint well');
 $t->check(strpos($js, "addType('nl-section-handle'") !== false, 'section handle is a designer component');
 $t->check(strpos($js, 'function isSectionHandle') !== false, 'section handle is detected');
 $t->check(strpos($js, 'function syncSectionHandles') !== false, 'saved sections get a select handle');
@@ -115,6 +119,10 @@ $t->check(strpos($js, "removeAttribute('data-ogsc')") === false, 'Format text do
 $t->check(strpos($js, "NL_DEFAULT_FONT = 'Arial, Helvetica, sans-serif'") !== false, 'default body font is Arial');
 $t->check(strpos($js, "NL_DEFAULT_SIZE = '14px'") !== false, 'default body size is 14px');
 $t->check(strpos($js, 'lastTextStyleHost') !== false, 'sidebar font changes keep the last text block');
+$t->check(strpos($js, 'lastSettingsHost') !== false, 'sidebar clicks keep the last selected block');
+$t->check(strpos($js, 'function settingsRestoreTarget') !== false, 'Settings restore is not limited to text blocks');
+$t->check(strpos($js, 'function findSettingsImage') !== false, 'image blocks stay selected in Settings');
+$t->check(strpos($js, 'function rememberSettingsHost') !== false, 'buttons and images are remembered for Settings');
 $t->check(strpos($js, 'bindTextHostDblClick') !== false, 'double-click edits words without needing a tight text selection');
 $t->check(strpos($js, 'function isSettingsUi') !== false, 'Settings sidebar clicks are recognized');
 $t->check(strpos($js, 'function restoreStyleHost') !== false, 'Settings can re-select the last text block');
@@ -140,7 +148,16 @@ $t->check(strpos($js, 'function syncCanvasBlockGaps') !== false, 'drop rails sit
 $t->check(strpos($js, 'function pinEmailCanvasWidth') !== false, 'pins the inner table at 600px');
 $t->check(strpos($js, 'function hoistNowNext') !== false, 'Now and Next is hoisted out of a column cell');
 $t->check(strpos($js, 'hoistEscapedBlocksIntoCanvas()') !== false, 'export hoists escaped blocks before getHtml');
-$t->check(strpos($js, 'table[width="600"]{width:600px !important;max-width:600px !important;}') !== false, 'canvas CSS keeps the inner table at 600px');
+$t->check(strpos($js, 'function getDeletableComponent') !== false, 'delete finds the selected text, columns, or section');
+$t->check(strpos($js, 'function deleteSelectedComponent') !== false, 'toolbar delete removes the selected block');
+$t->check(strpos($js, 'function isMobilePreview') !== false, 'mobile preview is detected');
+$t->check(strpos($js, "width: '375px'") !== false, 'mobile canvas is a phone-width iframe');
+$t->check(strpos($js, "widthMedia: '600px'") !== false, 'mobile preview uses the email 600px breakpoint');
+$t->check(strpos($js, '@media only screen and (max-width: 600px){table[width="600"]{width:100% !important;max-width:100% !important;}') !== false, 'mobile preview lets the 600px email table shrink');
+$t->check(strpos($js, '@media only screen and (min-width: 601px){table[width="600"]{width:600px !important;max-width:600px !important;}}') !== false, 'desktop canvas still pins the inner table at 600px');
+$t->check(strpos($js, "table[width=\"600\"]{width:600px !important;max-width:600px !important;}") === false || strpos($js, '@media only screen and (min-width: 601px){table[width="600"]') !== false, 'the 600px pin is no longer unconditional');
+$t->check(strpos($js, "$('.device-buttons .device-btn')") !== false, 'device preview clicks are not bound to move/delete buttons');
+$t->check(strpos($js, "btn.attr('id') === 'btn-update-design'") !== false, 'design-step Save Draft uses the same draft save as the header');
 
 $editor_php = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/newsletter-editor.php');
 $t->check(strpos($editor_php, 'id="btn-row-up"') !== false, 'designer toolbar has Move row up');

@@ -439,7 +439,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                         <button type="button" class="device-btn" id="btn-swap-cols" disabled title="<?php esc_attr_e('Swap columns', 'azure-plugin'); ?>">
                             <span class="dashicons dashicons-leftright"></span>
                         </button>
-                        <button type="button" class="device-btn" id="btn-delete-section" disabled title="<?php esc_attr_e('Delete section', 'azure-plugin'); ?>">
+                        <button type="button" class="device-btn" id="btn-delete-section" disabled title="<?php esc_attr_e('Delete selected block', 'azure-plugin'); ?>">
                             <span class="dashicons dashicons-trash"></span>
                         </button>
                         <button type="button" class="device-btn" id="btn-format-text" title="<?php esc_attr_e('Format text to Arial 14. Formats the selected text block, or every text block if none is selected.', 'azure-plugin'); ?>">
@@ -461,8 +461,8 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                         <span class="dashicons dashicons-layout"></span> <?php echo $edit_template_id ? esc_html__('Update Template', 'azure-plugin') : esc_html__('Save Template', 'azure-plugin'); ?>
                     </button>
                     <?php if (!$save_as_template): ?>
-                    <button type="button" class="button" id="btn-update-design" title="<?php _e('Update design and save changes', 'azure-plugin'); ?>">
-                        <span class="dashicons dashicons-update"></span> <?php _e('Update', 'azure-plugin'); ?>
+                    <button type="button" class="button" id="btn-update-design" title="<?php esc_attr_e('Save this campaign as a draft. Does not send.', 'azure-plugin'); ?>">
+                        <span class="dashicons dashicons-cloud-saved"></span> <?php _e('Save Draft', 'azure-plugin'); ?>
                     </button>
                     <?php endif; ?>
                     <button type="button" class="button button-primary next-step" data-next="3">
