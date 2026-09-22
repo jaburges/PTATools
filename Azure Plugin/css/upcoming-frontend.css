@@ -85,6 +85,39 @@ a.upcoming-title:hover {
     color: #0073aa;
 }
 
+.upcoming-title-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    max-width: 100%;
+}
+
+.upcoming-volunteer-spaces {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.upcoming-volunteer-spaces.is-empty {
+    color: #9b1c1c;
+    background: #fde8e8;
+}
+
+.upcoming-volunteer-spaces.is-partial {
+    color: #8a5a00;
+    background: #ffe8a3;
+}
+
+.upcoming-volunteer-spaces.is-full {
+    color: #0f6b32;
+    background: #d8f3e2;
+}
+
 .upcoming-body-main {
     display: flex;
     align-items: flex-start;

@@ -238,6 +238,68 @@ class Azure_Volunteer_Signup {
     }
 
     /**
+     * Combined fill for every live signup sheet attached to an event.
+     * Templates and trashed sheets are skipped. Null when the event
+     * has no spots to fill.
+     *
+     * @param int $event_id
+     * @return array{spots_needed:int,spots_filled:int,spots_open:int}|null
+     */
+    public static function fill_for_event($event_id) {
+        global $wpdb;
+        $event_id = (int) $event_id;
+        if ($event_id <= 0 || !isset($wpdb)) {
+            return null;
+        }
+        $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$sheets_t) {
+            return null;
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, pta_event_id, is_template, status FROM {$sheets_t} WHERE pta_event_id = %d AND is_template = 0 AND status <> %s",
+            $event_id,
+            'trashed'
+        ));
+        $fills = array();
+        foreach ((array) $rows as $sheet) {
+            if (!is_object($sheet)) {
+                continue;
+            }
+            if ((int) ($sheet->pta_event_id ?? 0) !== $event_id) {
+                continue;
+            }
+            if (!empty($sheet->is_template)) {
+                continue;
+            }
+            if ((string) ($sheet->status ?? '') === 'trashed') {
+                continue;
+            }
+            $sheet_id = (int) $sheet->id;
+            foreach (self::get_activities($sheet_id) as $activity) {
+                if (!is_object($activity) || (int) ($activity->sheet_id ?? 0) !== $sheet_id) {
+                    continue;
+                }
+                $activity_id = (int) $activity->id;
+                $signed = 0;
+                foreach (self::get_signups_for_activity($activity_id) as $signup) {
+                    if (is_object($signup) && (int) ($signup->activity_id ?? 0) === $activity_id) {
+                        $signed++;
+                    }
+                }
+                $fills[] = self::activity_fill((int) ($activity->spots_needed ?? 1), $signed);
+            }
+        }
+        if (!$fills) {
+            return null;
+        }
+        $totals = self::sheet_fill_totals($fills);
+        if ($totals['spots_needed'] <= 0) {
+            return null;
+        }
+        return $totals;
+    }
+
+    /**
      * Compact sheet rows for the iOS home widget / list.
      *
      * @param object[]|null $sheets
@@ -1265,6 +1327,7 @@ class Azure_Volunteer_Signup {
         if ($make_template && $instances === 0) {
             $payload['warning'] = 'The template was saved, but it could not be copied onto the events in that series.';
         }
+        $this->touch_upcoming_cache();
         wp_send_json_success($payload);
     }
 
@@ -1290,6 +1353,7 @@ class Azure_Volunteer_Signup {
         }
         $wpdb->delete($activities_t, array('sheet_id' => $sheet_id));
         $wpdb->delete($sheets_t, array('id' => $sheet_id));
+        $this->touch_upcoming_cache();
 
         wp_send_json_success();
     }
@@ -1491,6 +1555,7 @@ class Azure_Volunteer_Signup {
 
         $sheet_id = (int) $added_acts[0]->sheet_id;
         $this->send_confirmation_email($user_id, $sheet_id, $added_acts);
+        $this->touch_upcoming_cache();
 
         wp_send_json_success(array(
             'message'    => sprintf(__('You signed up for: %s', 'azure-plugin'), implode(', ', $added)),
@@ -1513,8 +1578,18 @@ class Azure_Volunteer_Signup {
 
         $signups_t = Azure_Database::get_table_name('volunteer_signups');
         $wpdb->delete($signups_t, array('activity_id' => $activity_id, 'user_id' => $user_id));
+        $this->touch_upcoming_cache();
 
         wp_send_json_success(array('message' => __('You have withdrawn from this activity.', 'azure-plugin')));
+    }
+
+    /**
+     * Signup counts are baked into cached [up-next] HTML.
+     */
+    private function touch_upcoming_cache() {
+        if (class_exists('Azure_Upcoming_Module')) {
+            Azure_Upcoming_Module::invalidate_cache();
+        }
     }
 
     // ──────────────────────────────────────────────

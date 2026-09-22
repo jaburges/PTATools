@@ -82,6 +82,7 @@ class Azure_Upcoming_Module {
             'link-titles'         => 'true',
             'show-join-meeting'   => 'true',
             'show-location'       => 'false',
+            'include-volunteer-spaces' => 'false',
             'show-empty'          => 'true',
             'show-coming-up'      => 'true',
             'coming-up-days'      => '30',
@@ -141,6 +142,7 @@ class Azure_Upcoming_Module {
         $link_titles = filter_var($atts['link-titles'], FILTER_VALIDATE_BOOLEAN);
         $show_join_meeting = filter_var($atts['show-join-meeting'], FILTER_VALIDATE_BOOLEAN);
         $show_location = filter_var($atts['show-location'], FILTER_VALIDATE_BOOLEAN);
+        $include_volunteer_spaces = filter_var($atts['include-volunteer-spaces'], FILTER_VALIDATE_BOOLEAN);
         $show_empty = filter_var($atts['show-empty'], FILTER_VALIDATE_BOOLEAN);
         $show_coming_up = filter_var($atts['show-coming-up'], FILTER_VALIDATE_BOOLEAN);
         $use_cache = filter_var($atts['cache'], FILTER_VALIDATE_BOOLEAN);
@@ -190,6 +192,7 @@ class Azure_Upcoming_Module {
             'link_titles'         => $link_titles,
             'show_join_meeting'   => $show_join_meeting,
             'show_location'       => $show_location,
+            'include_volunteer_spaces' => $include_volunteer_spaces,
             'empty_message'       => $atts['empty-message'],
             // Image rendering is emitted unconditionally when the
             // event has a featured image. The theme CSS handles
@@ -815,6 +818,41 @@ class Azure_Upcoming_Module {
         }
         return $name;
     }
+
+    /**
+     * Spots filled out of spots needed. Red when nobody has signed up,
+     * yellow when some spots are still open, green when the sheet is full.
+     *
+     * @param int $filled
+     * @param int $needed
+     * @return string
+     */
+    public static function volunteer_spaces_html($filled, $needed) {
+        $needed = max(0, (int) $needed);
+        $filled = max(0, (int) $filled);
+        if ($needed <= 0) {
+            return '';
+        }
+        if ($filled > $needed) {
+            $filled = $needed;
+        }
+        if ($filled >= $needed) {
+            $state = 'is-full';
+        } elseif ($filled > 0) {
+            $state = 'is-partial';
+        } else {
+            $state = 'is-empty';
+        }
+        $label = sprintf(
+            /* translators: 1: spots filled, 2: spots needed */
+            __('%1$d of %2$d volunteer spots filled', 'azure-plugin'),
+            $filled,
+            $needed
+        );
+        return '<span class="upcoming-volunteer-spaces ' . esc_attr($state) . '" title="' . esc_attr($label) . '">'
+            . esc_html($filled . '/' . $needed)
+            . '</span>';
+    }
     
     /**
      * Render a list of events
@@ -828,6 +866,7 @@ class Azure_Upcoming_Module {
         $link_titles          = !empty($options['link_titles']);
         $show_join_meeting    = !empty($options['show_join_meeting']);
         $show_location        = !empty($options['show_location']);
+        $include_spaces       = !empty($options['include_volunteer_spaces']);
         $show_image           = isset($options['show_image']) ? !empty($options['show_image']) : true;
         $date_pill            = isset($options['date_pill']) ? (string) $options['date_pill'] : 'none';
         $show_location_badge  = !empty($options['show_location_badge']);
@@ -945,10 +984,24 @@ class Azure_Upcoming_Module {
             }
             $output .= '<span class="upcoming-separator"> – </span>';
 
+            $spaces_html = '';
+            if ($include_spaces && class_exists('Azure_Volunteer_Signup')) {
+                $fill = Azure_Volunteer_Signup::fill_for_event((int) ($event['id'] ?? 0));
+                if (is_array($fill)) {
+                    $spaces_html = self::volunteer_spaces_html($fill['spots_filled'], $fill['spots_needed']);
+                }
+            }
+
+            if ($spaces_html !== '') {
+                $output .= '<span class="upcoming-title-row">';
+            }
             if ($link_titles && !empty($event['url'])) {
                 $output .= '<a href="' . esc_url($event['url']) . '" class="upcoming-title">' . esc_html($event['title']) . '</a>';
             } else {
                 $output .= '<span class="upcoming-title">' . esc_html($event['title']) . '</span>';
+            }
+            if ($spaces_html !== '') {
+                $output .= $spaces_html . '</span>';
             }
             $output .= '</div>'; // .upcoming-body-copy
 

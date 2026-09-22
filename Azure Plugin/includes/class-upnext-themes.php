@@ -700,6 +700,12 @@ class Azure_UpNext_Themes {
             $out .= "{$itemSel}.has-corner .upcoming-place{font-size:12px;font-weight:700;line-height:1.3;}\n";
             $out .= "{$itemSel}.has-corner .upcoming-body{padding-right:42%;}\n";
             $out .= "{$itemSel}.has-corner .upcoming-title{padding-right:0;}\n";
+
+            $out .= "{$itemSel} .upcoming-title-row{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;}\n";
+            $out .= "{$itemSel} .upcoming-volunteer-spaces{display:inline-block;padding:0 6px;border-radius:999px;font-size:12px;font-weight:700;line-height:1.5;white-space:nowrap;}\n";
+            $out .= "{$itemSel} .upcoming-volunteer-spaces.is-empty{color:#9b1c1c;background:#fde8e8;}\n";
+            $out .= "{$itemSel} .upcoming-volunteer-spaces.is-partial{color:#8a5a00;background:#ffe8a3;}\n";
+            $out .= "{$itemSel} .upcoming-volunteer-spaces.is-full{color:#0f6b32;background:#d8f3e2;}\n";
         }
 
         return $out;

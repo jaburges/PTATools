@@ -84,6 +84,10 @@ if (class_exists('Azure_UpNext_Themes')) {
             <h3><?php _e('Place or join link', 'azure-plugin'); ?></h3>
             <pre class="azure-code">[up-next show-location="true"]</pre>
             <p class="description"><?php _e('Puts a join link at the top right of an online event. An in-person event shows its location there instead, when it has one.', 'azure-plugin'); ?></p>
+
+            <h3><?php _e('Volunteer spots', 'azure-plugin'); ?></h3>
+            <pre class="azure-code">[up-next include-volunteer-spaces="true"]</pre>
+            <p class="description"><?php _e('Shows spots filled out of spots needed, such as 1/2, when the event has a volunteer signup. Red when nobody has signed up, yellow when some spots are still open, green when it is full.', 'azure-plugin'); ?></p>
         </div>
         
         <!-- All Attributes Card -->
@@ -133,6 +137,11 @@ if (class_exists('Azure_UpNext_Themes')) {
                         <td><code>show-location</code></td>
                         <td><code>"false"</code></td>
                         <td><?php _e('Top-right of each event: the join link when it is an online meeting, otherwise the location when the event has one.', 'azure-plugin'); ?></td>
+                    </tr>
+                    <tr>
+                        <td><code>include-volunteer-spaces</code></td>
+                        <td><code>"false"</code></td>
+                        <td><?php _e('After the title, spots filled out of spots needed when a volunteer signup is attached. Red at 0, yellow while spots remain, green when full.', 'azure-plugin'); ?></td>
                     </tr>
                     <tr>
                         <td><code>show-time</code></td>
