@@ -2,9 +2,7 @@
 
 A comprehensive WordPress plugin that integrates Microsoft Azure/Microsoft 365 with WordPress and WooCommerce. Single sign-on, calendar sync, email, backups, PTA organizational management, OneDrive media, **Classes**, **Event Tickets**, **Newsletter**, **Auction**, **Product Fields**, **Donations**, and **Volunteer Sign Up** modules—all from one unified plugin (also known as **Microsoft WP**).
 
-**Current (v3.51):** Fixed the user-account dropdown showing "Log In" for already-logged-in users. The shortcode now renders the full logged-in menu directly in PHP for authenticated requests (W3TC bypasses the page cache for logged-in users via `pgcache.reject.logged = true`, so this is safe), keeping the cache-safe JS-swap as a fallback for any cached anonymous HTML accidentally served to a logged-in browser. Also stops depending on JS execution succeeding in the presence of unrelated errors elsewhere on the page.
-
-**v3.50:** PTA Roles module toggle now saves reliably from both the main PTA Tools page and the PTA Roles page — replaced the page-specific `.pta-module-toggle` handler with the shared `.module-toggle` + `data-module="pta"` pattern and removed a duplicate inline AJAX handler on the main page that was racing against `admin.js`. Same root cause and fix pattern as the v3.49 Calendar Sync save fix.
+**Current release: [v3.147.103](https://github.com/jaburges/PTATools/releases/tag/v3.147.103)** — [changelog since the 9 September 2026 wiki update](https://github.com/jaburges/PTATools/releases/tag/v3.147.103). The same notes are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog).
 
 ---
 
@@ -1623,6 +1621,7 @@ Each module follows a consistent pattern:
 
 ### **Plugin Documentation**
 
+- **Changelog**: [v3.147.103 release notes](https://github.com/jaburges/PTATools/releases/tag/v3.147.103) and the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog)
 - **Review & Roadmap**: See `review.md` for detailed code review and optimization roadmap
 - **Performance Guide**: See Performance & Optimization section above
 - **Logging Strategy**: Automatic rotation and cleanup implemented
@@ -1697,7 +1696,11 @@ This plugin integrates and enhances functionality from multiple Microsoft servic
 
 ## 📊 **Version History**
 
-### **Version 3.50** (Current — April 2026)
+### **Version 3.147.103** (Current — September 2026)
+
+[Release notes](https://github.com/jaburges/PTATools/releases/tag/v3.147.103) cover everything since the 9 September 2026 wiki update: calendar embeds scoped to one Outlook calendar, calendar display names, Sunday weeks and `exclude-calendars` for Now and Next, recurring volunteer sheets with a two-hour reminder, class competitions, parent-directory access, and donation receipts.
+
+### **Version 3.50** (April 2026)
 - **PTA Roles module toggle now saves reliably**: The PTA Roles page was using a custom `.pta-module-toggle` class with its own inline AJAX handler, while the main PTA Tools page had a *second* `.module-toggle` handler inline in `main-page.php` that duplicated the one already in `admin.js`. The two handlers raced each other — on disable, one could fire a `fail` path that reverted the checkbox (and the form's hidden input) back to the enabled state, making it look like the toggle "wasn't saving". Same failure pattern as the v3.49 Calendar Sync bug.
 - **Fix**: PTA page now uses the standard `class="module-toggle" data-module="pta"` pattern inside a `module-card` wrapper, so `admin.js` is the single source of truth for the save AJAX. The main-page inline handler was reduced to *only* syncing the hidden `#hidden_enable_<module>` form input (needed for the "Save Settings" form submit); the AJAX save is now owned solely by `admin.js`.
 - **Consistency**: The disabled-warning banner on the PTA Roles page now shows/hides live instead of requiring a full page reload.
@@ -1784,9 +1787,9 @@ See `review.md` for full roadmap and priorities.
 
 ---
 
-**Version**: 3.46  
+**Version**: 3.147.103  
 **Author**: Jamie Burgess  
-**Last Updated**: March 2026  
+**Last Updated**: September 2026  
 **Plugin URI**: https://github.com/jaburges/PTATools
 
 **Ready to get started?** Follow the [Initial Setup](#initial-setup--basic-configuration) guide above!
