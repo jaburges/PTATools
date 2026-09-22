@@ -143,6 +143,30 @@ a.upcoming-title:hover {
     display: block;
 }
 
+.upcoming-event.has-corner {
+    position: relative;
+}
+
+.upcoming-event.has-corner .upcoming-corner {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    max-width: 46%;
+    text-align: right;
+}
+
+.upcoming-event.has-corner .upcoming-place {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #333;
+}
+
+.upcoming-event.has-corner .upcoming-body {
+    padding-right: 42%;
+}
+
 .upcoming-online-meeting a {
     color: #0073aa;
     text-decoration: underline;
@@ -185,6 +209,10 @@ a.upcoming-title:hover {
     
     a.upcoming-title:hover {
         color: #4a9fd4;
+    }
+
+    .upcoming-event.has-corner .upcoming-place {
+        color: #ddd;
     }
 
     .upcoming-online-meeting a {

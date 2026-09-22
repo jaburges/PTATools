@@ -81,6 +81,7 @@ class Azure_Upcoming_Module {
             'show-time'           => 'true',
             'link-titles'         => 'true',
             'show-join-meeting'   => 'true',
+            'show-location'       => 'false',
             'show-empty'          => 'true',
             'show-coming-up'      => 'true',
             'coming-up-days'      => '30',
@@ -139,6 +140,7 @@ class Azure_Upcoming_Module {
         $show_time = filter_var($atts['show-time'], FILTER_VALIDATE_BOOLEAN);
         $link_titles = filter_var($atts['link-titles'], FILTER_VALIDATE_BOOLEAN);
         $show_join_meeting = filter_var($atts['show-join-meeting'], FILTER_VALIDATE_BOOLEAN);
+        $show_location = filter_var($atts['show-location'], FILTER_VALIDATE_BOOLEAN);
         $show_empty = filter_var($atts['show-empty'], FILTER_VALIDATE_BOOLEAN);
         $show_coming_up = filter_var($atts['show-coming-up'], FILTER_VALIDATE_BOOLEAN);
         $use_cache = filter_var($atts['cache'], FILTER_VALIDATE_BOOLEAN);
@@ -187,6 +189,7 @@ class Azure_Upcoming_Module {
             'show_time'           => $show_time,
             'link_titles'         => $link_titles,
             'show_join_meeting'   => $show_join_meeting,
+            'show_location'       => $show_location,
             'empty_message'       => $atts['empty-message'],
             // Image rendering is emitted unconditionally when the
             // event has a featured image. The theme CSS handles
@@ -605,6 +608,7 @@ class Azure_Upcoming_Module {
                     'end_date'   => $end_date,
                     'all_day'    => get_post_meta($event_id, '_EventAllDay', true) === 'yes',
                     'online_url' => $this->get_online_meeting_url($event_id),
+                    'location'   => self::location_name($event_id),
                 );
             }
             wp_reset_postdata();
@@ -786,6 +790,31 @@ class Azure_Upcoming_Module {
         }
         return '';
     }
+
+    /**
+     * Place name for an event. A bare meeting URL is not a place.
+     *
+     * @param int $event_id
+     * @return string
+     */
+    public static function location_name($event_id) {
+        $event_id = (int) $event_id;
+        $name = '';
+        $venue_id = (int) get_post_meta($event_id, '_EventVenueID', true);
+        if ($venue_id > 0 && class_exists('Azure_Event_CPT')) {
+            $block = Azure_Event_CPT::get_venue_block($venue_id);
+            if (is_array($block) && !empty($block['name'])) {
+                $name = trim((string) $block['name']);
+            }
+        }
+        if ($name === '') {
+            $name = trim((string) get_post_meta($event_id, '_EventVenue', true));
+        }
+        if ($name !== '' && filter_var($name, FILTER_VALIDATE_URL)) {
+            return '';
+        }
+        return $name;
+    }
     
     /**
      * Render a list of events
@@ -798,6 +827,7 @@ class Azure_Upcoming_Module {
         $show_time            = !empty($options['show_time']);
         $link_titles          = !empty($options['link_titles']);
         $show_join_meeting    = !empty($options['show_join_meeting']);
+        $show_location        = !empty($options['show_location']);
         $show_image           = isset($options['show_image']) ? !empty($options['show_image']) : true;
         $date_pill            = isset($options['date_pill']) ? (string) $options['date_pill'] : 'none';
         $show_location_badge  = !empty($options['show_location_badge']);
@@ -848,7 +878,30 @@ class Azure_Upcoming_Module {
                 }
             }
 
-            $li_class = 'upcoming-event' . ($thumb_url ? ' has-thumb' : '');
+            $is_online = !empty($event['online_url']);
+            $place = '';
+            if ($show_location && !$is_online && !empty($event['location'])) {
+                $place = trim((string) $event['location']);
+            }
+
+            $join_html = '';
+            $want_join = $show_join_meeting || ($show_location && $is_online);
+            if ($want_join && class_exists('Azure_Event_CPT')) {
+                $join_html = Azure_Event_CPT::render_join_meeting_button((int) $event['id'], 'compact');
+                if ($join_html === '' && !empty($event['online_url'])) {
+                    $join_html = Azure_Event_CPT::render_join_meeting_markup((string) $event['online_url'], 'compact');
+                }
+            }
+
+            $corner = '';
+            if ($show_location && $is_online && $join_html !== '') {
+                $corner = '<div class="upcoming-corner upcoming-join-meeting">' . $join_html . '</div>';
+                $join_html = '';
+            } elseif ($place !== '') {
+                $corner = '<div class="upcoming-corner upcoming-place">' . esc_html($place) . '</div>';
+            }
+
+            $li_class = 'upcoming-event' . ($thumb_url ? ' has-thumb' : '') . ($corner !== '' ? ' has-corner' : '');
             $output  .= '<li class="' . esc_attr($li_class) . '">';
 
             // v3.128 — Date pill on the left, BEFORE the thumb
@@ -872,21 +925,15 @@ class Azure_Upcoming_Module {
 
             $output .= '<div class="upcoming-body">';
 
-            // v3.128 — Location badge. Auto-derived: events with
-            // an online_url are tagged ONLINE; everything else
-            // IN PERSON. Always emitted; theme CSS hides when
-            // show_location_badge=false.
-            $is_online = !empty($event['online_url']);
-            $badge_lbl = $is_online ? $badge_online_text : $badge_in_person_text;
-            $badge_cls = 'upcoming-location-badge ' . ($is_online ? 'is-online' : 'is-in-person');
-            $output .= '<span class="' . esc_attr($badge_cls) . '">' . esc_html($badge_lbl) . '</span>';
-
-            $join_html = '';
-            if ($show_join_meeting && class_exists('Azure_Event_CPT')) {
-                $join_html = Azure_Event_CPT::render_join_meeting_button((int) $event['id'], 'compact');
-                if ($join_html === '' && !empty($event['online_url'])) {
-                    $join_html = Azure_Event_CPT::render_join_meeting_markup((string) $event['online_url'], 'compact');
-                }
+            // Location badge. Online when the event has a meeting
+            // URL, otherwise in person. Hidden for an event whose
+            // top-right corner is already the join link or place.
+            if ($corner === '') {
+                $badge_lbl = $is_online ? $badge_online_text : $badge_in_person_text;
+                $badge_cls = 'upcoming-location-badge ' . ($is_online ? 'is-online' : 'is-in-person');
+                $output .= '<span class="' . esc_attr($badge_cls) . '">' . esc_html($badge_lbl) . '</span>';
+            } else {
+                $output .= $corner;
             }
 
             $output .= '<div class="upcoming-body-main">';

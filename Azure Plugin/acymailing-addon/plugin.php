@@ -82,6 +82,7 @@ class plgAcymPtatools extends acymPlugin
         'show-time',
         'link-titles',
         'show-join-meeting',
+        'show-location',
         'show-empty',
         'empty-message',
         'cache',

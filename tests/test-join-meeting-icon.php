@@ -56,6 +56,6 @@ $t->equals('', Azure_Event_CPT::render_join_meeting_markup('', 'compact'), 'empt
 
 $src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-upcoming-module.php');
 $t->check(strpos($src, "'compact'") !== false, 'Upcoming cards use the compact Join control');
-$t->check(strpos($src, "CACHE_SCHEMA = '9'") !== false, 'Upcoming cache schema bumped for join markup');
+$t->check(strpos($src, "CACHE_SCHEMA = '10'") !== false, 'Upcoming cache schema bumped for join markup');
 
 exit($t->finish() === 0 ? 0 : 1);

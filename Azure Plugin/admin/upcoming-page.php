@@ -80,6 +80,10 @@ if (class_exists('Azure_UpNext_Themes')) {
             <h3><?php _e('This Week Only', 'azure-plugin'); ?></h3>
             <pre class="azure-code">[up-next next-week="false"]</pre>
             <p class="description"><?php _e('Shows only this week\'s events.', 'azure-plugin'); ?></p>
+
+            <h3><?php _e('Place or join link', 'azure-plugin'); ?></h3>
+            <pre class="azure-code">[up-next show-location="true"]</pre>
+            <p class="description"><?php _e('Puts a join link at the top right of an online event. An in-person event shows its location there instead, when it has one.', 'azure-plugin'); ?></p>
         </div>
         
         <!-- All Attributes Card -->
@@ -124,6 +128,11 @@ if (class_exists('Azure_UpNext_Themes')) {
                         <td><code>week-start</code></td>
                         <td><code>"sunday"</code></td>
                         <td><?php _e('Day the week starts on: "sunday" (default) or "monday".', 'azure-plugin'); ?></td>
+                    </tr>
+                    <tr>
+                        <td><code>show-location</code></td>
+                        <td><code>"false"</code></td>
+                        <td><?php _e('Top-right of each event: the join link when it is an online meeting, otherwise the location when the event has one.', 'azure-plugin'); ?></td>
                     </tr>
                     <tr>
                         <td><code>show-time</code></td>

@@ -692,6 +692,14 @@ class Azure_UpNext_Themes {
             } else {
                 $out .= "{$sel} .upcoming-location-badge{display:none;}\n";
             }
+
+            // show-location="true" puts the join link or place name
+            // in the same top-right corner as the in-person badge.
+            $out .= "{$itemSel}.has-corner{position:relative;}\n";
+            $out .= "{$itemSel}.has-corner .upcoming-corner{position:absolute;top:8px;right:8px;z-index:2;max-width:46%;text-align:right;}\n";
+            $out .= "{$itemSel}.has-corner .upcoming-place{font-size:12px;font-weight:700;line-height:1.3;}\n";
+            $out .= "{$itemSel}.has-corner .upcoming-body{padding-right:42%;}\n";
+            $out .= "{$itemSel}.has-corner .upcoming-title{padding-right:0;}\n";
         }
 
         return $out;
