@@ -181,9 +181,12 @@ class Azure_PTA_Cron {
                 self::ensure('azure_process_email_queue', 'five_minutes', time() + 300);
             }
 
-            // ── Volunteer (daily reminders) ───────────────────────────────
+            // ── Volunteer reminders ───────────────────────────────────────
+            // One hourly sweep for every signup. The Container Apps job
+            // hits wp-cron.php hourly, so a tighter WP schedule would not
+            // run any sooner. Per-signup events are not used.
             if (!empty($settings['enable_volunteer'])) {
-                self::ensure('azure_volunteer_send_reminders', 'daily');
+                self::ensure_schedule('azure_volunteer_send_reminders', 'hourly');
             }
 
             // ── Auction (orphan sweep) ────────────────────────────────────
@@ -376,6 +379,30 @@ class Azure_PTA_Cron {
         if (wp_next_scheduled($hook)) {
             return;
         }
+        if ($first_run === null) {
+            $first_run = time();
+        }
+        wp_schedule_event($first_run, $recurrence, $hook);
+    }
+
+    /**
+     * Schedule a recurring event, replacing it when the stored recurrence
+     * does not match. ensure() leaves an existing daily job in place.
+     *
+     * @param string   $hook
+     * @param string   $recurrence
+     * @param int|null $first_run
+     */
+    private static function ensure_schedule($hook, $recurrence, $first_run = null) {
+        if (function_exists('wp_get_scheduled_event')) {
+            $event = wp_get_scheduled_event($hook);
+            if ($event && isset($event->schedule) && $event->schedule === $recurrence) {
+                return;
+            }
+        } elseif (function_exists('wp_next_scheduled') && wp_next_scheduled($hook)) {
+            return;
+        }
+        wp_clear_scheduled_hook($hook);
         if ($first_run === null) {
             $first_run = time();
         }

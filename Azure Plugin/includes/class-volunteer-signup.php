@@ -55,11 +55,9 @@ class Azure_Volunteer_Signup {
         // Frontend assets
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_frontend'));
 
-        // Reminder cron
+        // One recurring sweep. Azure_PTA_Cron owns the schedule so a
+        // signup never creates its own cron event.
         add_action('azure_volunteer_send_reminders', array($this, 'send_reminders'));
-        if (!wp_next_scheduled('azure_volunteer_send_reminders')) {
-            wp_schedule_event(time(), 'daily', 'azure_volunteer_send_reminders');
-        }
     }
 
     // ──────────────────────────────────────────────
@@ -80,6 +78,91 @@ class Azure_Volunteer_Signup {
         }
         $sql .= " ORDER BY is_template DESC, event_date ASC, created_at DESC";
         return $wpdb->get_results($sql);
+    }
+
+    /**
+     * Admin list: one-off sheets stay as rows. A recurring template and
+     * every sheet copied from it become one collapsed series.
+     *
+     * @param object[] $sheets
+     * @return array<int, array{kind:string,template:?object,sheets:object[]}>
+     */
+    public static function group_sheets_for_list($sheets) {
+        $templates = array();
+        $children = array();
+        $singles = array();
+
+        foreach ((array) $sheets as $sheet) {
+            if (!is_object($sheet)) {
+                continue;
+            }
+            if (!empty($sheet->is_template)) {
+                $templates[(int) $sheet->id] = $sheet;
+                continue;
+            }
+            $template_id = (int) ($sheet->template_id ?? 0);
+            if ($template_id > 0) {
+                if (!isset($children[$template_id])) {
+                    $children[$template_id] = array();
+                }
+                $children[$template_id][] = $sheet;
+                continue;
+            }
+            $singles[] = $sheet;
+        }
+
+        $by_date = function ($a, $b) {
+            return strcmp((string) ($a->event_date ?? ''), (string) ($b->event_date ?? ''));
+        };
+
+        $groups = array();
+        foreach ($templates as $id => $template) {
+            $kids = isset($children[$id]) ? $children[$id] : array();
+            usort($kids, $by_date);
+            unset($children[$id]);
+            $groups[] = array(
+                'kind'     => 'series',
+                'template' => $template,
+                'sheets'   => $kids,
+            );
+        }
+        foreach ($children as $kids) {
+            usort($kids, $by_date);
+            $groups[] = array(
+                'kind'     => 'series',
+                'template' => null,
+                'sheets'   => $kids,
+            );
+        }
+        foreach ($singles as $sheet) {
+            $groups[] = array(
+                'kind'     => 'single',
+                'template' => null,
+                'sheets'   => array($sheet),
+            );
+        }
+
+        usort($groups, function ($a, $b) {
+            $key = function ($group) {
+                $dates = array();
+                foreach ($group['sheets'] as $sheet) {
+                    if (!empty($sheet->event_date)) {
+                        $dates[] = (string) $sheet->event_date;
+                    }
+                }
+                sort($dates);
+                $title = '';
+                if ($group['template'] && isset($group['template']->title)) {
+                    $title = (string) $group['template']->title;
+                } elseif (!empty($group['sheets'][0]->title)) {
+                    $title = (string) $group['sheets'][0]->title;
+                }
+                return ($dates ? $dates[0] : '9999-99-99') . ' ' . $title;
+            };
+            return strcmp($key($a), $key($b));
+        });
+
+        return $groups;
     }
 
     public static function get_sheet($id) {
@@ -678,6 +761,124 @@ class Azure_Volunteer_Signup {
         }
     }
 
+    /**
+     * Calendar date of the shift, in Pacific Time.
+     */
+    public static function slot_date_label($sheet, $activity) {
+        $bounds = self::slot_bounds($sheet, $activity);
+        if (empty($bounds['start'])) {
+            return '';
+        }
+        try {
+            $start = new DateTime($bounds['start'], new DateTimeZone(self::pacific_timezone()));
+            return $start->format('F j, Y');
+        } catch (Exception $e) {
+            return '';
+        }
+    }
+
+    /**
+     * Unix time for a Pacific wall-clock slot. Stored values have no
+     * timezone, and WordPress runs PHP in UTC, so strtotime() would
+     * shift the reminder by seven or eight hours.
+     *
+     * @param string $start
+     * @return int
+     */
+    public static function slot_start_timestamp($start) {
+        $start = trim((string) $start);
+        if ($start === '') {
+            return 0;
+        }
+        try {
+            $dt = new DateTime($start, new DateTimeZone(self::pacific_timezone()));
+            return $dt->getTimestamp();
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * True when a shift should get its reminder on this sweep.
+     * The hourly cron first sees a shift somewhere in the next three
+     * hours, which lands the email about two hours before.
+     *
+     * @param string $start
+     * @param int    $now_ts
+     * @param int    $window_seconds
+     */
+    public static function reminder_is_due($start, $now_ts, $window_seconds = 10800) {
+        $start_ts = self::slot_start_timestamp($start);
+        if ($start_ts <= 0 || $now_ts <= 0) {
+            return false;
+        }
+        $delta = $start_ts - (int) $now_ts;
+        return $delta > 0 && $delta <= (int) $window_seconds;
+    }
+
+    public static function reminder_subject() {
+        return 'Wilder PTSA volunteering reminder';
+    }
+
+    /**
+     * Plain-text signup or reminder body.
+     *
+     * @param string   $user_name
+     * @param string   $intro
+     * @param object   $sheet
+     * @param object[] $activities
+     * @param string   $event_title Linked event title when it differs from the sheet.
+     * @param string   $event_url
+     */
+    public static function volunteer_notice($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '') {
+        $event_name = trim((string) $event_title);
+        if ($event_name === '' && is_object($sheet)) {
+            $event_name = trim((string) ($sheet->title ?? ''));
+        }
+
+        $lines = array(
+            'Hi ' . $user_name . ',',
+            '',
+            $intro,
+            '',
+            'Event: ' . $event_name,
+        );
+
+        foreach ((array) $activities as $act) {
+            if (is_string($act)) {
+                $lines[] = '• ' . $act;
+                continue;
+            }
+            if (!is_object($act)) {
+                continue;
+            }
+            $date = self::slot_date_label($sheet, $act);
+            $time = self::slot_time_label($sheet, $act);
+            $when = $date;
+            if ($time !== '') {
+                $when = $when !== '' ? $when . ', ' . $time . ' Pacific Time' : $time . ' Pacific Time';
+            }
+            $lines[] = '• ' . $act->name . ($when !== '' ? ' — ' . $when : '');
+        }
+
+        if (is_object($sheet) && !empty($sheet->event_location)) {
+            $lines[] = 'Location: ' . $sheet->event_location;
+        }
+
+        $event_url = trim((string) $event_url);
+        if ($event_url !== '') {
+            $lines[] = '';
+            $lines[] = 'Access Event Page: ' . $event_url;
+        }
+
+        $lines[] = '';
+        $lines[] = 'A calendar invite is attached — add it to keep this shift on your calendar.';
+        $lines[] = '';
+        $lines[] = 'Thank you for helping out!';
+
+        return implode("\n", $lines);
+    }
+
     public static function build_slot_ics($sheet, $activity, $user = null) {
         $bounds = self::slot_bounds($sheet, $activity);
         if (empty($bounds['start'])) {
@@ -1206,41 +1407,45 @@ class Azure_Volunteer_Signup {
             return;
         }
 
-        $lines = array();
-        foreach ((array) $activities as $act) {
-            if (is_string($act)) {
-                $lines[] = $act;
-                continue;
-            }
-            $time = self::slot_time_label($sheet, $act);
-            $lines[] = $time !== '' ? $act->name . ' (' . $time . ')' : $act->name;
-        }
-
-        $event_date_str = '';
-        if ($sheet->event_date) {
-            $event_date_str = date_i18n(get_option('date_format'), strtotime($sheet->event_date));
-        }
-
-        $subject = sprintf(__('Volunteer Confirmation — %s', 'azure-plugin'), $sheet->title);
-        $message = sprintf(
-            __("Hi %s,\n\nThank you for volunteering for %s!\n\nYou signed up for:\n• %s", 'azure-plugin'),
+        list($event_title, $event_url) = $this->event_notice_fields($sheet);
+        $subject = sprintf(__('Volunteer Confirmation — %s', 'azure-plugin'), $event_title !== '' ? $event_title : $sheet->title);
+        $message = self::volunteer_notice(
             $user->display_name,
-            $sheet->title,
-            implode("\n• ", $lines)
+            __('Thank you for volunteering!', 'azure-plugin'),
+            $sheet,
+            $activities,
+            $event_title,
+            $event_url
         );
-
-        if ($event_date_str) {
-            $message .= sprintf(__("\n\nDate: %s (Pacific Time)", 'azure-plugin'), $event_date_str);
-        }
-        if ($sheet->event_location) {
-            $message .= sprintf(__("\nLocation: %s", 'azure-plugin'), $sheet->event_location);
-        }
-
-        $message .= __("\n\nA calendar invite is attached — add it to keep this shift on your calendar.\n\nThank you for helping out!\n", 'azure-plugin');
 
         $attachments = $this->write_ics_attachments($sheet, $activities, $user);
         wp_mail($user->user_email, $subject, $message, array(), $attachments);
         $this->cleanup_ics_attachments($attachments);
+    }
+
+    /**
+     * @param object $sheet
+     * @return array{0:string,1:string} event title, permalink
+     */
+    private function event_notice_fields($sheet) {
+        $title = '';
+        $url = '';
+        $event_id = (int) ($sheet->pta_event_id ?? 0);
+        if ($event_id <= 0 || !function_exists('get_post')) {
+            return array($title, $url);
+        }
+        $post = get_post($event_id);
+        if (!$post) {
+            return array($title, $url);
+        }
+        $title = (string) $post->post_title;
+        if ($post->post_status !== 'trash' && function_exists('get_permalink')) {
+            $link = get_permalink($event_id);
+            if (is_string($link) && $link !== '') {
+                $url = $link;
+            }
+        }
+        return array($title, $url);
     }
 
     /**
@@ -1289,15 +1494,19 @@ class Azure_Volunteer_Signup {
             return;
         }
 
-        $tomorrow = date('Y-m-d', strtotime('+1 day'));
+        $now = time();
         $sheets = $wpdb->get_results("SELECT * FROM {$sheets_t} WHERE status = 'open'");
         $checked = 0;
 
         foreach ((array) $sheets as $sheet) {
+            if (!empty($sheet->is_template)) {
+                continue;
+            }
             $activities = self::get_activities($sheet->id);
+            list($event_title, $event_url) = $this->event_notice_fields($sheet);
             foreach ($activities as $act) {
                 $bounds = self::slot_bounds($sheet, $act);
-                if (empty($bounds['start']) || substr($bounds['start'], 0, 10) !== $tomorrow) {
+                if (empty($bounds['start']) || !self::reminder_is_due($bounds['start'], $now)) {
                     continue;
                 }
                 $checked++;
@@ -1311,25 +1520,17 @@ class Azure_Volunteer_Signup {
                         continue;
                     }
 
-                    $time_label = self::slot_time_label($sheet, $act);
-                    $date_str = date_i18n(get_option('date_format'), strtotime($bounds['start']));
-                    $when = $time_label !== '' ? $date_str . ' ' . $time_label . ' (Pacific Time)' : $date_str;
-
-                    $subject = sprintf(__('Reminder: %s is tomorrow!', 'azure-plugin'), $sheet->title);
-                    $body = sprintf(
-                        __("Hi %s,\n\nJust a reminder — you're volunteering tomorrow for %s.\n\nActivity: %s\nWhen: %s", 'azure-plugin'),
+                    $body = self::volunteer_notice(
                         $user->display_name,
-                        $sheet->title,
-                        $act->name,
-                        $when
+                        __('This is a reminder that you are volunteering in about two hours.', 'azure-plugin'),
+                        $sheet,
+                        array($act),
+                        $event_title,
+                        $event_url
                     );
-                    if ($sheet->event_location) {
-                        $body .= sprintf(__("\nLocation: %s", 'azure-plugin'), $sheet->event_location);
-                    }
-                    $body .= __("\n\nA calendar invite is attached.\n\nThank you for helping out!\n", 'azure-plugin');
 
                     $attachments = $this->write_ics_attachments($sheet, array($act), $user);
-                    wp_mail($user->user_email, $subject, $body, array(), $attachments);
+                    wp_mail($user->user_email, self::reminder_subject(), $body, array(), $attachments);
                     $this->cleanup_ics_attachments($attachments);
 
                     $wpdb->update($signups_t, array('reminder_sent' => 1), array('id' => $signup->id));
@@ -1338,7 +1539,7 @@ class Azure_Volunteer_Signup {
         }
 
         if (class_exists('Azure_Logger')) {
-            Azure_Logger::debug_module('Volunteer', 'Reminder cron completed. Slots due tomorrow: ' . $checked);
+            Azure_Logger::debug_module('Volunteer', 'Reminder sweep completed. Slots inside the two-hour window: ' . $checked);
         }
     }
 

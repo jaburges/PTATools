@@ -23,7 +23,7 @@ $recurring_series = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Sig
 <?php endif; ?>
 
 <p class="description" style="margin: 8px 0 16px;">
-    <?php _e('Create a single sheet, or a recurring template that copies itself onto every event in an Outlook series. Each occurrence gets its own sheet and its own signups. To change volunteers for one date only, edit that event’s sheet — not the template.', 'azure-plugin'); ?>
+    <?php _e('Create a single sheet, or a recurring template that copies itself onto every event in an Outlook series. Each occurrence gets its own sheet and its own signups. Series are grouped and start collapsed — expand one to see every date. To change volunteers for one date only, edit that event’s sheet — not the template.', 'azure-plugin'); ?>
 </p>
 
 <div class="azure-module-content">
@@ -54,26 +54,126 @@ $recurring_series = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Sig
             </tr>
         </thead>
         <tbody>
-        <?php foreach ($sheets as $s):
-            $acts = Azure_Volunteer_Signup::get_activities($s->id);
-            $total_spots = 0;
-            $total_filled = 0;
+        <?php
+        $sheet_stats = function ($sheet) {
+            $acts = Azure_Volunteer_Signup::get_activities($sheet->id);
+            $spots = 0;
+            $filled = 0;
             foreach ($acts as $a) {
-                $total_spots += (int) $a->spots_needed;
-                $total_filled += Azure_Volunteer_Signup::count_signups($a->id);
+                $spots += (int) $a->spots_needed;
+                $filled += Azure_Volunteer_Signup::count_signups($a->id);
             }
-        ?>
-            <tr>
-                <td><strong><?php echo esc_html($s->title); ?></strong></td>
-                <td><?php
-                    if (!empty($s->is_template)) {
-                        echo esc_html__('Recurring template', 'azure-plugin');
-                    } elseif (!empty($s->template_id)) {
-                        echo esc_html__('Series event', 'azure-plugin');
-                    } else {
-                        echo esc_html__('Single', 'azure-plugin');
+            return array(count($acts), $filled, $spots);
+        };
+        $format_sheet_date = function ($value) {
+            if (!$value) {
+                return '—';
+            }
+            return date_i18n(get_option('date_format'), strtotime($value));
+        };
+        $groups = Azure_Volunteer_Signup::group_sheets_for_list($sheets);
+        foreach ($groups as $group):
+            $is_series = $group['kind'] === 'series';
+            $parent = $group['template'] ? $group['template'] : null;
+            $children = $group['sheets'];
+            $series_key = '';
+            if ($is_series) {
+                $series_key = $parent ? 't' . (int) $parent->id : 't' . (int) ($children[0]->template_id ?? 0);
+            }
+
+            if ($is_series && $parent):
+                $roles = 0;
+                $filled = 0;
+                $spots = 0;
+                $stat_sheets = $children ? $children : array($parent);
+                foreach ($stat_sheets as $stat_sheet) {
+                    list($role_count, $filled_count, $spot_count) = $sheet_stats($stat_sheet);
+                    $roles += $role_count;
+                    $filled += $filled_count;
+                    $spots += $spot_count;
+                }
+                $dates = array();
+                foreach ($children as $child) {
+                    if (!empty($child->event_date)) {
+                        $dates[] = (string) $child->event_date;
                     }
-                ?></td>
+                }
+                sort($dates);
+                if (count($dates) > 1) {
+                    $date_label = $format_sheet_date($dates[0]) . ' – ' . $format_sheet_date($dates[count($dates) - 1]);
+                } elseif (count($dates) === 1) {
+                    $date_label = $format_sheet_date($dates[0]);
+                } else {
+                    $date_label = '—';
+                }
+                $child_count = count($children);
+            ?>
+            <tr class="azure-vs-series" data-series="<?php echo esc_attr($series_key); ?>">
+                <td>
+                    <?php if ($child_count > 0): ?>
+                        <button type="button" class="button-link azure-vs-series-toggle" data-series="<?php echo esc_attr($series_key); ?>" aria-expanded="false">
+                            <span class="azure-vs-series-caret" aria-hidden="true">▸</span>
+                            <span class="screen-reader-text"><?php esc_html_e('Expand series', 'azure-plugin'); ?></span>
+                        </button>
+                    <?php endif; ?>
+                    <strong><?php echo esc_html($parent->title); ?></strong>
+                </td>
+                <td><?php echo esc_html__('Series', 'azure-plugin'); ?></td>
+                <td><?php echo esc_html(sprintf(_n('%d event', '%d events', $child_count, 'azure-plugin'), $child_count)); ?></td>
+                <td><?php echo esc_html($date_label); ?></td>
+                <td><?php echo $parent->event_location ? esc_html($parent->event_location) : '—'; ?></td>
+                <td><?php echo (int) $roles; ?> <?php _e('roles', 'azure-plugin'); ?> — <?php echo (int) $filled; ?>/<?php echo (int) $spots; ?> <?php _e('filled', 'azure-plugin'); ?></td>
+                <td>
+                    <span class="azure-vs-status-badge <?php echo esc_attr($parent->status); ?>">
+                        <?php echo $parent->status === 'open' ? __('Open', 'azure-plugin') : __('Closed', 'azure-plugin'); ?>
+                    </span>
+                </td>
+                <td><input type="text" readonly value='[volunteer_signup id="<?php echo esc_attr($parent->id); ?>"]' onclick="this.select();" class="code" style="width:100%;font-size:11px;" /></td>
+                <td>
+                    <button type="button" class="button button-small azure-vs-edit-sheet" data-id="<?php echo esc_attr($parent->id); ?>">
+                        <span class="dashicons dashicons-edit" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
+                    </button>
+                    <button type="button" class="button button-small button-link-delete azure-vs-delete-sheet" data-id="<?php echo esc_attr($parent->id); ?>">
+                        <span class="dashicons dashicons-trash" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
+                    </button>
+                </td>
+            </tr>
+            <?php elseif ($is_series && !empty($children)): ?>
+            <tr class="azure-vs-series" data-series="<?php echo esc_attr($series_key); ?>">
+                <td>
+                    <button type="button" class="button-link azure-vs-series-toggle" data-series="<?php echo esc_attr($series_key); ?>" aria-expanded="false">
+                        <span class="azure-vs-series-caret" aria-hidden="true">▸</span>
+                        <span class="screen-reader-text"><?php esc_html_e('Expand series', 'azure-plugin'); ?></span>
+                    </button>
+                    <strong><?php echo esc_html($children[0]->title); ?></strong>
+                </td>
+                <td><?php echo esc_html__('Series', 'azure-plugin'); ?></td>
+                <td><?php echo esc_html(sprintf(_n('%d event', '%d events', count($children), 'azure-plugin'), count($children))); ?></td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td></td>
+            </tr>
+            <?php endif;
+
+            $rows = $children;
+            foreach ($rows as $s):
+                list($role_count, $filled, $spots) = $sheet_stats($s);
+                $row_class = $is_series ? 'azure-vs-series-child' : '';
+                $row_title = (string) $s->title;
+                $linked_for_title = (int) ($s->pta_event_id ?? 0);
+                if ($is_series && $linked_for_title && function_exists('get_the_title')) {
+                    $event_title = get_the_title($linked_for_title);
+                    if ($event_title) {
+                        $row_title = $event_title;
+                    }
+                }
+            ?>
+            <tr class="<?php echo esc_attr($row_class); ?>" <?php echo $is_series ? 'data-series="' . esc_attr($series_key) . '" hidden' : ''; ?>>
+                <td class="<?php echo $is_series ? 'azure-vs-series-child-title' : ''; ?>"><strong><?php echo esc_html($row_title); ?></strong></td>
+                <td><?php echo $is_series ? esc_html__('Event', 'azure-plugin') : esc_html__('Single', 'azure-plugin'); ?></td>
                 <td><?php
                     $linked = (int) ($s->pta_event_id ?? 0);
                     if ($linked && function_exists('get_the_title') && get_the_title($linked)) {
@@ -85,11 +185,11 @@ $recurring_series = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Sig
                         echo '—';
                     }
                 ?></td>
-                <td><?php echo $s->event_date ? date_i18n(get_option('date_format'), strtotime($s->event_date)) : '—'; ?></td>
+                <td><?php echo esc_html($format_sheet_date($s->event_date)); ?></td>
                 <td><?php echo $s->event_location ? esc_html($s->event_location) : '—'; ?></td>
-                <td><?php echo count($acts); ?> <?php _e('roles', 'azure-plugin'); ?> — <?php echo $total_filled; ?>/<?php echo $total_spots; ?> <?php _e('filled', 'azure-plugin'); ?></td>
+                <td><?php echo (int) $role_count; ?> <?php _e('roles', 'azure-plugin'); ?> — <?php echo (int) $filled; ?>/<?php echo (int) $spots; ?> <?php _e('filled', 'azure-plugin'); ?></td>
                 <td>
-                    <span class="azure-vs-status-badge <?php echo $s->status; ?>">
+                    <span class="azure-vs-status-badge <?php echo esc_attr($s->status); ?>">
                         <?php echo $s->status === 'open' ? __('Open', 'azure-plugin') : __('Closed', 'azure-plugin'); ?>
                     </span>
                 </td>
@@ -103,7 +203,8 @@ $recurring_series = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Sig
                     </button>
                 </td>
             </tr>
-        <?php endforeach; ?>
+            <?php endforeach;
+        endforeach; ?>
         </tbody>
     </table>
     <?php endif; ?>
@@ -460,6 +561,14 @@ jQuery(function($) {
             $('#azure-vs-event-location').val(location);
         }
     });
+
+    $(document).on('click', '.azure-vs-series-toggle', function() {
+        var key = $(this).attr('data-series');
+        var open = $(this).attr('aria-expanded') === 'true';
+        $(this).attr('aria-expanded', open ? 'false' : 'true');
+        $(this).find('.azure-vs-series-caret').text(open ? '▸' : '▾');
+        $('tr.azure-vs-series-child[data-series="' + key + '"]').prop('hidden', open);
+    });
 });
 </script>
 
@@ -473,6 +582,10 @@ jQuery(function($) {
 }
 .azure-vs-status-badge.open { background: #d4edda; color: #155724; }
 .azure-vs-status-badge.closed { background: #f8d7da; color: #721c24; }
+.azure-vs-series-toggle { text-decoration: none; margin-right: 4px; }
+.azure-vs-series-child-title { padding-left: 28px !important; }
+tr.azure-vs-series { background: #f6f7f7; }
+tr.azure-vs-series-child[hidden] { display: none !important; }
 
 .azure-vs-modal-overlay {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
