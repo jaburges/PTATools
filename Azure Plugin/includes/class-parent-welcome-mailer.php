@@ -16,6 +16,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Azure_Email_Messages')) {
+    require_once __DIR__ . '/class-email-messages.php';
+}
+
 class Azure_Parent_Welcome_Mailer {
 
     const NONCE_ACTION  = 'azure_pci_welcome_nonce';
@@ -214,35 +218,13 @@ class Azure_Parent_Welcome_Mailer {
         }
         $first_name = $user->first_name ?: $user->display_name ?: $user->user_email;
 
-        $subject = sprintf(__('Welcome to %s — your PTA account is ready', 'azure-plugin'), $site_name);
-
-        ob_start();
-        ?>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #333;"><?php printf(esc_html__('Welcome to %s', 'azure-plugin'), esc_html($site_name)); ?></h2>
-            <p><?php printf(esc_html__('Hi %s,', 'azure-plugin'), esc_html($first_name)); ?></p>
-            <p><?php printf(
-                esc_html__('The %s PTA has set up an account for you so you can review and update your family\'s information for school activities.', 'azure-plugin'),
-                esc_html($site_name)
-            ); ?></p>
-            <table style="margin: 18px 0; border-collapse: collapse;">
-                <tr>
-                    <td style="padding: 6px 12px 6px 0; color: #555;"><strong><?php esc_html_e('Username', 'azure-plugin'); ?></strong></td>
-                    <td style="padding: 6px 0;"><?php echo esc_html($user->user_email); ?></td>
-                </tr>
-                <tr>
-                    <td style="padding: 6px 12px 6px 0; color: #555;"><strong><?php esc_html_e('Temporary password', 'azure-plugin'); ?></strong></td>
-                    <td style="padding: 6px 0;"><code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px;"><?php echo esc_html($temp_password); ?></code></td>
-                </tr>
-            </table>
-            <p style="margin: 25px 0;">
-                <a href="<?php echo esc_url($login_url); ?>" style="background: #0073aa; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 3px; display: inline-block;"><?php esc_html_e('Sign in', 'azure-plugin'); ?></a>
-            </p>
-            <p><?php esc_html_e('You\'ll be asked to set a new password on your first sign-in. From there you can edit your children\'s grade, teacher, allergies, emergency contact, and other details whenever they change.', 'azure-plugin'); ?></p>
-            <p style="color: #666; font-size: 13px;"><?php esc_html_e('If you weren\'t expecting this email, please reply to this message and we\'ll sort it out.', 'azure-plugin'); ?></p>
-        </div>
-        <?php
-        $message = ob_get_clean();
+        list($subject, $message) = Azure_Email_Messages::render('parent_welcome', array(
+            'site_name'  => $site_name,
+            'first_name' => $first_name,
+            'username'   => $user->user_email,
+            'password'   => $temp_password,
+            'login_url'  => $login_url,
+        ));
 
         $headers = array('Content-Type: text/html; charset=UTF-8');
         return wp_mail($user->user_email, $subject, $message, $headers);

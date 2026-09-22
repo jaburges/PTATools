@@ -22,6 +22,54 @@ $recurring_series = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Sig
 </div>
 <?php endif; ?>
 
+<?php
+$reminder = class_exists('Azure_Volunteer_Signup')
+    ? Azure_Volunteer_Signup::reminder_settings()
+    : array('enabled' => true, 'amount' => 2, 'unit' => 'hours');
+if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'saved'):
+?>
+<div class="notice notice-success is-dismissible" style="margin: 15px 0;"><p><?php esc_html_e('Reminder settings saved.', 'azure-plugin'); ?></p></div>
+<?php endif; ?>
+
+<div style="background:#fff; border:1px solid #ccd0d4; padding:12px 16px; margin: 8px 0 16px;">
+    <form method="post">
+        <?php wp_nonce_field('azure_volunteer_reminder_settings'); ?>
+        <input type="hidden" name="azure_volunteer_reminder_settings" value="1" />
+        <label for="azure-vs-reminder-enabled" style="font-weight:600;">
+            <input type="checkbox" name="volunteer_reminder_enabled" id="azure-vs-reminder-enabled" value="1" <?php checked(!empty($reminder['enabled'])); ?> />
+            <?php esc_html_e('Send email reminder to volunteers', 'azure-plugin'); ?>
+        </label>
+        <span id="azure-vs-reminder-when" style="margin-left:8px;<?php echo empty($reminder['enabled']) ? 'display:none;' : ''; ?>">
+            <select name="volunteer_reminder_amount" aria-label="<?php esc_attr_e('How long before the shift', 'azure-plugin'); ?>">
+                <?php for ($n = 1; $n <= 30; $n++): ?>
+                    <option value="<?php echo (int) $n; ?>" <?php selected((int) $reminder['amount'], $n); ?>><?php echo (int) $n; ?></option>
+                <?php endfor; ?>
+            </select>
+            <select name="volunteer_reminder_unit" aria-label="<?php esc_attr_e('Hours or days', 'azure-plugin'); ?>">
+                <option value="hours" <?php selected($reminder['unit'], 'hours'); ?>><?php esc_html_e('hours', 'azure-plugin'); ?></option>
+                <option value="days" <?php selected($reminder['unit'], 'days'); ?>><?php esc_html_e('days', 'azure-plugin'); ?></option>
+            </select>
+            <span class="description"><?php esc_html_e('before the shift', 'azure-plugin'); ?></span>
+        </span>
+        <button type="submit" class="button" style="margin-left:8px;"><?php esc_html_e('Save', 'azure-plugin'); ?></button>
+    </form>
+    <p class="description" style="margin:8px 0 0;">
+        <?php
+        printf(
+            /* translators: %s: admin URL of the email message editor */
+            esc_html__('One hourly check sends each reminder once the shift is inside this window. Edit the confirmation and reminder wording under %s.', 'azure-plugin'),
+            '<a href="' . esc_url(admin_url('admin.php?page=azure-plugin-emails&tab=messages')) . '">' . esc_html__('Emails → Messages', 'azure-plugin') . '</a>'
+        );
+        ?>
+    </p>
+</div>
+<script>
+document.getElementById('azure-vs-reminder-enabled').addEventListener('change', function () {
+    var when = document.getElementById('azure-vs-reminder-when');
+    if (when) when.style.display = this.checked ? '' : 'none';
+});
+</script>
+
 <p class="description" style="margin: 8px 0 16px;">
     <?php _e('Create a single sheet, or a recurring template that copies itself onto every event in an Outlook series. Each occurrence gets its own sheet and its own signups. Series are grouped and start collapsed — expand one to see every date. To change volunteers for one date only, edit that event’s sheet — not the template.', 'azure-plugin'); ?>
 </p>

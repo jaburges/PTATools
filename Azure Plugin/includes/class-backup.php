@@ -11,6 +11,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Azure_Email_Messages')) {
+    require_once __DIR__ . '/class-email-messages.php';
+}
+
 class Azure_Backup {
 
     private $settings;
@@ -950,9 +954,16 @@ class Azure_Backup {
         $email = $this->settings['backup_notification_email'] ?? get_option('admin_email');
         if (empty($email)) return;
 
-        $subject = ($success ? 'Backup Completed' : 'Backup Failed') . ' - ' . get_bloginfo('name');
-        $body = "Status: " . ($success ? 'Success' : 'Failed') . "\n"
-              . "Message: {$message}\nTime: " . current_time('mysql') . "\nSite: " . get_site_url() . "\n";
+        list($subject, $body) = Azure_Email_Messages::render('backup_notification', array(
+            'status_label' => $success ? 'Backup Completed' : 'Backup Failed',
+            'status'       => $success ? 'Success' : 'Failed',
+            'message'      => $message,
+            'time'         => current_time('mysql'),
+            'site_url'     => function_exists('get_site_url') ? get_site_url() : '',
+            'site_name'    => get_bloginfo('name'),
+            'backup_id'    => (string) $job_id,
+            'next_backup'  => '',
+        ));
         wp_mail($email, $subject, $body);
     }
 

@@ -2238,10 +2238,12 @@ class Azure_Donations_Module {
         return $out;
     }
 
-    const RECEIPT_DEFAULT_TEXT = "Thank you for your support. Laura Ingalls Wilder PTSA 2.8.66 is a 501(c)(3) nonprofit organization, Tax ID 91-1461125. Your Wilder About Giving donation is tax deductible and no goods or services were provided to you for this donation.\n\nDouble your donation with an employer matching gift! Please submit your gift to be matched by your company as soon as possible.";
-
     public static function default_receipt_text() {
-        return self::RECEIPT_DEFAULT_TEXT;
+        $name = function_exists('get_bloginfo') ? trim((string) get_bloginfo('name')) : '';
+        if ($name === '') {
+            $name = 'This organization';
+        }
+        return "Thank you for your support. {$name} is a 501(c)(3) nonprofit organization. Your donation is tax deductible and no goods or services were provided to you for this donation.\n\nDouble your donation with an employer matching gift! Please submit your gift to be matched by your company as soon as possible.";
     }
 
     public static function sanitize_receipt_category_ids($raw) {

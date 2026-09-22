@@ -48,6 +48,9 @@ if (!class_exists('Azure_Parent_Role')) {
 if (!class_exists('Azure_Parent_Activation')) {
     require_once AZURE_PLUGIN_PATH . 'includes/class-parent-activation.php';
 }
+if (!class_exists('Azure_Email_Messages')) {
+    require_once __DIR__ . '/class-email-messages.php';
+}
 
 class Azure_Parent_Migration {
 
@@ -926,19 +929,17 @@ class Azure_Parent_Migration {
         // each test send sortable in Gmail (which threads identical
         // subjects together — operator can't tell which one is the
         // newest without a unique tag).
-        $subject = sprintf(__('Activate your %s account', 'azure-plugin'), $site_name);
-        if ($subject_suffix !== '') {
-            $subject .= ' — ' . $subject_suffix;
-        }
-
-        $html = self::render_welcome_html(array(
+        list($subject, $html) = Azure_Email_Messages::render('parent_activation', array(
             'site_name'      => $site_name,
             'greeting'       => $greeting,
-            'first_name'     => $first_name,
             'activation_url' => $url,
             'temp_password'  => $temp_password,
             'support_email'  => get_option('admin_email'),
         ));
+        if ($subject_suffix !== '') {
+            $subject .= ' — ' . $subject_suffix;
+        }
+
         $text = self::render_welcome_text(array(
             'site_name'      => $site_name,
             'greeting'       => $greeting,
@@ -1410,58 +1411,6 @@ class Azure_Parent_Migration {
     // ─────────────────────────────────────────────────────────────────
     //  Templates
     // ─────────────────────────────────────────────────────────────────
-
-    private static function render_welcome_html($vars) {
-        $site = esc_html($vars['site_name']);
-        $greeting = esc_html($vars['greeting']);
-        $url = esc_url($vars['activation_url']);
-        $support = esc_html($vars['support_email']);
-        $temp = esc_html(isset($vars['temp_password']) ? $vars['temp_password'] : '');
-        return <<<HTML
-<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);overflow:hidden;">
-        <tr><td style="padding:32px 32px 16px 32px;">
-          <h1 style="margin:0 0 12px 0;font-size:22px;color:#1d2327;">Welcome to {$site}</h1>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">{$greeting}</p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">
-            We've created an account for you on the {$site} family portal so you can sign up
-            for events, manage volunteer slots, and stay in the loop with PTSA news.
-          </p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">
-            <strong>Step 1.</strong> Click the button below to sign in. This link is single-use
-            and expires in 14 days.
-          </p>
-          <p style="text-align:center;margin:24px 0;">
-            <a href="{$url}" style="display:inline-block;padding:14px 28px;background:#0078d4;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Sign in &amp; activate</a>
-          </p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">
-            <strong>Step 2.</strong> Once you're in, you'll be asked to pick a password
-            you'll remember. Use this temporary password as the &ldquo;Current password&rdquo;:
-          </p>
-          <p style="text-align:center;margin:8px 0 24px 0;">
-            <span style="display:inline-block;padding:12px 18px;background:#f1f3f5;border:1px solid #d1d5db;border-radius:6px;font-family:Consolas,Menlo,'SF Mono',monospace;font-size:18px;letter-spacing:0.5px;color:#1d2327;">{$temp}</span>
-          </p>
-          <p style="margin:0 0 8px 0;font-size:13px;line-height:1.5;color:#646970;">
-            If the button doesn't work, copy and paste this link into your browser:<br>
-            <span style="word-break:break-all;color:#0073aa;">{$url}</span>
-          </p>
-        </td></tr>
-        <tr><td style="padding:16px 32px 32px 32px;border-top:1px solid #e0e0e0;">
-          <p style="margin:0;font-size:12px;color:#646970;line-height:1.5;">
-            Questions? Send an email to <a href="mailto:{$support}" style="color:#0073aa;">{$support}</a>.
-            <br>You're receiving this because we have you on file as a current {$site} family.
-          </p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>
-HTML;
-    }
 
     private static function render_welcome_text($vars) {
         $site = $vars['site_name'];

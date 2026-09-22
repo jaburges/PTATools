@@ -7,6 +7,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Azure_Email_Messages')) {
+    require_once __DIR__ . '/class-email-messages.php';
+}
+
 class Azure_PTA_Sync_Engine {
     
     private $graph_api;
@@ -547,17 +551,13 @@ class Azure_PTA_Sync_Engine {
             $from_email = 'admin@' . $org_domain;
         }
         
-        $subject = "Welcome to {$org_name} - Your Office 365 Account";
-        
-        $message = "Hello {$user->first_name},\n\n";
-        $message .= "Welcome to {$org_name}! Your Office 365 account has been created.\n\n";
-        $message .= "Your login credentials:\n";
-        $message .= "Username: $azure_email\n";
-        $message .= "Temporary Password: $temp_password\n\n";
-        $message .= "You will be required to change your password on first login.\n\n";
-        $message .= "You can access your account at: https://office.com\n\n";
-        $message .= "If you have any questions, please contact the PTA administrators.\n\n";
-        $message .= "Best regards,\n{$org_team}";
+        list($subject, $message) = Azure_Email_Messages::render('office365_welcome', array(
+            'first_name' => $user->first_name,
+            'org_name'   => $org_name,
+            'username'   => $azure_email,
+            'password'   => $temp_password,
+            'org_team'   => $org_team,
+        ));
         
         // Use the email module if available
         if (class_exists('Azure_Email_Mailer')) {

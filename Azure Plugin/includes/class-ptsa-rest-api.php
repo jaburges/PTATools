@@ -33,7 +33,7 @@ class Azure_PTSA_REST_API {
     );
 
     /**
-     * Entra Application (client) ID of "Wilder PTSA Board (iOS)".
+     * Entra application (client) ID of the board iOS app.
      * Public client — not a secret. The app's id_token uses this as `aud`.
      */
     const IOS_CLIENT_ID = '62d983db-f1e9-49cf-a833-b332ea3af84e';

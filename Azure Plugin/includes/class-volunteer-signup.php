@@ -14,9 +14,15 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Azure_Email_Messages')) {
+    require_once __DIR__ . '/class-email-messages.php';
+}
+
 class Azure_Volunteer_Signup {
 
     private static $instance = null;
+
+    const MESSAGES_OPTION = 'azure_email_messages';
 
     public static function get_instance() {
         if (self::$instance === null) {
@@ -58,6 +64,8 @@ class Azure_Volunteer_Signup {
         // One recurring sweep. Azure_PTA_Cron owns the schedule so a
         // signup never creates its own cron event.
         add_action('azure_volunteer_send_reminders', array($this, 'send_reminders'));
+
+        add_action('admin_init', array($this, 'save_reminder_settings'));
     }
 
     // ──────────────────────────────────────────────
@@ -800,24 +808,111 @@ class Azure_Volunteer_Signup {
 
     /**
      * True when a shift should get its reminder on this sweep.
-     * The hourly cron first sees a shift somewhere in the next three
-     * hours, which lands the email about two hours before.
+     * The hourly cron sends once the shift is inside the configured
+     * lead (default two hours). A missed hour still catches it on the
+     * next run, until the shift starts.
      *
-     * @param string $start
-     * @param int    $now_ts
-     * @param int    $window_seconds
+     * @param string   $start
+     * @param int      $now_ts
+     * @param int|null $window_seconds Null uses the saved lead.
      */
-    public static function reminder_is_due($start, $now_ts, $window_seconds = 10800) {
+    public static function reminder_is_due($start, $now_ts, $window_seconds = null) {
+        if ($window_seconds === null) {
+            $window_seconds = self::reminder_lead_seconds();
+        }
         $start_ts = self::slot_start_timestamp($start);
-        if ($start_ts <= 0 || $now_ts <= 0) {
+        if ($start_ts <= 0 || $now_ts <= 0 || (int) $window_seconds <= 0) {
             return false;
         }
         $delta = $start_ts - (int) $now_ts;
         return $delta > 0 && $delta <= (int) $window_seconds;
     }
 
+    public static function reminders_enabled() {
+        if (!class_exists('Azure_Settings')) {
+            return true;
+        }
+        $value = Azure_Settings::get_setting('volunteer_reminder_enabled', '1');
+        return (string) $value !== '0';
+    }
+
+    /**
+     * How far ahead the hourly sweep should mail a reminder.
+     *
+     * @return int seconds, or 0 when reminders are off
+     */
+    public static function reminder_lead_seconds() {
+        if (!self::reminders_enabled()) {
+            return 0;
+        }
+        $amount = 2;
+        $unit = 'hours';
+        if (class_exists('Azure_Settings')) {
+            $amount = (int) Azure_Settings::get_setting('volunteer_reminder_amount', 2);
+            $unit = (string) Azure_Settings::get_setting('volunteer_reminder_unit', 'hours');
+        }
+        if ($amount < 1) {
+            $amount = 1;
+        }
+        if ($amount > 30) {
+            $amount = 30;
+        }
+        return $amount * ($unit === 'days' ? DAY_IN_SECONDS : HOUR_IN_SECONDS);
+    }
+
+    public static function reminder_settings() {
+        $amount = 2;
+        $unit = 'hours';
+        $enabled = true;
+        if (class_exists('Azure_Settings')) {
+            $enabled = self::reminders_enabled();
+            $amount = (int) Azure_Settings::get_setting('volunteer_reminder_amount', 2);
+            $unit = (string) Azure_Settings::get_setting('volunteer_reminder_unit', 'hours');
+        }
+        if ($amount < 1) {
+            $amount = 2;
+        }
+        if ($amount > 30) {
+            $amount = 30;
+        }
+        if ($unit !== 'days') {
+            $unit = 'hours';
+        }
+        return array(
+            'enabled' => $enabled,
+            'amount'  => $amount,
+            'unit'    => $unit,
+        );
+    }
+
+    public static function site_name() {
+        $name = function_exists('get_bloginfo') ? trim((string) get_bloginfo('name')) : '';
+        return $name !== '' ? $name : __('PTA', 'azure-plugin');
+    }
+
+    /**
+     * @return array<string, array>
+     */
+    public static function default_messages() {
+        return Azure_Email_Messages::catalog();
+    }
+
+    public static function message_overrides() {
+        return Azure_Email_Messages::overrides();
+    }
+
+    public static function message_for($key) {
+        return Azure_Email_Messages::message_for($key);
+    }
+
+    public static function apply_message_tokens($text, array $vars) {
+        return Azure_Email_Messages::apply($text, $vars);
+    }
+
     public static function reminder_subject() {
-        return 'Wilder PTSA volunteering reminder';
+        $msg = self::message_for('volunteer_reminder');
+        $vars = self::notice_vars('', '', null, array(), '', '');
+        return self::apply_message_tokens($msg['subject'], $vars);
     }
 
     /**
@@ -830,23 +925,21 @@ class Azure_Volunteer_Signup {
      * @param string   $event_title Linked event title when it differs from the sheet.
      * @param string   $event_url
      */
-    public static function volunteer_notice($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '') {
+    /**
+     * @param object|null $sheet
+     * @param object[]    $activities
+     * @return array<string, string>
+     */
+    public static function notice_vars($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '') {
         $event_name = trim((string) $event_title);
         if ($event_name === '' && is_object($sheet)) {
             $event_name = trim((string) ($sheet->title ?? ''));
         }
 
-        $lines = array(
-            'Hi ' . $user_name . ',',
-            '',
-            $intro,
-            '',
-            'Event: ' . $event_name,
-        );
-
+        $shift_lines = array();
         foreach ((array) $activities as $act) {
             if (is_string($act)) {
-                $lines[] = '• ' . $act;
+                $shift_lines[] = '• ' . $act;
                 continue;
             }
             if (!is_object($act)) {
@@ -858,25 +951,47 @@ class Azure_Volunteer_Signup {
             if ($time !== '') {
                 $when = $when !== '' ? $when . ', ' . $time . ' Pacific Time' : $time . ' Pacific Time';
             }
-            $lines[] = '• ' . $act->name . ($when !== '' ? ' — ' . $when : '');
+            $shift_lines[] = '• ' . $act->name . ($when !== '' ? ' — ' . $when : '');
         }
 
+        $location = '';
         if (is_object($sheet) && !empty($sheet->event_location)) {
-            $lines[] = 'Location: ' . $sheet->event_location;
+            $location = 'Location: ' . $sheet->event_location . "\n";
         }
-
         $event_url = trim((string) $event_url);
-        if ($event_url !== '') {
-            $lines[] = '';
-            $lines[] = 'Access Event Page: ' . $event_url;
+        $event_link = $event_url !== '' ? "\nAccess Event Page: " . $event_url . "\n" : '';
+
+        return array(
+            'name'       => (string) $user_name,
+            'intro'      => (string) $intro,
+            'event'      => $event_name,
+            'shifts'     => $shift_lines ? implode("\n", $shift_lines) . "\n" : '',
+            'location'   => $location,
+            'event_link' => $event_link,
+            'event_url'  => $event_url,
+            'site_name'  => self::site_name(),
+        );
+    }
+
+    public static function volunteer_notice($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '') {
+        $vars = self::notice_vars($user_name, $intro, $sheet, $activities, $event_title, $event_url);
+        $body = self::default_messages()['volunteer_confirmation']['body'];
+        return self::apply_message_tokens($body, $vars);
+    }
+
+    /**
+     * @return array{0:string,1:string} subject, body
+     */
+    public static function compose_volunteer_message($key, $user_name, $sheet, $activities, $event_title = '', $event_url = '') {
+        $msg = self::message_for($key);
+        if (!$msg) {
+            $msg = self::default_messages()['volunteer_confirmation'];
         }
-
-        $lines[] = '';
-        $lines[] = 'A calendar invite is attached — add it to keep this shift on your calendar.';
-        $lines[] = '';
-        $lines[] = 'Thank you for helping out!';
-
-        return implode("\n", $lines);
+        $vars = self::notice_vars($user_name, $msg['intro'], $sheet, $activities, $event_title, $event_url);
+        return array(
+            self::apply_message_tokens($msg['subject'], $vars),
+            self::apply_message_tokens($msg['body'], $vars),
+        );
     }
 
     public static function build_slot_ics($sheet, $activity, $user = null) {
@@ -897,7 +1012,13 @@ class Azure_Volunteer_Signup {
         } catch (Exception $e) {
             return '';
         }
-        $host = function_exists('home_url') ? (string) parse_url(home_url(), PHP_URL_HOST) : 'wilderptsa.net';
+        $host = 'localhost';
+        if (function_exists('home_url')) {
+            $parsed = parse_url(home_url(), PHP_URL_HOST);
+            if (is_string($parsed) && $parsed !== '') {
+                $host = $parsed;
+            }
+        }
         $uid = 'pta-volunteer-' . (int) ($activity->id ?? 0) . '-' . (int) ($user ? $user->ID : 0) . '@' . $host;
         $summary = trim(($sheet && $sheet->title ? $sheet->title . ': ' : '') . ($activity->name ?? 'Volunteer'));
         $location = ($sheet && !empty($sheet->event_location)) ? (string) $sheet->event_location : '';
@@ -1408,10 +1529,12 @@ class Azure_Volunteer_Signup {
         }
 
         list($event_title, $event_url) = $this->event_notice_fields($sheet);
-        $subject = sprintf(__('Volunteer Confirmation — %s', 'azure-plugin'), $event_title !== '' ? $event_title : $sheet->title);
-        $message = self::volunteer_notice(
+        if ($event_title === '') {
+            $event_title = (string) $sheet->title;
+        }
+        list($subject, $message) = self::compose_volunteer_message(
+            'volunteer_confirmation',
             $user->display_name,
-            __('Thank you for volunteering!', 'azure-plugin'),
             $sheet,
             $activities,
             $event_title,
@@ -1488,6 +1611,10 @@ class Azure_Volunteer_Signup {
 
     public function send_reminders() {
         global $wpdb;
+        $window = self::reminder_lead_seconds();
+        if ($window <= 0) {
+            return;
+        }
         $sheets_t   = Azure_Database::get_table_name('volunteer_sheets');
         $signups_t  = Azure_Database::get_table_name('volunteer_signups');
         if (!$sheets_t || !$signups_t) {
@@ -1506,7 +1633,7 @@ class Azure_Volunteer_Signup {
             list($event_title, $event_url) = $this->event_notice_fields($sheet);
             foreach ($activities as $act) {
                 $bounds = self::slot_bounds($sheet, $act);
-                if (empty($bounds['start']) || !self::reminder_is_due($bounds['start'], $now)) {
+                if (empty($bounds['start']) || !self::reminder_is_due($bounds['start'], $now, $window)) {
                     continue;
                 }
                 $checked++;
@@ -1520,9 +1647,9 @@ class Azure_Volunteer_Signup {
                         continue;
                     }
 
-                    $body = self::volunteer_notice(
+                    list($subject, $body) = self::compose_volunteer_message(
+                        'volunteer_reminder',
                         $user->display_name,
-                        __('This is a reminder that you are volunteering in about two hours.', 'azure-plugin'),
                         $sheet,
                         array($act),
                         $event_title,
@@ -1530,7 +1657,7 @@ class Azure_Volunteer_Signup {
                     );
 
                     $attachments = $this->write_ics_attachments($sheet, array($act), $user);
-                    wp_mail($user->user_email, self::reminder_subject(), $body, array(), $attachments);
+                    wp_mail($user->user_email, $subject, $body, array(), $attachments);
                     $this->cleanup_ics_attachments($attachments);
 
                     $wpdb->update($signups_t, array('reminder_sent' => 1), array('id' => $signup->id));
@@ -1539,8 +1666,48 @@ class Azure_Volunteer_Signup {
         }
 
         if (class_exists('Azure_Logger')) {
-            Azure_Logger::debug_module('Volunteer', 'Reminder sweep completed. Slots inside the two-hour window: ' . $checked);
+            Azure_Logger::debug_module('Volunteer', 'Reminder sweep completed. Slots inside the reminder window: ' . $checked);
         }
+    }
+
+    public function save_reminder_settings() {
+        if (empty($_POST['azure_volunteer_reminder_settings'])) {
+            return;
+        }
+        if (!self::user_can_manage_sheets()) {
+            return;
+        }
+        check_admin_referer('azure_volunteer_reminder_settings');
+
+        $enabled = !empty($_POST['volunteer_reminder_enabled']) ? '1' : '0';
+        $amount = isset($_POST['volunteer_reminder_amount']) ? (int) $_POST['volunteer_reminder_amount'] : 2;
+        if ($amount < 1) {
+            $amount = 1;
+        }
+        if ($amount > 30) {
+            $amount = 30;
+        }
+        $unit = (isset($_POST['volunteer_reminder_unit']) && $_POST['volunteer_reminder_unit'] === 'days') ? 'days' : 'hours';
+        if (class_exists('Azure_Settings')) {
+            Azure_Settings::update_setting('volunteer_reminder_enabled', $enabled);
+            Azure_Settings::update_setting('volunteer_reminder_amount', (string) $amount);
+            Azure_Settings::update_setting('volunteer_reminder_unit', $unit);
+        }
+
+        $redirect = wp_get_referer();
+        if (!$redirect) {
+            $redirect = admin_url('admin.php?page=azure-plugin-calendar&tab=volunteer');
+        }
+        wp_safe_redirect(add_query_arg('volunteer_reminder', 'saved', $redirect));
+        exit;
+    }
+
+    public static function save_message($key, $subject, $body) {
+        Azure_Email_Messages::save_message($key, $subject, $body);
+    }
+
+    public static function reset_message($key) {
+        Azure_Email_Messages::reset_message($key);
     }
 
     // ──────────────────────────────────────────────

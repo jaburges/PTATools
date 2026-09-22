@@ -154,7 +154,7 @@ $t->equals('uncertain', $dup['status'], 'two parents with the same name are not 
 $t->equals('multiple_name_matches', $dup['reason'], 'duplicate-name reason is recorded');
 
 $katherine_ids = array(
-    array('user_id' => 663, 'email' => 'KatherineR@wilderptsa.net', 'first' => 'Katherine', 'last' => 'Rawstron', 'display' => 'Katherine Rawstron'),
+    array('user_id' => 663, 'email' => 'KatherineR@example.test', 'first' => 'Katherine', 'last' => 'Rawstron', 'display' => 'Katherine Rawstron'),
     array('user_id' => 740, 'email' => 'kathrawstron@outlook.com', 'first' => 'Katherine', 'last' => 'Rawstron', 'display' => 'Katherine Rawstron'),
 );
 $kath = Azure_Membership_Module::match_checkout_party(array(

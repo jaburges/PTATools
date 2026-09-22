@@ -1,7 +1,7 @@
 <?php
 /**
  * Combined Emails Module Page
- * Tabs: Email Logs | Sending | Settings
+ * Tabs: Email Logs | Sending | Messages | Settings
  *
  * v3.123: added the Sending tab (per-service routing table editor)
  * and moved it ahead of Settings since it's the new primary
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-$valid_tabs = array('logs', 'sending', 'settings');
+$valid_tabs = array('logs', 'sending', 'messages', 'settings');
 $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : '';
 if (!in_array($active_tab, $valid_tabs, true)) {
     $active_tab = 'logs';
@@ -32,6 +32,10 @@ $GLOBALS['azure_tab_mode'] = true;
            class="azure-tab-link <?php echo $active_tab === 'sending' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-randomize"></span> Sending
         </a>
+        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-emails&tab=messages')); ?>"
+           class="azure-tab-link <?php echo $active_tab === 'messages' ? 'active' : ''; ?>">
+            <span class="dashicons dashicons-edit"></span> <?php esc_html_e('Messages', 'azure-plugin'); ?>
+        </a>
         <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-emails&tab=settings')); ?>"
            class="azure-tab-link <?php echo $active_tab === 'settings' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-admin-generic"></span> Settings
@@ -45,6 +49,9 @@ $GLOBALS['azure_tab_mode'] = true;
             break;
         case 'sending':
             include AZURE_PLUGIN_PATH . 'admin/email-sending-page.php';
+            break;
+        case 'messages':
+            include AZURE_PLUGIN_PATH . 'admin/email-messages-page.php';
             break;
         case 'settings':
             include AZURE_PLUGIN_PATH . 'admin/email-page.php';

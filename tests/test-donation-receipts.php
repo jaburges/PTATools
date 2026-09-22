@@ -23,8 +23,12 @@ $t->check(
     'default receipt text includes 501(c)(3) language'
 );
 $t->check(
-    strpos(Azure_Donations_Module::default_receipt_text(), '91-1461125') !== false,
-    'default receipt text includes EIN'
+    strpos(Azure_Donations_Module::default_receipt_text(), 'Test Site') !== false,
+    'default receipt text uses the site name'
+);
+$t->check(
+    strpos(Azure_Donations_Module::default_receipt_text(), '91-1461125') === false,
+    'default receipt text does not ship an EIN'
 );
 
 $t->equals(
@@ -126,7 +130,7 @@ $t->check(strpos($pdf, '%PDF-1.4') === 0, 'PDF starts with header');
 $t->check(substr($pdf, -5) === '%%EOF', 'PDF ends with EOF');
 $t->check(strpos($pdf, 'Pack Leader') !== false, 'PDF includes product name');
 $t->check(strpos($pdf, '501\\(c\\)\\(3\\)') !== false, 'PDF includes escaped 501(c)(3) language');
-$t->check(strpos($pdf, '91-1461125') !== false, 'PDF includes EIN');
+$t->check(strpos($pdf, 'Test Site') !== false, 'PDF includes the site name from the default footer');
 $t->check(strpos($pdf, 'Jamie Burgess') !== false, 'PDF includes donor name');
 $t->check(strpos($pdf, '34823') !== false, 'PDF includes order number');
 

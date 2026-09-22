@@ -66,10 +66,7 @@ if (function_exists('wc_get_products')) {
         'order'   => 'ASC',
     ));
 }
-$class_teachers = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::teacher_list() : array();
-$class_sizes = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::get_class_sizes() : array();
 $class_competitions = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::get_competitions() : array();
-$teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product-fields');
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -260,7 +257,7 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
                     <code>[Donation-progress campaign="WAG"]</code>
                     <p class="description">Standalone thermometer if you need it on a different page. Optional once the bar is shown inside <code>[WAG]</code>.</p>
                     <code>[class-competition]</code>
-                    <p class="description">Class donation board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition, <code>enable_link="https://wilderptsa.net/giving/"</code> to make the whole board clickable.</p>
+                    <p class="description">Class donation board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition, <code>enable_link="https://example.org/giving/"</code> to make the whole board clickable.</p>
                 </td>
             </tr>
         </table>
@@ -336,35 +333,11 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
     </div>
 
     <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin-bottom:20px; box-shadow:0 1px 1px rgba(0,0,0,.04);">
-        <h2 style="margin:0 0 8px;"><span class="dashicons dashicons-groups"></span> Class sizes</h2>
-        <p class="description" style="margin:0 0 12px;">
-            Teacher names come from <strong>Child Info</strong> (the teacher dropdown). That list is the source of truth — add or rename teachers there, then set headcount here. Update these numbers whenever students join or leave.
-            <a href="<?php echo esc_url($teacher_fields_url); ?>">Edit teacher list</a>
-        </p>
-        <?php if (empty($class_teachers)): ?>
-            <p><?php esc_html_e('No teachers yet. Add them as dropdown options on the Child Teacher field in Product Fields.', 'azure-plugin'); ?></p>
-        <?php else: ?>
-            <div id="class-size-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:8px 16px; max-height:420px; overflow:auto; border:1px solid #dcdcde; padding:12px; background:#f6f7f7;">
-                <?php foreach ($class_teachers as $teacher): ?>
-                    <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fff; border:1px solid #dcdcde; padding:6px 10px;">
-                        <span style="min-width:0; overflow:hidden; text-overflow:ellipsis;"><?php echo esc_html($teacher); ?></span>
-                        <input type="number" class="small-text class-size-input" min="0" max="500" step="1"
-                               data-teacher="<?php echo esc_attr($teacher); ?>"
-                               value="<?php echo isset($class_sizes[$teacher]) ? (int) $class_sizes[$teacher] : 0; ?>"
-                               style="width:72px;" />
-                    </label>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
-        <p class="description" style="margin:10px 0 0;"><?php esc_html_e('Saved with Donation Settings above. Percent on a competition board is donations ÷ this number. Leave 0 if you do not know the size yet — the % column will stay blank for that class.', 'azure-plugin'); ?></p>
-    </div>
-
-    <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin-bottom:20px; box-shadow:0 1px 1px rgba(0,0,0,.04);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; flex-wrap:wrap;">
             <h2 style="margin:0;"><span class="dashicons dashicons-awards"></span> Class competitions</h2>
             <button type="button" class="button add-class-competition"><?php esc_html_e('Add competition', 'azure-plugin'); ?></button>
         </div>
-        <p class="description" style="margin:0 0 12px;"><?php esc_html_e('Boards count each paid line item for the chosen product or campaign. A WAG campaign uses the same gifts as the progress bar (mapped levels and custom amounts). Teacher and grade come from the fields on that line item. They never show dollar amounts.', 'azure-plugin'); ?></p>
+        <p class="description" style="margin:0 0 12px;"><?php esc_html_e('Boards count each paid line item for the chosen product or campaign. A WAG campaign uses the same gifts as the progress bar (mapped levels and custom amounts). Teacher and grade come from the fields on that line item. They never show dollar amounts. Percent uses the class sizes under System → Classes.', 'azure-plugin'); ?></p>
         <div id="class-competition-rows"></div>
         <template id="class-competition-row-tpl">
             <div class="class-competition-row" style="border:1px solid #dcdcde; padding:12px; margin-bottom:10px; background:#f6f7f7;">
@@ -586,14 +559,6 @@ jQuery(function($) {
         return rows;
     }
 
-    function collectClassSizes() {
-        var out = {};
-        $('.class-size-input').each(function() {
-            out[$(this).attr('data-teacher')] = parseInt($(this).val(), 10) || 0;
-        });
-        return out;
-    }
-
     function syncCompetitionSource($row) {
         var isProduct = $row.find('.comp-source-type').val() === 'product';
         $row.find('.comp-source-id-campaign').toggle(!isProduct);
@@ -677,7 +642,6 @@ jQuery(function($) {
             donations_receipt_include_fees: $('#donations_receipt_include_fees').is(':checked') ? '1' : '0',
             donations_receipt_category_ids: JSON.stringify($('.donations-receipt-cat:checked').map(function() { return parseInt($(this).val(), 10) || 0; }).get()),
             donations_receipt_text: $('#donations_receipt_text').val(),
-            donations_class_sizes: JSON.stringify(collectClassSizes()),
             donations_class_competitions: JSON.stringify(collectClassCompetitions())
         }, function(r) {
             $btn.prop('disabled', false).html('<span class="dashicons dashicons-saved" style="vertical-align:middle;line-height:1;margin-right:4px;"></span> Save Settings');

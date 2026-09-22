@@ -7,6 +7,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Azure_Email_Messages')) {
+    require_once __DIR__ . '/class-email-messages.php';
+}
+
 class Azure_Backup_Scheduler {
     
     private $settings;
@@ -290,24 +294,17 @@ class Azure_Backup_Scheduler {
             return;
         }
         
-        $subject = $success ? 'Backup Completed Successfully' : 'Backup Failed';
-        $subject .= ' - ' . get_bloginfo('name');
-        
-        $body = "Backup notification from " . get_bloginfo('name') . "\n\n";
-        $body .= "Status: " . ($success ? 'Success' : 'Failed') . "\n";
-        $body .= "Message: " . $message . "\n";
-        $body .= "Time: " . current_time('mysql') . "\n";
-        $body .= "Site URL: " . get_site_url() . "\n";
-        
-        if ($backup_id) {
-            $body .= "Backup ID: " . $backup_id . "\n";
-        }
-        
-        // Add next scheduled backup info
         $next_backup = wp_next_scheduled('azure_backup_scheduled');
-        if ($next_backup) {
-            $body .= "Next Scheduled Backup: " . date('Y-m-d H:i:s', $next_backup) . "\n";
-        }
+        list($subject, $body) = Azure_Email_Messages::render('backup_notification', array(
+            'status_label' => $success ? 'Backup Completed Successfully' : 'Backup Failed',
+            'status'       => $success ? 'Success' : 'Failed',
+            'message'      => $message,
+            'time'         => current_time('mysql'),
+            'site_url'     => get_site_url(),
+            'site_name'    => get_bloginfo('name'),
+            'backup_id'    => $backup_id ? (string) $backup_id : '',
+            'next_backup'  => $next_backup ? date('Y-m-d H:i:s', $next_backup) : '',
+        ));
         
         wp_mail($notification_email, $subject, $body);
     }

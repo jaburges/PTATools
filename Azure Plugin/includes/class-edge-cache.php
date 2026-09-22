@@ -2,7 +2,7 @@
 /**
  * Edge cache coordination for Azure Front Door.
  *
- * Front Door serves wilderptsa.net and, once caching is switched on, will hold
+ * Front Door serves the public site hostname and, once caching is switched on, will hold
  * anonymous HTML at the edge. Three things have to be true for that to be both
  * correct and useful, and all three live here:
  *

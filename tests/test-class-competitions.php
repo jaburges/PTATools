@@ -37,6 +37,11 @@ require_once dirname(__DIR__) . '/Azure Plugin/includes/class-class-competitions
 $t = new TestRunner('Class competitions');
 
 $teachers = array('Ms. Rivera', 'Mr. Chen');
+$t->equals(38, Azure_Class_Competitions::student_total(array('Ms. Rivera' => 20, 'Mr. Chen' => 18)), 'student total sums the class list');
+$system = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/system-page.php');
+$t->check(strpos($system, 'system-classes-tab.php') !== false, 'class sizes live on the system page');
+$donations = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/donations-page.php');
+$t->check(strpos($donations, 'class-size-input') === false, 'donations no longer edits class sizes');
 $t->equals(
     array('Ms. Rivera' => 24, 'Mr. Chen' => 0),
     Azure_Class_Competitions::sanitize_class_sizes(

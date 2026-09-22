@@ -17,6 +17,10 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!class_exists('Azure_Email_Messages')) {
+    require_once __DIR__ . '/class-email-messages.php';
+}
+
 class Azure_Membership_Module {
 
     const TRANSIENT_MAP     = 'azure_membership_map';
@@ -1627,6 +1631,71 @@ class Azure_Membership_Module {
     }
 
     /**
+     * Mailbox domain treated as the organization's own addresses
+     * (staff and SSO), from the org domain setting or the site host.
+     */
+    public static function org_mailbox_domain() {
+        $domain = '';
+        if (class_exists('Azure_Settings')) {
+            $domain = (string) Azure_Settings::get_setting('org_domain', '');
+        }
+        $domain = strtolower(ltrim(trim($domain), '@'));
+        if ($domain === '' && function_exists('home_url')) {
+            $host = parse_url(home_url(), PHP_URL_HOST);
+            $domain = strtolower(preg_replace('/^www\./', '', (string) $host));
+        }
+        return $domain;
+    }
+
+    public static function is_org_mailbox($email) {
+        $domain = self::org_mailbox_domain();
+        if ($domain === '') {
+            return false;
+        }
+        $email = self::normalize_email($email);
+        $suffix = '@' . $domain;
+        return $email !== '' && strlen($email) > strlen($suffix) && substr($email, -strlen($suffix)) === $suffix;
+    }
+
+    /**
+     * Site name, account login URL, and support address used in mail
+     * the plugin sends on its own.
+     *
+     * @return array{site_name:string,login_url:string,support_email:string}
+     */
+    public static function site_mail_identity() {
+        $name = function_exists('get_bloginfo') ? trim((string) get_bloginfo('name')) : '';
+        if ($name === '') {
+            $name = 'PTA';
+        }
+        $login = '';
+        if (function_exists('wc_get_page_permalink')) {
+            $login = (string) wc_get_page_permalink('myaccount');
+        }
+        if ($login === '' && function_exists('home_url')) {
+            $login = home_url('/my-account/');
+        }
+        $support = function_exists('get_option') ? (string) get_option('admin_email') : '';
+        if ($support === '' || $support === '0') {
+            $domain = self::org_mailbox_domain();
+            $support = $domain !== '' ? 'info@' . $domain : '';
+        }
+        return array(
+            'site_name'     => $name,
+            'login_url'     => $login,
+            'support_email' => $support,
+        );
+    }
+
+    public static function mail_from_header() {
+        $id = self::site_mail_identity();
+        if ($id['site_name'] === '' || $id['support_email'] === '') {
+            return '';
+        }
+        return 'From: ' . $id['site_name'] . ' <' . $id['support_email'] . '>';
+    }
+
+    /**
      * True when every identity is the same first+last (duplicate accounts).
      *
      * @param array<int, array> $identities
@@ -1638,8 +1707,8 @@ class Azure_Membership_Module {
         }
         $has_sso = false;
         foreach ($list as $identity) {
-            $email = self::normalize_email(isset($identity['email']) ? $identity['email'] : '');
-            if (substr($email, -strlen('@wilderptsa.net')) === '@wilderptsa.net') {
+            $email = isset($identity['email']) ? $identity['email'] : '';
+            if (self::is_org_mailbox($email)) {
                 $has_sso = true;
                 break;
             }
@@ -1664,7 +1733,7 @@ class Azure_Membership_Module {
     }
 
     /**
-     * Prefer a personal email over an @wilderptsa.net SSO mailbox
+     * Prefer a personal email over the organization's own mailbox
      * when the same person has more than one account.
      *
      * @param array<int, array> $identities
@@ -1674,7 +1743,7 @@ class Azure_Membership_Module {
         $list = array_values($identities);
         foreach ($list as $identity) {
             $email = self::normalize_email(isset($identity['email']) ? $identity['email'] : '');
-            if ($email !== '' && substr($email, -strlen('@wilderptsa.net')) !== '@wilderptsa.net') {
+            if ($email !== '' && !self::is_org_mailbox($email)) {
                 return $identity;
             }
         }
@@ -1816,80 +1885,39 @@ class Azure_Membership_Module {
      * @return array{subject:string,html:string,text:string}
      */
     public static function build_guest_account_email(array $vars) {
-        $site = isset($vars['site_name']) ? (string) $vars['site_name'] : 'Wilder PTSA';
+        $identity = self::site_mail_identity();
+        $site = isset($vars['site_name']) && trim((string) $vars['site_name']) !== ''
+            ? (string) $vars['site_name']
+            : $identity['site_name'];
         $greeting_name = isset($vars['first_name']) && trim((string) $vars['first_name']) !== ''
             ? trim((string) $vars['first_name'])
             : 'there';
         $username = isset($vars['username']) ? (string) $vars['username'] : '';
         $password = isset($vars['password']) ? (string) $vars['password'] : '';
-        $login_url = isset($vars['login_url']) ? (string) $vars['login_url'] : 'https://wilderptsa.net/my-account/';
-        $support = isset($vars['support_email']) ? (string) $vars['support_email'] : 'info@wilderptsa.net';
+        $login_url = isset($vars['login_url']) && trim((string) $vars['login_url']) !== ''
+            ? (string) $vars['login_url']
+            : $identity['login_url'];
+        $support = isset($vars['support_email']) && trim((string) $vars['support_email']) !== ''
+            ? (string) $vars['support_email']
+            : $identity['support_email'];
         $preview = !empty($vars['preview']);
-
-        $subject = $preview
-            ? sprintf('[PREVIEW] Your %s account is ready', $site)
-            : sprintf('Your %s account is ready', $site);
 
         $preview_banner = $preview
             ? '<p style="margin:0 0 16px 0;padding:10px 12px;background:#fff4ce;border:1px solid #dba617;border-radius:4px;font-size:13px;color:#3c434a;"><strong>Preview only.</strong> This is not a live account. No parent user was created. The username and password below are samples.</p>'
             : '';
 
-        $site_h = htmlspecialchars($site, ENT_QUOTES, 'UTF-8');
-        $greet_h = htmlspecialchars($greeting_name, ENT_QUOTES, 'UTF-8');
-        $user_h = htmlspecialchars($username, ENT_QUOTES, 'UTF-8');
-        $pass_h = htmlspecialchars($password, ENT_QUOTES, 'UTF-8');
-        $url_h = htmlspecialchars($login_url, ENT_QUOTES, 'UTF-8');
-        $support_h = htmlspecialchars($support, ENT_QUOTES, 'UTF-8');
-
-        $html = <<<HTML
-<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);overflow:hidden;">
-        <tr><td style="padding:32px 32px 16px 32px;">
-          {$preview_banner}
-          <h1 style="margin:0 0 12px 0;font-size:22px;color:#1d2327;">Your {$site_h} account is ready</h1>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">Hi {$greet_h},</p>
-          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">
-            Thank you for joining the {$site_h}. We created an account from your membership checkout so you can sign in and use your member benefits.
-          </p>
-          <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px 0;border-collapse:collapse;">
-            <tr>
-              <td style="padding:6px 16px 6px 0;font-size:15px;color:#646970;">Username</td>
-              <td style="padding:6px 0;font-size:15px;color:#1d2327;"><strong>{$user_h}</strong></td>
-            </tr>
-            <tr>
-              <td style="padding:6px 16px 6px 0;font-size:15px;color:#646970;">Password</td>
-              <td style="padding:6px 0;font-size:15px;color:#1d2327;"><code style="display:inline-block;padding:6px 10px;background:#f1f3f5;border:1px solid #d1d5db;border-radius:4px;font-family:Consolas,Menlo,'SF Mono',monospace;font-size:16px;letter-spacing:0.4px;">{$pass_h}</code></td>
-            </tr>
-          </table>
-          <p style="text-align:center;margin:24px 0;">
-            <a href="{$url_h}" style="display:inline-block;padding:14px 28px;background:#0078d4;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Sign in</a>
-          </p>
-          <p style="margin:0 0 12px 0;font-size:15px;line-height:1.5;color:#3c434a;">With this account you can:</p>
-          <ol style="margin:0 0 16px 24px;padding:0;font-size:15px;line-height:1.6;color:#3c434a;">
-            <li>Save your family profile for faster checkout next time</li>
-            <li>Get member pricing in the store</li>
-            <li>Join the member parent directory (optional — you choose whether to be listed)</li>
-          </ol>
-          <p style="margin:0 0 8px 0;font-size:15px;line-height:1.5;color:#3c434a;">
-            Please change this password after you sign in. If the button does not work, open:<br>
-            <span style="word-break:break-all;color:#0073aa;">{$url_h}</span>
-          </p>
-        </td></tr>
-        <tr><td style="padding:16px 32px 32px 32px;border-top:1px solid #e0e0e0;">
-          <p style="margin:0;font-size:12px;color:#646970;line-height:1.5;">
-            Questions? Email <a href="mailto:{$support_h}" style="color:#0073aa;">{$support_h}</a>.
-            <br>You are receiving this because you purchased a {$site_h} membership.
-          </p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>
-HTML;
+        list($subject, $html) = Azure_Email_Messages::render('membership_guest_account', array(
+            'site_name'      => $site,
+            'first_name'     => $greeting_name,
+            'username'       => $username,
+            'password'       => $password,
+            'login_url'      => $login_url,
+            'support_email'  => $support,
+            'preview_banner' => $preview_banner,
+        ));
+        if ($preview) {
+            $subject = '[PREVIEW] ' . $subject;
+        }
 
         $text = ($preview ? "[PREVIEW — not a live account]\n\n" : '')
             . "Your {$site} account is ready\n\n"
@@ -1921,13 +1949,14 @@ HTML;
         $password = function_exists('wp_generate_password')
             ? wp_generate_password(14, true, false)
             : 'Test-' . substr(md5(uniqid('', true)), 0, 10);
+        $identity = self::site_mail_identity();
         return array(
-            'site_name'     => function_exists('get_bloginfo') ? get_bloginfo('name') : 'Wilder PTSA',
+            'site_name'     => $identity['site_name'],
             'first_name'    => 'Robert',
             'username'      => 'rjbaummer@gmail.com',
             'password'      => $password,
-            'login_url'     => 'https://wilderptsa.net/my-account/',
-            'support_email' => 'info@wilderptsa.net',
+            'login_url'     => $identity['login_url'],
+            'support_email' => $identity['support_email'],
             'preview'       => true,
         );
     }
@@ -1965,10 +1994,11 @@ HTML;
             $out['error'] = 'wp_mail_unavailable';
             return $out;
         }
-        $headers = array(
-            'Content-Type: text/html; charset=UTF-8',
-            'From: Wilder PTSA <info@wilderptsa.net>',
-        );
+        $headers = array('Content-Type: text/html; charset=UTF-8');
+        $from = self::mail_from_header();
+        if ($from !== '') {
+            $headers[] = $from;
+        }
         $sent = wp_mail($to, $email['subject'], $email['html'], $headers);
         $out['ok'] = (bool) $sent;
         if (!$sent) {
@@ -2002,10 +2032,11 @@ HTML;
             $out['error'] = 'wp_mail_unavailable';
             return $out;
         }
-        $headers = array(
-            'Content-Type: text/html; charset=UTF-8',
-            'From: Wilder PTSA <info@wilderptsa.net>',
-        );
+        $headers = array('Content-Type: text/html; charset=UTF-8');
+        $from = self::mail_from_header();
+        if ($from !== '') {
+            $headers[] = $from;
+        }
         $sent = wp_mail($to, $email['subject'], $email['html'], $headers);
         $out['ok'] = (bool) $sent;
         if (!$sent) {
@@ -2234,13 +2265,14 @@ HTML;
         }
 
         foreach ($created as $row) {
+            $identity = self::site_mail_identity();
             $mail = self::send_guest_account_email($row['email'], array(
-                'site_name'     => function_exists('get_bloginfo') ? get_bloginfo('name') : 'Wilder PTSA',
+                'site_name'     => $identity['site_name'],
                 'first_name'    => $row['first'] !== '' ? $row['first'] : $row['name'],
                 'username'      => $row['username'],
                 'password'      => $row['password'],
-                'login_url'     => 'https://wilderptsa.net/my-account/',
-                'support_email' => 'info@wilderptsa.net',
+                'login_url'     => $identity['login_url'],
+                'support_email' => $identity['support_email'],
                 'preview'       => false,
             ));
             if (!empty($mail['ok']) && function_exists('update_user_meta')) {
@@ -3243,18 +3275,16 @@ HTML;
     }
 
     /**
-     * @return array{parents:int,memberships:int,bought_week:int,year_label:string}
+     * @return array{students:int,memberships:int,bought_week:int,year_label:string}
      */
     public static function dashboard_stats() {
-        $counts  = function_exists('count_users') ? count_users() : array();
-        $role    = class_exists('Azure_Parent_Role') ? Azure_Parent_Role::ROLE_SLUG : 'parent';
-        $parents = isset($counts['avail_roles'][$role]) ? (int) $counts['avail_roles'][$role] : 0;
+        $students = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::student_total() : 0;
 
         $map = self::get_member_map();
         $range = self::school_year_range();
 
         return array(
-            'parents'      => $parents,
+            'students'     => $students,
             'memberships'  => count($map),
             'bought_week'  => self::count_membership_orders_since('-7 days'),
             'year_label'   => $range['label'],
@@ -3313,8 +3343,8 @@ HTML;
         <div class="azure-membership-widget">
             <div class="stat-grid">
                 <div class="stat-card">
-                    <div class="stat-number"><?php echo esc_html(number_format_i18n($stats['parents'])); ?></div>
-                    <div class="stat-label"><?php esc_html_e('Parents', 'azure-plugin'); ?></div>
+                    <div class="stat-number"><?php echo esc_html(number_format_i18n($stats['students'])); ?></div>
+                    <div class="stat-label"><?php esc_html_e('Students', 'azure-plugin'); ?></div>
                 </div>
                 <div class="stat-card warm">
                     <div class="stat-number"><?php echo esc_html(number_format_i18n($stats['memberships'])); ?></div>
@@ -3329,7 +3359,7 @@ HTML;
                 <?php
                 printf(
                     /* translators: %s: school year label like 2026–2027 */
-                    esc_html__('Memberships are paid Family, Individual, or Staff products this school year (%s). Last week counts orders, not people. Donated memberships are excluded.', 'azure-plugin'),
+                    esc_html__('Students are the class-size total under System → Classes. Memberships are paid Family, Individual, or Staff products this school year (%s). Last week counts orders, not people. Donated memberships are excluded.', 'azure-plugin'),
                     esc_html($stats['year_label'])
                 );
                 ?>
@@ -3395,7 +3425,14 @@ HTML;
 
         $rows = self::build_sold_membership_rows();
 
-        $filename = 'wilderptsa-membership-' . gmdate('Y-m-d') . '.csv';
+        $slug = 'membership';
+        if (function_exists('sanitize_title') && function_exists('get_bloginfo')) {
+            $slug = sanitize_title(get_bloginfo('name'));
+        }
+        if ($slug === '') {
+            $slug = 'membership';
+        }
+        $filename = $slug . '-membership-' . gmdate('Y-m-d') . '.csv';
         nocache_headers();
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');

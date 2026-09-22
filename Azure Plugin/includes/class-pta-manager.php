@@ -1226,7 +1226,7 @@ class Azure_PTA_Manager {
                     'has_roles' => count($assignments) > 0,
                     // Lets the VP pickers put board addresses first now that the
                     // list is every user rather than a pre-filtered handful.
-                    'is_ptsa_account' => (bool) preg_match('/@wilderptsa\.net$/i', (string) $user->user_email),
+                    'is_ptsa_account' => class_exists('Azure_Membership_Module') && Azure_Membership_Module::is_org_mailbox($user->user_email),
                     'wp_roles' => $wp_role_slugs,
                     'is_sso_role' => in_array('azuread', $wp_role_slugs, true),
                     'photo_url' => (class_exists('Azure_Local_Avatars') && Azure_Local_Avatars::attachment_id($user->ID))

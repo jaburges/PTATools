@@ -2,7 +2,7 @@
 /**
  * Class competitions: purchases by teacher, never dollars.
  *
- * Teachers and class sizes still come from Child Info / the Donations grid.
+ * Teacher names come from Child Info. Class sizes are edited under System → Classes.
  * Each qualifying line item (WAG gift, custom WAG amount, or chosen product)
  * counts once for the teacher saved on that order item.
  */
@@ -65,6 +65,23 @@ class Azure_Class_Competitions {
             Azure_Settings::get_setting(self::SIZES_KEY, array()),
             self::teacher_list()
         );
+    }
+
+    /**
+     * Sum of the class-size list. Pass a map to total a known set
+     * without reading settings.
+     *
+     * @param array<string, int>|null $sizes
+     */
+    public static function student_total($sizes = null) {
+        if ($sizes === null) {
+            $sizes = self::get_class_sizes();
+        }
+        $total = 0;
+        foreach ((array) $sizes as $size) {
+            $total += max(0, (int) $size);
+        }
+        return $total;
     }
 
     public static function sanitize_competitions($raw) {
@@ -597,7 +614,7 @@ class Azure_Class_Competitions {
                 <p class="pta-class-race-kicker"><?php esc_html_e('Distance is % of class donated', 'azure-plugin'); ?></p>
             </div>
             <?php if (empty($rows)): ?>
-                <p class="pta-class-race-empty"><?php esc_html_e('Add teachers in Child Info, then enter class sizes.', 'azure-plugin'); ?></p>
+                <p class="pta-class-race-empty"><?php esc_html_e('Add teachers in Child Info, then enter class sizes under System → Classes.', 'azure-plugin'); ?></p>
             <?php else: ?>
                 <ol class="pta-class-race-track">
                     <?php foreach (array_values($rows) as $i => $row): ?>

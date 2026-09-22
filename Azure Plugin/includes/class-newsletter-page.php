@@ -1,6 +1,6 @@
 <?php
 /**
- * Single newsletter archive pages (e.g. /newsletters/wilder-ptsa-newsletter-sept-7th/).
+ * Single newsletter archive pages (e.g. /newsletters/september/).
  *
  * Campaign HTML is saved as the page body so the site can show what went
  * out. ChromeNews then styles every table/hr/link like a blog post, which

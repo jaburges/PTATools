@@ -1,14 +1,14 @@
 <?php
 /**
  * System Module Page (formerly System Logs)
- * Tabs: Logs | Schedules | Critical | Admin Menu
+ * Tabs: Logs | Schedules | Classes | Critical | Admin Menu
  */
 if (!defined('ABSPATH')) {
     exit;
 }
 
 $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'logs';
-$valid_tabs = array('logs', 'schedules', 'critical', 'menu');
+$valid_tabs = array('logs', 'schedules', 'classes', 'critical', 'menu');
 if (!in_array($active_tab, $valid_tabs)) {
     $active_tab = 'logs';
 }
@@ -28,6 +28,10 @@ $GLOBALS['azure_system_tab'] = $active_tab;
            class="azure-tab-link <?php echo $active_tab === 'schedules' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-clock"></span> Schedules
         </a>
+        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-system&tab=classes')); ?>"
+           class="azure-tab-link <?php echo $active_tab === 'classes' ? 'active' : ''; ?>">
+            <span class="dashicons dashicons-groups"></span> <?php esc_html_e('Classes', 'azure-plugin'); ?>
+        </a>
         <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-system&tab=critical')); ?>"
            class="azure-tab-link <?php echo $active_tab === 'critical' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-warning"></span> Critical
@@ -40,6 +44,8 @@ $GLOBALS['azure_system_tab'] = $active_tab;
 
     <?php if ($active_tab === 'schedules'): ?>
         <?php include AZURE_PLUGIN_PATH . 'admin/system-schedules-tab.php'; ?>
+    <?php elseif ($active_tab === 'classes'): ?>
+        <?php include AZURE_PLUGIN_PATH . 'admin/system-classes-tab.php'; ?>
     <?php elseif ($active_tab === 'menu'): ?>
         <?php include AZURE_PLUGIN_PATH . 'admin/system-menu-tab.php'; ?>
     <?php else: ?>
