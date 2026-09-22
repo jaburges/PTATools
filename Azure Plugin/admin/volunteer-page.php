@@ -25,7 +25,8 @@ $recurring_series = class_exists('Azure_Volunteer_Signup') ? Azure_Volunteer_Sig
 <?php
 $reminder = class_exists('Azure_Volunteer_Signup')
     ? Azure_Volunteer_Signup::reminder_settings()
-    : array('enabled' => true, 'amount' => 2, 'unit' => 'hours');
+    : array('enabled' => true, 'amount' => 2, 'unit' => 'hours', 'schedule' => array(array('amount' => 2, 'unit' => 'hours', 'seconds' => 7200)));
+$reminder_rows = !empty($reminder['schedule']) ? $reminder['schedule'] : array(array('amount' => 2, 'unit' => 'hours'));
 if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'saved'):
 ?>
 <div class="notice notice-success is-dismissible" style="margin: 15px 0;"><p><?php esc_html_e('Reminder settings saved.', 'azure-plugin'); ?></p></div>
@@ -39,35 +40,77 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
             <input type="checkbox" name="volunteer_reminder_enabled" id="azure-vs-reminder-enabled" value="1" <?php checked(!empty($reminder['enabled'])); ?> />
             <?php esc_html_e('Send email reminder to volunteers', 'azure-plugin'); ?>
         </label>
-        <span id="azure-vs-reminder-when" style="margin-left:8px;<?php echo empty($reminder['enabled']) ? 'display:none;' : ''; ?>">
-            <select name="volunteer_reminder_amount" aria-label="<?php esc_attr_e('How long before the shift', 'azure-plugin'); ?>">
-                <?php for ($n = 1; $n <= 30; $n++): ?>
-                    <option value="<?php echo (int) $n; ?>" <?php selected((int) $reminder['amount'], $n); ?>><?php echo (int) $n; ?></option>
-                <?php endfor; ?>
-            </select>
-            <select name="volunteer_reminder_unit" aria-label="<?php esc_attr_e('Hours or days', 'azure-plugin'); ?>">
-                <option value="hours" <?php selected($reminder['unit'], 'hours'); ?>><?php esc_html_e('hours', 'azure-plugin'); ?></option>
-                <option value="days" <?php selected($reminder['unit'], 'days'); ?>><?php esc_html_e('days', 'azure-plugin'); ?></option>
-            </select>
-            <span class="description"><?php esc_html_e('before the shift', 'azure-plugin'); ?></span>
-        </span>
-        <button type="submit" class="button" style="margin-left:8px;"><?php esc_html_e('Save', 'azure-plugin'); ?></button>
+        <div id="azure-vs-reminder-when" style="margin:8px 0 0 24px;<?php echo empty($reminder['enabled']) ? 'display:none;' : ''; ?>">
+            <div id="azure-vs-reminder-list">
+                <?php foreach ($reminder_rows as $row): ?>
+                <div class="azure-vs-reminder-row" style="margin:0 0 6px;">
+                    <select name="volunteer_reminder_amount[]" aria-label="<?php esc_attr_e('How long before the shift', 'azure-plugin'); ?>">
+                        <?php for ($n = 1; $n <= 30; $n++): ?>
+                            <option value="<?php echo (int) $n; ?>" <?php selected((int) $row['amount'], $n); ?>><?php echo (int) $n; ?></option>
+                        <?php endfor; ?>
+                    </select>
+                    <select name="volunteer_reminder_unit[]" aria-label="<?php esc_attr_e('Hours or days', 'azure-plugin'); ?>">
+                        <option value="hours" <?php selected($row['unit'], 'hours'); ?>><?php esc_html_e('hours', 'azure-plugin'); ?></option>
+                        <option value="days" <?php selected($row['unit'], 'days'); ?>><?php esc_html_e('days', 'azure-plugin'); ?></option>
+                    </select>
+                    <span class="description"><?php esc_html_e('before the shift', 'azure-plugin'); ?></span>
+                    <button type="button" class="button-link azure-vs-reminder-remove" style="margin-left:8px;"><?php esc_html_e('Remove', 'azure-plugin'); ?></button>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <button type="button" class="button" id="azure-vs-reminder-add"><?php esc_html_e('Add reminder', 'azure-plugin'); ?></button>
+        </div>
+        <button type="submit" class="button button-primary" style="margin-top:8px;"><?php esc_html_e('Save', 'azure-plugin'); ?></button>
     </form>
     <p class="description" style="margin:8px 0 0;">
         <?php
         printf(
             /* translators: %s: admin URL of the email message editor */
-            esc_html__('One hourly check sends each reminder once the shift is inside this window. Edit the confirmation and reminder wording under %s.', 'azure-plugin'),
+            esc_html__('One hourly check sends each reminder once, when the shift enters that window. For example, 2 days and then 2 hours. Edit the wording under %s.', 'azure-plugin'),
             '<a href="' . esc_url(admin_url('admin.php?page=azure-plugin-emails&tab=messages')) . '">' . esc_html__('Emails → Messages', 'azure-plugin') . '</a>'
         );
         ?>
     </p>
 </div>
 <script>
-document.getElementById('azure-vs-reminder-enabled').addEventListener('change', function () {
+(function () {
+    var enabled = document.getElementById('azure-vs-reminder-enabled');
     var when = document.getElementById('azure-vs-reminder-when');
-    if (when) when.style.display = this.checked ? '' : 'none';
-});
+    var list = document.getElementById('azure-vs-reminder-list');
+    var add = document.getElementById('azure-vs-reminder-add');
+    if (!enabled || !when || !list || !add) return;
+    function syncRemove() {
+        var rows = list.querySelectorAll('.azure-vs-reminder-row');
+        Array.prototype.forEach.call(rows, function (row) {
+            var button = row.querySelector('.azure-vs-reminder-remove');
+            if (button) button.style.display = rows.length > 1 ? '' : 'none';
+        });
+    }
+    enabled.addEventListener('change', function () {
+        when.style.display = enabled.checked ? '' : 'none';
+    });
+    add.addEventListener('click', function () {
+        var rows = list.querySelectorAll('.azure-vs-reminder-row');
+        if (!rows.length || rows.length >= 8) return;
+        var clone = rows[0].cloneNode(true);
+        var amount = clone.querySelector('[name="volunteer_reminder_amount[]"]');
+        var unit = clone.querySelector('[name="volunteer_reminder_unit[]"]');
+        if (amount) amount.value = '2';
+        if (unit) unit.value = 'hours';
+        list.appendChild(clone);
+        syncRemove();
+    });
+    list.addEventListener('click', function (event) {
+        var button = event.target.closest ? event.target.closest('.azure-vs-reminder-remove') : null;
+        if (!button) return;
+        var rows = list.querySelectorAll('.azure-vs-reminder-row');
+        if (rows.length <= 1) return;
+        var row = button.closest('.azure-vs-reminder-row');
+        if (row) row.remove();
+        syncRemove();
+    });
+    syncRemove();
+})();
 </script>
 
 <p class="description" style="margin: 8px 0 16px;">

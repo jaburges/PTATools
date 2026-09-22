@@ -441,6 +441,23 @@ class Azure_Volunteer_Signup {
     }
 
     /**
+     * Each signup can receive more than one reminder. reminders_sent
+     * stores the lead times, in seconds, that already went out.
+     */
+    public static function ensure_reminder_sent_column() {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_signups');
+        if (!$t || !isset($wpdb) || !method_exists($wpdb, 'get_col')) {
+            return;
+        }
+        $cols = $wpdb->get_col("SHOW COLUMNS FROM {$t}", 0);
+        if (!is_array($cols) || in_array('reminders_sent', $cols, true)) {
+            return;
+        }
+        $wpdb->query("ALTER TABLE {$t} ADD COLUMN reminders_sent varchar(191) DEFAULT ''");
+    }
+
+    /**
      * Prefer Outlook seriesMasterId; fall back to calendar + title.
      *
      * @param string $calendar_id
@@ -869,18 +886,18 @@ class Azure_Volunteer_Signup {
     }
 
     /**
-     * True when a shift should get its reminder on this sweep.
-     * The hourly cron sends once the shift is inside the configured
-     * lead (default two hours). A missed hour still catches it on the
-     * next run, until the shift starts.
+     * True when a shift should get a reminder on this sweep.
+     * With one lead (the default, two hours) that is the whole window.
+     * With several leads, only the band the shift is in right now is due,
+     * so a 2-day note and a 2-hour note go out on different sweeps.
      *
      * @param string   $start
      * @param int      $now_ts
-     * @param int|null $window_seconds Null uses the saved lead.
+     * @param int|null $window_seconds Null uses the saved schedule.
      */
     public static function reminder_is_due($start, $now_ts, $window_seconds = null) {
         if ($window_seconds === null) {
-            $window_seconds = self::reminder_lead_seconds();
+            return self::reminder_due_seconds($start, $now_ts) > 0;
         }
         $start_ts = self::slot_start_timestamp($start);
         if ($start_ts <= 0 || $now_ts <= 0 || (int) $window_seconds <= 0) {
@@ -888,6 +905,49 @@ class Azure_Volunteer_Signup {
         }
         $delta = $start_ts - (int) $now_ts;
         return $delta > 0 && $delta <= (int) $window_seconds;
+    }
+
+    /**
+     * Lead, in seconds, of the reminder that should send now. 0 when none.
+     *
+     * @param string     $start
+     * @param int        $now_ts
+     * @param array|null $schedule
+     * @return int
+     */
+    public static function reminder_due_seconds($start, $now_ts, $schedule = null) {
+        if ($schedule === null) {
+            $schedule = self::reminder_schedule();
+        }
+        $leads = array();
+        foreach ((array) $schedule as $row) {
+            $seconds = (int) ($row['seconds'] ?? 0);
+            if ($seconds > 0) {
+                $leads[$seconds] = true;
+            }
+        }
+        if (!$leads) {
+            return 0;
+        }
+        $leads = array_keys($leads);
+        rsort($leads, SORT_NUMERIC);
+        $start_ts = self::slot_start_timestamp($start);
+        if ($start_ts <= 0 || (int) $now_ts <= 0) {
+            return 0;
+        }
+        $delta = $start_ts - (int) $now_ts;
+        if ($delta <= 0) {
+            return 0;
+        }
+        $count = count($leads);
+        for ($i = 0; $i < $count; $i++) {
+            $outer = (int) $leads[$i];
+            $inner = ($i + 1 < $count) ? (int) $leads[$i + 1] : 0;
+            if ($delta <= $outer && $delta > $inner) {
+                return $outer;
+            }
+        }
+        return 0;
     }
 
     public static function reminders_enabled() {
@@ -899,51 +959,157 @@ class Azure_Volunteer_Signup {
     }
 
     /**
-     * How far ahead the hourly sweep should mail a reminder.
+     * Farthest reminder lead. 0 when reminders are off.
      *
-     * @return int seconds, or 0 when reminders are off
+     * @return int seconds
      */
     public static function reminder_lead_seconds() {
         if (!self::reminders_enabled()) {
             return 0;
         }
+        $max = 0;
+        foreach (self::reminder_schedule() as $row) {
+            $max = max($max, (int) $row['seconds']);
+        }
+        return $max;
+    }
+
+    /**
+     * The single lead saved before reminders became a list.
+     * A signup flagged reminder_sent under that system already got this one.
+     *
+     * @return int seconds
+     */
+    public static function legacy_reminder_seconds() {
         $amount = 2;
         $unit = 'hours';
         if (class_exists('Azure_Settings')) {
             $amount = (int) Azure_Settings::get_setting('volunteer_reminder_amount', 2);
             $unit = (string) Azure_Settings::get_setting('volunteer_reminder_unit', 'hours');
         }
-        if ($amount < 1) {
-            $amount = 1;
+        $row = self::normalize_reminder_schedule(array(array(
+            'amount' => $amount > 0 ? $amount : 2,
+            'unit'   => $unit,
+        )));
+        return $row ? (int) $row[0]['seconds'] : (2 * HOUR_IN_SECONDS);
+    }
+
+    /**
+     * @param mixed $raw JSON list or an array of amount/unit rows
+     * @return array<int, array{amount:int,unit:string}>
+     */
+    public static function decode_reminder_schedule($raw) {
+        if (is_array($raw)) {
+            return $raw;
         }
-        if ($amount > 30) {
-            $amount = 30;
+        $raw = (string) $raw;
+        if ($raw === '') {
+            return array();
         }
-        return $amount * ($unit === 'days' ? DAY_IN_SECONDS : HOUR_IN_SECONDS);
+        if (function_exists('wp_unslash')) {
+            $raw = wp_unslash($raw);
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : array();
+    }
+
+    /**
+     * Drop duplicates, clamp each lead to 1–30 hours or days, keep at most 8.
+     *
+     * @param mixed $rows
+     * @return array<int, array{amount:int,unit:string,seconds:int}>
+     */
+    public static function normalize_reminder_schedule($rows) {
+        if (!is_array($rows)) {
+            return array();
+        }
+        $out = array();
+        $seen = array();
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $amount = (int) ($row['amount'] ?? 0);
+            $unit = (($row['unit'] ?? '') === 'days') ? 'days' : 'hours';
+            if ($amount < 1) {
+                $amount = 1;
+            }
+            if ($amount > 30) {
+                $amount = 30;
+            }
+            $seconds = $amount * ($unit === 'days' ? DAY_IN_SECONDS : HOUR_IN_SECONDS);
+            if (isset($seen[$seconds])) {
+                continue;
+            }
+            $seen[$seconds] = true;
+            $out[] = array(
+                'amount'  => $amount,
+                'unit'    => $unit,
+                'seconds' => $seconds,
+            );
+            if (count($out) >= 8) {
+                break;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * @return array<int, array{amount:int,unit:string,seconds:int}>
+     */
+    public static function reminder_schedule() {
+        $items = array();
+        if (class_exists('Azure_Settings')) {
+            $items = self::normalize_reminder_schedule(
+                self::decode_reminder_schedule(Azure_Settings::get_setting('volunteer_reminder_schedule', ''))
+            );
+        }
+        if ($items) {
+            return $items;
+        }
+        $legacy = self::legacy_reminder_seconds();
+        $unit = ($legacy % DAY_IN_SECONDS === 0) ? 'days' : 'hours';
+        $amount = (int) ($legacy / ($unit === 'days' ? DAY_IN_SECONDS : HOUR_IN_SECONDS));
+        return self::normalize_reminder_schedule(array(array(
+            'amount' => $amount > 0 ? $amount : 2,
+            'unit'   => $unit,
+        )));
+    }
+
+    /**
+     * Lead keys already mailed for this signup.
+     * The old reminder_sent flag counts as the single lead that existed then.
+     *
+     * @param object $signup
+     * @return array<int, true>
+     */
+    public static function reminder_sent_keys($signup) {
+        $raw = is_object($signup) ? (string) ($signup->reminders_sent ?? '') : '';
+        $keys = array();
+        foreach (explode(',', $raw) as $part) {
+            $part = (int) trim($part);
+            if ($part > 0) {
+                $keys[$part] = true;
+            }
+        }
+        if (is_object($signup) && !empty($signup->reminder_sent) && !$keys) {
+            $legacy = self::legacy_reminder_seconds();
+            if ($legacy > 0) {
+                $keys[$legacy] = true;
+            }
+        }
+        return $keys;
     }
 
     public static function reminder_settings() {
-        $amount = 2;
-        $unit = 'hours';
-        $enabled = true;
-        if (class_exists('Azure_Settings')) {
-            $enabled = self::reminders_enabled();
-            $amount = (int) Azure_Settings::get_setting('volunteer_reminder_amount', 2);
-            $unit = (string) Azure_Settings::get_setting('volunteer_reminder_unit', 'hours');
-        }
-        if ($amount < 1) {
-            $amount = 2;
-        }
-        if ($amount > 30) {
-            $amount = 30;
-        }
-        if ($unit !== 'days') {
-            $unit = 'hours';
-        }
+        $enabled = self::reminders_enabled();
+        $schedule = self::reminder_schedule();
+        $first = $schedule ? $schedule[0] : array('amount' => 2, 'unit' => 'hours', 'seconds' => 2 * HOUR_IN_SECONDS);
         return array(
-            'enabled' => $enabled,
-            'amount'  => $amount,
-            'unit'    => $unit,
+            'enabled'  => $enabled,
+            'amount'   => (int) $first['amount'],
+            'unit'     => (string) $first['unit'],
+            'schedule' => $schedule,
         );
     }
 
@@ -1686,8 +1852,11 @@ class Azure_Volunteer_Signup {
 
     public function send_reminders() {
         global $wpdb;
-        $window = self::reminder_lead_seconds();
-        if ($window <= 0) {
+        if (!self::reminders_enabled()) {
+            return;
+        }
+        $schedule = self::reminder_schedule();
+        if (!$schedule) {
             return;
         }
         $sheets_t   = Azure_Database::get_table_name('volunteer_sheets');
@@ -1695,6 +1864,7 @@ class Azure_Volunteer_Signup {
         if (!$sheets_t || !$signups_t) {
             return;
         }
+        self::ensure_reminder_sent_column();
 
         $now = time();
         $sheets = $wpdb->get_results("SELECT * FROM {$sheets_t} WHERE status = 'open'");
@@ -1708,15 +1878,23 @@ class Azure_Volunteer_Signup {
             list($event_title, $event_url) = $this->event_notice_fields($sheet);
             foreach ($activities as $act) {
                 $bounds = self::slot_bounds($sheet, $act);
-                if (empty($bounds['start']) || !self::reminder_is_due($bounds['start'], $now, $window)) {
+                if (empty($bounds['start'])) {
+                    continue;
+                }
+                $due = self::reminder_due_seconds($bounds['start'], $now, $schedule);
+                if ($due <= 0) {
                     continue;
                 }
                 $checked++;
                 $signups = $wpdb->get_results($wpdb->prepare(
-                    "SELECT * FROM {$signups_t} WHERE activity_id = %d AND reminder_sent = 0",
+                    "SELECT * FROM {$signups_t} WHERE activity_id = %d",
                     $act->id
                 ));
                 foreach ($signups as $signup) {
+                    $sent = self::reminder_sent_keys($signup);
+                    if (isset($sent[$due])) {
+                        continue;
+                    }
                     $user = get_userdata($signup->user_id);
                     if (!$user) {
                         continue;
@@ -1735,13 +1913,17 @@ class Azure_Volunteer_Signup {
                     wp_mail($user->user_email, $subject, $body, array(), $attachments);
                     $this->cleanup_ics_attachments($attachments);
 
-                    $wpdb->update($signups_t, array('reminder_sent' => 1), array('id' => $signup->id));
+                    $sent[$due] = true;
+                    $wpdb->update($signups_t, array(
+                        'reminder_sent'  => 1,
+                        'reminders_sent' => implode(',', array_keys($sent)),
+                    ), array('id' => $signup->id));
                 }
             }
         }
 
         if (class_exists('Azure_Logger')) {
-            Azure_Logger::debug_module('Volunteer', 'Reminder sweep completed. Slots inside the reminder window: ' . $checked);
+            Azure_Logger::debug_module('Volunteer', 'Reminder sweep completed. Slots inside a reminder window: ' . $checked);
         }
     }
 
@@ -1755,18 +1937,29 @@ class Azure_Volunteer_Signup {
         check_admin_referer('azure_volunteer_reminder_settings');
 
         $enabled = !empty($_POST['volunteer_reminder_enabled']) ? '1' : '0';
-        $amount = isset($_POST['volunteer_reminder_amount']) ? (int) $_POST['volunteer_reminder_amount'] : 2;
-        if ($amount < 1) {
-            $amount = 1;
+        $amounts = isset($_POST['volunteer_reminder_amount']) ? (array) $_POST['volunteer_reminder_amount'] : array();
+        $units = isset($_POST['volunteer_reminder_unit']) ? (array) $_POST['volunteer_reminder_unit'] : array();
+        $rows = array();
+        foreach ($amounts as $i => $amount) {
+            $rows[] = array(
+                'amount' => $amount,
+                'unit'   => $units[$i] ?? 'hours',
+            );
         }
-        if ($amount > 30) {
-            $amount = 30;
+        $schedule = self::normalize_reminder_schedule($rows);
+        if (!$schedule) {
+            $schedule = self::normalize_reminder_schedule(array(array('amount' => 2, 'unit' => 'hours')));
         }
-        $unit = (isset($_POST['volunteer_reminder_unit']) && $_POST['volunteer_reminder_unit'] === 'days') ? 'days' : 'hours';
+        $stored = array();
+        foreach ($schedule as $row) {
+            $stored[] = array(
+                'amount' => (int) $row['amount'],
+                'unit'   => (string) $row['unit'],
+            );
+        }
         if (class_exists('Azure_Settings')) {
             Azure_Settings::update_setting('volunteer_reminder_enabled', $enabled);
-            Azure_Settings::update_setting('volunteer_reminder_amount', (string) $amount);
-            Azure_Settings::update_setting('volunteer_reminder_unit', $unit);
+            Azure_Settings::update_setting('volunteer_reminder_schedule', wp_json_encode($stored));
         }
 
         $redirect = wp_get_referer();

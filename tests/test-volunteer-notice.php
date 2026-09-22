@@ -57,6 +57,7 @@ $t->check(strpos($body, 'Location: Room 12') !== false, 'email includes the loca
 $t->check(strpos($body, 'Access Event Page: https://wilderptsa.net/event/congdon-math-adventures/') !== false, 'email links the event page');
 $t->equals('Test Site volunteering reminder', Azure_Volunteer_Signup::reminder_subject(), 'reminder subject uses the site name');
 $t->equals(7200, Azure_Volunteer_Signup::reminder_lead_seconds(), 'default reminder lead is two hours');
+$t->equals(1, count(Azure_Volunteer_Signup::reminder_schedule()), 'the default schedule is a single reminder');
 
 $start = '2026-10-01 15:35:00';
 $start_ts = Azure_Volunteer_Signup::slot_start_timestamp($start);
@@ -65,12 +66,32 @@ $t->check(Azure_Volunteer_Signup::reminder_is_due($start, $start_ts - (int) (1.5
 $t->check(!Azure_Volunteer_Signup::reminder_is_due($start, $start_ts - (int) (2.5 * 3600)), 'a shift beyond the lead waits for a later sweep');
 $t->check(!Azure_Volunteer_Signup::reminder_is_due($start, $start_ts + 600), 'a shift that already started is not reminded');
 
+$two = Azure_Volunteer_Signup::normalize_reminder_schedule(array(
+    array('amount' => 2, 'unit' => 'days'),
+    array('amount' => 2, 'unit' => 'hours'),
+    array('amount' => 2, 'unit' => 'hours'),
+));
+$t->equals(2, count($two), 'a repeated lead is stored once');
+$t->equals(2 * 86400, Azure_Volunteer_Signup::reminder_due_seconds($start, $start_ts - (36 * 3600), $two), 'a day and a half out sends the 2-day reminder');
+$t->equals(2 * 3600, Azure_Volunteer_Signup::reminder_due_seconds($start, $start_ts - (int) (1.5 * 3600), $two), 'inside two hours sends the 2-hour reminder');
+$t->equals(0, Azure_Volunteer_Signup::reminder_due_seconds($start, $start_ts - (3 * 86400), $two), 'before the farthest reminder nothing is due');
+$t->equals(0, Azure_Volunteer_Signup::reminder_due_seconds($start, $start_ts + 600, $two), 'a started shift sends neither reminder');
+
+$already = (object) array('reminder_sent' => 1, 'reminders_sent' => '');
+$sent = Azure_Volunteer_Signup::reminder_sent_keys($already);
+$t->check(isset($sent[7200]), 'the old sent flag counts as the original two-hour reminder');
+$t->check(!isset($sent[2 * 86400]), 'the old sent flag does not block a newly added reminder');
+$later_sent = Azure_Volunteer_Signup::reminder_sent_keys((object) array('reminder_sent' => 1, 'reminders_sent' => '172800,7200'));
+$t->check(isset($later_sent[172800]) && isset($later_sent[7200]), 'each mailed lead is recorded on the signup');
+
 $page = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/volunteer-page.php');
 $t->check(strpos($page, 'azure-vs-series-toggle') !== false, 'series rows have an expand control');
 $t->check(strpos($page, "aria-expanded=\"false\"") !== false, 'series start collapsed');
 $t->check(strpos($page, 'azure-vs-series-child') !== false, 'events in a series are child rows');
 $t->check(strpos($page, 'Send email reminder to volunteers') !== false, 'reminder setting is on the volunteer page');
 $t->check(strpos($page, 'volunteer_reminder_unit') !== false, 'reminder lead can be hours or days');
+$t->check(strpos($page, 'Add reminder') !== false, 'more than one reminder can be added');
+$t->check(strpos($page, 'volunteer_reminder_amount[]') !== false, 'reminder leads post as a list');
 
 $emails = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/emails-page.php');
 $t->check(strpos($emails, 'email-messages-page.php') !== false, 'volunteer emails are edited on the messages tab');

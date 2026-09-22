@@ -485,6 +485,7 @@ class Azure_Database {
             user_id bigint(20) UNSIGNED NOT NULL,
             signed_up_at datetime DEFAULT CURRENT_TIMESTAMP,
             reminder_sent tinyint(1) DEFAULT 0,
+            reminders_sent varchar(191) DEFAULT '',
             PRIMARY KEY (id),
             UNIQUE KEY activity_user (activity_id, user_id),
             KEY user_id (user_id),
