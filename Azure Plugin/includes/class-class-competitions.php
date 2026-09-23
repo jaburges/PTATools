@@ -2,9 +2,10 @@
 /**
  * Class competitions: purchases by teacher, never dollars.
  *
- * Teacher names come from Child Info. Class sizes are edited under System → Classes.
- * Each qualifying line item (WAG gift, custom WAG amount, or chosen product)
- * counts once for the teacher saved on that order item.
+ * Teachers, grades, and class sizes are edited under System → Classes.
+ * That roster is the source of truth. Child Info’s teacher dropdown is
+ * filled from it. Each qualifying line item counts once for the teacher
+ * saved on that order item.
  */
 
 if (!defined('ABSPATH')) {
@@ -14,21 +15,221 @@ if (!defined('ABSPATH')) {
 class Azure_Class_Competitions {
 
     const SIZES_KEY = 'donations_class_sizes';
+    const ROSTER_KEY = 'class_roster';
     const COMPS_KEY = 'donations_class_competitions';
+
+    /** @var array<int,array{name:string,grade:string,students:int}>|null */
+    private static $roster_cache = null;
 
     public static function normalize_teacher($name) {
         $name = strtolower(trim(preg_replace('/\s+/', ' ', (string) $name)));
         return $name;
     }
 
-    public static function teacher_list() {
-        if (class_exists('Azure_Product_Fields_Module')) {
-            $opts = Azure_Product_Fields_Module::get_teacher_options();
-            if (is_array($opts)) {
-                return array_values(array_filter(array_map('strval', $opts), 'strlen'));
+    /**
+     * One grade, or a mixed class such as 4/5. Blank stays blank.
+     *
+     * @param mixed $raw
+     * @return string
+     */
+    public static function sanitize_grade_level($raw) {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return '';
+        }
+        $parts = preg_split('#[/,]#', $raw);
+        $out = array();
+        foreach ((array) $parts as $part) {
+            $part = strtolower(trim((string) $part));
+            $part = preg_replace('/\s+/', '', $part);
+            if ($part === 'k' || $part === 'kindergarten') {
+                $token = 'K';
+            } elseif ($part === 'prek' || $part === 'pre-k' || $part === 'pk') {
+                $token = 'PreK';
+            } elseif (preg_match('/^(\d{1,2})(st|nd|rd|th)?$/', $part, $m)) {
+                $n = (int) $m[1];
+                if ($n < 1 || $n > 12) {
+                    continue;
+                }
+                $token = (string) $n;
+            } else {
+                continue;
+            }
+            if (!in_array($token, $out, true)) {
+                $out[] = $token;
             }
         }
-        return array();
+        return implode('/', $out);
+    }
+
+    /**
+     * @param mixed $raw
+     * @return array<int,array{name:string,grade:string,students:int}>
+     */
+    public static function sanitize_roster($raw) {
+        $out = array();
+        $seen = array();
+        if (!is_array($raw)) {
+            return $out;
+        }
+        foreach ($raw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $name = isset($row['name']) ? sanitize_text_field($row['name']) : '';
+            $name = trim(preg_replace('/\s+/', ' ', $name));
+            if ($name === '') {
+                continue;
+            }
+            $key = self::normalize_teacher($name);
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $students = isset($row['students']) ? (int) $row['students'] : 0;
+            if ($students < 0) {
+                $students = 0;
+            }
+            if ($students > 500) {
+                $students = 500;
+            }
+            $out[] = array(
+                'name'     => $name,
+                'grade'    => self::sanitize_grade_level(isset($row['grade']) ? $row['grade'] : ''),
+                'students' => $students,
+            );
+        }
+        return $out;
+    }
+
+    /**
+     * Teacher names in roster order. Seeds once from the old Child Info
+     * dropdown and the saved student counts when no roster exists yet.
+     *
+     * @return string[]
+     */
+    public static function teacher_list() {
+        $names = array();
+        foreach (self::get_roster() as $row) {
+            $names[] = $row['name'];
+        }
+        return $names;
+    }
+
+    /**
+     * @return array<int,array{name:string,grade:string,students:int}>
+     */
+    public static function get_roster() {
+        if (self::$roster_cache !== null) {
+            return self::$roster_cache;
+        }
+        if (!class_exists('Azure_Settings')) {
+            return array();
+        }
+        $all = Azure_Settings::get_all_settings();
+        if (is_array($all) && array_key_exists(self::ROSTER_KEY, $all) && is_array($all[self::ROSTER_KEY])) {
+            self::$roster_cache = self::sanitize_roster($all[self::ROSTER_KEY]);
+            return self::$roster_cache;
+        }
+        $seeded = self::seed_roster_from_legacy();
+        if ($seeded === null) {
+            return array();
+        }
+        self::persist_roster($seeded, false);
+        return self::$roster_cache;
+    }
+
+    /**
+     * @param mixed $raw
+     * @return array<int,array{name:string,grade:string,students:int}>
+     */
+    public static function save_roster($raw) {
+        $roster = self::sanitize_roster($raw);
+        self::persist_roster($roster, true);
+        return $roster;
+    }
+
+    /**
+     * Update student counts without touching names or grades.
+     *
+     * @param mixed $raw
+     */
+    public static function apply_student_counts($raw) {
+        $roster = self::get_roster();
+        $names = array();
+        foreach ($roster as $row) {
+            $names[] = $row['name'];
+        }
+        $sizes = self::sanitize_class_sizes($raw, $names);
+        foreach ($roster as $i => $row) {
+            if (isset($sizes[$row['name']])) {
+                $roster[$i]['students'] = (int) $sizes[$row['name']];
+            }
+        }
+        self::persist_roster($roster, true);
+    }
+
+    /**
+     * @param array<int,array{name:string,grade:string,students:int}> $roster
+     * @param bool $sync_empty An explicit save may clear the dropdown. A seed must not.
+     */
+    private static function persist_roster($roster, $sync_empty = false) {
+        self::$roster_cache = $roster;
+        if (!class_exists('Azure_Settings')) {
+            return;
+        }
+        $names = array();
+        $sizes = array();
+        foreach ($roster as $row) {
+            $names[] = $row['name'];
+            $sizes[$row['name']] = (int) $row['students'];
+        }
+        Azure_Settings::update_setting(self::ROSTER_KEY, $roster);
+        Azure_Settings::update_setting(self::SIZES_KEY, $sizes);
+        if (class_exists('Azure_Product_Fields_Module') && ($names || $sync_empty)) {
+            Azure_Product_Fields_Module::sync_teacher_options($names);
+        }
+    }
+
+    /**
+     * @return array<int,array{name:string,grade:string,students:int}>|null
+     */
+    private static function seed_roster_from_legacy() {
+        $stored = Azure_Settings::get_setting(self::SIZES_KEY, array());
+        if (!is_array($stored)) {
+            $stored = array();
+        }
+        $from_field = null;
+        if (class_exists('Azure_Product_Fields_Module')) {
+            $from_field = Azure_Product_Fields_Module::product_field_teacher_names();
+        }
+        if ($from_field === null && !$stored) {
+            return null;
+        }
+        $names = is_array($from_field) ? $from_field : array();
+        if (!$names && $stored) {
+            $names = array_keys($stored);
+        }
+        $rows = array();
+        foreach ($names as $name) {
+            $name = trim((string) $name);
+            if ($name === '') {
+                continue;
+            }
+            $students = 0;
+            foreach ($stored as $key => $count) {
+                if (self::normalize_teacher($key) === self::normalize_teacher($name)) {
+                    $students = (int) $count;
+                    break;
+                }
+            }
+            $rows[] = array(
+                'name'     => $name,
+                'grade'    => '',
+                'students' => $students,
+            );
+        }
+        return self::sanitize_roster($rows);
     }
 
     public static function sanitize_class_sizes($raw, $teachers) {
@@ -61,10 +262,16 @@ class Azure_Class_Competitions {
     }
 
     public static function get_class_sizes() {
-        return self::sanitize_class_sizes(
-            Azure_Settings::get_setting(self::SIZES_KEY, array()),
-            self::teacher_list()
-        );
+        $roster = self::get_roster();
+        if ($roster) {
+            $out = array();
+            foreach ($roster as $row) {
+                $out[$row['name']] = (int) $row['students'];
+            }
+            return $out;
+        }
+        $stored = class_exists('Azure_Settings') ? Azure_Settings::get_setting(self::SIZES_KEY, array()) : array();
+        return self::sanitize_class_sizes($stored, self::teacher_list());
     }
 
     /**
@@ -614,7 +821,7 @@ class Azure_Class_Competitions {
                 <p class="pta-class-race-kicker"><?php esc_html_e('Distance is % of class donated', 'azure-plugin'); ?></p>
             </div>
             <?php if (empty($rows)): ?>
-                <p class="pta-class-race-empty"><?php esc_html_e('Add teachers in Child Info, then enter class sizes under System → Classes.', 'azure-plugin'); ?></p>
+                <p class="pta-class-race-empty"><?php esc_html_e('Add teachers under System → Classes.', 'azure-plugin'); ?></p>
             <?php else: ?>
                 <ol class="pta-class-race-track">
                     <?php foreach (array_values($rows) as $i => $row): ?>

@@ -445,6 +445,8 @@ class Azure_Database {
             pta_event_id bigint(20) UNSIGNED DEFAULT 0,
             event_date datetime DEFAULT NULL,
             event_location varchar(500) DEFAULT '',
+            grade varchar(50) DEFAULT '',
+            teacher varchar(191) DEFAULT '',
             status varchar(20) DEFAULT 'open',
             is_template tinyint(1) NOT NULL DEFAULT 0,
             template_id bigint(20) UNSIGNED DEFAULT 0,

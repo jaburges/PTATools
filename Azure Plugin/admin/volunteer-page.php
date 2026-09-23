@@ -323,6 +323,42 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                     <th><label for="azure-vs-description"><?php _e('Description', 'azure-plugin'); ?></label></th>
                     <td><textarea id="azure-vs-description" rows="2" class="large-text"></textarea></td>
                 </tr>
+                <?php
+                $vs_grades = class_exists('Azure_Product_Fields_Module')
+                    ? Azure_Product_Fields_Module::get_grade_options()
+                    : array('PreK', 'K', '1', '2', '3', '4', '5');
+                $vs_teachers = class_exists('Azure_Product_Fields_Module')
+                    ? Azure_Product_Fields_Module::get_teacher_options()
+                    : array();
+                ?>
+                <tr>
+                    <th><label for="azure-vs-grade"><?php _e('Grade', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <select id="azure-vs-grade">
+                            <option value=""><?php _e('Any grade', 'azure-plugin'); ?></option>
+                            <?php foreach ($vs_grades as $grade_option): ?>
+                                <option value="<?php echo esc_attr($grade_option); ?>"><?php echo esc_html($grade_option); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description"><?php _e('Leave this on Any grade unless the sheet is only for one grade. Used on both single and recurring sheets.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="azure-vs-teacher"><?php _e('Teacher', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <?php if ($vs_teachers): ?>
+                            <select id="azure-vs-teacher">
+                                <option value=""><?php _e('Any teacher', 'azure-plugin'); ?></option>
+                                <?php foreach ($vs_teachers as $teacher_option): ?>
+                                    <option value="<?php echo esc_attr($teacher_option); ?>"><?php echo esc_html($teacher_option); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        <?php else: ?>
+                            <input type="text" id="azure-vs-teacher" class="regular-text" value="" placeholder="<?php esc_attr_e('Any teacher', 'azure-plugin'); ?>" />
+                        <?php endif; ?>
+                        <p class="description"><?php _e('Leave blank for a general sheet such as Carnival. A teacher limits it to families in that class.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
                 <tr>
                     <th><?php _e('Assign to an event', 'azure-plugin'); ?></th>
                     <td>
@@ -490,6 +526,8 @@ jQuery(function($) {
         $('#azure-vs-sheet-id').val(0);
         $('#azure-vs-title').val('');
         $('#azure-vs-description').val('');
+        $('#azure-vs-grade').val('');
+        $('#azure-vs-teacher').val('');
         $('#azure-vs-assign-event').prop('checked', false);
         $('#azure-vs-pta-event').val(0);
         $('#azure-vs-new-event-title').val('');
@@ -509,6 +547,13 @@ jQuery(function($) {
                 $('#azure-vs-sheet-id').val(s.id);
                 $('#azure-vs-title').val(s.title);
                 $('#azure-vs-description').val(s.description || '');
+                $('#azure-vs-grade').val(s.grade || '');
+                var teacher = s.teacher || '';
+                var $teacher = $('#azure-vs-teacher');
+                if ($teacher.is('select') && teacher && !$teacher.find('option').filter(function() { return this.value === teacher; }).length) {
+                    $teacher.append($('<option>').attr('value', teacher).text(teacher));
+                }
+                $teacher.val(teacher);
                 var eventId = parseInt(s.pta_event_id || s.tec_event_id || 0, 10);
                 $('#azure-vs-assign-event').prop('checked', eventId > 0);
                 if (eventId > 0 && $('#azure-vs-pta-event option[value="' + eventId + '"]').length === 0) {
@@ -597,6 +642,8 @@ jQuery(function($) {
             sheet_id: $('#azure-vs-sheet-id').val(),
             title: $('#azure-vs-title').val(),
             description: $('#azure-vs-description').val(),
+            grade: $('#azure-vs-grade').val() || '',
+            teacher: $('#azure-vs-teacher').val() || '',
             assign_to_event: $('#azure-vs-assign-event').is(':checked') ? 1 : 0,
             pta_event_id: $('#azure-vs-pta-event').val() || 0,
             new_event_title: $('#azure-vs-new-event-title').val() || '',

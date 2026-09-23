@@ -2,30 +2,29 @@
 /**
  * System → Classes
  *
- * Headcount per teacher. Other modules (class competitions, the
- * membership dashboard) read this list; they do not keep their own copy.
+ * Teacher, grade, and student count. Other modules read this roster.
+ * The Child Teacher dropdown is filled from it.
  */
 if (!defined('ABSPATH')) {
     exit;
 }
 
 $notice = '';
-if (!empty($_POST['azure_save_class_sizes'])) {
-    check_admin_referer('azure_save_class_sizes');
+if (!empty($_POST['azure_save_class_roster'])) {
+    check_admin_referer('azure_save_class_roster');
     if (current_user_can('manage_options') && class_exists('Azure_Class_Competitions') && class_exists('Azure_Settings')) {
-        $raw = isset($_POST['class_size']) && is_array($_POST['class_size']) ? wp_unslash($_POST['class_size']) : array();
-        Azure_Settings::update_setting(
-            Azure_Class_Competitions::SIZES_KEY,
-            Azure_Class_Competitions::sanitize_class_sizes($raw, Azure_Class_Competitions::teacher_list())
-        );
-        $notice = __('Class sizes saved.', 'azure-plugin');
+        $raw = isset($_POST['class_roster']) && is_array($_POST['class_roster']) ? wp_unslash($_POST['class_roster']) : array();
+        Azure_Class_Competitions::save_roster($raw);
+        $notice = __('Classes saved. The Child Teacher dropdown now uses this list.', 'azure-plugin');
     }
 }
 
-$teachers = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::teacher_list() : array();
-$sizes = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::get_class_sizes() : array();
+$roster = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::get_roster() : array();
+$sizes = array();
+foreach ($roster as $row) {
+    $sizes[$row['name']] = (int) $row['students'];
+}
 $total = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::student_total($sizes) : 0;
-$teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product-fields');
 ?>
 
 <?php if ($notice !== ''): ?>
@@ -35,36 +34,86 @@ $teacher_fields_url = admin_url('admin.php?page=azure-plugin-selling&tab=product
 <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin:16px 0; max-width:920px;">
     <h2 style="margin:0 0 8px;">
         <span class="dashicons dashicons-groups"></span>
-        <?php esc_html_e('Class sizes', 'azure-plugin'); ?>
+        <?php esc_html_e('Classes', 'azure-plugin'); ?>
     </h2>
     <p class="description" style="margin:0 0 12px;">
-        <?php esc_html_e('Teacher names come from Child Info (the teacher dropdown). Set the number of students in each class here. The membership dashboard and class competition percentages both use this total.', 'azure-plugin'); ?>
-        <a href="<?php echo esc_url($teacher_fields_url); ?>"><?php esc_html_e('Edit teacher list', 'azure-plugin'); ?></a>
+        <?php esc_html_e('This is the teacher list. Each row is a teacher, the grade they teach, and how many students are in the class. A mixed class is written 4/5. Saving here updates the Child Teacher dropdown.', 'azure-plugin'); ?>
     </p>
     <p style="margin:0 0 12px;">
         <strong><?php esc_html_e('Students', 'azure-plugin'); ?>:</strong>
         <?php echo esc_html(number_format_i18n($total)); ?>
     </p>
 
-    <?php if (empty($teachers)): ?>
-        <p><?php esc_html_e('No teachers yet. Add them as dropdown options on the Child Teacher field in Product Fields.', 'azure-plugin'); ?></p>
-    <?php else: ?>
-        <form method="post">
-            <?php wp_nonce_field('azure_save_class_sizes'); ?>
-            <input type="hidden" name="azure_save_class_sizes" value="1" />
-            <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:8px 16px; max-height:520px; overflow:auto; border:1px solid #dcdcde; padding:12px; background:#f6f7f7;">
-                <?php foreach ($teachers as $teacher): ?>
-                    <label style="display:flex; align-items:center; justify-content:space-between; gap:8px; background:#fff; border:1px solid #dcdcde; padding:6px 10px;">
-                        <span style="min-width:0; overflow:hidden; text-overflow:ellipsis;"><?php echo esc_html($teacher); ?></span>
-                        <input type="number" class="small-text" min="0" max="500" step="1"
-                               name="class_size[<?php echo esc_attr($teacher); ?>]"
-                               value="<?php echo isset($sizes[$teacher]) ? (int) $sizes[$teacher] : 0; ?>"
-                               style="width:72px;" />
-                    </label>
+    <form method="post" id="azure-class-roster-form">
+        <?php wp_nonce_field('azure_save_class_roster'); ?>
+        <input type="hidden" name="azure_save_class_roster" value="1" />
+        <table class="widefat striped" style="max-width:720px;">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e('Teacher', 'azure-plugin'); ?></th>
+                    <th><?php esc_html_e('Grade', 'azure-plugin'); ?></th>
+                    <th><?php esc_html_e('Students', 'azure-plugin'); ?></th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="azure-class-roster-rows">
+                <?php
+                $rows = $roster ? $roster : array(array('name' => '', 'grade' => '', 'students' => 0));
+                foreach ($rows as $i => $row):
+                ?>
+                    <tr class="azure-class-roster-row">
+                        <td><input type="text" class="regular-text" name="class_roster[<?php echo (int) $i; ?>][name]" value="<?php echo esc_attr($row['name']); ?>" /></td>
+                        <td><input type="text" class="small-text" name="class_roster[<?php echo (int) $i; ?>][grade]" value="<?php echo esc_attr($row['grade']); ?>" placeholder="<?php esc_attr_e('4 or 4/5', 'azure-plugin'); ?>" /></td>
+                        <td><input type="number" class="small-text" min="0" max="500" step="1" name="class_roster[<?php echo (int) $i; ?>][students]" value="<?php echo (int) $row['students']; ?>" /></td>
+                        <td><button type="button" class="button-link-delete azure-class-roster-remove"><?php esc_html_e('Remove', 'azure-plugin'); ?></button></td>
+                    </tr>
                 <?php endforeach; ?>
-            </div>
-            <p class="description" style="margin:10px 0 12px;"><?php esc_html_e('Leave 0 if you do not know the size yet. A competition percentage stays blank for that class until the size is greater than zero.', 'azure-plugin'); ?></p>
-            <button type="submit" class="button button-primary"><?php esc_html_e('Save class sizes', 'azure-plugin'); ?></button>
-        </form>
-    <?php endif; ?>
+            </tbody>
+        </table>
+        <p style="margin:12px 0;">
+            <button type="button" class="button" id="azure-class-roster-add"><?php esc_html_e('Add teacher', 'azure-plugin'); ?></button>
+        </p>
+        <p class="description" style="margin:0 0 12px;"><?php esc_html_e('Leave students at 0 if you do not know the size yet. A competition percentage stays blank for that class until the size is greater than zero. Leave grade blank until you know it.', 'azure-plugin'); ?></p>
+        <button type="submit" class="button button-primary"><?php esc_html_e('Save classes', 'azure-plugin'); ?></button>
+    </form>
 </div>
+<script>
+(function () {
+    var body = document.getElementById('azure-class-roster-rows');
+    var add = document.getElementById('azure-class-roster-add');
+    if (!body || !add) return;
+    function reindex() {
+        var rows = body.querySelectorAll('.azure-class-roster-row');
+        rows.forEach(function (row, i) {
+            row.querySelectorAll('input').forEach(function (input) {
+                input.name = input.name.replace(/class_roster\[\d+\]/, 'class_roster[' + i + ']');
+            });
+        });
+    }
+    add.addEventListener('click', function () {
+        var rows = body.querySelectorAll('.azure-class-roster-row');
+        var last = rows[rows.length - 1];
+        var next = last.cloneNode(true);
+        next.querySelectorAll('input').forEach(function (input) {
+            if (input.type === 'number') input.value = '0';
+            else input.value = '';
+        });
+        body.appendChild(next);
+        reindex();
+    });
+    body.addEventListener('click', function (event) {
+        var button = event.target.closest('.azure-class-roster-remove');
+        if (!button) return;
+        var rows = body.querySelectorAll('.azure-class-roster-row');
+        if (rows.length === 1) {
+            rows[0].querySelectorAll('input').forEach(function (input) {
+                if (input.type === 'number') input.value = '0';
+                else input.value = '';
+            });
+            return;
+        }
+        button.closest('tr').remove();
+        reindex();
+    });
+})();
+</script>

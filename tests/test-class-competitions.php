@@ -104,6 +104,26 @@ $t->equals(50, Azure_Class_Competitions::percent(12, 24), 'percent is purchases 
 $t->equals(null, Azure_Class_Competitions::percent(12, 0), 'percent is blank when class size is unknown');
 $t->equals(100, Azure_Class_Competitions::percent(30, 24), 'percent caps at 100');
 
+$t->equals('4/5', Azure_Class_Competitions::sanitize_grade_level('4 / 5'), 'a mixed class keeps both grades');
+$t->equals('K/1', Azure_Class_Competitions::sanitize_grade_level('k, 1'), 'kindergarten and first can share a class');
+$t->equals('', Azure_Class_Competitions::sanitize_grade_level(''), 'a blank grade stays blank');
+$t->equals('', Azure_Class_Competitions::sanitize_grade_level('room 12'), 'a note is not stored as a grade');
+$roster = Azure_Class_Competitions::sanitize_roster(array(
+    array('name' => 'Sigel', 'grade' => '4/5', 'students' => 22),
+    array('name' => 'sigel', 'grade' => '1', 'students' => 9),
+    array('name' => 'Congdon', 'grade' => '', 'students' => -2),
+    array('name' => '', 'grade' => '2', 'students' => 10),
+));
+$t->equals(2, count($roster), 'blank and duplicate teachers are dropped');
+$t->equals('Sigel', $roster[0]['name'], 'the first spelling of a teacher is kept');
+$t->equals('4/5', $roster[0]['grade'], 'the mixed grade is stored on the teacher');
+$t->equals(22, $roster[0]['students'], 'the student count is stored on the teacher');
+$t->equals('', $roster[1]['grade'], 'an unknown grade stays empty');
+$t->equals(0, $roster[1]['students'], 'a negative class size clamps to zero');
+$classes_tab = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/system-classes-tab.php');
+$t->check(strpos($classes_tab, 'class_roster') !== false, 'System → Classes edits the roster');
+$t->check(strpos($classes_tab, 'Child Info') === false, 'System → Classes no longer sends you to Child Info to add teachers');
+
 $purchases = array(
     array('teacher' => 'Ms. Rivera', 'grade' => '3'),
     array('teacher' => 'Ms. Rivera', 'grade' => '3'),

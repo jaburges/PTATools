@@ -38,6 +38,12 @@ class Azure_Volunteer_Signup {
     private function init_hooks() {
         self::ensure_slot_columns();
         self::ensure_recurring_columns();
+        self::ensure_audience_columns();
+        self::register_account_endpoint();
+
+        add_action('template_redirect', array($this, 'maybe_serve_calendar'), 0);
+        add_filter('woocommerce_account_menu_items', array(__CLASS__, 'insert_account_menu_item'), 20);
+        add_action('woocommerce_account_volunteered_endpoint', array($this, 'render_account_page'));
 
         // Admin AJAX
         add_action('wp_ajax_azure_volunteer_save_sheet', array($this, 'ajax_save_sheet'));
@@ -441,6 +447,31 @@ class Azure_Volunteer_Signup {
     }
 
     /**
+     * Grade and teacher scope a sheet to a class. Blank means the sheet
+     * is a general opportunity.
+     */
+    public static function ensure_audience_columns() {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t || !isset($wpdb) || !method_exists($wpdb, 'get_col')) {
+            return;
+        }
+        $cols = $wpdb->get_col("SHOW COLUMNS FROM {$t}", 0);
+        if (!is_array($cols)) {
+            return;
+        }
+        $adds = array(
+            'grade'   => "varchar(50) NOT NULL DEFAULT ''",
+            'teacher' => "varchar(191) NOT NULL DEFAULT ''",
+        );
+        foreach ($adds as $col => $def) {
+            if (!in_array($col, $cols, true)) {
+                $wpdb->query("ALTER TABLE {$t} ADD COLUMN {$col} {$def}");
+            }
+        }
+    }
+
+    /**
      * Each signup can receive more than one reminder. reminders_sent
      * stores the lead times, in seconds, that already went out.
      */
@@ -676,6 +707,8 @@ class Azure_Volunteer_Signup {
             'pta_event_id'        => $event_id,
             'event_date'          => $meta['event_date'] ?: null,
             'event_location'      => $meta['event_location'],
+            'grade'               => (string) ($template->grade ?? ''),
+            'teacher'             => (string) ($template->teacher ?? ''),
             'status'              => ($template->status ?? 'open') === 'closed' ? 'closed' : 'open',
             'is_template'         => 0,
             'template_id'         => $template_id,
@@ -689,6 +722,30 @@ class Azure_Volunteer_Signup {
         }
         self::copy_activities((int) $template->id, $instance_id, $meta['event_date']);
         return $instance_id;
+    }
+
+    /**
+     * Recurring dates share the template's grade and teacher.
+     *
+     * @param int    $template_id
+     * @param string $grade
+     * @param string $teacher
+     */
+    public static function sync_audience_to_instances($template_id, $grade, $teacher) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        $template_id = (int) $template_id;
+        if (!$t || !$template_id) {
+            return;
+        }
+        $wpdb->update(
+            $t,
+            array(
+                'grade'   => (string) $grade,
+                'teacher' => (string) $teacher,
+            ),
+            array('template_id' => $template_id, 'is_template' => 0)
+        );
     }
 
     public static function copy_activities($from_sheet_id, $to_sheet_id, $event_date = '') {
@@ -1223,6 +1280,23 @@ class Azure_Volunteer_Signup {
     }
 
     public static function build_slot_ics($sheet, $activity, $user = null) {
+        $event = self::slot_vevent($sheet, $activity, $user);
+        if ($event === '') {
+            return '';
+        }
+        return self::wrap_calendar(array($event));
+    }
+
+    /**
+     * One VEVENT for a shift. UID stays stable so a calendar subscription
+     * updates the same event instead of adding a duplicate.
+     *
+     * @param object|null $sheet
+     * @param object|null $activity
+     * @param object|null $user
+     * @return string
+     */
+    public static function slot_vevent($sheet, $activity, $user = null) {
         $bounds = self::slot_bounds($sheet, $activity);
         if (empty($bounds['start'])) {
             return '';
@@ -1259,11 +1333,6 @@ class Azure_Volunteer_Signup {
             );
         };
         $lines = array(
-            'BEGIN:VCALENDAR',
-            'VERSION:2.0',
-            'PRODID:-//PTA Tools//Volunteer Slot//EN',
-            'CALSCALE:GREGORIAN',
-            'METHOD:PUBLISH',
             'BEGIN:VEVENT',
             'UID:' . $uid,
             'DTSTAMP:' . gmdate('Ymd\THis\Z'),
@@ -1273,9 +1342,319 @@ class Azure_Volunteer_Signup {
             'DESCRIPTION:' . $esc($desc !== '' ? $desc : $summary),
             'LOCATION:' . $esc($location),
             'END:VEVENT',
-            'END:VCALENDAR',
         );
+        return implode("\r\n", $lines);
+    }
+
+    /**
+     * @param string[] $events VEVENT blocks.
+     * @param string   $name
+     * @return string
+     */
+    public static function wrap_calendar(array $events, $name = '') {
+        $lines = array(
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'PRODID:-//PTA Tools//Volunteer Slot//EN',
+            'CALSCALE:GREGORIAN',
+            'METHOD:PUBLISH',
+        );
+        $name = trim((string) $name);
+        if ($name !== '') {
+            $lines[] = 'X-WR-CALNAME:' . $name;
+        }
+        foreach ($events as $event) {
+            $event = trim((string) $event);
+            if ($event !== '') {
+                $lines[] = $event;
+            }
+        }
+        $lines[] = 'END:VCALENDAR';
         return implode("\r\n", $lines) . "\r\n";
+    }
+
+    /**
+     * Personal feed of the shifts this person is still signed up for.
+     *
+     * @param array<int,array{sheet:object,activity:object}> $rows
+     * @param object|null $user
+     * @return string
+     */
+    public static function build_feed_ics(array $rows, $user = null) {
+        $events = array();
+        foreach ($rows as $row) {
+            $sheet = isset($row['sheet']) ? $row['sheet'] : null;
+            $activity = isset($row['activity']) ? $row['activity'] : null;
+            if (!$activity) {
+                continue;
+            }
+            if (!self::slot_is_upcoming($sheet, $activity)) {
+                continue;
+            }
+            $event = self::slot_vevent($sheet, $activity, $user);
+            if ($event !== '') {
+                $events[] = $event;
+            }
+        }
+        return self::wrap_calendar($events, 'Volunteering');
+    }
+
+    /**
+     * A shift is still on the calendar when its end (or start) has not passed.
+     *
+     * @param object|null $sheet
+     * @param object|null $activity
+     * @param DateTimeInterface|string|null $now
+     * @return bool
+     */
+    public static function slot_is_upcoming($sheet, $activity, $now = null) {
+        $bounds = self::slot_bounds($sheet, $activity);
+        $mark = !empty($bounds['end']) ? $bounds['end'] : ($bounds['start'] ?? '');
+        if ($mark === '') {
+            return false;
+        }
+        try {
+            $tz = new DateTimeZone(self::pacific_timezone());
+            $end = new DateTimeImmutable($mark, $tz);
+            if ($now instanceof DateTimeImmutable) {
+                $current = $now->setTimezone($tz);
+            } elseif ($now instanceof DateTime) {
+                $current = DateTimeImmutable::createFromMutable($now)->setTimezone($tz);
+            } elseif (is_string($now) && $now !== '') {
+                $current = new DateTimeImmutable($now, $tz);
+            } else {
+                $current = new DateTimeImmutable('now', $tz);
+            }
+        } catch (Exception $e) {
+            return false;
+        }
+        return $end >= $current;
+    }
+
+    /**
+     * School year runs Aug 1 through the following Aug 1.
+     *
+     * @param DateTimeInterface|string|null $now
+     * @return array{from:string,until:string,label:string,today:string}
+     */
+    public static function school_year_bounds($now = null) {
+        $tz = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('America/Los_Angeles');
+        try {
+            if ($now instanceof DateTimeImmutable) {
+                $current = $now->setTimezone($tz);
+            } elseif ($now instanceof DateTime) {
+                $current = DateTimeImmutable::createFromMutable($now)->setTimezone($tz);
+            } elseif (is_string($now) && $now !== '') {
+                $current = new DateTimeImmutable($now, $tz);
+            } else {
+                $current = new DateTimeImmutable('now', $tz);
+            }
+        } catch (Exception $e) {
+            $current = new DateTimeImmutable('now', $tz);
+        }
+        $month = (int) $current->format('n');
+        $year = (int) $current->format('Y');
+        $start_year = ($month >= 8) ? $year : ($year - 1);
+        return array(
+            'from'  => sprintf('%04d-08-01 00:00:00', $start_year),
+            'until' => sprintf('%04d-08-01 00:00:00', $start_year + 1),
+            'today' => $current->format('Y-m-d') . ' 00:00:00',
+            'label' => $start_year . '–' . ($start_year + 1),
+        );
+    }
+
+    /**
+     * @param string   $title
+     * @param string[] $teachers
+     * @param string[] $grades
+     * @return array{teacher:string,grade:string}
+     */
+    public static function audience_from_title($title, array $teachers, array $grades) {
+        $title = trim((string) $title);
+        $teacher = '';
+        $grade = '';
+        $parts = preg_split('/\s+[\x{2013}\x{2014}-]\s+/u', $title, 2);
+        $left = (is_array($parts) && count($parts) === 2) ? trim((string) $parts[0]) : '';
+        if ($left !== '') {
+            $left_grade = self::match_label($left, $grades);
+            $left_teacher = self::match_label($left, $teachers);
+            if ($left_grade !== '' && $left_teacher === '') {
+                $grade = $left_grade;
+            } elseif ($left_teacher !== '') {
+                $teacher = $left_teacher;
+            } elseif (!$teachers && !self::looks_like_grade($left, $grades)) {
+                $teacher = $left;
+            }
+        }
+        if ($grade === '') {
+            $grade = self::grade_from_title($title, $grades);
+        }
+        return array('teacher' => $teacher, 'grade' => $grade);
+    }
+
+    /**
+     * Activity name after "Teacher - ", otherwise the full title.
+     *
+     * @param string $title
+     * @return string
+     */
+    public static function opportunity_group_label($title) {
+        $title = trim((string) $title);
+        $parts = preg_split('/\s+[\x{2013}\x{2014}-]\s+/u', $title, 2);
+        if (is_array($parts) && count($parts) === 2 && trim((string) $parts[1]) !== '') {
+            return trim((string) $parts[1]);
+        }
+        return $title;
+    }
+
+    /**
+     * @param object $sheet
+     * @return bool
+     */
+    public static function sheet_is_general($sheet) {
+        $teacher = trim((string) ($sheet->teacher ?? ''));
+        $grade = trim((string) ($sheet->grade ?? ''));
+        return $teacher === '' && $grade === '';
+    }
+
+    /**
+     * A sheet matches when some child fits every value that is set.
+     * Blank grade and teacher is a general sheet and matches everyone.
+     *
+     * @param object $sheet
+     * @param array<int,array{grade?:string,teacher?:string}> $children
+     * @return bool
+     */
+    public static function sheet_matches_children($sheet, array $children) {
+        if (self::sheet_is_general($sheet)) {
+            return true;
+        }
+        $teacher = trim((string) ($sheet->teacher ?? ''));
+        $grade = trim((string) ($sheet->grade ?? ''));
+        foreach ($children as $child) {
+            if (!is_array($child)) {
+                continue;
+            }
+            $child_teacher = trim((string) ($child['teacher'] ?? ''));
+            $child_grade = trim((string) ($child['grade'] ?? ''));
+            $teacher_ok = $teacher === '' || self::names_match($teacher, $child_teacher);
+            $grade_ok = $grade === '' || self::names_match($grade, $child_grade);
+            if ($teacher_ok && $grade_ok) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param string   $value
+     * @param string[] $allowed Empty allows any trimmed value.
+     * @param int      $max
+     * @return string
+     */
+    public static function sanitize_audience_value($value, array $allowed, $max = 191) {
+        $value = function_exists('sanitize_text_field')
+            ? sanitize_text_field((string) $value)
+            : trim(strip_tags((string) $value));
+        if ($value === '') {
+            return '';
+        }
+        if ($allowed) {
+            return self::match_label($value, $allowed);
+        }
+        if (function_exists('mb_substr')) {
+            return mb_substr($value, 0, (int) $max);
+        }
+        return substr($value, 0, (int) $max);
+    }
+
+    /**
+     * @param string   $value
+     * @param string[] $options
+     * @return string The option's original spelling, or ''.
+     */
+    public static function match_label($value, array $options) {
+        $needle = self::norm_name($value);
+        if ($needle === '') {
+            return '';
+        }
+        foreach ($options as $option) {
+            $option = (string) $option;
+            if (self::norm_name($option) === $needle) {
+                return $option;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * @param string $a
+     * @param string $b
+     * @return bool
+     */
+    public static function names_match($a, $b) {
+        $a = self::norm_name($a);
+        $b = self::norm_name($b);
+        return $a !== '' && $a === $b;
+    }
+
+    /**
+     * @param string $value
+     * @return string
+     */
+    public static function norm_name($value) {
+        $value = strtolower(trim((string) $value));
+        $value = preg_replace('/\b(miss|mrs|ms|mr|dr)\.?\s*/u', ' ', $value);
+        $value = preg_replace("/['’]s$/", '', (string) $value);
+        $value = preg_replace('/\s+/', ' ', (string) $value);
+        return trim((string) $value);
+    }
+
+    /**
+     * @param string   $value
+     * @param string[] $grades
+     * @return bool
+     */
+    public static function looks_like_grade($value, array $grades) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return false;
+        }
+        if (self::match_label($value, $grades) !== '') {
+            return true;
+        }
+        return (bool) preg_match('/^grade\s+\S+$/i', $value);
+    }
+
+    /**
+     * Grade is assigned only when the title says it plainly. A range such
+     * as K-3 is left blank, and a bare number is not treated as a grade.
+     *
+     * @param string   $title
+     * @param string[] $grades
+     * @return string
+     */
+    public static function grade_from_title($title, array $grades) {
+        $title = (string) $title;
+        if (preg_match('/\b(?:prek|pre-k|k|\d{1,2})\s*[-–—]\s*(?:prek|pre-k|k|\d{1,2})\b/i', $title)) {
+            return '';
+        }
+        $grades = array_values(array_filter(array_map('strval', $grades), 'strlen'));
+        usort($grades, function ($a, $b) {
+            return strlen($b) - strlen($a);
+        });
+        foreach ($grades as $grade) {
+            if (preg_match('/^\d+$/', $grade)) {
+                if (preg_match('/\bgrade\s+' . preg_quote($grade, '/') . '\b/i', $title)) {
+                    return $grade;
+                }
+                continue;
+            }
+            if (preg_match('/\b' . preg_quote($grade, '/') . '\b/i', $title)) {
+                return $grade;
+            }
+        }
+        return '';
     }
 
     public static function user_signed_up($activity_id, $user_id) {
@@ -1319,6 +1698,7 @@ class Azure_Volunteer_Signup {
         $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
         $activities_t = Azure_Database::get_table_name('volunteer_activities');
         self::ensure_recurring_columns();
+        self::ensure_audience_columns();
 
         $sheet_id    = absint($_POST['sheet_id'] ?? 0);
         $title       = sanitize_text_field($_POST['title'] ?? '');
@@ -1331,6 +1711,14 @@ class Azure_Volunteer_Signup {
         $event_date  = sanitize_text_field($_POST['event_date'] ?? '');
         $event_loc   = sanitize_text_field($_POST['event_location'] ?? '');
         $status      = in_array($_POST['status'] ?? '', array('open', 'closed'), true) ? $_POST['status'] : 'open';
+        $grade_options = class_exists('Azure_Product_Fields_Module')
+            ? Azure_Product_Fields_Module::get_grade_options()
+            : array();
+        $teacher_options = class_exists('Azure_Product_Fields_Module')
+            ? Azure_Product_Fields_Module::get_teacher_options()
+            : array();
+        $grade = self::sanitize_audience_value($_POST['grade'] ?? '', $grade_options, 50);
+        $teacher = self::sanitize_audience_value($_POST['teacher'] ?? '', $teacher_options, 191);
 
         if (empty($title)) {
             wp_send_json_error('Title is required.');
@@ -1386,6 +1774,8 @@ class Azure_Volunteer_Signup {
             'pta_event_id'   => $make_template ? 0 : $event_id,
             'event_date'     => $make_template ? null : ($event_date ?: null),
             'event_location' => $event_loc,
+            'grade'          => $grade,
+            'teacher'        => $teacher,
             'status'         => $status,
         );
         if ($make_template) {
@@ -1484,6 +1874,9 @@ class Azure_Volunteer_Signup {
                     $instances = self::ensure_instance_for_event($template, $event_id) ? 1 : 0;
                 }
             }
+        }
+        if ($make_template || ($existing_sheet && !empty($existing_sheet->is_template))) {
+            self::sync_audience_to_instances($sheet_id, $grade, $teacher);
         }
 
         $payload = array(
@@ -2118,6 +2511,368 @@ class Azure_Volunteer_Signup {
     }
 
     // ──────────────────────────────────────────────
+    // My Account — Volunteered
+    // ──────────────────────────────────────────────
+
+    public static function register_account_endpoint() {
+        if (function_exists('add_rewrite_endpoint')) {
+            add_rewrite_endpoint('volunteered', EP_ROOT | EP_PAGES);
+        }
+        add_filter('woocommerce_get_query_vars', array(__CLASS__, 'register_account_query_var'));
+        add_filter('request', array(__CLASS__, 'map_account_request'));
+
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $on_endpoint = (bool) preg_match('#/my-account/volunteered(/|$)#', $uri);
+        if ($on_endpoint || (function_exists('get_option') && get_option('azure_volunteer_account_flushed') !== 'yes')) {
+            if (!self::rewrite_rules_have_volunteered()) {
+                add_action('wp_loaded', array(__CLASS__, 'flush_account_endpoint'), 999);
+            } elseif (function_exists('update_option') && get_option('azure_volunteer_account_flushed') !== 'yes') {
+                update_option('azure_volunteer_account_flushed', 'yes', false);
+            }
+        }
+    }
+
+    /**
+     * @param array<string,string> $vars
+     * @return array<string,string>
+     */
+    public static function register_account_query_var($vars) {
+        $vars['volunteered'] = 'volunteered';
+        return $vars;
+    }
+
+    /**
+     * @param array<string,mixed> $vars
+     * @return array<string,mixed>
+     */
+    public static function map_account_request($vars) {
+        $pagename = isset($vars['pagename']) ? trim((string) $vars['pagename'], '/') : '';
+        if ($pagename !== 'my-account/volunteered') {
+            return $vars;
+        }
+        $vars['pagename'] = 'my-account';
+        $vars['volunteered'] = '';
+        unset($vars['name'], $vars['error']);
+        return $vars;
+    }
+
+    /**
+     * @param mixed $rules
+     * @return bool
+     */
+    public static function rewrite_rules_have_volunteered($rules = null) {
+        if ($rules === null) {
+            $rules = function_exists('get_option') ? get_option('rewrite_rules') : array();
+        }
+        if (!is_array($rules)) {
+            return false;
+        }
+        foreach (array_keys($rules) as $pattern) {
+            if (strpos((string) $pattern, '/volunteered') !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function flush_account_endpoint() {
+        if (function_exists('flush_rewrite_rules')) {
+            flush_rewrite_rules(false);
+        }
+        if (function_exists('update_option')) {
+            update_option('azure_volunteer_account_flushed', 'yes', false);
+        }
+    }
+
+    /**
+     * @param array<string,string> $items
+     * @return array<string,string>
+     */
+    public static function insert_account_menu_item($items) {
+        if (!is_array($items) || isset($items['volunteered'])) {
+            return $items;
+        }
+        $label = function_exists('__') ? __('Volunteered', 'azure-plugin') : 'Volunteered';
+        foreach (array('profile', 'my-children', 'orders') as $anchor) {
+            if (!isset($items[$anchor])) {
+                continue;
+            }
+            $rebuilt = array();
+            foreach ($items as $key => $item) {
+                $rebuilt[$key] = $item;
+                if ($key === $anchor) {
+                    $rebuilt['volunteered'] = $label;
+                }
+            }
+            return $rebuilt;
+        }
+        $items['volunteered'] = $label;
+        return $items;
+    }
+
+    public function render_account_page() {
+        $user_id = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
+        if (!$user_id) {
+            return;
+        }
+        $token = self::calendar_token_for_user($user_id);
+        $feed_url = function_exists('add_query_arg')
+            ? add_query_arg('pta_volunteer_ics', $token, home_url('/'))
+            : home_url('/?pta_volunteer_ics=' . rawurlencode($token));
+        $webcal_url = preg_replace('#^https://#', 'webcal://', $feed_url);
+        $webcal_url = preg_replace('#^http://#', 'webcal://', $webcal_url);
+        $signups = self::signups_for_user($user_id);
+        $opportunities = self::opportunities_for_user($user_id, $signups);
+        $nonce = function_exists('wp_create_nonce') ? wp_create_nonce('azure_volunteer_front') : '';
+        $ajax_url = function_exists('admin_url') ? admin_url('admin-ajax.php') : '';
+        $template = AZURE_PLUGIN_PATH . 'templates/my-account-volunteered.php';
+        if (file_exists($template)) {
+            include $template;
+        }
+    }
+
+    /**
+     * @param int $user_id
+     * @return string
+     */
+    public static function calendar_token_for_user($user_id) {
+        $user_id = (int) $user_id;
+        if (!$user_id || !function_exists('get_user_meta')) {
+            return '';
+        }
+        $token = (string) get_user_meta($user_id, 'pta_volunteer_ics_token', true);
+        if ($token !== '') {
+            return $token;
+        }
+        try {
+            $token = bin2hex(random_bytes(16));
+        } catch (Exception $e) {
+            $token = md5(uniqid((string) $user_id, true));
+        }
+        update_user_meta($user_id, 'pta_volunteer_ics_token', $token);
+        return $token;
+    }
+
+    /**
+     * @param string $token
+     * @return int
+     */
+    public static function user_id_for_calendar_token($token) {
+        $token = strtolower((string) $token);
+        if (!preg_match('/^[a-f0-9]{32}$/', $token) || !function_exists('get_users')) {
+            return 0;
+        }
+        $users = get_users(array(
+            'meta_key'   => 'pta_volunteer_ics_token',
+            'meta_value' => $token,
+            'number'     => 1,
+            'fields'     => 'ID',
+        ));
+        if (!$users) {
+            return 0;
+        }
+        $first = $users[0];
+        return (int) (is_object($first) ? $first->ID : $first);
+    }
+
+    public function maybe_serve_calendar() {
+        if (empty($_GET['pta_volunteer_ics'])) {
+            return;
+        }
+        $token = function_exists('sanitize_text_field')
+            ? sanitize_text_field(wp_unslash($_GET['pta_volunteer_ics']))
+            : (string) $_GET['pta_volunteer_ics'];
+        $user_id = self::user_id_for_calendar_token($token);
+        if (!$user_id) {
+            if (function_exists('status_header')) {
+                status_header(404);
+            }
+            exit;
+        }
+        $user = function_exists('get_userdata') ? get_userdata($user_id) : (object) array('ID' => $user_id);
+        $ics = self::build_feed_ics(self::signups_for_user($user_id), $user);
+        if (function_exists('nocache_headers')) {
+            nocache_headers();
+        }
+        header('Content-Type: text/calendar; charset=utf-8');
+        header('Cache-Control: private, max-age=300');
+        echo $ics;
+        exit;
+    }
+
+    /**
+     * @param int $user_id
+     * @return array<int,array{sheet:object,activity:object,signup_id:int}>
+     */
+    public static function signups_for_user($user_id) {
+        global $wpdb;
+        $user_id = (int) $user_id;
+        $signups_t = Azure_Database::get_table_name('volunteer_signups');
+        $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$user_id || !$signups_t || !$activities_t || !$sheets_t) {
+            return array();
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT su.id AS signup_id, su.activity_id,
+                    a.name AS activity_name, a.description AS activity_description,
+                    a.spots_needed, a.slot_start, a.slot_end, a.sheet_id,
+                    sh.title, sh.event_date, sh.event_location, sh.grade, sh.teacher,
+                    sh.pta_event_id, sh.status
+             FROM {$signups_t} su
+             INNER JOIN {$activities_t} a ON a.id = su.activity_id
+             INNER JOIN {$sheets_t} sh ON sh.id = a.sheet_id
+             WHERE su.user_id = %d AND sh.is_template = 0 AND sh.status <> 'trashed'
+             ORDER BY COALESCE(a.slot_start, sh.event_date) ASC, su.id ASC",
+            $user_id
+        ));
+        $out = array();
+        foreach ((array) $rows as $row) {
+            $out[] = self::pair_from_row($row);
+        }
+        return $out;
+    }
+
+    /**
+     * Open shifts this school year that still have room and match this family.
+     *
+     * @param int $user_id
+     * @param array<int,array{sheet:object,activity:object}>|null $signups
+     * @return array{label:string,general:array,specific:array,children:array}
+     */
+    public static function opportunities_for_user($user_id, $signups = null) {
+        $bounds = self::school_year_bounds();
+        $children = self::children_audience($user_id);
+        if ($signups === null) {
+            $signups = self::signups_for_user($user_id);
+        }
+        $taken = array();
+        foreach ($signups as $row) {
+            $taken[(int) ($row['activity']->id ?? 0)] = true;
+        }
+        $sheets = self::open_sheets_in_range($bounds['today'], $bounds['until']);
+        $general = array();
+        $specific = array();
+        foreach ($sheets as $sheet) {
+            if (!self::sheet_matches_children($sheet, $children)) {
+                continue;
+            }
+            $slots = array();
+            foreach (self::get_activities((int) $sheet->id) as $activity) {
+                $activity_id = (int) $activity->id;
+                if (!empty($taken[$activity_id])) {
+                    continue;
+                }
+                if (!self::slot_is_upcoming($sheet, $activity)) {
+                    continue;
+                }
+                $needed = max(1, (int) $activity->spots_needed);
+                $filled = (int) self::count_signups($activity_id);
+                if ($filled >= $needed) {
+                    continue;
+                }
+                $slots[] = array(
+                    'activity' => $activity,
+                    'filled'   => $filled,
+                    'needed'   => $needed,
+                );
+            }
+            if (!$slots) {
+                continue;
+            }
+            $label = self::opportunity_group_label((string) $sheet->title);
+            $bucket = self::sheet_is_general($sheet) ? 'general' : 'specific';
+            $entry = array('sheet' => $sheet, 'slots' => $slots);
+            if ($bucket === 'general') {
+                $general[$label][] = $entry;
+            } else {
+                $specific[$label][] = $entry;
+            }
+        }
+        ksort($general);
+        ksort($specific);
+        return array(
+            'label'    => $bounds['label'],
+            'general'  => $general,
+            'specific' => $specific,
+            'children' => $children,
+        );
+    }
+
+    /**
+     * @param int $user_id
+     * @return array<int,array{grade:string,teacher:string}>
+     */
+    public static function children_audience($user_id) {
+        if (!class_exists('Azure_User_Children')) {
+            return array();
+        }
+        $out = array();
+        foreach ((array) Azure_User_Children::get_children_for_user((int) $user_id) as $child) {
+            $child_id = (int) ($child->id ?? 0);
+            $meta = $child_id ? Azure_User_Children::get_child_meta($child_id) : array();
+            $out[] = array(
+                'grade'   => Azure_User_Children::grade_from_meta($meta),
+                'teacher' => Azure_User_Children::teacher_from_meta($meta),
+            );
+        }
+        return $out;
+    }
+
+    /**
+     * @param string $from Inclusive datetime.
+     * @param string $until Exclusive datetime.
+     * @return object[]
+     */
+    public static function open_sheets_in_range($from, $until) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t) {
+            return array();
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$t}
+             WHERE is_template = 0 AND status = 'open'
+               AND event_date >= %s AND event_date < %s
+             ORDER BY event_date ASC, title ASC",
+            $from,
+            $until
+        ));
+        return is_array($rows) ? $rows : array();
+    }
+
+    /**
+     * @param object $row
+     * @return array{sheet:object,activity:object,signup_id:int}
+     */
+    public static function pair_from_row($row) {
+        $sheet = (object) array(
+            'id'             => (int) ($row->sheet_id ?? 0),
+            'title'          => (string) ($row->title ?? ''),
+            'event_date'     => (string) ($row->event_date ?? ''),
+            'event_location' => (string) ($row->event_location ?? ''),
+            'grade'          => (string) ($row->grade ?? ''),
+            'teacher'        => (string) ($row->teacher ?? ''),
+            'pta_event_id'   => (int) ($row->pta_event_id ?? 0),
+            'status'         => (string) ($row->status ?? ''),
+        );
+        $activity = (object) array(
+            'id'           => (int) ($row->activity_id ?? 0),
+            'sheet_id'     => (int) ($row->sheet_id ?? 0),
+            'name'         => (string) ($row->activity_name ?? ''),
+            'description'  => (string) ($row->activity_description ?? ''),
+            'spots_needed' => (int) ($row->spots_needed ?? 1),
+            'slot_start'   => (string) ($row->slot_start ?? ''),
+            'slot_end'     => (string) ($row->slot_end ?? ''),
+        );
+        return array(
+            'sheet'     => $sheet,
+            'activity'  => $activity,
+            'signup_id' => (int) ($row->signup_id ?? 0),
+        );
+    }
+
+    // ──────────────────────────────────────────────
     // Frontend assets
     // ──────────────────────────────────────────────
 
@@ -2128,6 +2883,13 @@ class Azure_Volunteer_Signup {
             $need = !empty(self::get_sheets_for_event((int) $post->ID));
         }
         if (!$need && $post && function_exists('has_shortcode') && has_shortcode($post->post_content, 'volunteer_signup')) {
+            $need = true;
+        }
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+        if (!$need && preg_match('#/my-account/volunteered(/|$)#', $uri)) {
+            $need = true;
+        }
+        if (!$need && function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('volunteered')) {
             $need = true;
         }
         if (!$need) {

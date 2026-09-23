@@ -295,22 +295,94 @@ class Azure_Product_Fields_Module {
      * @return string[]
      */
     public static function get_teacher_options() {
-        global $wpdb;
-
-        $options = array();
-        $fld_table = Azure_Database::get_table_name('product_fields');
-        if ($fld_table) {
-            $keys = self::get_child_profile_field_keys();
-            $row = $wpdb->get_row($wpdb->prepare(
-                "SELECT field_type, options_json FROM {$fld_table} WHERE field_key = %s LIMIT 1",
-                $keys['teacher']
-            ));
-            if ($row) {
-                $options = self::options_from_field($row);
+        if (class_exists('Azure_Class_Competitions')) {
+            $names = Azure_Class_Competitions::teacher_list();
+            if ($names) {
+                return apply_filters('azure_pf_teacher_options', $names);
             }
         }
-
+        $options = self::product_field_teacher_names();
+        if (!is_array($options)) {
+            $options = array();
+        }
         return apply_filters('azure_pf_teacher_options', $options);
+    }
+
+    /**
+     * Teacher names stored on the Child Teacher field itself.
+     * Null when that table cannot be read. The class roster is the
+     * source of truth once it exists; this is only the legacy copy.
+     *
+     * @return string[]|null
+     */
+    public static function product_field_teacher_names() {
+        global $wpdb;
+
+        $fld_table = class_exists('Azure_Database') ? Azure_Database::get_table_name('product_fields') : '';
+        if (!$fld_table || !isset($wpdb)) {
+            return null;
+        }
+        $keys = self::get_child_profile_field_keys();
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT field_type, options_json FROM {$fld_table} WHERE field_key = %s LIMIT 1",
+            $keys['teacher']
+        ));
+        if ($row === null && !empty($wpdb->last_error)) {
+            return null;
+        }
+        if (!$row) {
+            return array();
+        }
+        return self::options_from_field($row);
+    }
+
+    /**
+     * Write the class roster into the Child Teacher dropdown.
+     *
+     * @param string[] $names
+     */
+    public static function sync_teacher_options($names) {
+        global $wpdb;
+
+        $fld_table = class_exists('Azure_Database') ? Azure_Database::get_table_name('product_fields') : '';
+        if (!$fld_table || !isset($wpdb)) {
+            return;
+        }
+        $names = array_values(array_filter(array_map('strval', (array) $names), 'strlen'));
+        $keys = self::get_child_profile_field_keys();
+        $json = wp_json_encode($names);
+        if (!is_string($json)) {
+            return;
+        }
+        $current = $wpdb->get_var($wpdb->prepare(
+            "SELECT options_json FROM {$fld_table} WHERE field_key = %s LIMIT 1",
+            $keys['teacher']
+        ));
+        if ((string) $current === $json) {
+            return;
+        }
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$fld_table} SET options_json = %s, field_type = 'select' WHERE field_key = %s",
+            $json,
+            $keys['teacher']
+        ));
+    }
+
+    /**
+     * @param object|null $field
+     * @return bool
+     */
+    public static function is_teacher_choice_field($field) {
+        if (!$field) {
+            return false;
+        }
+        $key = strtolower((string) (isset($field->field_key) ? $field->field_key : ''));
+        $label = strtolower((string) (isset($field->label) ? $field->label : ''));
+        $haystack = $key . ' ' . $label;
+        if (strpos($haystack, 'teacher') === false) {
+            return false;
+        }
+        return strpos($haystack, 'grade') === false;
     }
 
     /**
@@ -670,9 +742,10 @@ class Azure_Product_Fields_Module {
                     <p>
                         <label for="azure-pf-new-child-teacher"><?php echo esc_html($this->family_teacher_field && !empty($this->family_teacher_field->label) ? $this->family_teacher_field->label : __('Teacher', 'azure-plugin')); ?></label>
                         <?php
-                        $modal_teacher_opts = $this->family_teacher_field
-                            ? self::options_from_field($this->family_teacher_field)
-                            : self::get_teacher_options();
+                        $modal_teacher_opts = self::get_teacher_options();
+                        if (!$modal_teacher_opts && $this->family_teacher_field) {
+                            $modal_teacher_opts = self::options_from_field($this->family_teacher_field);
+                        }
                         if (self::field_uses_choices($this->family_teacher_field) || !empty($modal_teacher_opts)) :
                             ?>
                             <select id="azure-pf-new-child-teacher">
@@ -790,9 +863,10 @@ class Azure_Product_Fields_Module {
             __('Year', 'azure-plugin'),
             self::get_grade_options()
         );
-        $teacher_opts = $this->family_teacher_field
-            ? self::options_from_field($this->family_teacher_field)
-            : self::get_teacher_options();
+        $teacher_opts = self::get_teacher_options();
+        if (!$teacher_opts && $this->family_teacher_field) {
+            $teacher_opts = self::options_from_field($this->family_teacher_field);
+        }
         $this->render_family_choice_field(
             $teacher_attr,
             'azure-pf-child-teacher',
@@ -885,11 +959,20 @@ class Azure_Product_Fields_Module {
 
             case 'select':
                 $options = json_decode($field->options_json, true) ?: array();
+                if (self::is_teacher_choice_field($field)) {
+                    $roster_names = self::get_teacher_options();
+                    if ($roster_names) {
+                        $options = $roster_names;
+                    }
+                }
                 echo '<select name="' . esc_attr($name) . '" id="' . esc_attr($name) . '"' . $required . '>';
                 echo '<option value="">' . esc_html($field->placeholder ?: '-- Select --') . '</option>';
                 foreach ($options as $opt) {
                     $selected = ($value === $opt) ? ' selected' : '';
                     echo '<option value="' . esc_attr($opt) . '"' . $selected . '>' . esc_html($opt) . '</option>';
+                }
+                if ($value !== '' && !in_array((string) $value, array_map('strval', (array) $options), true)) {
+                    echo '<option value="' . esc_attr($value) . '" selected>' . esc_html($value) . '</option>';
                 }
                 echo '</select>';
                 break;

@@ -2203,10 +2203,7 @@ class Azure_Donations_Module {
 
         if (class_exists('Azure_Class_Competitions') && isset($_POST['donations_class_sizes'])) {
             $raw = json_decode(wp_unslash($_POST['donations_class_sizes']), true);
-            Azure_Settings::update_setting(
-                Azure_Class_Competitions::SIZES_KEY,
-                Azure_Class_Competitions::sanitize_class_sizes($raw, Azure_Class_Competitions::teacher_list())
-            );
+            Azure_Class_Competitions::apply_student_counts($raw);
         }
 
         if (class_exists('Azure_Class_Competitions') && isset($_POST['donations_class_competitions'])) {
