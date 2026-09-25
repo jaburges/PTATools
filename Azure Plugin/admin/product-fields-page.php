@@ -54,12 +54,11 @@ if (is_wp_error($product_categories)) {
         <?php return; ?>
     <?php endif; ?>
 
-    <?php if (!$module_enabled): ?>
-        <div class="notice notice-warning" style="margin: 15px 0;">
-            <p><?php _e('The Product Fields module is currently disabled.', 'azure-plugin'); ?>
-            <a href="<?php echo admin_url('admin.php?page=azure-plugin'); ?>"><?php _e('Enable it on the main settings page.', 'azure-plugin'); ?></a></p>
-        </div>
-    <?php endif; ?>
+    <?php
+    if (class_exists('Azure_Home_Screen')) {
+        Azure_Home_Screen::render_module_switch('product_fields', __('Checkout fields saved on the family profile.', 'azure-plugin'));
+    }
+    ?>
 
     <p class="description" style="margin: 8px 0 16px;"><?php _e('Create reusable field groups and assign them to WooCommerce product categories. Fields with "Save to Profile" will remember values for returning customers.', 'azure-plugin'); ?></p>
     <div class="notice notice-info inline" style="margin: 0 0 16px;">

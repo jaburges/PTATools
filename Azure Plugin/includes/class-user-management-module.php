@@ -47,6 +47,7 @@ class Azure_User_Management_Module {
         // Frontend: dropdown shortcode + nav location. Both are cheap.
         add_action('after_setup_theme', array($this, 'register_nav_location'));
         add_shortcode('pta_user_dropdown', array($this, 'render_user_dropdown'));
+        add_filter('wp_nav_menu_items', array($this, 'insert_signups_nav_item'), 20, 2);
 
         // Admin-only: AJAX handlers for the Family Hierarchy tab + the
         // inline menu assignment on the Account Menu tab.
@@ -363,7 +364,7 @@ class Azure_User_Management_Module {
         ));
 
         if (empty($menu_html)) {
-            $menu_html = $this->default_account_menu_html();
+            $menu_html = self::default_account_menu_html();
         }
 
         return sprintf(
@@ -381,20 +382,82 @@ class Azure_User_Management_Module {
     }
 
     /**
-     * Fallback menu used when no nav menu has been assigned to the
-     * `pta-account-menu` theme location yet. Mirrors the default
-     * WooCommerce My Account links plus the v3.67 Family Info endpoint.
+     * Header account links. Signups sits directly under Orders.
+     *
+     * @return array<string,array{0:string,1:string}>
      */
-    private function default_account_menu_html() {
-        $endpoints = array();
-        if (function_exists('wc_get_account_endpoint_url')) {
-            $endpoints['dashboard']      = array(__('Dashboard', 'azure-plugin'), wc_get_account_endpoint_url('dashboard'));
-            $endpoints['orders']         = array(__('Orders', 'azure-plugin'), wc_get_account_endpoint_url('orders'));
-            $endpoints['profile']        = array(__('Family Info', 'azure-plugin'), wc_get_account_endpoint_url('profile'));
-            $endpoints['edit-account']   = array(__('Account details', 'azure-plugin'), wc_get_account_endpoint_url('edit-account'));
-            $endpoints['logout']         = array(__('Log out', 'azure-plugin'), wc_logout_url(home_url()));
-        } else {
-            $endpoints['logout'] = array(__('Log out', 'azure-plugin'), wp_logout_url(home_url()));
+    public static function header_account_links() {
+        $endpoint = function ($slug) {
+            if (function_exists('wc_get_account_endpoint_url')) {
+                return wc_get_account_endpoint_url($slug);
+            }
+            if ($slug === 'dashboard') {
+                return function_exists('home_url') ? home_url('/my-account/') : '/my-account/';
+            }
+            return function_exists('home_url') ? home_url('/my-account/' . $slug . '/') : '/my-account/' . $slug . '/';
+        };
+        $logout = function_exists('wc_logout_url')
+            ? wc_logout_url(function_exists('home_url') ? home_url() : '/')
+            : (function_exists('wp_logout_url') ? wp_logout_url(function_exists('home_url') ? home_url() : '/') : '/');
+        if (!function_exists('wc_get_account_endpoint_url') && !function_exists('home_url')) {
+            return array(
+                'logout' => array(__('Log out', 'azure-plugin'), $logout),
+            );
+        }
+        return array(
+            'dashboard'    => array(__('Dashboard', 'azure-plugin'), $endpoint('dashboard')),
+            'orders'       => array(__('Orders', 'azure-plugin'), $endpoint('orders')),
+            'volunteered'  => array(__('Signups', 'azure-plugin'), $endpoint('volunteered')),
+            'profile'      => array(__('Family Info', 'azure-plugin'), $endpoint('profile')),
+            'edit-account' => array(__('Account details', 'azure-plugin'), $endpoint('edit-account')),
+            'logout'       => array(__('Log out', 'azure-plugin'), $logout),
+        );
+    }
+
+    /**
+     * Keep Signups under Orders when a nav menu is assigned to the dropdown
+     * and that menu does not already link to the signups page.
+     *
+     * @param string $items
+     * @param object $args
+     * @return string
+     */
+    public function insert_signups_nav_item($items, $args) {
+        $location = is_object($args) ? (string) ($args->theme_location ?? '') : '';
+        if ($location !== self::NAV_LOCATION || !is_string($items) || $items === '') {
+            return $items;
+        }
+        if (stripos($items, 'volunteered') !== false || stripos($items, '>Signups<') !== false) {
+            return $items;
+        }
+        $links = self::header_account_links();
+        if (empty($links['volunteered'][1])) {
+            return $items;
+        }
+        $link = sprintf(
+            '<li class="menu-item pta-user-dropdown__item pta-user-dropdown__item--volunteered"><a href="%s">%s</a></li>',
+            esc_url($links['volunteered'][1]),
+            esc_html($links['volunteered'][0])
+        );
+        $updated = preg_replace(
+            '#(<li\b[^>]*>\s*<a\b[^>]*href="[^"]*/my-account/orders/?[^"]*"[^>]*>.*?</a>\s*</li>)#i',
+            '$1' . $link,
+            $items,
+            1,
+            $count
+        );
+        if ($count) {
+            return $updated;
+        }
+        return $link . $items;
+    }
+
+    private static function default_account_menu_html() {
+        $endpoints = self::header_account_links();
+        if (!function_exists('wc_get_account_endpoint_url') && !function_exists('home_url')) {
+            $endpoints = array(
+                'logout' => array(__('Log out', 'azure-plugin'), function_exists('wp_logout_url') ? wp_logout_url('/') : '/'),
+            );
         }
 
         $items = '';

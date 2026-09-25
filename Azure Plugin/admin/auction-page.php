@@ -202,12 +202,11 @@ if (class_exists('WooCommerce')) {
 <div class="azure-auction-page">
 <?php endif; ?>
 
-    <?php if (!$auction_enabled): ?>
-    <div class="notice notice-warning" style="margin: 15px 0;">
-        <p><?php _e('The Auction module is currently disabled.', 'azure-plugin'); ?>
-        <a href="<?php echo admin_url('admin.php?page=azure-plugin'); ?>"><?php _e('Enable it on the main settings page.', 'azure-plugin'); ?></a></p>
-    </div>
-    <?php endif; ?>
+    <?php
+    if (class_exists('Azure_Home_Screen')) {
+        Azure_Home_Screen::render_module_switch('auction', __('Auction catalog and bidding.', 'azure-plugin'));
+    }
+    ?>
 
     <?php if (!class_exists('WooCommerce')) : ?>
     <div class="notice notice-error">

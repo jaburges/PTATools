@@ -63,6 +63,7 @@ function pta_header_mobile_inject() {
         flex-wrap: nowrap;
         margin-right: 8px;
     }
+    .header-layout-centered .bottom-header .pta-header-social__link,
     .header-layout-centered .bottom-header .pta-header-cart,
     .header-layout-centered .bottom-header .search-icon,
     .header-layout-centered .bottom-header .pta-user-dropdown--guest,

@@ -520,6 +520,7 @@ if (class_exists('Azure_PTA_Database')) {
                 <li><strong>show_image:</strong> true/false - Show each person's photo when they have one (default: false). Roles never have a photo.</li>
                 <li><strong>photo_size:</strong> Number - Photo size in pixels (default: 80)</li>
                 <li><strong>show_contact:</strong> true/false - Show email links (default: true)</li>
+                <li><strong>show-PTSA-memberships:</strong> true/false - Show the PTSA Member pill beside each person (default: true)</li>
             </ul>
         </div>
         

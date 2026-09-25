@@ -31,6 +31,7 @@ class Azure_Membership_Module {
     const META_P1_NAME      = 'pta_pf_parent_1_name';
     const META_P2_NAME      = 'pta_pf_parent_2_name';
     const META_P1_EMAIL     = 'pta_pf_parent_1_email';
+    const META_EXTRA_EMAILS = '_pta_member_extra_emails';
     const META_P2_EMAIL     = 'pta_pf_parent_2_email';
     const META_P1_CELL      = 'pta_pf_parent_1_cell';
     const META_P2_CELL      = 'pta_pf_parent_2_cell';
@@ -1223,10 +1224,12 @@ class Azure_Membership_Module {
                         }
                     }
                 }
+                self::credit_shared_emails($map, $order, $entry);
                 continue;
             }
 
             if ($type === 'staff') {
+                self::credit_shared_emails($map, $order, $entry);
                 continue;
             }
 
@@ -1238,6 +1241,7 @@ class Azure_Membership_Module {
             if ($p1 && $p1['status'] === 'confident' && !empty($p1['user_id'])) {
                 self::maybe_link_guest_order($order, (int) $p1['user_id']);
             }
+            self::credit_shared_emails($map, $order, $entry);
         }
 
         return $map;
@@ -2637,6 +2641,90 @@ class Azure_Membership_Module {
             $bits[] = $grade !== '' ? $child_name . ' (' . $grade . ')' : $child_name;
         }
         return implode('; ', $bits);
+    }
+
+    /**
+     * Extra addresses stored on one membership order.
+     *
+     * @param mixed $raw
+     * @return string[]
+     */
+    public static function parse_extra_member_emails($raw) {
+        if (is_string($raw)) {
+            $trim = trim($raw);
+            if ($trim === '') {
+                return array();
+            }
+            if ($trim[0] === '[' || $trim[0] === '{') {
+                $decoded = json_decode($trim, true);
+                $raw = is_array($decoded) ? $decoded : array();
+            } else {
+                $raw = preg_split('/[\s,;]+/', $trim);
+            }
+        }
+        if (!is_array($raw)) {
+            return array();
+        }
+        $out = array();
+        foreach ($raw as $email) {
+            if (is_array($email)) {
+                $email = isset($email['email']) ? $email['email'] : '';
+            }
+            $email = self::normalize_email($email);
+            if ($email !== '' && strpos($email, '@') !== false) {
+                $out[$email] = $email;
+            }
+        }
+        return array_values($out);
+    }
+
+    /**
+     * Emails that should receive this purchase without a second order.
+     * The extra-email list is explicit. A Parent 1 email saved on the
+     * line item counts when checkout put the board address there.
+     *
+     * @param object $order
+     * @return string[]
+     */
+    public static function order_share_emails($order) {
+        $emails = array();
+        if (is_object($order) && method_exists($order, 'get_meta')) {
+            $emails = self::parse_extra_member_emails($order->get_meta(self::META_EXTRA_EMAILS));
+        }
+        if (is_object($order) && method_exists($order, 'get_items')) {
+            foreach ($order->get_items() as $item) {
+                $p1 = self::item_product_field($item, 'parent_1_email', array('Parent 1 Email', 'Parent Email', "Parent's Email"));
+                $p1 = self::normalize_email($p1);
+                if ($p1 !== '') {
+                    $emails[] = $p1;
+                }
+            }
+        }
+        $out = array();
+        foreach ($emails as $email) {
+            $email = self::normalize_email($email);
+            if ($email !== '' && strpos($email, '@') !== false) {
+                $out[$email] = $email;
+            }
+        }
+        return array_values($out);
+    }
+
+    /**
+     * @param array<int, array> $map
+     * @param object             $order
+     * @param array              $entry
+     */
+    private static function credit_shared_emails(array &$map, $order, array $entry) {
+        if (!function_exists('get_user_by')) {
+            return;
+        }
+        foreach (self::order_share_emails($order) as $email) {
+            $user = get_user_by('email', $email);
+            if ($user && !empty($user->ID)) {
+                self::apply_member_entry($map, (int) $user->ID, $entry);
+            }
+        }
     }
 
     /**

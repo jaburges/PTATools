@@ -1,6 +1,6 @@
 <?php
 /**
- * My Account → Volunteered.
+ * My Account → Signups.
  *
  * Variables from Azure_Volunteer_Signup::render_account_page():
  * $signups, $opportunities, $feed_url, $webcal_url, $nonce, $ajax_url
@@ -22,85 +22,112 @@ foreach ((array) $signups as $row) {
 $earlier = array_reverse($earlier);
 $year_label = isset($opportunities['label']) ? (string) $opportunities['label'] : '';
 
-$format_when = function ($sheet, $activity) {
-    $raw = '';
-    if (!empty($activity->slot_start)) {
-        $raw = (string) $activity->slot_start;
-    } elseif (!empty($sheet->event_date)) {
-        $raw = (string) $sheet->event_date;
+$shift_date = function ($sheet, $activity) {
+    $bounds = Azure_Volunteer_Signup::slot_bounds($sheet, $activity);
+    if (empty($bounds['start'])) {
+        return '';
     }
-    $day = '';
-    if ($raw !== '') {
-        $ts = strtotime($raw);
-        if ($ts) {
-            $day = function_exists('date_i18n') ? date_i18n('D, M j, Y', $ts) : date('D, M j, Y', $ts);
-        }
+    try {
+        $start = new DateTime($bounds['start'], new DateTimeZone(Azure_Volunteer_Signup::pacific_timezone()));
+    } catch (Exception $e) {
+        return '';
     }
-    $time = Azure_Volunteer_Signup::slot_time_label($sheet, $activity);
-    if ($day !== '' && $time !== '') {
-        return $day . ' · ' . $time;
-    }
-    return $day !== '' ? $day : $time;
+    $ts = $start->getTimestamp();
+    return function_exists('date_i18n') ? date_i18n('D, M j, Y', $ts) : $start->format('D, M j, Y');
 };
 
-$render_signup_list = function ($rows) use ($format_when) {
+$event_url = function ($sheet) {
+    $id = (int) ($sheet->pta_event_id ?? 0);
+    if (!$id || !function_exists('get_permalink')) {
+        return '';
+    }
+    $url = get_permalink($id);
+    return is_string($url) ? $url : '';
+};
+
+$activity_name = function ($sheet, $activity) use ($event_url) {
+    $name = (string) ($activity->name ?? '');
+    $url = $event_url($sheet);
+    if ($url === '') {
+        return '<span class="pta-vol-name">' . esc_html($name) . '</span>';
+    }
+    return '<a class="pta-vol-name" href="' . esc_url($url) . '">' . esc_html($name) . '</a>';
+};
+
+$render_signup_list = function ($rows) use ($shift_date, $activity_name) {
     if (!$rows) {
         return;
     }
-    echo '<ul class="pta-volunteered-list">';
+    echo '<div class="pta-vol-table">';
     foreach ($rows as $row) {
         $sheet = $row['sheet'];
         $activity = $row['activity'];
-        $when = $format_when($sheet, $activity);
-        echo '<li class="pta-volunteered-row">';
-        echo '<div class="pta-volunteered-row-main">';
-        echo '<strong>' . esc_html((string) $sheet->title) . '</strong>';
-        echo '<span>' . esc_html((string) $activity->name) . '</span>';
-        if ($when !== '') {
-            echo '<span class="pta-volunteered-when">' . esc_html($when) . '</span>';
-        }
-        echo '</div>';
+        echo '<div class="pta-vol-line">';
+        echo '<span></span>';
+        echo $activity_name($sheet, $activity);
+        echo '<span class="pta-vol-date">' . esc_html($shift_date($sheet, $activity)) . '</span>';
+        echo '<span class="pta-vol-time">' . esc_html(Azure_Volunteer_Signup::slot_time_label($sheet, $activity)) . '</span>';
+        echo '<span></span>';
         echo '<button type="button" class="button pta-vol-cancel" data-activity="' . esc_attr((string) $activity->id) . '">' . esc_html__('Cancel', 'azure-plugin') . '</button>';
-        echo '</li>';
+        echo '</div>';
     }
-    echo '</ul>';
+    echo '</div>';
 };
 
-$render_groups = function ($groups) use ($format_when) {
+$render_groups = function ($groups) use ($shift_date, $activity_name) {
     if (!$groups) {
         echo '<p class="pta-volunteered-empty">' . esc_html__('Nothing open right now.', 'azure-plugin') . '</p>';
         return;
     }
     foreach ($groups as $label => $entries) {
-        echo '<details class="pta-volunteered-group">';
+        echo '<details class="pta-volunteered-group" open>';
         echo '<summary>' . esc_html((string) $label) . '</summary>';
-        echo '<ul class="pta-volunteered-list">';
+        echo '<div class="pta-vol-table">';
+        echo '<div class="pta-vol-line pta-vol-head">';
+        echo '<span></span>';
+        echo '<span>' . esc_html__('Name', 'azure-plugin') . '</span>';
+        echo '<span>' . esc_html__('Date', 'azure-plugin') . '</span>';
+        echo '<span>' . esc_html__('Time', 'azure-plugin') . '</span>';
+        echo '<span>' . esc_html__('Slots', 'azure-plugin') . '</span>';
+        echo '<span></span>';
+        echo '</div>';
         foreach ($entries as $entry) {
             $sheet = $entry['sheet'];
             foreach ($entry['slots'] as $slot) {
                 $activity = $slot['activity'];
-                $when = $format_when($sheet, $activity);
-                $open = max(0, (int) $slot['needed'] - (int) $slot['filled']);
-                echo '<li class="pta-volunteered-row">';
-                echo '<div class="pta-volunteered-row-main">';
-                echo '<strong>' . esc_html((string) $activity->name) . '</strong>';
-                if ($when !== '') {
-                    echo '<span class="pta-volunteered-when">' . esc_html($when) . '</span>';
+                $filled = (int) $slot['filled'];
+                $needed = (int) $slot['needed'];
+                $open = max(0, $needed - $filled);
+                if ($needed > 0 && $filled >= $needed) {
+                    $state = 'is-full';
+                } elseif ($filled > 0) {
+                    $state = 'is-partial';
+                } else {
+                    $state = 'is-empty';
                 }
-                echo '<span class="pta-volunteered-spots">' . esc_html(sprintf(
-                    /* translators: 1: spots filled, 2: spots needed */
-                    __('%1$d/%2$d filled', 'azure-plugin'),
-                    (int) $slot['filled'],
-                    (int) $slot['needed']
-                )) . '</span>';
-                echo '</div>';
+                echo '<div class="pta-vol-line">';
+                if ($open > 0) {
+                    echo '<input type="checkbox" class="pta-vol-pick" value="' . esc_attr((string) $activity->id) . '" aria-label="' . esc_attr(sprintf(
+                        /* translators: %s: activity name */
+                        __('Select %s', 'azure-plugin'),
+                        (string) $activity->name
+                    )) . '" />';
+                } else {
+                    echo '<span></span>';
+                }
+                echo $activity_name($sheet, $activity);
+                echo '<span class="pta-vol-date">' . esc_html($shift_date($sheet, $activity)) . '</span>';
+                echo '<span class="pta-vol-time">' . esc_html(Azure_Volunteer_Signup::slot_time_label($sheet, $activity)) . '</span>';
+                echo '<span class="pta-vol-slots ' . esc_attr($state) . '">' . esc_html($filled . '/' . $needed) . '</span>';
                 if ($open > 0) {
                     echo '<button type="button" class="button pta-vol-signup" data-activity="' . esc_attr((string) $activity->id) . '">' . esc_html__('Sign up', 'azure-plugin') . '</button>';
+                } else {
+                    echo '<span></span>';
                 }
-                echo '</li>';
+                echo '</div>';
             }
         }
-        echo '</ul>';
+        echo '</div>';
         echo '</details>';
     }
 };
@@ -157,6 +184,11 @@ $render_groups = function ($groups) use ($format_when) {
         <?php endif; ?>
         <?php $render_groups(isset($opportunities['specific']) ? $opportunities['specific'] : array()); ?>
     </section>
+
+    <div class="pta-vol-bulk" hidden>
+        <span class="pta-vol-bulk-label"></span>
+        <button type="button" class="button button-primary pta-vol-bulk-go"><?php esc_html_e('Sign up', 'azure-plugin'); ?></button>
+    </div>
 </div>
 <script>
 (function () {
@@ -164,6 +196,9 @@ $render_groups = function ($groups) use ($format_when) {
     if (!root) return;
     var ajax = root.getAttribute('data-ajax');
     var nonce = root.getAttribute('data-nonce');
+    var bulk = root.querySelector('.pta-vol-bulk');
+    var bulkLabel = root.querySelector('.pta-vol-bulk-label');
+    var bulkGo = root.querySelector('.pta-vol-bulk-go');
     function post(body) {
         return fetch(ajax, {
             method: 'POST',
@@ -172,6 +207,47 @@ $render_groups = function ($groups) use ($format_when) {
             body: body
         }).then(function (res) { return res.json(); });
     }
+    function selectedIds() {
+        var ids = [];
+        root.querySelectorAll('.pta-vol-pick:checked').forEach(function (box) {
+            if (box.value) ids.push(box.value);
+        });
+        return ids;
+    }
+    function refreshBulk() {
+        var ids = selectedIds();
+        if (!bulk) return;
+        if (!ids.length) {
+            bulk.hidden = true;
+            return;
+        }
+        bulk.hidden = false;
+        if (bulkLabel) {
+            bulkLabel.textContent = ids.length === 1
+                ? '<?php echo esc_js(__('1 selected', 'azure-plugin')); ?>'
+                : ids.length + ' <?php echo esc_js(__('selected', 'azure-plugin')); ?>';
+        }
+    }
+    function signupIds(ids, button) {
+        if (!ids.length) return;
+        if (button) button.disabled = true;
+        var body = 'action=azure_volunteer_signup&nonce=' + encodeURIComponent(nonce);
+        ids.forEach(function (id) {
+            body += '&activity_ids[]=' + encodeURIComponent(id);
+        });
+        post(body).then(function (res) {
+            if (res && res.success) window.location.reload();
+            else {
+                if (button) button.disabled = false;
+                window.alert((res && res.data && res.data.message) || '<?php echo esc_js(__('Could not sign up.', 'azure-plugin')); ?>');
+            }
+        });
+    }
+    root.addEventListener('change', function (event) {
+        if (event.target.classList && event.target.classList.contains('pta-vol-pick')) {
+            refreshBulk();
+        }
+    });
     root.addEventListener('click', function (event) {
         var copy = event.target.closest('.pta-vol-copy');
         if (copy) {
@@ -198,17 +274,14 @@ $render_groups = function ($groups) use ($format_when) {
                 });
             return;
         }
+        var bulkButton = event.target.closest('.pta-vol-bulk-go');
+        if (bulkButton) {
+            signupIds(selectedIds(), bulkButton);
+            return;
+        }
         var signup = event.target.closest('.pta-vol-signup');
         if (signup) {
-            signup.disabled = true;
-            post('action=azure_volunteer_signup&nonce=' + encodeURIComponent(nonce) + '&activity_ids[]=' + encodeURIComponent(signup.getAttribute('data-activity') || ''))
-                .then(function (res) {
-                    if (res && res.success) window.location.reload();
-                    else {
-                        signup.disabled = false;
-                        window.alert((res && res.data && res.data.message) || '<?php echo esc_js(__('Could not sign up.', 'azure-plugin')); ?>');
-                    }
-                });
+            signupIds([signup.getAttribute('data-activity') || ''], signup);
         }
     });
 })();

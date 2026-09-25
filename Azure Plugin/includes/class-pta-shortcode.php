@@ -52,6 +52,8 @@
  * - show_description: true/false - show role description
  * - show_assignments: true/false - show fill count and "Current Assignments" heading
  *   (photos, names, and contacts still render when show_image / show_contact are on)
+ * - show-PTSA-memberships: true/false - show the PTSA Member pill beside each
+ *   person (default true). Set false on a view that should list people only.
  * 
  * ROLE DESCRIPTION SHORTCODE:
  * [Role-description role="president"]
@@ -179,7 +181,8 @@ class Azure_PTA_Shortcode {
             'photo_size' => 80, // Photo size in pixels
             'leadership_structure' => false, // Show leader role centered above others
             'leader_role' => 'president', // Role slug/name to show as leader
-            'leader_photo_size' => 120 // Leader photo size (larger than others)
+            'leader_photo_size' => 120, // Leader photo size (larger than others)
+            'show-ptsa-memberships' => true
         ), $atts);
         
         // Convert string boolean values to actual booleans
@@ -253,7 +256,8 @@ class Azure_PTA_Shortcode {
             'department' => '',
             'show_vp' => true,
             'show_description' => false,
-            'layout' => 'list'
+            'layout' => 'list',
+            'show-ptsa-memberships' => true
         ), $atts);
         
         // Convert string boolean values to actual booleans
@@ -288,7 +292,7 @@ class Azure_PTA_Shortcode {
             $vp_user = get_user_by('ID', $department->vp_user_id);
             if ($vp_user) {
                 $output .= '<p class="pta-department-vp"><strong>VP:</strong> ' . esc_html($vp_user->display_name)
-                    . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $vp_user->ID, 'pill') : '')
+                    . $this->membership_badge($vp_user->ID, $atts)
                     . '</p>';
             }
         }
@@ -373,7 +377,8 @@ class Azure_PTA_Shortcode {
             'show_assignments' => true,
             'include_photo' => false,
             'show_image' => false, // Alias for include_photo
-            'photo_size' => 80
+            'photo_size' => 80,
+            'show-ptsa-memberships' => true
         ), $atts);
         
         // Convert string boolean values to actual booleans
@@ -423,7 +428,8 @@ class Azure_PTA_Shortcode {
         $atts = shortcode_atts(array(
             'department' => '',
             'show_contact' => false,
-            'show_email' => false
+            'show_email' => false,
+            'show-ptsa-memberships' => true
         ), $atts);
         
         // Convert string boolean values to actual booleans
@@ -461,7 +467,7 @@ class Azure_PTA_Shortcode {
         $output = '<div class="pta-department-vp-card">';
         $output .= '<h4>' . esc_html($department->name) . ' VP</h4>';
         $output .= '<div class="pta-vp-name">' . esc_html($vp_user->display_name)
-            . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $vp_user->ID, 'pill') : '')
+            . $this->membership_badge($vp_user->ID, $atts)
             . '</div>';
         
         if ($atts['show_email'] && $display_email) {
@@ -662,7 +668,7 @@ class Azure_PTA_Shortcode {
         $output = '<div class="pta-role-item pta-status-' . esc_attr($status) . $leader_class . '"' . $data_attrs . '>';
 
         $output .= '<h4 class="pta-role-name">' . esc_html($role->name) . '</h4>';
-        $output .= $this->render_assigned_people($role, $photo_size, $include_photo);
+        $output .= $this->render_assigned_people($role, $photo_size, $include_photo, $atts);
 
         // Show O365 group email for leadership structure roles
         $role_emails = $atts['_role_emails'] ?? array();
@@ -718,7 +724,7 @@ class Azure_PTA_Shortcode {
         
         // Role name, then the people (photo belongs to the person)
         $output .= '<h4 class="pta-role-name">' . esc_html($role->name) . '</h4>';
-        $output .= $this->render_assigned_people($role, intval($atts['avatar_size'] ?? 80), false);
+        $output .= $this->render_assigned_people($role, intval($atts['avatar_size'] ?? 80), false, $atts);
 
         // Department
         $output .= '<div class="pta-role-department">' . esc_html($role->department_name) . '</div>';
@@ -799,7 +805,30 @@ class Azure_PTA_Shortcode {
      * The people holding a role. Photos belong to the person, never the role.
      * A photo is rendered only when that user has a local upload.
      */
-    private function render_assigned_people($role, $photo_size, $show_photos) {
+    /**
+     * PTSA Member pill, or nothing when the view turns memberships off.
+     *
+     * @param int   $user_id
+     * @param array $atts
+     * @return string
+     */
+    private function membership_badge($user_id, $atts) {
+        $show = true;
+        if (is_array($atts)) {
+            foreach ($atts as $key => $value) {
+                if (strtolower((string) $key) === 'show-ptsa-memberships') {
+                    $show = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+                    break;
+                }
+            }
+        }
+        if (!$show || !class_exists('Azure_Membership_Module')) {
+            return '';
+        }
+        return Azure_Membership_Module::member_badge_html((int) $user_id, 'pill');
+    }
+
+    private function render_assigned_people($role, $photo_size, $show_photos, $atts = array()) {
         if (empty($role->assignments)) {
             return '';
         }
@@ -819,7 +848,7 @@ class Azure_PTA_Shortcode {
                 }
             }
             $html .= '<span class="pta-person-name">' . esc_html($user->display_name)
-                . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill') : '')
+                . $this->membership_badge($user->ID, $atts)
                 . '</span>';
             $html .= '</div>';
         }
@@ -876,7 +905,7 @@ class Azure_PTA_Shortcode {
                     }
                 }
                 $output .= '<span class="pta-person-name">' . esc_html($user->display_name)
-                    . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill') : '')
+                    . $this->membership_badge($user->ID, $atts)
                     . '</span>';
                 if ($show_contact && $user->user_email) {
                     $output .= '<span class="pta-person-email"><a href="mailto:' . esc_attr($user->user_email) . '">' . esc_html($user->user_email) . '</a></span>';
@@ -1002,7 +1031,7 @@ class Azure_PTA_Shortcode {
                     $user = get_user_by('ID', $assignment->user_id);
                     if ($user) {
                         $output .= '<li>' . esc_html($user->display_name)
-                            . (class_exists('Azure_Membership_Module') ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill') : '')
+                            . $this->membership_badge($user->ID, $atts)
                             . '</li>';
                     }
                 }

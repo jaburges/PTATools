@@ -23,27 +23,31 @@ class Azure_Email_Messages {
      * @return array<string, array>
      */
     public static function catalog() {
-        $volunteer_body = "Hi {name},\n\n{intro}\n\nEvent: {event}\n{shifts}{location}{event_link}\nA calendar invite is attached — add it to keep this shift on your calendar.\n\nThank you for helping out!";
+        $volunteer_body = self::volunteer_body();
+        $volunteer_raw = array('shifts', 'location', 'event_link', 'subscribe_button');
+        $volunteer_tokens = array('{name}', '{intro}', '{event}', '{shifts}', '{location}', '{event_link}', '{event_url}', '{subscribe_url}', '{subscribe_button}', '{site_name}');
         return array(
             'volunteer_confirmation' => array(
                 'group'       => __('Volunteers', 'azure-plugin'),
                 'label'       => __('Volunteer confirmation', 'azure-plugin'),
                 'description' => __('Sent when someone claims a volunteer spot.', 'azure-plugin'),
-                'format'      => 'plain',
+                'format'      => 'html',
                 'subject'     => 'Volunteer Confirmation — {event}',
                 'body'        => $volunteer_body,
                 'intro'       => __('Thank you for volunteering!', 'azure-plugin'),
-                'tokens'      => array('{name}', '{intro}', '{event}', '{shifts}', '{location}', '{event_link}', '{event_url}', '{site_name}'),
+                'raw'         => $volunteer_raw,
+                'tokens'      => $volunteer_tokens,
             ),
             'volunteer_reminder' => array(
                 'group'       => __('Volunteers', 'azure-plugin'),
                 'label'       => __('Volunteer reminder', 'azure-plugin'),
                 'description' => __('Sent before a shift when reminders are turned on.', 'azure-plugin'),
-                'format'      => 'plain',
+                'format'      => 'html',
                 'subject'     => '{site_name} volunteering reminder',
                 'body'        => $volunteer_body,
                 'intro'       => __('This is a reminder that you are volunteering soon.', 'azure-plugin'),
-                'tokens'      => array('{name}', '{intro}', '{event}', '{shifts}', '{location}', '{event_link}', '{event_url}', '{site_name}'),
+                'raw'         => $volunteer_raw,
+                'tokens'      => $volunteer_tokens,
             ),
             'membership_guest_account' => array(
                 'group'       => __('Accounts', 'azure-plugin'),
@@ -214,6 +218,32 @@ class Azure_Email_Messages {
             'saved' => '1',
         ), admin_url('admin.php')));
         exit;
+    }
+
+    private static function volunteer_body() {
+        return <<<'HTML'
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);overflow:hidden;">
+        <tr><td style="padding:32px 32px 16px 32px;">
+          <p style="margin:0 0 8px 0;font-size:13px;color:#646970;">{site_name}</p>
+          <h1 style="margin:0 0 12px 0;font-size:22px;color:#1d2327;">{event}</h1>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">Hi {name},</p>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">{intro}</p>
+          {shifts}
+          {location}
+          {subscribe_button}
+          {event_link}
+          <p style="margin:0;font-size:15px;line-height:1.5;color:#3c434a;">Thank you for helping out!</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+HTML;
     }
 
     private static function membership_guest_body() {

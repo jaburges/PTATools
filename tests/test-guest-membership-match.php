@@ -273,6 +273,8 @@ class Azure_Test_Guest_Order {
     public function get_items() { return $this->items; }
     public function get_billing_first_name() { return $this->first; }
     public function get_billing_last_name() { return $this->last; }
+    public $meta = array();
+    public function get_meta($key) { return isset($this->meta[$key]) ? $this->meta[$key] : ''; }
     public function get_billing_email() { return $this->email; }
     public function get_date_paid() { return $this->paid_at; }
     public function get_date_created() { return $this->paid_at; }
@@ -350,5 +352,16 @@ foreach (array_merge($all['matched'], $all['unmatched'], $all['uncertain']) as $
     }
 }
 $t->check(!$staff_seen, 'staff guest orders are ignored');
+
+$shared = new Azure_Test_Guest_Order();
+$shared->meta['_pta_member_extra_emails'] = '["JamieB@wilderptsa.net", "not-an-email"]';
+$shared->items[] = new Azure_Test_Guest_Item(23233, 'PTSA Family Membership', array(
+    '_pta_parent_1_email' => 'BrookeM@wilderptsa.net',
+    '_pta_parent_2_email' => 'spouse@gmail.com',
+));
+$share_emails = Azure_Membership_Module::order_share_emails($shared);
+sort($share_emails);
+$t->equals(array('brookem@wilderptsa.net', 'jamieb@wilderptsa.net'), $share_emails, 'a board email on the order shares that membership');
+$t->equals(array('a@x.com'), Azure_Membership_Module::parse_extra_member_emails("a@x.com, board"), 'a value without @ is dropped');
 
 exit($t->finish() === 0 ? 0 : 1);

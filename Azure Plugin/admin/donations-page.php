@@ -76,12 +76,11 @@ $class_competitions = class_exists('Azure_Class_Competitions') ? Azure_Class_Com
 
 <div class="azure-donations-page">
 
-    <?php if (!$module_enabled): ?>
-    <div class="notice notice-warning" style="margin: 15px 0;">
-        <p><?php _e('The Donations module is currently disabled.', 'azure-plugin'); ?>
-        <a href="<?php echo admin_url('admin.php?page=azure-plugin'); ?>"><?php _e('Enable it on the main settings page.', 'azure-plugin'); ?></a></p>
-    </div>
-    <?php endif; ?>
+    <?php
+    if (class_exists('Azure_Home_Screen')) {
+        Azure_Home_Screen::render_module_switch('donations', __('Donation campaigns and giving levels.', 'azure-plugin'));
+    }
+    ?>
 
     <!-- Settings -->
     <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin-bottom:20px; box-shadow:0 1px 1px rgba(0,0,0,.04);">

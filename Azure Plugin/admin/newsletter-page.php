@@ -24,14 +24,11 @@ if (!in_array($current_tab, $valid_tabs)) {
         <?php _e('Newsletter', 'azure-plugin'); ?>
     </h1>
     
-    <?php if (!($settings['enable_newsletter'] ?? false)): ?>
-    <div class="notice notice-warning">
-        <p>
-            <?php _e('The Newsletter module is currently disabled.', 'azure-plugin'); ?>
-            <a href="<?php echo admin_url('admin.php?page=azure-plugin'); ?>"><?php _e('Enable it on the main settings page.', 'azure-plugin'); ?></a>
-        </p>
-    </div>
-    <?php endif; ?>
+    <?php
+    if (class_exists('Azure_Home_Screen')) {
+        Azure_Home_Screen::render_module_switch('newsletter', __('Newsletters, lists, and sending.', 'azure-plugin'));
+    }
+    ?>
     
     <nav class="nav-tab-wrapper wp-clearfix">
         <a href="<?php echo admin_url('admin.php?page=azure-plugin-newsletter&tab=campaigns'); ?>" 

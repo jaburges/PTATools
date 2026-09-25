@@ -158,6 +158,22 @@ if (!defined('ABSPATH')) {
                     </div>
                 </div>
                 
+                <div class="module-card <?php echo ($settings['enable_home_screen'] ?? false) ? 'enabled' : 'disabled'; ?>">
+                    <div class="module-header">
+                        <h3><span class="dashicons dashicons-smartphone"></span> Home Screen</h3>
+                        <div class="module-controls">
+                            <label class="switch">
+                                <input type="checkbox" class="module-toggle" data-module="home_screen" <?php checked($settings['enable_home_screen'] ?? false); ?> />
+                                <span class="slider"></span>
+                            </label>
+                            <a href="<?php echo admin_url('admin.php?page=azure-plugin-home-screen'); ?>" class="button button-configure">Configure</a>
+                        </div>
+                    </div>
+                    <div class="module-description">
+                        <p>Pin-to-home-screen instructions, and notifications for people who added the site to their phone.</p>
+                    </div>
+                </div>
+
                 <div class="module-card <?php echo ($settings['enable_tickets'] ?? false) ? 'enabled' : 'disabled'; ?>">
                     <div class="module-header">
                         <h3><span class="dashicons dashicons-tickets-alt"></span> Event Tickets</h3>

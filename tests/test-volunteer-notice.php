@@ -51,10 +51,12 @@ $body = Azure_Volunteer_Signup::volunteer_notice(
     'Congdon - Math Adventures',
     'https://wilderptsa.net/event/congdon-math-adventures/'
 );
-$t->check(strpos($body, 'Event: Congdon - Math Adventures') !== false, 'email names the event');
+$t->check(strpos($body, 'Congdon - Math Adventures') !== false, 'email names the event');
 $t->check(strpos($body, 'Room helper — October 1, 2026, 1:35 PM – 2:10 PM Pacific Time') !== false, 'email includes the activity, date, and time');
 $t->check(strpos($body, 'Location: Room 12') !== false, 'email includes the location');
-$t->check(strpos($body, 'Access Event Page: https://wilderptsa.net/event/congdon-math-adventures/') !== false, 'email links the event page');
+$t->check(strpos($body, 'https://wilderptsa.net/event/congdon-math-adventures/') !== false, 'email links the event page');
+$t->check(strpos($body, 'background:#f6f6f6') !== false, 'volunteer email uses the account email card');
+$t->check(strpos($body, 'calendar invite') === false, 'the email no longer mentions an attached invite');
 $t->equals('Test Site volunteering reminder', Azure_Volunteer_Signup::reminder_subject(), 'reminder subject uses the site name');
 $t->equals(7200, Azure_Volunteer_Signup::reminder_lead_seconds(), 'default reminder lead is two hours');
 $t->equals(1, count(Azure_Volunteer_Signup::reminder_schedule()), 'the default schedule is a single reminder');
@@ -92,6 +94,11 @@ $t->check(strpos($page, 'Send email reminder to volunteers') !== false, 'reminde
 $t->check(strpos($page, 'volunteer_reminder_unit') !== false, 'reminder lead can be hours or days');
 $t->check(strpos($page, 'Add reminder') !== false, 'more than one reminder can be added');
 $t->check(strpos($page, 'volunteer_reminder_amount[]') !== false, 'reminder leads post as a list');
+
+$signup = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-volunteer-signup.php');
+$t->check(strpos($signup, 'write_ics_attachments') === false, 'confirmation mail does not attach an ics file');
+$t->check(strpos($signup, 'Content-Type: text/html; charset=UTF-8') !== false, 'volunteer mail is sent as HTML');
+$t->equals('html', Azure_Email_Messages::catalog()['volunteer_confirmation']['format'], 'the volunteer message is an HTML email');
 
 $emails = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/emails-page.php');
 $t->check(strpos($emails, 'email-messages-page.php') !== false, 'volunteer emails are edited on the messages tab');

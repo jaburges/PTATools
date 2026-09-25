@@ -226,6 +226,10 @@ function initAzurePluginAdmin($) {
                         if (statusLabel.length) {
                             statusLabel.text(enabled ? 'Enabled' : 'Disabled');
                         }
+                        if (toggleEl.closest('.pta-module-switch').length) {
+                            window.location.reload();
+                            return;
+                        }
                     }
                     self.showNotification(enabled ? 'success' : 'info',
                         module.charAt(0).toUpperCase() + module.slice(1).replace(/_/g, ' ') +

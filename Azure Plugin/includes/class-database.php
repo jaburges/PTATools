@@ -534,6 +534,40 @@ class Azure_Database {
             KEY trigger_lookup (trigger_type, trigger_value)
         ) $charset_collate;";
 
+        $table_push_subscriptions = $wpdb->prefix . 'azure_push_subscriptions';
+        $sql_push_subscriptions = "CREATE TABLE $table_push_subscriptions (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            endpoint_hash char(64) NOT NULL,
+            endpoint text NOT NULL,
+            p256dh varchar(255) NOT NULL DEFAULT '',
+            auth_secret varchar(255) NOT NULL DEFAULT '',
+            user_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY endpoint_hash (endpoint_hash),
+            KEY user_id (user_id)
+        ) $charset_collate;";
+
+        $table_push_notifications = $wpdb->prefix . 'azure_push_notifications';
+        $sql_push_notifications = "CREATE TABLE $table_push_notifications (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            title varchar(120) NOT NULL DEFAULT '',
+            body text,
+            link_url varchar(500) NOT NULL DEFAULT '',
+            audience varchar(20) NOT NULL DEFAULT 'all',
+            audience_values text,
+            send_at datetime DEFAULT NULL,
+            status varchar(20) NOT NULL DEFAULT 'draft',
+            sent_count int(11) NOT NULL DEFAULT 0,
+            failed_count int(11) NOT NULL DEFAULT 0,
+            last_subscription_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY status_send (status, send_at)
+        ) $charset_collate;";
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         
         // Create all tables
@@ -564,6 +598,8 @@ class Azure_Database {
         dbDelta($sql_donation_campaigns);
         dbDelta($sql_donation_records);
         dbDelta($sql_order_rules);
+        dbDelta($sql_push_subscriptions);
+        dbDelta($sql_push_notifications);
 
         self::migrate_calendar_mapping_mailboxes();
         self::migrate_calendar_mapping_display_name();

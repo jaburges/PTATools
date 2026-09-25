@@ -39,7 +39,7 @@ $t->equals('', $range['grade'], 'a grade range is not assigned to one grade');
 $free = Azure_Volunteer_Signup::audience_from_title('Congdon - Math Adventures', array(), $grades);
 $t->equals('Congdon', $free['teacher'], 'with no teacher list the name before the dash is kept');
 
-$t->equals('Math Adventures', Azure_Volunteer_Signup::opportunity_group_label('Congdon - Math Adventures'), 'groups use the activity name');
+$t->equals('Math Adventures', Azure_Volunteer_Signup::opportunity_group_label('Math Adventures - Example'), 'groups use the activity name, not the name after the dash');
 $t->equals('Carnival', Azure_Volunteer_Signup::opportunity_group_label('Carnival'), 'a general title is its own group');
 
 $congdon = (object) array('teacher' => 'Congdon', 'grade' => '');
@@ -70,7 +70,7 @@ $menu = Azure_Volunteer_Signup::insert_account_menu_item(array(
 ));
 $keys = array_keys($menu);
 $t->equals('volunteered', $keys[array_search('profile', $keys, true) + 1], 'Volunteered sits after Family Info');
-$t->equals('Volunteered', $menu['volunteered'], 'the menu label is Volunteered');
+$t->equals('Signups', $menu['volunteered'], 'the menu label is Signups');
 
 $sheet = (object) array(
     'title' => 'Fall Carnival',

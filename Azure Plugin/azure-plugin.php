@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.109
+ * Version: 3.147.116
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.109');
+define('AZURE_PLUGIN_VERSION', '3.147.116');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -620,6 +620,11 @@ class AzurePlugin {
             // Initialize settings system (registers admin_init hook for register_setting)
             if ($ctx['is_admin'] && class_exists('Azure_Settings')) {
                 Azure_Settings::get_instance();
+            }
+
+            $this->require_module_files(array('class-web-push.php', 'class-home-screen.php'));
+            if (class_exists('Azure_Home_Screen')) {
+                Azure_Home_Screen::get_instance();
             }
 
             // Run DB migrations on version change (dbDelta is safe to re-run).

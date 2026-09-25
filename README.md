@@ -2,7 +2,7 @@
 
 A comprehensive WordPress plugin that integrates Microsoft Azure/Microsoft 365 with WordPress and WooCommerce. Single sign-on, calendar sync, email, backups, PTA organizational management, OneDrive media, **Classes**, **Event Tickets**, **Newsletter**, **Auction**, **Product Fields**, **Donations**, and **Volunteer Sign Up** modules—all from one unified plugin (also known as **Microsoft WP**).
 
-**Current release: [v3.147.107](https://github.com/jaburges/PTATools/releases/tag/v3.147.107)** — [changelog since v3.147.103](https://github.com/jaburges/PTATools/releases/tag/v3.147.107). The same notes are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog).
+**Current release: [v3.147.116](https://github.com/jaburges/PTATools/releases/tag/v3.147.116)** — [changelog since v3.147.107](https://github.com/jaburges/PTATools/releases/tag/v3.147.116). The same notes are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog).
 
 ---
 
@@ -1621,7 +1621,7 @@ Each module follows a consistent pattern:
 
 ### **Plugin Documentation**
 
-- **Changelog**: [v3.147.107 release notes](https://github.com/jaburges/PTATools/releases/tag/v3.147.107) and the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog)
+- **Changelog**: [v3.147.116 release notes](https://github.com/jaburges/PTATools/releases/tag/v3.147.116) and the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog)
 - **Review & Roadmap**: See `review.md` for detailed code review and optimization roadmap
 - **Performance Guide**: See Performance & Optimization section above
 - **Logging Strategy**: Automatic rotation and cleanup implemented
@@ -1696,7 +1696,11 @@ This plugin integrates and enhances functionality from multiple Microsoft servic
 
 ## 📊 **Version History**
 
-### **Version 3.147.107** (Current — September 2026)
+### **Version 3.147.116** (Current — September 2026)
+
+[Release notes](https://github.com/jaburges/PTATools/releases/tag/v3.147.116) cover everything since v3.147.107. The new piece is **Home Screen** push notifications: a pin-to-home-screen prompt, and scheduled notices that land in the phone’s notification list. Also in this release: My Account Signups, HTML volunteer mail with a calendar subscribe button, extra membership emails, a roles-directory switch to hide the member pill, and header social icons.
+
+### **Version 3.147.107** (September 2026)
 
 [Release notes](https://github.com/jaburges/PTATools/releases/tag/v3.147.107) cover everything since v3.147.103: site-editable emails, class sizes under System → Classes, `[up-next]` location and volunteer-spot counts, and a list of volunteer reminders.
 

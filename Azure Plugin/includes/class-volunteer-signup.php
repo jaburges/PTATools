@@ -1201,30 +1201,42 @@ class Azure_Volunteer_Signup {
     }
 
     /**
-     * Plain-text signup or reminder body.
+     * webcal subscribe link for this person's private shift feed.
      *
-     * @param string   $user_name
-     * @param string   $intro
-     * @param object   $sheet
-     * @param object[] $activities
-     * @param string   $event_title Linked event title when it differs from the sheet.
-     * @param string   $event_url
+     * @param int $user_id
+     * @return string
      */
+    public static function calendar_subscribe_url($user_id) {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0 || !function_exists('home_url')) {
+            return '';
+        }
+        $token = self::calendar_token_for_user($user_id);
+        if ($token === '') {
+            return '';
+        }
+        $feed = function_exists('add_query_arg')
+            ? add_query_arg('pta_volunteer_ics', $token, home_url('/'))
+            : home_url('/?pta_volunteer_ics=' . rawurlencode($token));
+        return preg_replace('#^https?://#', 'webcal://', (string) $feed);
+    }
+
     /**
      * @param object|null $sheet
      * @param object[]    $activities
+     * @param int         $user_id
      * @return array<string, string>
      */
-    public static function notice_vars($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '') {
+    public static function notice_vars($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '', $user_id = 0) {
         $event_name = trim((string) $event_title);
         if ($event_name === '' && is_object($sheet)) {
             $event_name = trim((string) ($sheet->title ?? ''));
         }
 
-        $shift_lines = array();
+        $shift_items = array();
         foreach ((array) $activities as $act) {
             if (is_string($act)) {
-                $shift_lines[] = '• ' . $act;
+                $shift_items[] = '<li style="margin:0 0 6px 0;">' . self::email_text($act) . '</li>';
                 continue;
             }
             if (!is_object($act)) {
@@ -1236,47 +1248,68 @@ class Azure_Volunteer_Signup {
             if ($time !== '') {
                 $when = $when !== '' ? $when . ', ' . $time . ' Pacific Time' : $time . ' Pacific Time';
             }
-            $shift_lines[] = '• ' . $act->name . ($when !== '' ? ' — ' . $when : '');
+            $line = self::email_text($act->name);
+            if ($when !== '') {
+                $line .= ' — ' . self::email_text($when);
+            }
+            $shift_items[] = '<li style="margin:0 0 6px 0;">' . $line . '</li>';
         }
 
         $location = '';
         if (is_object($sheet) && !empty($sheet->event_location)) {
-            $location = 'Location: ' . $sheet->event_location . "\n";
+            $location = '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">Location: ' . self::email_text($sheet->event_location) . '</p>';
         }
         $event_url = trim((string) $event_url);
-        $event_link = $event_url !== '' ? "\nAccess Event Page: " . $event_url . "\n" : '';
+        $event_link = '';
+        if ($event_url !== '') {
+            $safe_url = self::email_text($event_url);
+            $event_link = '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;"><a href="' . $safe_url . '" style="color:#0073aa;">View the event</a></p>';
+        }
+        $subscribe = self::calendar_subscribe_url($user_id);
+        $subscribe_button = '';
+        if ($subscribe !== '') {
+            $safe_sub = self::email_text($subscribe);
+            $subscribe_button = '<p style="text-align:center;margin:24px 0;">'
+                . '<a href="' . $safe_sub . '" style="display:inline-block;padding:14px 28px;background:#0078d4;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Subscribe</a>'
+                . '</p>'
+                . '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">Subscribe once. Your calendar checks this private link and adds or drops shifts when you sign up or cancel.</p>';
+        }
 
         return array(
-            'name'       => (string) $user_name,
-            'intro'      => (string) $intro,
-            'event'      => $event_name,
-            'shifts'     => $shift_lines ? implode("\n", $shift_lines) . "\n" : '',
-            'location'   => $location,
-            'event_link' => $event_link,
-            'event_url'  => $event_url,
-            'site_name'  => self::site_name(),
+            'name'              => (string) $user_name,
+            'intro'             => (string) $intro,
+            'event'             => $event_name,
+            'shifts'            => $shift_items ? '<ul style="margin:0 0 16px 20px;padding:0;font-size:15px;line-height:1.5;color:#3c434a;">' . implode('', $shift_items) . '</ul>' : '',
+            'location'          => $location,
+            'event_link'        => $event_link,
+            'event_url'         => $event_url,
+            'subscribe_url'     => $subscribe,
+            'subscribe_button'  => $subscribe_button,
+            'site_name'         => self::site_name(),
         );
     }
 
-    public static function volunteer_notice($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '') {
-        $vars = self::notice_vars($user_name, $intro, $sheet, $activities, $event_title, $event_url);
-        $body = self::default_messages()['volunteer_confirmation']['body'];
-        return self::apply_message_tokens($body, $vars);
+    private static function email_text($value) {
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    }
+
+    public static function volunteer_notice($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '', $user_id = 0) {
+        $vars = self::notice_vars($user_name, $intro, $sheet, $activities, $event_title, $event_url, $user_id);
+        return Azure_Email_Messages::render('volunteer_confirmation', $vars)[1];
     }
 
     /**
      * @return array{0:string,1:string} subject, body
      */
-    public static function compose_volunteer_message($key, $user_name, $sheet, $activities, $event_title = '', $event_url = '') {
+    public static function compose_volunteer_message($key, $user_name, $sheet, $activities, $event_title = '', $event_url = '', $user_id = 0) {
         $msg = self::message_for($key);
         if (!$msg) {
-            $msg = self::default_messages()['volunteer_confirmation'];
+            $key = 'volunteer_confirmation';
+            $msg = self::default_messages()[$key];
         }
-        $vars = self::notice_vars($user_name, $msg['intro'], $sheet, $activities, $event_title, $event_url);
-        return array(
-            self::apply_message_tokens($msg['subject'], $vars),
-            self::apply_message_tokens($msg['body'], $vars),
-        );
+        $intro = isset($msg['intro']) ? (string) $msg['intro'] : '';
+        $vars = self::notice_vars($user_name, $intro, $sheet, $activities, $event_title, $event_url, $user_id);
+        return Azure_Email_Messages::render($key, $vars);
     }
 
     public static function build_slot_ics($sheet, $activity, $user = null) {
@@ -1493,7 +1526,8 @@ class Azure_Volunteer_Signup {
     }
 
     /**
-     * Activity name after "Teacher - ", otherwise the full title.
+     * Activity name before " - Teacher", otherwise the full title.
+     * "Math Adventures - Example" groups as Math Adventures.
      *
      * @param string $title
      * @return string
@@ -1501,8 +1535,8 @@ class Azure_Volunteer_Signup {
     public static function opportunity_group_label($title) {
         $title = trim((string) $title);
         $parts = preg_split('/\s+[\x{2013}\x{2014}-]\s+/u', $title, 2);
-        if (is_array($parts) && count($parts) === 2 && trim((string) $parts[1]) !== '') {
-            return trim((string) $parts[1]);
+        if (is_array($parts) && count($parts) === 2 && trim((string) $parts[0]) !== '') {
+            return trim((string) $parts[0]);
         }
         return $title;
     }
@@ -2172,12 +2206,11 @@ class Azure_Volunteer_Signup {
             $sheet,
             $activities,
             $event_title,
-            $event_url
+            $event_url,
+            (int) $user->ID
         );
 
-        $attachments = $this->write_ics_attachments($sheet, $activities, $user);
-        wp_mail($user->user_email, $subject, $message, array(), $attachments);
-        $this->cleanup_ics_attachments($attachments);
+        wp_mail($user->user_email, $subject, $message, array('Content-Type: text/html; charset=UTF-8'));
     }
 
     /**
@@ -2203,44 +2236,6 @@ class Azure_Volunteer_Signup {
             }
         }
         return array($title, $url);
-    }
-
-    /**
-     * @param object   $sheet
-     * @param object[] $activities
-     * @param object   $user
-     * @return string[] temp file paths
-     */
-    private function write_ics_attachments($sheet, $activities, $user) {
-        $files = array();
-        foreach ((array) $activities as $act) {
-            if (!is_object($act)) {
-                continue;
-            }
-            $ics = self::build_slot_ics($sheet, $act, $user);
-            if ($ics === '') {
-                continue;
-            }
-            $tmp = function_exists('wp_tempnam') ? wp_tempnam('volunteer.ics') : tempnam(sys_get_temp_dir(), 'vsics');
-            if (!$tmp) {
-                continue;
-            }
-            $named = $tmp . '.ics';
-            if (@rename($tmp, $named)) {
-                $tmp = $named;
-            }
-            file_put_contents($tmp, $ics);
-            $files[] = $tmp;
-        }
-        return $files;
-    }
-
-    private function cleanup_ics_attachments($files) {
-        foreach ((array) $files as $file) {
-            if (is_string($file) && $file !== '' && file_exists($file)) {
-                @unlink($file);
-            }
-        }
     }
 
     public function send_reminders() {
@@ -2299,12 +2294,11 @@ class Azure_Volunteer_Signup {
                         $sheet,
                         array($act),
                         $event_title,
-                        $event_url
+                        $event_url,
+                        (int) $user->ID
                     );
 
-                    $attachments = $this->write_ics_attachments($sheet, array($act), $user);
-                    wp_mail($user->user_email, $subject, $body, array(), $attachments);
-                    $this->cleanup_ics_attachments($attachments);
+                    wp_mail($user->user_email, $subject, $body, array('Content-Type: text/html; charset=UTF-8'));
 
                     $sent[$due] = true;
                     $wpdb->update($signups_t, array(
@@ -2592,7 +2586,7 @@ class Azure_Volunteer_Signup {
         if (!is_array($items) || isset($items['volunteered'])) {
             return $items;
         }
-        $label = function_exists('__') ? __('Volunteered', 'azure-plugin') : 'Volunteered';
+        $label = function_exists('__') ? __('Signups', 'azure-plugin') : 'Signups';
         foreach (array('profile', 'my-children', 'orders') as $anchor) {
             if (!isset($items[$anchor])) {
                 continue;

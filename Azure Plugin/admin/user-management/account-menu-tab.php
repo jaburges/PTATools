@@ -93,7 +93,7 @@ $assign_nonce    = wp_create_nonce(Azure_User_Management_Module::NONCE_ACTION);
         <?php else: ?>
             <p style="color:#a16207;background:#fef9c3;border:1px solid #f7d674;padding:10px 14px;border-radius:4px;margin-top:14px;">
                 <strong><?php _e('No menu assigned yet.', 'azure-plugin'); ?></strong>
-                <?php _e('Until a menu is assigned, the shortcode falls back to a sensible default (Dashboard, Orders, Family Info, Account details, Log out).', 'azure-plugin'); ?>
+                <?php _e('Until a menu is assigned, the shortcode falls back to a sensible default (Dashboard, Orders, Signups, Family Info, Account details, Log out).', 'azure-plugin'); ?>
             </p>
         <?php endif; ?>
     </div>
@@ -109,6 +109,7 @@ $assign_nonce    = wp_create_nonce(Azure_User_Management_Module::NONCE_ACTION);
         <tbody>
             <tr><td>Dashboard</td><td><code>/my-account/</code></td></tr>
             <tr><td>Orders</td><td><code>/my-account/orders/</code></td></tr>
+            <tr><td>Signups</td><td><code>/my-account/volunteered/</code></td></tr>
             <tr><td>Family Info</td><td><code>/my-account/profile/</code></td></tr>
             <tr><td>Account Details</td><td><code>/my-account/edit-account/</code></td></tr>
             <tr><td>Log Out</td><td><code><?php echo esc_html(wp_logout_url(home_url())); ?></code></td></tr>
