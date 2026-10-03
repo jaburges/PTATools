@@ -527,11 +527,46 @@ class Azure_Database {
             email_subject varchar(255) NOT NULL DEFAULT '',
             content_html longtext,
             content_json longtext,
+            email_key varchar(64) DEFAULT NULL,
+            condition_json text,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY enabled (enabled),
             KEY trigger_lookup (trigger_type, trigger_value)
+        ) $charset_collate;";
+
+        $table_forms = $wpdb->prefix . 'azure_forms';
+        $sql_forms = "CREATE TABLE $table_forms (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            title varchar(190) NOT NULL DEFAULT '',
+            slug varchar(190) NOT NULL DEFAULT '',
+            status varchar(20) NOT NULL DEFAULT 'draft',
+            schema_json longtext,
+            settings_json longtext,
+            legacy_forminator_id bigint(20) UNSIGNED DEFAULT NULL,
+            created_by bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            created_at datetime DEFAULT NULL,
+            updated_at datetime DEFAULT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY slug (slug),
+            KEY legacy_forminator_id (legacy_forminator_id)
+        ) $charset_collate;";
+
+        $table_form_entries = $wpdb->prefix . 'azure_form_entries';
+        $sql_form_entries = "CREATE TABLE $table_form_entries (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            form_id bigint(20) UNSIGNED NOT NULL,
+            user_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            data_json longtext,
+            ip_hash char(64) NOT NULL DEFAULT '',
+            user_agent varchar(255) NOT NULL DEFAULT '',
+            status varchar(20) NOT NULL DEFAULT 'new',
+            created_at datetime DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY form_status (form_id, status),
+            KEY user_id (user_id),
+            KEY created_at (created_at)
         ) $charset_collate;";
 
         $table_push_subscriptions = $wpdb->prefix . 'azure_push_subscriptions';
@@ -598,6 +633,8 @@ class Azure_Database {
         dbDelta($sql_donation_campaigns);
         dbDelta($sql_donation_records);
         dbDelta($sql_order_rules);
+        dbDelta($sql_forms);
+        dbDelta($sql_form_entries);
         dbDelta($sql_push_subscriptions);
         dbDelta($sql_push_notifications);
 
@@ -1343,6 +1380,8 @@ class Azure_Database {
             'donation_campaigns' => $wpdb->prefix . 'azure_donation_campaigns',
             'donation_records' => $wpdb->prefix . 'azure_donation_records',
             'order_rules' => $wpdb->prefix . 'azure_order_rules',
+            'forms' => $wpdb->prefix . 'azure_forms',
+            'form_entries' => $wpdb->prefix . 'azure_form_entries',
         );
         
         return isset($tables[$table]) ? $tables[$table] : false;

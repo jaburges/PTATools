@@ -2101,6 +2101,27 @@ class Azure_Event_CPT {
     }
 
     /**
+     * Taller-than-wide featured images (flyers, calendar graphics) are shown
+     * whole instead of cropped to fill a landscape box.
+     *
+     * @param int $post_id
+     * @return bool
+     */
+    public static function thumbnail_is_portrait($post_id) {
+        if (!function_exists('get_post_thumbnail_id') || !function_exists('wp_get_attachment_metadata')) {
+            return false;
+        }
+        $thumb_id = (int) get_post_thumbnail_id((int) $post_id);
+        if ($thumb_id <= 0) {
+            return false;
+        }
+        $meta = wp_get_attachment_metadata($thumb_id);
+        $w = is_array($meta) ? (int) ($meta['width'] ?? 0) : 0;
+        $h = is_array($meta) ? (int) ($meta['height'] ?? 0) : 0;
+        return $w > 0 && $h > $w * 1.05;
+    }
+
+    /**
      * Render the standard "Join meeting" control. Returns '' when there is
      * no URL so callers can include it unconditionally.
      *

@@ -16,6 +16,13 @@ class Azure_Express_Checkout {
 
     const ZERO_METHODS = array('free_shipping', 'local_pickup');
 
+    /**
+     * Membership types whose product-page wallets are hidden via Stripe's
+     * wc_stripe_hide_payment_request_on_product_page (the only product-page
+     * hook Stripe 10.9 still reads). Staged rollout: staff first.
+     */
+    const PRODUCT_PAGE_WALLET_HIDE_TYPES = array('staff');
+
     private static $instance = null;
 
     public static function get_instance() {
@@ -38,6 +45,21 @@ class Azure_Express_Checkout {
      */
     public static function hide_product_page_wallets($has_required_product_fields) {
         return (bool) $has_required_product_fields;
+    }
+
+    /**
+     * @param bool   $hide                        Stripe's current decision.
+     * @param bool   $has_required_product_fields
+     * @param string $membership_type             family|individual|staff|''
+     */
+    public static function hide_stripe_product_page_wallet($hide, $has_required_product_fields, $membership_type) {
+        if ($hide) {
+            return true;
+        }
+        if (!$has_required_product_fields) {
+            return false;
+        }
+        return in_array((string) $membership_type, self::PRODUCT_PAGE_WALLET_HIDE_TYPES, true);
     }
 
     /**

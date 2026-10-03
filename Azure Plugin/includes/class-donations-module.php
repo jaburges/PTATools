@@ -2,8 +2,8 @@
 /**
  * Donations Module
  *
- * Round-up at checkout, custom donation amounts, gift products, WAG giving
- * levels, and shortcodes. Cash donations are WooCommerce cart fees. Gift
+ * Round-up at checkout, custom donation amounts, gift products, suggested
+ * giving levels, and shortcodes. Cash donations are WooCommerce cart fees. Gift
  * products are real line items marked `_pta_donated_product` so product fields
  * and membership credit are skipped.
  */
@@ -140,6 +140,8 @@ class Azure_Donations_Module {
         add_action('wp_ajax_nopriv_azure_donations_add_gift_product', array($this, 'ajax_add_gift_product'));
         add_shortcode('pta-donate', array($this, 'shortcode_donate'));
         add_shortcode('donations-list', array($this, 'shortcode_donations_list'));
+        add_shortcode('giving-levels', array($this, 'shortcode_wag'));
+        // Legacy names; existing pages and widgets still use them.
         add_shortcode('wag', array($this, 'shortcode_wag'));
         add_shortcode('WAG', array($this, 'shortcode_wag'));
         add_shortcode('donation-progress', array($this, 'shortcode_donation_progress'));
@@ -221,14 +223,15 @@ class Azure_Donations_Module {
 
     /**
      * Parse [Donation-progress campaign="…"] into a lookup type.
-     * "WAG" (and donation-items aliases) use the Donation Items campaign dropdown.
+     * "giving-levels" (and the legacy "WAG" / donation-items aliases) use the
+     * Donation Items campaign dropdown.
      *
      * @return array{type:string,id?:int,name?:string}
      */
     public static function normalize_progress_campaign_attr($attr) {
         $attr = trim((string) $attr);
         $alias = strtolower($attr);
-        if (in_array($alias, array('wag', 'donation-items', 'donation_items', 'donation items'), true)) {
+        if (in_array($alias, array('giving-levels', 'giving_levels', 'giving levels', 'wag', 'donation-items', 'donation_items', 'donation items'), true)) {
             return array('type' => 'wag');
         }
         if ($attr !== '' && ctype_digit($attr)) {
@@ -1012,17 +1015,17 @@ class Azure_Donations_Module {
     public static function default_quick_amount_entries() {
         return array(
             array(
-                'label'  => 'Wolf Pack - $150 Per student',
+                'label'  => 'Friend - $150 per student',
                 'amount' => 150,
                 'custom' => false,
             ),
             array(
-                'label'  => 'Helpful Howler - $250 per student',
+                'label'  => 'Supporter - $250 per student',
                 'amount' => 250,
                 'custom' => false,
             ),
             array(
-                'label'  => 'Positive Paw - $500 per student',
+                'label'  => 'Champion - $500 per student',
                 'amount' => 500,
                 'custom' => false,
             ),
@@ -1135,28 +1138,28 @@ class Azure_Donations_Module {
         if ($org === '') {
             $org = 'PTSA';
         }
-        return sprintf('Fund the %s budget and help us reach our $40,000 goal for our kids.', $org);
+        return sprintf('Help fund the %s budget for our kids.', $org);
     }
 
     public static function default_wag_levels() {
         return array(
             array(
                 'amount'       => 500,
-                'name'         => 'Pack Leader',
+                'name'         => 'Champion',
                 'suffix'       => 'per student',
                 'product_id'   => 0,
                 'variation_id' => 0,
             ),
             array(
                 'amount'       => 250,
-                'name'         => 'Helpful Howler',
+                'name'         => 'Supporter',
                 'suffix'       => 'per student',
                 'product_id'   => 0,
                 'variation_id' => 0,
             ),
             array(
                 'amount'       => 150,
-                'name'         => 'Positive Paw',
+                'name'         => 'Friend',
                 'suffix'       => 'per student',
                 'product_id'   => 0,
                 'variation_id' => 0,
@@ -1285,11 +1288,11 @@ class Azure_Donations_Module {
             return false;
         }
         $slug = method_exists($product, 'get_slug') ? (string) $product->get_slug() : '';
-        if ($slug === 'wag-donation') {
+        if ($slug === 'giving-levels' || $slug === 'wag-donation') {
             return true;
         }
         $sku = method_exists($product, 'get_sku') ? (string) $product->get_sku() : '';
-        return (stripos($sku, 'WAG-') === 0);
+        return (stripos($sku, 'GIVING-') === 0 || stripos($sku, 'WAG-') === 0);
     }
 
     public static function variation_uses_typed_amount($variation, $parent = null) {
@@ -1711,11 +1714,11 @@ class Azure_Donations_Module {
     }
 
     /**
-     * Horizontal campaign thermometer. campaign="WAG" uses the Donation Items mapping.
+     * Horizontal campaign thermometer. campaign="giving-levels" uses the Donation Items mapping.
      */
     public function shortcode_donation_progress($atts = array()) {
         $atts = shortcode_atts(array(
-            'campaign' => 'WAG',
+            'campaign' => 'giving-levels',
         ), $atts, 'donation-progress');
 
         $campaign = self::resolve_progress_campaign($atts['campaign']);
@@ -1840,7 +1843,7 @@ class Azure_Donations_Module {
             </div>
             <?php
             if (self::wag_progress_enabled()) {
-                $progress_campaign = self::resolve_progress_campaign('WAG');
+                $progress_campaign = self::resolve_progress_campaign('giving-levels');
                 if ($progress_campaign) {
                     echo self::render_progress_html($progress_campaign, array(
                         'show_heading' => false,
@@ -1988,6 +1991,7 @@ class Azure_Donations_Module {
         $has_shortcode = $post && (
             has_shortcode($content, 'pta-donate')
             || has_shortcode($content, 'donations-list')
+            || has_shortcode($content, 'giving-levels')
             || has_shortcode($content, 'wag')
             || has_shortcode($content, 'WAG')
             || has_shortcode($content, 'donation-progress')

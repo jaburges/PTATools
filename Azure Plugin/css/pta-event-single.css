@@ -43,6 +43,18 @@
     height: 100%;
     object-fit: cover;
 }
+.pta-event-hero.is-portrait {
+    aspect-ratio: auto;
+    background: transparent;
+}
+.pta-event-hero.is-portrait img {
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 560px;
+    margin: 0 auto;
+    object-fit: contain;
+}
 
 .pta-event-title {
     font-size: 36px;

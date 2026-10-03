@@ -189,6 +189,11 @@ class Azure_PTA_Cron {
                 self::ensure_schedule('azure_volunteer_send_reminders', 'hourly');
             }
 
+            // ── Forms (entry retention) ───────────────────────────────────
+            if (!empty($settings['enable_forms'])) {
+                self::ensure('azure_forms_purge_entries', 'daily', time() + HOUR_IN_SECONDS);
+            }
+
             // ── Auction (orphan sweep) ────────────────────────────────────
             // Per-auction finalize is a one-shot event scheduled at the
             // bidding-end timestamp by Azure_Auction_Product_Type. This daily
@@ -275,6 +280,9 @@ class Azure_PTA_Cron {
             ),
             'enable_auction' => array(
                 'azure_auction_finalize_orphans',
+            ),
+            'enable_forms' => array(
+                'azure_forms_purge_entries',
             ),
         );
 

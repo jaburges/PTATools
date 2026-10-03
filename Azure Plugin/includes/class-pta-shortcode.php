@@ -104,9 +104,39 @@ class Azure_PTA_Shortcode {
         add_shortcode('pta-user-roles', array($this, 'user_roles_shortcode'));
         add_shortcode('role-description', array($this, 'role_description_shortcode'));
         add_shortcode('Role-description', array($this, 'role_description_shortcode'));
+        // Pages still carry old [forminator_form] tags; unregistered shortcodes print verbatim.
+        add_shortcode('forminator_form', array($this, 'retired_form_shortcode'));
         
         // Enqueue frontend styles
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
+    }
+
+    /**
+     * A PTA form that "replaces" this old id renders in its place.
+     * Otherwise nothing for visitors; editors see which old form the
+     * page expected.
+     */
+    public function retired_form_shortcode($atts = array()) {
+        $id = is_array($atts) && !empty($atts['id']) ? (string) $atts['id'] : '';
+        if ($id !== '' && ctype_digit($id) && class_exists('Azure_Forms_Module')) {
+            $forms = Azure_Forms_Module::get_instance();
+            $form = $forms->get_form_by_legacy_id((int) $id);
+            if ($form) {
+                return $forms->render_form($form);
+            }
+        }
+        if (!current_user_can('edit_posts')) {
+            return '';
+        }
+        $message = $id !== ''
+            ? sprintf(
+                /* translators: %s: old form ID. */
+                __('An old form (%s) was here. It has been retired; replace it with a PTA form. Only editors see this message.', 'azure-plugin'),
+                $id
+            )
+            : __('An old form was here. It has been retired; replace it with a PTA form. Only editors see this message.', 'azure-plugin');
+        return '<p class="pta-retired-form" style="padding:10px 14px;border-left:4px solid #dba617;background:#fcf9e8;color:#3c434a;">'
+            . esc_html($message) . '</p>';
     }
     
     /**
@@ -147,10 +177,6 @@ class Azure_PTA_Shortcode {
             Azure_Membership_Module::get_instance()->enqueue_badge_assets();
         }
         wp_enqueue_script('pta-shortcodes', AZURE_PLUGIN_URL . 'assets/pta-shortcodes.js', array('jquery'), AZURE_PLUGIN_VERSION, true);
-
-        if (class_exists('Azure_PTA_Forminator') && Azure_PTA_Forminator::is_configured()) {
-            wp_localize_script('pta-shortcodes', 'ptaSignupConfig', Azure_PTA_Forminator::get_frontend_config());
-        }
     }
     
     /**
@@ -688,9 +714,6 @@ class Azure_PTA_Shortcode {
         $output .= '<div class="pta-role-department">' . esc_html($role->department_name) . '</div>';
         $output .= '<div class="pta-role-status pta-status-' . esc_attr($status) . '">' . ucfirst($status) . '</div>';
 
-        // Signup button (only when Forminator is configured and role has openings)
-        $output .= $this->maybe_render_signup_button($role, $status);
-
         $output .= '</div>';
         
         return $output;
@@ -765,33 +788,9 @@ class Azure_PTA_Shortcode {
         // Status badge
         $output .= '<div class="pta-role-status pta-status-' . esc_attr($status) . '">' . ucfirst($status) . '</div>';
 
-        // Signup button
-        $output .= $this->maybe_render_signup_button($role, $status);
-        
         $output .= '</div>'; // Close role item
         
         return $output;
-    }
-
-    /**
-     * Conditionally render a signup button for a role card.
-     */
-    private function maybe_render_signup_button($role, $status) {
-        if (!class_exists('Azure_PTA_Forminator') || !Azure_PTA_Forminator::is_configured()) {
-            return '';
-        }
-
-        $open_only = Azure_Settings::get_setting('pta_forminator_open_roles_only', true);
-        if ($open_only && $status === 'filled') {
-            return '';
-        }
-
-        return '<button type="button" class="pta-signup-btn" '
-            . 'data-role-id="' . esc_attr($role->id) . '" '
-            . 'data-role-name="' . esc_attr($role->name) . '" '
-            . 'data-department-name="' . esc_attr($role->department_name) . '">'
-            . esc_html__('Sign Up', 'azure-plugin')
-            . '</button>';
     }
     
     private function local_avatar_url($user_id, $size) {

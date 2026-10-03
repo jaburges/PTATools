@@ -257,7 +257,7 @@ get_header();
                         <div class="pta-events-list-card<?php echo $thumb_url ? ' has-thumb' : ''; ?><?php echo $join_btn ? ' has-join' : ''; ?>">
                             <a class="pta-events-list-card-link" href="<?php echo esc_url(get_permalink()); ?>" aria-label="<?php echo esc_attr(get_the_title()); ?>">
                                 <?php if ($thumb_url) : ?>
-                                    <div class="pta-events-list-thumb"
+                                    <div class="pta-events-list-thumb<?php echo Azure_Event_CPT::thumbnail_is_portrait($eid) ? ' is-portrait' : ''; ?>"
                                          style="background-image:url('<?php echo esc_url($thumb_url); ?>');">
                                     </div>
                                 <?php endif; ?>

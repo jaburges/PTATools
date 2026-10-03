@@ -30,6 +30,9 @@ class Azure_Admin {
             Azure_Admin_Menu_Customizer::get_instance();
         }
         add_action('admin_menu', array($this, 'admin_menu'));
+        add_action('admin_head', array($this, 'menu_heading_css'));
+        add_action('admin_footer', array($this, 'menu_heading_script'));
+        add_filter('submenu_file', array($this, 'filter_submenu_file'));
         add_action('admin_init', array($this, 'admin_init'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         add_action('wp_dashboard_setup', array($this, 'add_dashboard_widgets'));
@@ -126,50 +129,83 @@ class Azure_Admin {
             array($this, 'admin_page')
         );
         
-        // Submenus
+        $this->add_menu_heading('roles', __('Roles & Access', 'azure-plugin'), $pta_cap);
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - PTA Roles',
+            __('PTA Roles', 'azure-plugin'),
+            $pta_cap,
+            'azure-plugin-pta',
+            array($this, 'admin_page_pta')
+        );
         add_submenu_page(
             'azure-plugin',
             'PTA Tools - SSO',
-            'SSO',
+            __('SSO', 'azure-plugin'),
             'manage_options',
             'azure-plugin-sso',
             array($this, 'admin_page_sso')
         );
-        
-        add_submenu_page(
-            'azure-plugin',
-            'PTA Tools - Backup',
-            'Backup',
-            'manage_options',
-            'azure-plugin-backup',
-            array($this, 'admin_page_backup')
-        );
-        
+        $this->register_membership_menu($pta_cap);
+
+        $this->add_menu_heading('scheduling', __('Scheduling & Events', 'azure-plugin'), $pta_cap);
         add_submenu_page(
             'azure-plugin',
             'PTA Tools - Calendar',
-            'Calendar',
+            __('Calendar', 'azure-plugin'),
             $pta_cap,
             'azure-plugin-calendar',
             array($this, 'admin_page_calendar_combined')
         );
-        
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - Volunteer Sign up',
+            __('Volunteer Sign up', 'azure-plugin'),
+            $pta_cap,
+            'azure-plugin-volunteer',
+            array($this, 'admin_page_volunteer')
+        );
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - Tickets',
+            __('Tickets', 'azure-plugin'),
+            $pta_cap,
+            'azure-plugin-tickets',
+            array($this, 'admin_page_tickets')
+        );
+
+        $this->add_menu_heading('communications', __('Communications', 'azure-plugin'), $pta_cap);
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - Newsletter',
+            __('Newsletter', 'azure-plugin'),
+            $pta_cap,
+            'azure-plugin-newsletter',
+            array($this, 'admin_page_newsletter')
+        );
         add_submenu_page(
             'azure-plugin',
             'PTA Tools - Emails',
-            'Emails',
+            __('Emails', 'azure-plugin'),
             $pta_cap,
             'azure-plugin-emails',
             array($this, 'admin_page_emails')
         );
-        
         add_submenu_page(
             'azure-plugin',
-            'PTA Tools - PTA Roles',
-            'PTA Roles',
+            'PTA Tools - Forms',
+            __('Forms', 'azure-plugin'),
             $pta_cap,
-            'azure-plugin-pta',
-            array($this, 'admin_page_pta')
+            'azure-plugin-forms',
+            array($this, 'admin_page_forms')
+        );
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - Notifications',
+            __('Notifications', 'azure-plugin'),
+            'manage_options',
+            'azure-plugin-notifications',
+            array($this, 'admin_page_notifications')
         );
         
         add_submenu_page(
@@ -183,57 +219,38 @@ class Azure_Admin {
 
         add_submenu_page(
             'azure-plugin-pta',
-            'PTA Tools - Forminator Customization',
-            'Forminator',
-            'manage_options',
-            'azure-plugin-pta-forminator',
-            array($this, 'admin_page_pta_forminator')
-        );
-
-        add_submenu_page(
-            'azure-plugin-pta',
             'PTA Tools - Role Editor',
             'Role Editor',
             'manage_options',
             'azure-plugin-pta-role-editor',
             array($this, 'admin_page_pta_role_editor')
         );
-        
+
+        $sell_cap = 'manage_woocommerce';
+        $this->add_menu_heading('selling', __('Selling', 'azure-plugin'), $sell_cap);
         add_submenu_page(
             'azure-plugin',
-            'PTA Tools - OneDrive Media',
-            'OneDrive Media',
-            $pta_cap,
-            'azure-plugin-onedrive-media',
-            array($this, 'admin_page_onedrive_media')
-        );
-        
-        add_submenu_page(
-            'azure-plugin',
-            'PTA Tools - Newsletter',
-            'Newsletter',
-            $pta_cap,
-            'azure-plugin-newsletter',
-            array($this, 'admin_page_newsletter')
-        );
-        
-        add_submenu_page(
-            'azure-plugin',
-            'PTA Tools - Event Tickets',
-            'Event Tickets',
-            $pta_cap,
-            'azure-plugin-tickets',
-            array($this, 'admin_page_tickets')
-        );
-        
-        add_submenu_page(
-            'azure-plugin',
-            'PTA Tools - Selling',
-            'Selling',
-            'manage_woocommerce',
+            'PTA Tools - Auction',
+            __('Auction', 'azure-plugin'),
+            $sell_cap,
             'azure-plugin-selling',
             array($this, 'admin_page_selling')
         );
+        foreach (array(
+            'classes' => __('Classes', 'azure-plugin'),
+            'product-fields' => __('Product Fields', 'azure-plugin'),
+            'donations' => __('Donations', 'azure-plugin'),
+            'reports' => __('Reports', 'azure-plugin'),
+        ) as $tab => $label) {
+            add_submenu_page(
+                'azure-plugin',
+                'PTA Tools - ' . $label,
+                $label,
+                $sell_cap,
+                'azure-plugin-selling-' . $tab,
+                array($this, 'admin_page_selling')
+            );
+        }
 
         add_submenu_page(
             null,
@@ -243,7 +260,54 @@ class Azure_Admin {
             'azure-plugin-selling-rule-email',
             array($this, 'admin_page_selling_rule_email')
         );
-        
+
+        $this->add_menu_heading('backup', __('Backup', 'azure-plugin'), $pta_cap);
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - Scheduled Backup',
+            __('Scheduled Backup', 'azure-plugin'),
+            'manage_options',
+            'azure-plugin-backup',
+            array($this, 'admin_page_backup')
+        );
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - OneDrive Media',
+            __('OneDrive Media', 'azure-plugin'),
+            $pta_cap,
+            'azure-plugin-onedrive-media',
+            array($this, 'admin_page_onedrive_media')
+        );
+
+        $this->add_menu_heading('system', __('System', 'azure-plugin'), 'manage_options');
+        foreach (array(
+            'critical' => __('Critical', 'azure-plugin'),
+            'logs' => __('Logs', 'azure-plugin'),
+            'schedules' => __('Schedules', 'azure-plugin'),
+            'classes' => __('Class Count', 'azure-plugin'),
+            'menu' => __('Admin Menu', 'azure-plugin'),
+            'config' => __('Config', 'azure-plugin'),
+            'rules' => __('Rules', 'azure-plugin'),
+        ) as $tab => $label) {
+            $slug = ($tab === 'logs') ? 'azure-plugin-system' : 'azure-plugin-system-' . $tab;
+            add_submenu_page(
+                'azure-plugin',
+                'PTA Tools - ' . $label,
+                $label,
+                'manage_options',
+                $slug,
+                array($this, 'admin_page_system')
+            );
+        }
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - Mobile App',
+            __('Mobile App', 'azure-plugin'),
+            'manage_options',
+            'azure-plugin-home-screen',
+            array($this, 'admin_page_mobile')
+        );
+
         // Tickets sub-pages (hidden from menu)
         add_submenu_page(
             null,
@@ -253,15 +317,8 @@ class Azure_Admin {
             'azure-plugin-tickets-checkin',
             array($this, 'admin_page_tickets_checkin')
         );
-        
-        add_submenu_page(
-            'azure-plugin',
-            'PTA Tools - System',
-            'System',
-            'manage_options',
-            'azure-plugin-system',
-            array($this, 'admin_page_system')
-        );
+
+        do_action('azure_pta_menu_registered');
         
         } catch (Error $e) {
             Azure_Logger::error('Admin menu fatal error: ' . $e->getMessage(), array(
@@ -276,6 +333,145 @@ class Azure_Admin {
             ));
             throw $e;
         }
+    }
+
+    /**
+     * Non-clickable section label in the PTA Tools sidebar.
+     */
+    private function add_menu_heading($id, $label, $cap) {
+        add_submenu_page(
+            'azure-plugin',
+            $label,
+            $label,
+            $cap,
+            'azure-menu-heading-' . $id,
+            array($this, 'admin_page_menu_heading')
+        );
+    }
+
+    public function admin_page_menu_heading() {
+        wp_safe_redirect(admin_url('admin.php?page=azure-plugin'));
+        exit;
+    }
+
+    private function register_membership_menu($pta_cap) {
+        if (!class_exists('Azure_Membership_Module')) {
+            return;
+        }
+        $cap = class_exists('Azure_Finance_Role') ? Azure_Finance_Role::CAP : $pta_cap;
+        $membership = Azure_Membership_Module::get_instance();
+        add_submenu_page(
+            'azure-plugin',
+            __('Membership', 'azure-plugin'),
+            __('Membership', 'azure-plugin'),
+            $cap,
+            'azure-plugin-membership',
+            array($membership, 'render_admin_page')
+        );
+    }
+
+    public function admin_page_volunteer() {
+        try {
+            include AZURE_PLUGIN_PATH . 'admin/volunteer-page.php';
+        } catch (Exception $e) {
+            $this->render_error_page('Volunteer Sign up', $e);
+        }
+    }
+
+    public function admin_page_forms() {
+        try {
+            $settings = Azure_Settings::get_all_settings();
+            include AZURE_PLUGIN_PATH . 'admin/forms-page.php';
+        } catch (Exception $e) {
+            $this->render_error_page('Forms', $e);
+        }
+    }
+
+    public function admin_page_notifications() {
+        if (!class_exists('Azure_Home_Screen')) {
+            return;
+        }
+        Azure_Home_Screen::get_instance()->render_admin_page('notifications');
+    }
+
+    public function admin_page_mobile() {
+        if (!class_exists('Azure_Home_Screen')) {
+            return;
+        }
+        Azure_Home_Screen::get_instance()->render_admin_page('pin');
+    }
+
+    public function filter_submenu_file($submenu_file) {
+        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+        $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
+        if ($page === 'azure-plugin-selling') {
+            return ($tab === '' || $tab === 'auction') ? 'azure-plugin-selling' : 'azure-plugin-selling-' . $tab;
+        }
+        if ($page === 'azure-plugin-system') {
+            return ($tab === '' || $tab === 'logs') ? 'azure-plugin-system' : 'azure-plugin-system-' . $tab;
+        }
+        return $submenu_file;
+    }
+
+    public function menu_heading_css() {
+        echo '<style>
+#toplevel_page_azure-plugin .wp-submenu a[href*="azure-menu-heading"]{cursor:pointer;color:#a7aaad !important;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding-left:12px;padding-right:28px;position:relative;}
+#toplevel_page_azure-plugin .wp-submenu a[href*="azure-menu-heading"]:hover,#toplevel_page_azure-plugin .wp-submenu a[href*="azure-menu-heading"]:focus{background:transparent !important;color:#dcdcde !important;box-shadow:none;}
+#toplevel_page_azure-plugin .wp-submenu a[href*="azure-menu-heading"]::after{content:"";position:absolute;right:12px;top:50%;margin-top:-1px;border:4px solid transparent;border-top-color:#a7aaad;}
+#toplevel_page_azure-plugin .wp-submenu li.is-open > a[href*="azure-menu-heading"]::after{margin-top:-5px;border-top-color:transparent;border-bottom-color:#a7aaad;}
+#toplevel_page_azure-plugin .wp-submenu > li:has(a[href*="azure-menu-heading"]) ~ li:not(:has(a[href*="azure-menu-heading"])){display:none;}
+#toplevel_page_azure-plugin .wp-submenu > li.is-open{display:block !important;}
+#toplevel_page_azure-plugin .wp-submenu a{padding-left:22px;}
+#toplevel_page_azure-plugin .wp-submenu a[href$="page=azure-plugin"]{padding-left:12px;}
+</style>';
+    }
+
+    public function menu_heading_script() {
+        ?>
+        <script>
+        (function () {
+          var root = document.getElementById('toplevel_page_azure-plugin');
+          if (!root) return;
+          var list = root.querySelector('.wp-submenu');
+          if (!list) return;
+          var items = Array.prototype.slice.call(list.children);
+          var groups = [];
+          var group = null;
+          items.forEach(function (li) {
+            var link = li.querySelector('a');
+            if (!link) return;
+            var href = link.getAttribute('href') || '';
+            if (href.indexOf('azure-menu-heading') !== -1) {
+              group = { heading: li, kids: [] };
+              groups.push(group);
+              link.setAttribute('role', 'button');
+              return;
+            }
+            if (group) group.kids.push(li);
+          });
+          function setOpen(entry, open) {
+            entry.heading.classList.toggle('is-open', open);
+            var link = entry.heading.querySelector('a');
+            if (link) link.setAttribute('aria-expanded', open ? 'true' : 'false');
+            entry.kids.forEach(function (kid) {
+              kid.classList.toggle('is-open', open);
+            });
+          }
+          groups.forEach(function (entry) {
+            var current = entry.kids.some(function (kid) {
+              return kid.classList.contains('current');
+            });
+            setOpen(entry, current);
+            entry.heading.querySelector('a').addEventListener('click', function (event) {
+              event.preventDefault();
+              var open = !entry.heading.classList.contains('is-open');
+              groups.forEach(function (other) { setOpen(other, false); });
+              setOpen(entry, open);
+            });
+          });
+        })();
+        </script>
+        <?php
     }
     
     public function admin_init() {
@@ -367,7 +563,7 @@ class Azure_Admin {
                     'nonce'   => wp_create_nonce('azure_plugin_nonce'),
                 ));
                 break;
-            case 'azure-plugin-selling':
+            case 'azure-plugin-system':
                 if (isset($_GET['tab']) && $_GET['tab'] === 'rules') {
                     wp_enqueue_style('azure-order-rules-admin', AZURE_PLUGIN_URL . 'css/order-rules-admin.css', array(), $cache_version);
                     wp_enqueue_script('azure-order-rules-admin', AZURE_PLUGIN_URL . 'js/order-rules-admin.js', array('jquery'), $cache_version, true);
@@ -376,6 +572,9 @@ class Azure_Admin {
                         'nonce' => wp_create_nonce('azure_order_rules'),
                         'confirmDelete' => __('Delete this rule? The email design will be removed too.', 'azure-plugin'),
                     ));
+                }
+                if (isset($_GET['tab']) && $_GET['tab'] === 'config') {
+                    wp_enqueue_style('azure-calendar-frontend', AZURE_PLUGIN_URL . 'css/calendar-frontend.css', array(), $cache_version);
                 }
                 break;
             case 'azure-plugin-newsletter':
@@ -819,14 +1018,6 @@ class Azure_Admin {
         }
     }
 
-    public function admin_page_pta_forminator() {
-        try {
-            include AZURE_PLUGIN_PATH . 'admin/pta-forminator-page.php';
-        } catch (Exception $e) {
-            $this->render_error_page('PTA Forminator', $e);
-        }
-    }
-
     public function admin_page_pta_role_editor() {
         try {
             include AZURE_PLUGIN_PATH . 'admin/pta-role-editor-page.php';
@@ -937,6 +1128,10 @@ class Azure_Admin {
 
     public function admin_page_system() {
         try {
+            $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+            if (strpos($page, 'azure-plugin-system-') === 0) {
+                $_GET['tab'] = substr($page, strlen('azure-plugin-system-'));
+            }
             $logs = Azure_Logger::get_logs(200);
             include AZURE_PLUGIN_PATH . 'admin/system-page.php';
         } catch (Exception $e) {
@@ -957,6 +1152,10 @@ class Azure_Admin {
 
     public function admin_page_selling() {
         try {
+            $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+            if (strpos($page, 'azure-plugin-selling-') === 0) {
+                $_GET['tab'] = substr($page, strlen('azure-plugin-selling-'));
+            }
             $settings = Azure_Settings::get_all_settings();
             include AZURE_PLUGIN_PATH . 'admin/selling-page.php';
         } catch (Exception $e) {
@@ -1075,7 +1274,7 @@ class Azure_Admin {
         $enabled = $_POST['enabled'] === 'true';
         
         // Validate module name
-        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'tec_integration', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer', 'home_screen', 'no_comments', 'block_registration', 'anti_spam_filter');
+        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'tec_integration', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer', 'forms', 'home_screen', 'no_comments', 'block_registration', 'anti_spam_filter');
         if (!in_array($module, $valid_modules)) {
             wp_send_json_error('Invalid module name: ' . $module);
         }
@@ -2872,7 +3071,6 @@ class Azure_Admin {
                 <?php
                 $deps = array(
                     array('WooCommerce', class_exists('WooCommerce'), 'woocommerce'),
-                    array('Forminator', class_exists('Forminator'), 'forminator'),
                 );
                 foreach ($deps as $dep):
                     $color = $dep[1] ? '#46b450' : '#dc3232';
@@ -3204,6 +3402,47 @@ class Azure_Admin {
             </p>
             <?php endif; ?>
             
+            <?php if (current_user_can('manage_options')): ?>
+            <div class="azure-calendar-sync-now" style="margin:0 0 12px;">
+                <button type="button" class="button" id="azure-dash-calendar-sync" style="background:#d63638;border-color:#d63638;color:#fff;">
+                    <?php esc_html_e('Sync now', 'azure-plugin'); ?>
+                </button>
+                <p class="description" style="margin:4px 0 0;font-size:11px;color:#b32d2e;"><?php esc_html_e('This will slow the site', 'azure-plugin'); ?></p>
+                <p id="azure-dash-calendar-sync-result" style="margin:6px 0 0;font-size:12px;"></p>
+            </div>
+            <script>
+            jQuery(function ($) {
+                $('#azure-dash-calendar-sync').on('click', function () {
+                    var $btn = $(this);
+                    var $out = $('#azure-dash-calendar-sync-result');
+                    $btn.prop('disabled', true).text('<?php echo esc_js(__('Syncing…', 'azure-plugin')); ?>');
+                    $out.text('');
+                    $.post(ajaxurl, {
+                        action: 'azure_calendar_manual_sync',
+                        nonce: '<?php echo esc_js(wp_create_nonce('azure_plugin_nonce')); ?>'
+                    }).done(function (res) {
+                        if (res && res.success) {
+                            var d = res.data || {};
+                            $out.css('color', '#1d2327').text(
+                                '<?php echo esc_js(__('Synced', 'azure-plugin')); ?> ' + (d.total_events_synced || 0) +
+                                ' <?php echo esc_js(__('events across', 'azure-plugin')); ?> ' + (d.calendars_synced || 0) +
+                                ' <?php echo esc_js(__('calendars.', 'azure-plugin')); ?>' +
+                                (d.total_events_deleted ? ' <?php echo esc_js(__('Removed', 'azure-plugin')); ?> ' + d.total_events_deleted + '.' : '') +
+                                (d.total_errors ? ' <?php echo esc_js(__('Errors:', 'azure-plugin')); ?> ' + d.total_errors + '.' : '')
+                            );
+                        } else {
+                            $out.css('color', '#b32d2e').text((res && res.data) ? res.data : '<?php echo esc_js(__('Sync failed.', 'azure-plugin')); ?>');
+                        }
+                    }).fail(function () {
+                        $out.css('color', '#b32d2e').text('<?php echo esc_js(__('Sync request failed. It may still be running; check again in a few minutes.', 'azure-plugin')); ?>');
+                    }).always(function () {
+                        $btn.prop('disabled', false).text('<?php echo esc_js(__('Sync now', 'azure-plugin')); ?>');
+                    });
+                });
+            });
+            </script>
+            <?php endif; ?>
+
             <a href="<?php echo admin_url('admin.php?page=azure-plugin-calendar&tab=sync'); ?>" class="button">
                 <?php _e('Manage Calendar Sync', 'azure-plugin'); ?>
             </a>

@@ -71,7 +71,7 @@ $last_sync = $mappings_table
     ? (string) $wpdb->get_var("SELECT MAX(last_sync) FROM {$mappings_table}")
     : '';
 
-$config_url = admin_url('admin.php?page=azure-plugin-calendar&tab=config');
+$config_url = admin_url('admin.php?page=azure-plugin-system&tab=config');
 
 $frequency_labels = array(
     '15min'      => __('Every 15 min', 'azure-plugin'),

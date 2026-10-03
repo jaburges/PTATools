@@ -2,8 +2,8 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: 12px;
-  z-index: 100000;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 100001;
 }
 .pta-pin-sheet[hidden] {
   display: none !important;
@@ -45,10 +45,12 @@
   cursor: pointer;
 }
 .pta-pin-sheet__ios,
+.pta-pin-sheet__edge,
 .pta-pin-sheet__android {
   display: none;
 }
 .pta-pin-sheet.is-ios .pta-pin-sheet__ios,
+.pta-pin-sheet.is-edge .pta-pin-sheet__edge,
 .pta-pin-sheet.is-android .pta-pin-sheet__android {
   display: block;
 }

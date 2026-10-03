@@ -554,7 +554,7 @@ class Azure_Class_Competitions {
 
     /**
      * Paid line items that belong to the competition source.
-     * WAG campaigns use the same mapped products as the progress bar.
+     * Giving-levels campaigns use the same mapped products as the progress bar.
      *
      * @param array $competition
      * @return int[]
@@ -739,8 +739,8 @@ class Azure_Class_Competitions {
     }
 
     /**
-     * Lane tint + sweater colour + marker image, one set per lane.
-     * Tints stay pale; the wolf sweater carries the colour.
+     * Lane tint + marker colour + marker image index, one set per lane.
+     * Tints stay pale; the marker carries the colour.
      *
      * @return array<int, array{tint:string,sweater:string,image:int}>
      */
@@ -760,15 +760,40 @@ class Azure_Class_Competitions {
     }
 
     /**
-     * URL of the rendered wolf marker for a lane.
+     * Site-supplied marker image for a lane, e.g. the school mascot.
      *
-     * @param int $image 1-based index into assets/race/wolf-N.png
+     * Images render at 104x54 and should be transparent PNGs facing right.
+     * Empty means the built-in marker is drawn instead.
+     *
+     * @param int   $image 1-based lane image index from track_palette().
+     * @param array $lane  The palette entry.
      * @return string
      */
-    public static function wolf_image_url($image) {
-        $image = max(1, (int) $image);
-        $base = defined('AZURE_PLUGIN_URL') ? AZURE_PLUGIN_URL : '';
-        return $base . 'assets/race/wolf-' . $image . '.png';
+    public static function runner_image_url($image, array $lane = array()) {
+        if (!function_exists('apply_filters')) {
+            return '';
+        }
+        $url = apply_filters('pta_class_race_runner_url', '', max(1, (int) $image), $lane);
+        return is_string($url) ? trim($url) : '';
+    }
+
+    /**
+     * Built-in lane marker: a coloured token with speed lines.
+     *
+     * @param string $color Hex colour from track_palette().
+     * @return string SVG markup
+     */
+    public static function runner_svg($color) {
+        $color = preg_match('/^#[0-9a-f]{3,8}$/i', (string) $color) ? $color : '#3f7fc0';
+        return '<svg class="pta-class-race-marker" viewBox="0 0 104 54" width="104" height="54" aria-hidden="true" focusable="false">'
+            . '<g stroke="' . $color . '" stroke-linecap="round" stroke-width="5">'
+            . '<line x1="14" y1="17" x2="44" y2="17" opacity="0.35"/>'
+            . '<line x1="4" y1="27" x2="44" y2="27" opacity="0.55"/>'
+            . '<line x1="18" y1="37" x2="44" y2="37" opacity="0.35"/>'
+            . '</g>'
+            . '<circle cx="76" cy="27" r="23" fill="' . $color . '" stroke="#fff" stroke-width="3"/>'
+            . '<path d="M70 17 L82 27 L70 37" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>'
+            . '</svg>';
     }
 
     /**
@@ -831,7 +856,7 @@ class Azure_Class_Competitions {
                         $score_bits = array();
                         if ($show_count) {
                             $score_bits[] = sprintf(
-                                /* translators: %d: number of WAG line items */
+                                /* translators: %d: number of donation line items */
                                 _n('%d Donation', '%d Donations', (int) $row['count'], 'azure-plugin'),
                                 (int) $row['count']
                             );
@@ -861,7 +886,12 @@ class Azure_Class_Competitions {
                                 <span class="pta-class-race-trail" aria-hidden="true" style="<?php echo esc_attr('width: calc(62px + (100% - 124px) * ' . $progress . ' / 100);'); ?>"></span>
                                 <span class="pta-class-race-finish" aria-hidden="true"></span>
                                 <span class="pta-class-race-runner" style="<?php echo esc_attr('left: calc(10px + (100% - 124px) * ' . $progress . ' / 100);'); ?>">
-                                    <img class="pta-class-race-wolf" src="<?php echo esc_url(self::wolf_image_url($lane['image'])); ?>" alt="" width="104" height="54" loading="lazy" decoding="async" />
+                                    <?php $runner_url = self::runner_image_url($lane['image'], $lane); ?>
+                                    <?php if ($runner_url !== ''): ?>
+                                        <img class="pta-class-race-marker" src="<?php echo esc_url($runner_url); ?>" alt="" width="104" height="54" loading="lazy" decoding="async" />
+                                    <?php else: ?>
+                                        <?php echo self::runner_svg($lane['sweater']); // phpcs:ignore WordPress.Security.EscapeOutput -- colour is validated ?>
+                                    <?php endif; ?>
                                 </span>
                             </div>
                             <div class="pta-class-race-score">

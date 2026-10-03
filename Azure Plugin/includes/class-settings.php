@@ -270,6 +270,7 @@ class Azure_Settings {
             'enable_classes' => false,
             'enable_newsletter' => false,
             'enable_tickets' => false,
+            'enable_forms' => false,
             'enable_auction' => false,
             'auction_display_live' => false,
             'auction_display_card_scale'    => 80,
@@ -386,15 +387,6 @@ class Azure_Settings {
             'pta_welcome_email_enabled' => true,
             'pta_license_sku' => 'O365_BUSINESS_ESSENTIALS',
 
-            // PTA Forminator integration
-            'pta_forminator_form_id' => '',
-            'pta_forminator_role_field_id' => '',
-            'pta_forminator_dept_field_id' => '',
-            'pta_forminator_fname_field_id' => '',
-            'pta_forminator_lname_field_id' => '',
-            'pta_forminator_email_field_id' => '',
-            'pta_forminator_open_roles_only' => true,
-            
             // OneDrive Media specific settings
             'onedrive_media_client_id' => '',
             'onedrive_media_client_secret' => '',
@@ -435,8 +427,8 @@ class Azure_Settings {
             
             // Organization settings (used across modules)
             'org_domain' => '',              // e.g., "yourptsa.net"
-            'org_name' => '',                // e.g., "LWSD PTA"
-            'org_team_name' => '',           // e.g., "LWSD PTA Team"
+            'org_name' => '',                // e.g., "Maple Elementary PTA"
+            'org_team_name' => '',           // e.g., "Maple PTA Team"
             'org_admin_email' => '',         // e.g., "admin@yourptsa.net" (FROM address for system emails)
             
             // Setup wizard settings

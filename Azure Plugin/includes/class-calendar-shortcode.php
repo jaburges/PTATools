@@ -252,6 +252,7 @@ class Azure_Calendar_Shortcode {
             'show_location' => true,
             'show_description' => false,
             'show_image' => true,         // Featured image thumb (pta_event only)
+            'include_signups' => false,   // Filled/needed chip on the list only
             'show_join_meeting' => true,  // "Join meeting" CTA when URL detected
             'date_format' => 'M j, Y',
             'time_format' => 'g:i A',
@@ -413,6 +414,7 @@ class Azure_Calendar_Shortcode {
      */
     private function render_pta_events_list($posts, $atts) {
         $show_image = filter_var($atts['show_image'],        FILTER_VALIDATE_BOOLEAN);
+        $show_signups = filter_var($atts['include_signups'], FILTER_VALIDATE_BOOLEAN);
         $show_join  = filter_var($atts['show_join_meeting'], FILTER_VALIDATE_BOOLEAN);
         $show_loc   = filter_var($atts['show_location'],     FILTER_VALIDATE_BOOLEAN);
         $show_desc  = filter_var($atts['show_description'],  FILTER_VALIDATE_BOOLEAN);
@@ -463,10 +465,29 @@ class Azure_Calendar_Shortcode {
             $out .= '<div class="pta-events-card' . ($thumb ? ' has-thumb' : '') . ($join ? ' has-join' : '') . '">';
             $out .= '  <a class="pta-events-card-link" href="' . esc_url($url) . '" aria-label="' . esc_attr($post->post_title) . '">';
             if ($thumb) {
-                $out .= '    <div class="pta-events-card-thumb" style="background-image:url(\'' . esc_url($thumb) . '\');"></div>';
+                $thumb_class = Azure_Event_CPT::thumbnail_is_portrait($eid) ? 'pta-events-card-thumb is-portrait' : 'pta-events-card-thumb';
+                $out .= '    <div class="' . $thumb_class . '" style="background-image:url(\'' . esc_url($thumb) . '\');"></div>';
             }
             $out .= '    <div class="pta-events-card-body">';
-            $out .= '      <h4 class="pta-events-card-title">' . esc_html($post->post_title) . '</h4>';
+            $spaces = '';
+            if ($show_signups && class_exists('Azure_Volunteer_Signup')) {
+                // The spot chip lives on the upcoming module, which otherwise
+                // loads only when [up-next] renders. A calendar list page
+                // does not use that shortcode.
+                if (!class_exists('Azure_Upcoming_Module') && defined('AZURE_PLUGIN_PATH')) {
+                    $upcoming_file = AZURE_PLUGIN_PATH . 'includes/class-upcoming-module.php';
+                    if (file_exists($upcoming_file)) {
+                        require_once $upcoming_file;
+                    }
+                }
+                if (class_exists('Azure_Upcoming_Module')) {
+                    $fill = Azure_Volunteer_Signup::fill_for_event($eid);
+                    if (is_array($fill)) {
+                        $spaces = Azure_Upcoming_Module::volunteer_spaces_html($fill['spots_filled'], $fill['spots_needed']);
+                    }
+                }
+            }
+            $out .= '      <h4 class="pta-events-card-title">' . esc_html($post->post_title) . $spaces . '</h4>';
             if ($when) {
                 $out .= '      <p class="pta-events-card-when">' . esc_html($when) . '</p>';
             }
@@ -850,6 +871,31 @@ class Azure_Calendar_Shortcode {
         
         $script = "
         <script>
+        // Event Dates are not browser-local here (no time-zone plugin), so
+        // format through the calendar rather than toLocale*().
+        function ptaCalEventSummary(cal, ev, withDate) {
+            var lines = [ev.title || ''];
+            try {
+                if (ev.allDay) {
+                    if (withDate) {
+                        lines.push(cal.formatDate(ev.start, { weekday: 'short', month: 'short', day: 'numeric' }));
+                    }
+                } else if (ev.start) {
+                    var fmt = { hour: 'numeric', minute: '2-digit', meridiem: 'short' };
+                    if (withDate) {
+                        fmt.weekday = 'short';
+                        fmt.month = 'short';
+                        fmt.day = 'numeric';
+                    }
+                    lines.push(ev.end ? cal.formatRange(ev.start, ev.end, fmt) : cal.formatDate(ev.start, fmt));
+                }
+            } catch (e) {}
+            var place = (ev.extendedProps && ev.extendedProps.location) ? String(ev.extendedProps.location) : '';
+            if (place && !/^https?:/i.test(place)) {
+                lines.push(place);
+            }
+            return lines.filter(function (l) { return l; }).join('\\n');
+        }
         document.addEventListener('DOMContentLoaded', function() {
             var calendarEl = document.getElementById('{$container_id}');
             
@@ -878,29 +924,17 @@ class Azure_Calendar_Shortcode {
                             window.location.href = info.event.url;
                             return;
                         }
-                        var when;
-                        if (info.event.allDay) {
-                            when = info.event.start.toLocaleDateString();
-                        } else {
-                            when = info.event.start.toLocaleString();
-                        }
-                        alert(info.event.title + '\\n' + when);
+                        alert(ptaCalEventSummary(info.view.calendar, info.event, true));
                     },
                     eventDidMount: function(info) {
                         // Titles are clamped to one line with an ellipsis in
                         // the month grid (see calendar-frontend.css), so the
                         // full text might be hidden. Expose it as a native
-                        // tooltip on hover and to assistive tech. For timed
-                        // events, append the start time for quick context.
-                        var full = info.event.title || '';
-                        if (info.event.start && !info.event.allDay) {
-                            try {
-                                full += ' \\u2014 ' + info.event.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                            } catch (e) {}
-                        }
+                        // tooltip on hover and to assistive tech.
+                        var full = ptaCalEventSummary(info.view.calendar, info.event, false);
                         if (full) {
                             info.el.setAttribute('title', full);
-                            info.el.setAttribute('aria-label', full);
+                            info.el.setAttribute('aria-label', full.replace(/\\n/g, ', '));
                         }
                     },
                     height: '{$atts['height']}',

@@ -1,5 +1,5 @@
 self.addEventListener('push', function (event) {
-  var payload = { title: 'Wilder PTSA', body: '', url: '/', icon: '' };
+  var payload = { title: self.location.hostname, body: '', url: '/', icon: '' };
   if (event.data) {
     try {
       var parsed = event.data.json();

@@ -145,7 +145,9 @@ class Azure_Upcoming_Module {
         $include_volunteer_spaces = filter_var($atts['include-volunteer-spaces'], FILTER_VALIDATE_BOOLEAN);
         $show_empty = filter_var($atts['show-empty'], FILTER_VALIDATE_BOOLEAN);
         $show_coming_up = filter_var($atts['show-coming-up'], FILTER_VALIDATE_BOOLEAN);
-        $use_cache = filter_var($atts['cache'], FILTER_VALIDATE_BOOLEAN);
+        // Signup counts change outside the paths that bust this cache
+        // (series instances, admin edits), so a cached count goes stale.
+        $use_cache = filter_var($atts['cache'], FILTER_VALIDATE_BOOLEAN) && !$include_volunteer_spaces;
         $coming_up_days = max(7, min(90, (int) $atts['coming-up-days']));
         // v3.130 — clamp to 4 to match the admin UI's max
         // and the CSS generator's per-theme grid rules
@@ -201,6 +203,8 @@ class Azure_Upcoming_Module {
             // theme renderer branching.
             'show_image'          => true,
             'date_pill'           => $theme_date_pill,
+            'group_by_day'        => ($theme_def && !empty($theme_def['group_by_day'])),
+            'compact_cards'       => ($theme_def && !empty($theme_def['compact_cards'])),
             'show_location_badge' => $theme_show_loc_badge,
             'badge_in_person_text'=> $theme_badge_in_person,
             'badge_online_text'   => $theme_badge_online,
@@ -304,7 +308,7 @@ class Azure_Upcoming_Module {
         // calendar URL, "See more on our website" note,
         // copyright line.
         if ($theme_def && !empty($theme_def['footer_html'])) {
-            $output .= '<div class="up-next-footer">' . wp_kses_post((string) $theme_def['footer_html']) . '</div>';
+            $output .= '<div class="up-next-footer">' . make_clickable(wp_kses_post((string) $theme_def['footer_html'])) . '</div>';
         }
 
         if ($outer_active) {
@@ -878,10 +882,16 @@ class Azure_Upcoming_Module {
             return '<p class="upcoming-empty">' . esc_html($empty_message) . '</p>';
         }
 
+        $group_by_day = !empty($options['group_by_day']) && $date_pill === 'left';
+        $compact      = !empty($options['compact_cards']) && $date_pill === 'left';
+        $open_day = null;
+
         $output = '<ul class="upcoming-list">';
 
         foreach ($events as $event) {
             $start = strtotime($event['start_date']);
+            $day_key = date_i18n('Y-m-d', $start);
+            $same_day = $group_by_day && $open_day === $day_key;
 
             // Format date: M/D (e.g., 12/4)
             $date_str = date_i18n('n/j', $start);
@@ -933,33 +943,49 @@ class Azure_Upcoming_Module {
             }
 
             $corner = '';
-            if ($show_location && $is_online && $join_html !== '') {
+            if ($compact) {
+                // Place goes on the meta line under the title; Join stays at the right.
+            } elseif ($show_location && $is_online && $join_html !== '') {
                 $corner = '<div class="upcoming-corner upcoming-join-meeting">' . $join_html . '</div>';
                 $join_html = '';
             } elseif ($place !== '') {
                 $corner = '<div class="upcoming-corner upcoming-place">' . esc_html($place) . '</div>';
             }
 
-            $li_class = 'upcoming-event' . ($thumb_url ? ' has-thumb' : '') . ($corner !== '' ? ' has-corner' : '');
-            $output  .= '<li class="' . esc_attr($li_class) . '">';
+            if (!$same_day) {
+                if ($group_by_day && $open_day !== null) {
+                    $output .= '</div></li>'; // .upcoming-day-events, previous day
+                }
+                if ($group_by_day) {
+                    $li_class = 'upcoming-event upcoming-day' . ($thumb_url ? ' has-thumb' : '');
+                } else {
+                    $li_class = 'upcoming-event' . ($thumb_url ? ' has-thumb' : '') . ($corner !== '' ? ' has-corner' : '');
+                }
+                $output  .= '<li class="' . esc_attr($li_class) . '">';
 
-            // v3.128 — Date pill on the left, BEFORE the thumb
-            // so it occupies the leftmost slot in the flex row.
-            // Always emitted; theme CSS hides it when not
-            // requested.
-            $output .= '<div class="upcoming-date-pill">';
-            $output .= '<span class="upcoming-date-pill-day">' . esc_html($pill_day) . '.</span>';
-            $output .= '<span class="upcoming-date-pill-num">' . esc_html($pill_num) . '</span>';
-            $output .= '</div>';
+                // v3.128 — Date pill on the left, BEFORE the thumb
+                // so it occupies the leftmost slot in the flex row.
+                // Always emitted; theme CSS hides it when not
+                // requested.
+                $output .= '<div class="upcoming-date-pill">';
+                $output .= '<span class="upcoming-date-pill-day">' . esc_html($pill_day) . '.</span>';
+                $output .= '<span class="upcoming-date-pill-num">' . esc_html($pill_num) . '</span>';
+                $output .= '</div>';
 
-            if ($thumb_url) {
-                $output .= '<div class="upcoming-thumb" style="background-image:url(' . esc_url($thumb_url) . ');"></div>';
-            } else {
-                // Render an empty thumb placeholder so themes that
-                // use display:grid can keep alignment consistent.
-                // Themes that hide thumbs via :not(.has-thumb)
-                // suppress it; everything else collapses naturally.
-                $output .= '<div class="upcoming-thumb"></div>';
+                if ($thumb_url) {
+                    $output .= '<div class="upcoming-thumb" style="background-image:url(' . esc_url($thumb_url) . ');"></div>';
+                } else {
+                    // Render an empty thumb placeholder so themes that
+                    // use display:grid can keep alignment consistent.
+                    // Themes that hide thumbs via :not(.has-thumb)
+                    // suppress it; everything else collapses naturally.
+                    $output .= '<div class="upcoming-thumb"></div>';
+                }
+
+                if ($group_by_day) {
+                    $output .= '<div class="upcoming-day-events">';
+                    $open_day = $day_key;
+                }
             }
 
             $output .= '<div class="upcoming-body">';
@@ -975,15 +1001,6 @@ class Azure_Upcoming_Module {
                 $output .= $corner;
             }
 
-            $output .= '<div class="upcoming-body-main">';
-            $output .= '<div class="upcoming-body-copy">';
-            $output .= '<span class="upcoming-date">' . esc_html($date_str) . '</span>';
-            if ($time_str !== '') {
-                $output .= '<span class="upcoming-separator"> – </span>';
-                $output .= '<span class="upcoming-time-only">' . esc_html($time_str) . '</span>';
-            }
-            $output .= '<span class="upcoming-separator"> – </span>';
-
             $spaces_html = '';
             if ($include_spaces && class_exists('Azure_Volunteer_Signup')) {
                 $fill = Azure_Volunteer_Signup::fill_for_event((int) ($event['id'] ?? 0));
@@ -992,16 +1009,39 @@ class Azure_Upcoming_Module {
                 }
             }
 
-            if ($spaces_html !== '') {
-                $output .= '<span class="upcoming-title-row">';
-            }
             if ($link_titles && !empty($event['url'])) {
-                $output .= '<a href="' . esc_url($event['url']) . '" class="upcoming-title">' . esc_html($event['title']) . '</a>';
+                $title_html = '<a href="' . esc_url($event['url']) . '" class="upcoming-title">' . esc_html($event['title']) . '</a>';
             } else {
-                $output .= '<span class="upcoming-title">' . esc_html($event['title']) . '</span>';
+                $title_html = '<span class="upcoming-title">' . esc_html($event['title']) . '</span>';
             }
             if ($spaces_html !== '') {
-                $output .= $spaces_html . '</span>';
+                $title_html = '<span class="upcoming-title-row">' . $title_html . $spaces_html . '</span>';
+            }
+
+            $output .= '<div class="upcoming-body-main">';
+            $output .= '<div class="upcoming-body-copy">';
+            if ($compact) {
+                $output .= $title_html;
+                $meta = array();
+                if ($time_str !== '') {
+                    $meta[] = '<span class="upcoming-time-only">' . esc_html($time_str) . '</span>';
+                }
+                if ($place !== '') {
+                    $meta[] = '<span class="upcoming-meta-place">' . esc_html($place) . '</span>';
+                }
+                if ($meta) {
+                    $output .= '<span class="upcoming-meta-line">'
+                        . implode('<span class="upcoming-meta-sep"> · </span>', $meta)
+                        . '</span>';
+                }
+            } else {
+                $output .= '<span class="upcoming-date">' . esc_html($date_str) . '</span>';
+                if ($time_str !== '') {
+                    $output .= '<span class="upcoming-separator"> – </span>';
+                    $output .= '<span class="upcoming-time-only">' . esc_html($time_str) . '</span>';
+                }
+                $output .= '<span class="upcoming-separator"> – </span>';
+                $output .= $title_html;
             }
             $output .= '</div>'; // .upcoming-body-copy
 
@@ -1011,7 +1051,12 @@ class Azure_Upcoming_Module {
 
             $output .= '</div>'; // .upcoming-body-main
             $output .= '</div>'; // .upcoming-body
-            $output .= '</li>';
+            if (!$group_by_day) {
+                $output .= '</li>';
+            }
+        }
+        if ($group_by_day && $open_day !== null) {
+            $output .= '</div></li>'; // .upcoming-day-events, last day
         }
 
         $output .= '</ul>';

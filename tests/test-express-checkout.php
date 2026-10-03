@@ -18,6 +18,12 @@ $t = new TestRunner('Express checkout wallets');
 $t->equals(true, Azure_Express_Checkout::hide_product_page_wallets(true), 'required fields hide product-page Apple/Google/Amazon Pay');
 $t->equals(false, Azure_Express_Checkout::hide_product_page_wallets(false), 'products without required fields keep product-page wallets');
 
+$t->equals(true, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, true, 'staff'), 'Stripe 10.9 hook hides wallets on the Staff Membership page');
+$t->equals(false, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, false, 'staff'), 'staff product without required fields keeps wallets');
+$t->equals(false, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, true, 'family'), 'family not in the staged rollout yet');
+$t->equals(false, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, true, ''), 'non-membership products not in the staged rollout yet');
+$t->equals(true, Azure_Express_Checkout::hide_stripe_product_page_wallet(true, false, ''), 'an existing hide decision from Stripe settings is kept');
+
 $t->equals(true, Azure_Express_Checkout::keep_zero_fulfillment_for_types(array('staff')), 'staff membership keeps Free shipping for any wallet address');
 $t->equals(true, Azure_Express_Checkout::keep_zero_fulfillment_for_types(array('family')), 'family membership keeps Free shipping');
 $t->equals(true, Azure_Express_Checkout::keep_zero_fulfillment_for_types(array('individual')), 'individual membership keeps Free shipping');

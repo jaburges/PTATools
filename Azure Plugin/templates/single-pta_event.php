@@ -64,7 +64,7 @@ while (have_posts()) :
         </p>
 
         <?php if ($hero_image_url) : ?>
-            <div class="pta-event-hero">
+            <div class="pta-event-hero<?php echo Azure_Event_CPT::thumbnail_is_portrait($post_id) ? ' is-portrait' : ''; ?>">
                 <img src="<?php echo esc_url($hero_image_url); ?>"
                      alt="<?php echo esc_attr(get_the_title($post_id)); ?>"
                      loading="lazy" />

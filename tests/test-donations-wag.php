@@ -25,17 +25,17 @@ WP_Shim::reset();
 
 $defaults = Azure_Donations_Module::default_wag_levels();
 $t->equals(3, count($defaults), 'three default levels');
-$t->equals('Pack Leader', $defaults[0]['name'], 'first default name');
+$t->equals('Champion', $defaults[0]['name'], 'first default name');
 $t->equals(250.0, (float) $defaults[1]['amount'], 'second default amount');
 
 $empty = Azure_Donations_Module::sanitize_wag_levels(null);
 $t->equals(3, count($empty), 'null input still yields three rows');
-$t->equals('Positive Paw', $empty[2]['name'], 'missing rows fall back to defaults');
+$t->equals('Friend', $empty[2]['name'], 'missing rows fall back to defaults');
 
 $dirty = Azure_Donations_Module::sanitize_wag_levels(array(
     array(
         'amount'       => '500.4',
-        'name'         => '<b>Pack Leader</b>',
+        'name'         => '<b>Champion</b>',
         'suffix'       => 'per student',
         'product_id'   => '42',
         'variation_id' => '-9',
@@ -47,13 +47,13 @@ $dirty = Azure_Donations_Module::sanitize_wag_levels(array(
     ),
 ));
 $t->equals(500.4, $dirty[0]['amount'], 'amount is rounded float');
-$t->equals('Pack Leader', $dirty[0]['name'], 'name strips tags');
+$t->equals('Champion', $dirty[0]['name'], 'name strips tags');
 $t->equals(42, $dirty[0]['product_id'], 'product id is int');
 $t->equals(0, $dirty[0]['variation_id'], 'negative variation id clamps to 0');
 $t->equals(0, $dirty[1]['amount'], 'negative amount clamps to 0');
-$t->equals('Helpful Howler', $dirty[1]['name'], 'empty name uses default for that slot');
+$t->equals('Supporter', $dirty[1]['name'], 'empty name uses default for that slot');
 $t->equals(7, $dirty[1]['product_id'], 'second row product id kept');
-$t->equals('Positive Paw', $dirty[2]['name'], 'third row filled from defaults');
+$t->equals('Friend', $dirty[2]['name'], 'third row filled from defaults');
 
 $t->equals('#0B2545', Azure_Donations_Module::sanitize_wag_color('not-a-color', '#0B2545'), 'invalid color uses fallback');
 $t->equals('#112233', Azure_Donations_Module::sanitize_wag_color('#112233', '#000000'), 'valid 6-digit hex kept');
@@ -64,14 +64,14 @@ $t->equals('$12.50', Azure_Donations_Module::format_wag_amount(12.5), 'fractiona
 
 WP_Shim::$settings['org_name'] = 'Example PTA';
 $t->equals(
-    'Fund the Example PTA budget and help us reach our $40,000 goal for our kids.',
+    'Help fund the Example PTA budget for our kids.',
     Azure_Donations_Module::default_wag_heading(),
     'heading uses org_name'
 );
 
 WP_Shim::reset();
 $t->equals(
-    'Fund the Test Site budget and help us reach our $40,000 goal for our kids.',
+    'Help fund the Test Site budget for our kids.',
     Azure_Donations_Module::default_wag_heading(),
     'heading falls back to site title'
 );
@@ -88,7 +88,7 @@ $t->check(!Azure_Donations_Module::wag_progress_enabled(), 'progress bar hidden 
 $t->equals('', Azure_Donations_Module::wag_level_url(array('product_id' => 0, 'variation_id' => 0)), 'unmapped level has no url');
 
 WP_Shim::$settings['donations_wag_levels'] = Azure_Donations_Module::sanitize_wag_levels(array(
-    array('amount' => 500, 'name' => 'Pack Leader', 'suffix' => 'per student', 'product_id' => 10, 'variation_id' => 99),
+    array('amount' => 500, 'name' => 'Champion', 'suffix' => 'per student', 'product_id' => 10, 'variation_id' => 99),
     array('amount' => 250, 'name' => 'Howler', 'suffix' => 'per student', 'product_id' => 10, 'variation_id' => 88),
     array('amount' => 150, 'name' => 'Paw', 'suffix' => 'per student', 'product_id' => 22, 'variation_id' => 0),
 ));
@@ -100,7 +100,9 @@ $ids = Azure_Donations_Module::wag_mapped_ids();
 $t->check(in_array(99, $ids['variations'], true), 'mapped variation id is listed');
 $t->check(in_array(10, $ids['products'], true), 'mapped parent is listed even when variations are set');
 
-$t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('WAG'), 'WAG alias');
+$t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('giving-levels'), 'giving-levels alias');
+$t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('Giving Levels'), 'giving levels alias ignores case and spacing');
+$t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('WAG'), 'legacy WAG alias');
 $t->equals(array('type' => 'wag'), Azure_Donations_Module::normalize_progress_campaign_attr('donation-items'), 'donation-items alias');
 $t->equals(array('type' => 'id', 'id' => 7), Azure_Donations_Module::normalize_progress_campaign_attr('7'), 'numeric campaign id');
 $t->equals(array('type' => 'name', 'name' => 'Spring Drive'), Azure_Donations_Module::normalize_progress_campaign_attr('Spring Drive'), 'campaign name');
@@ -115,7 +117,7 @@ $t->equals(5.0, Azure_Donations_Module::custom_amount_min(), 'typed custom amoun
 $t->check(Azure_Donations_Module::is_custom_amount_label('Custom'), 'Custom label matches');
 $t->check(Azure_Donations_Module::is_custom_amount_label('custom amount'), 'custom amount label matches');
 $t->check(Azure_Donations_Module::is_custom_amount_label('CUSTOM'), 'CUSTOM label matches');
-$t->check(!Azure_Donations_Module::is_custom_amount_label('Pack Leader'), 'named level is not custom');
+$t->check(!Azure_Donations_Module::is_custom_amount_label('Champion'), 'named level is not custom');
 $t->check(!Azure_Donations_Module::is_custom_amount_label('Customer'), 'Customer does not match Custom');
 
 $t->equals(5.0, Azure_Donations_Module::sanitize_custom_donation_amount('5'), 'minimum $5 is accepted');

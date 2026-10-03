@@ -363,6 +363,12 @@ class Azure_Calendar_Sync_Engine {
         foreach ($write_types as $post_type) {
             $deleted += $this->prune_deleted_events($calendar_id, $seen_ids, $start_date, $end_date, $post_type);
         }
+        if (class_exists('Azure_Volunteer_Signup')) {
+            $orphans = Azure_Volunteer_Signup::purge_orphan_sheets();
+            if ($orphans) {
+                Azure_Logger::info("Calendar Sync Engine: deleted {$orphans} sign-up sheet(s) whose event was removed", 'Calendar');
+            }
+        }
 
         Azure_Logger::info(
             "Calendar Sync Engine: {$calendar_id} done. synced={$synced}, deleted={$deleted}, errors={$errors}",

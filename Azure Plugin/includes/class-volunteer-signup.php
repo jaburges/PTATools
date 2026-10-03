@@ -49,8 +49,10 @@ class Azure_Volunteer_Signup {
         add_action('wp_ajax_azure_volunteer_save_sheet', array($this, 'ajax_save_sheet'));
         add_action('wp_ajax_azure_volunteer_delete_sheet', array($this, 'ajax_delete_sheet'));
         add_action('wp_ajax_azure_volunteer_get_sheet', array($this, 'ajax_get_sheet'));
+        add_action('wp_ajax_azure_volunteer_series_preview', array($this, 'ajax_series_preview'));
 
         add_action('wp_trash_post', array($this, 'on_event_trashed'));
+        add_action('before_delete_post', array($this, 'on_event_trashed'));
         add_action('untrashed_post', array($this, 'on_event_untrashed'));
 
         // Frontend AJAX (logged-in users)
@@ -585,12 +587,81 @@ class Azure_Volunteer_Signup {
         }
     }
 
+    /**
+     * A deleted event takes its sign-up sheets with it. An event that is
+     * only changed keeps them. Series templates are not tied to one event
+     * and stay.
+     */
     public function on_event_trashed($post_id) {
         $post_id = (int) $post_id;
         if (!$post_id || !function_exists('get_post_type') || get_post_type($post_id) !== 'pta_event') {
             return;
         }
-        self::set_instance_status_for_event($post_id, 'trashed');
+        self::delete_sheets_for_event($post_id);
+    }
+
+    /**
+     * @param int $event_id
+     * @return int Sheets deleted.
+     */
+    public static function delete_sheets_for_event($event_id) {
+        global $wpdb;
+        $event_id = (int) $event_id;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t || $event_id <= 0) {
+            return 0;
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, pta_event_id, is_template FROM {$t} WHERE pta_event_id = %d",
+            $event_id
+        ));
+        $deleted = 0;
+        foreach ((array) $rows as $row) {
+            if (!is_object($row) || (int) ($row->pta_event_id ?? 0) !== $event_id || !empty($row->is_template)) {
+                continue;
+            }
+            self::delete_one_sheet((int) $row->id);
+            $deleted++;
+        }
+        if ($deleted && class_exists('Azure_Upcoming_Module')) {
+            Azure_Upcoming_Module::invalidate_cache();
+        }
+        return $deleted;
+    }
+
+    /**
+     * Remove dated sheets whose event no longer exists or is in the trash.
+     * Catches events removed before sheets were deleted with them.
+     *
+     * @return int Sheets deleted.
+     */
+    public static function purge_orphan_sheets() {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t || !function_exists('get_post_status')) {
+            return 0;
+        }
+        $rows = $wpdb->get_results("SELECT id, pta_event_id, is_template FROM {$t} WHERE is_template = 0 AND pta_event_id > 0");
+        $deleted = 0;
+        foreach ((array) $rows as $row) {
+            if (!is_object($row) || !empty($row->is_template)) {
+                continue;
+            }
+            $event_id = (int) ($row->pta_event_id ?? 0);
+            if ($event_id <= 0) {
+                continue;
+            }
+            $status = get_post_status($event_id);
+            if ($status !== false && $status !== 'trash') {
+                continue;
+            }
+            self::delete_one_sheet((int) $row->id);
+            $deleted++;
+        }
+        if ($deleted && class_exists('Azure_Upcoming_Module')) {
+            Azure_Upcoming_Module::invalidate_cache();
+        }
+        return $deleted;
     }
 
     public function on_event_untrashed($post_id) {
@@ -777,6 +848,348 @@ class Azure_Volunteer_Signup {
         }
     }
 
+    /**
+     * Activities on one sheet. Filters in PHP because the test database
+     * returns every row from the table.
+     *
+     * @param int $sheet_id
+     * @return object[]
+     */
+    public static function activities_for_sheet($sheet_id) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_activities');
+        $sheet_id = (int) $sheet_id;
+        if (!$t || $sheet_id <= 0) {
+            return array();
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$t} WHERE sheet_id = %d ORDER BY sort_order ASC, id ASC",
+            $sheet_id
+        ));
+        $out = array();
+        foreach ((array) $rows as $row) {
+            if (is_object($row) && (int) ($row->sheet_id ?? 0) === $sheet_id) {
+                $out[] = $row;
+            }
+        }
+        usort($out, function ($a, $b) {
+            $order = ((int) ($a->sort_order ?? 0)) <=> ((int) ($b->sort_order ?? 0));
+            return $order !== 0 ? $order : ((int) $a->id <=> (int) $b->id);
+        });
+        return $out;
+    }
+
+    /**
+     * Every dated sheet copied from a template, plus the template itself.
+     *
+     * @param object $sheet
+     * @return int[]
+     */
+    public static function series_sheet_ids($sheet) {
+        global $wpdb;
+        if (!is_object($sheet)) {
+            return array();
+        }
+        $template_id = !empty($sheet->is_template) ? (int) $sheet->id : (int) ($sheet->template_id ?? 0);
+        if ($template_id <= 0) {
+            return array((int) $sheet->id);
+        }
+        $ids = array($template_id);
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t) {
+            return $ids;
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, template_id, is_template FROM {$t} WHERE template_id = %d",
+            $template_id
+        ));
+        foreach ((array) $rows as $row) {
+            if (!is_object($row) || (int) ($row->template_id ?? 0) !== $template_id) {
+                continue;
+            }
+            $ids[] = (int) $row->id;
+        }
+        $ids = array_values(array_unique(array_filter($ids)));
+        return $ids;
+    }
+
+    /**
+     * Remove one sheet, its activities, and the signups on those activities.
+     *
+     * @param int $sheet_id
+     */
+    public static function delete_one_sheet($sheet_id) {
+        global $wpdb;
+        $sheet_id = (int) $sheet_id;
+        if ($sheet_id <= 0) {
+            return;
+        }
+        $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        $signups_t = Azure_Database::get_table_name('volunteer_signups');
+        $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
+        foreach (self::activities_for_sheet($sheet_id) as $activity) {
+            $wpdb->delete($signups_t, array('activity_id' => (int) $activity->id));
+            $wpdb->delete($activities_t, array('id' => (int) $activity->id));
+        }
+        if ($sheets_t) {
+            $wpdb->delete($sheets_t, array('id' => $sheet_id));
+        }
+    }
+
+    /**
+     * Delete a template and every dated sheet copied from it.
+     * A sheet that is not part of a series deletes only itself.
+     *
+     * @param int $sheet_id
+     * @return int
+     */
+    public static function delete_series($sheet_id) {
+        $sheet = self::get_sheet($sheet_id);
+        if (!$sheet) {
+            return 0;
+        }
+        $ids = self::series_sheet_ids($sheet);
+        foreach ($ids as $id) {
+            self::delete_one_sheet($id);
+        }
+        return count($ids);
+    }
+
+    /**
+     * Copy a template's details onto every dated sheet in the series.
+     * Signups stay on an activity whose name is unchanged. Removed
+     * activities take their signups with them. Each date keeps its own
+     * event and its own event date.
+     *
+     * @param object $source Saved template, or one instance when the series template is gone.
+     * @return int Instances overwritten.
+     */
+    public static function overwrite_series_instances($source) {
+        global $wpdb;
+        if (!is_object($source)) {
+            return 0;
+        }
+        $source_id = (int) ($source->id ?? 0);
+        $template_id = !empty($source->is_template) ? $source_id : (int) ($source->template_id ?? 0);
+        if ($source_id <= 0 || $template_id <= 0) {
+            return 0;
+        }
+        $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$sheets_t) {
+            return 0;
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$sheets_t} WHERE template_id = %d",
+            $template_id
+        ));
+        $source_acts = self::activities_for_sheet($source_id);
+        $count = 0;
+        foreach ((array) $rows as $row) {
+            if (!is_object($row) || (int) ($row->template_id ?? 0) !== $template_id) {
+                continue;
+            }
+            if (!empty($row->is_template) || (int) $row->id === $source_id) {
+                continue;
+            }
+            if ((string) ($row->status ?? '') === 'trashed') {
+                continue;
+            }
+            $wpdb->update($sheets_t, array(
+                'title'          => (string) ($source->title ?? ''),
+                'description'    => (string) ($source->description ?? ''),
+                'event_location' => (string) ($source->event_location ?? ''),
+                'grade'          => (string) ($source->grade ?? ''),
+                'teacher'        => (string) ($source->teacher ?? ''),
+                'status'         => ($source->status ?? 'open') === 'closed' ? 'closed' : 'open',
+            ), array('id' => (int) $row->id));
+            self::sync_activities_onto_sheet($source_acts, $row);
+            $count++;
+        }
+        return $count;
+    }
+
+    /**
+     * @param object[] $source_acts
+     * @param object   $target Sheet that keeps its own event date.
+     */
+    public static function sync_activities_onto_sheet($source_acts, $target) {
+        global $wpdb;
+        $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        $signups_t = Azure_Database::get_table_name('volunteer_signups');
+        $target_id = (int) ($target->id ?? 0);
+        if (!$activities_t || !$target_id) {
+            return;
+        }
+        $event_date = (string) ($target->event_date ?? '');
+        $existing = self::activities_for_sheet($target_id);
+        $used = array();
+        $keep = array();
+        foreach ((array) $source_acts as $i => $src) {
+            if (!is_object($src)) {
+                continue;
+            }
+            $match = null;
+            foreach ($existing as $ex) {
+                $ex_id = (int) $ex->id;
+                if (isset($used[$ex_id])) {
+                    continue;
+                }
+                if ((string) ($ex->name ?? '') === (string) ($src->name ?? '')) {
+                    $match = $ex;
+                    $used[$ex_id] = true;
+                    break;
+                }
+            }
+            $slot_start = self::redate_slot_to_event((string) ($src->slot_start ?? ''), $event_date);
+            $slot_end = self::redate_slot_to_event((string) ($src->slot_end ?? ''), $event_date);
+            $data = array(
+                'name'         => (string) ($src->name ?? ''),
+                'description'  => (string) ($src->description ?? ''),
+                'spots_needed' => max(1, (int) ($src->spots_needed ?? 1)),
+                'slot_start'   => $slot_start !== '' ? $slot_start : null,
+                'slot_end'     => $slot_end !== '' ? $slot_end : null,
+                'sort_order'   => $i,
+            );
+            if ($match) {
+                $wpdb->update($activities_t, $data, array('id' => (int) $match->id));
+                $keep[] = (int) $match->id;
+            } else {
+                $data['sheet_id'] = $target_id;
+                $wpdb->insert($activities_t, $data);
+                $keep[] = (int) $wpdb->insert_id;
+            }
+        }
+        foreach ($existing as $ex) {
+            $ex_id = (int) $ex->id;
+            if (in_array($ex_id, $keep, true)) {
+                continue;
+            }
+            if ($signups_t) {
+                $wpdb->delete($signups_t, array('activity_id' => $ex_id));
+            }
+            $wpdb->delete($activities_t, array('id' => $ex_id));
+        }
+    }
+
+    /**
+     * Dated sheets copied from one template.
+     *
+     * @param int $template_id
+     * @return object[]
+     */
+    public static function instances_for_template($template_id) {
+        global $wpdb;
+        $template_id = (int) $template_id;
+        $t = Azure_Database::get_table_name('volunteer_sheets');
+        if (!$t || $template_id <= 0) {
+            return array();
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$t} WHERE template_id = %d AND is_template = 0",
+            $template_id
+        ));
+        $out = array();
+        foreach ((array) $rows as $row) {
+            if (is_object($row) && (int) ($row->template_id ?? 0) === $template_id && empty($row->is_template)) {
+                $out[] = $row;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Upcoming dates in the series versus upcoming dates with a sheet.
+     *
+     * @param object      $template
+     * @param string|null $today Y-m-d
+     * @return array{in_series:int,with_sheet:int,missing:int}
+     */
+    public static function series_health($template, $today = null) {
+        $today = $today ?: (function_exists('current_time') ? current_time('Y-m-d') : date('Y-m-d'));
+        $in_series = 0;
+        $upcoming = array();
+        foreach (self::find_event_ids_for_series_key((string) ($template->series_key ?? '')) as $event_id) {
+            $day = substr((string) get_post_meta((int) $event_id, '_EventStartDate', true), 0, 10);
+            if ($day !== '' && $day >= $today) {
+                $in_series++;
+                $upcoming[(int) $event_id] = true;
+            }
+        }
+        $with_sheet = 0;
+        foreach (self::instances_for_template((int) ($template->id ?? 0)) as $sheet) {
+            if (isset($upcoming[(int) ($sheet->pta_event_id ?? 0)])) {
+                $with_sheet++;
+            }
+        }
+        return array(
+            'in_series'  => $in_series,
+            'with_sheet' => $with_sheet,
+            'missing'    => max(0, $in_series - $with_sheet),
+        );
+    }
+
+    /**
+     * What linking a template to a series would change.
+     *
+     * @param object $template
+     * @param string $series_key
+     * @return array{add:int[],remove:int[],keep:int[],signups:int}
+     */
+    public static function plan_series_reconnect($template, $series_key) {
+        $wanted = array();
+        foreach (self::find_event_ids_for_series_key((string) $series_key) as $event_id) {
+            $wanted[(int) $event_id] = true;
+        }
+        $have = array();
+        $remove = array();
+        $keep = array();
+        $signups = 0;
+        foreach (self::instances_for_template((int) ($template->id ?? 0)) as $sheet) {
+            $event_id = (int) ($sheet->pta_event_id ?? 0);
+            if ($event_id > 0 && isset($wanted[$event_id]) && !isset($have[$event_id]) && (string) ($sheet->status ?? '') !== 'trashed') {
+                $have[$event_id] = true;
+                $keep[] = (int) $sheet->id;
+                continue;
+            }
+            $remove[] = (int) $sheet->id;
+            foreach (self::activities_for_sheet((int) $sheet->id) as $activity) {
+                foreach (self::get_signups_for_activity((int) $activity->id) as $signup) {
+                    if (is_object($signup) && (int) ($signup->activity_id ?? 0) === (int) $activity->id) {
+                        $signups++;
+                    }
+                }
+            }
+        }
+        $add = array();
+        foreach (array_keys($wanted) as $event_id) {
+            if (!isset($have[$event_id])) {
+                $add[] = (int) $event_id;
+            }
+        }
+        return array('add' => $add, 'remove' => $remove, 'keep' => $keep, 'signups' => $signups);
+    }
+
+    /**
+     * Point a template at its current series: add sheets for events in the
+     * series and delete sheets for events that are not.
+     *
+     * @param object $template
+     * @return array{added:int,removed:int,signups:int}
+     */
+    public static function reconnect_series($template) {
+        $plan = self::plan_series_reconnect($template, (string) ($template->series_key ?? ''));
+        foreach ($plan['remove'] as $sheet_id) {
+            self::delete_one_sheet($sheet_id);
+        }
+        $added = 0;
+        foreach ($plan['add'] as $event_id) {
+            if (self::ensure_instance_for_event($template, $event_id)) {
+                $added++;
+            }
+        }
+        return array('added' => $added, 'removed' => count($plan['remove']), 'signups' => (int) $plan['signups']);
+    }
+
     public static function apply_template_to_matching_events($template) {
         $created = 0;
         $event_ids = self::find_event_ids_for_series_key((string) ($template->series_key ?? ''));
@@ -804,6 +1217,9 @@ class Azure_Volunteer_Signup {
             'fields'         => 'ids',
             'no_found_rows'  => true,
         ));
+        if ($ids && function_exists('update_meta_cache')) {
+            update_meta_cache('post', $ids);
+        }
         $matched = array();
         foreach ($ids as $id) {
             $id = (int) $id;
@@ -1542,6 +1958,43 @@ class Azure_Volunteer_Signup {
     }
 
     /**
+     * Event name shown before the role on a signup row, e.g. "Example Signup"
+     * for the event "Example Signup - Math Adventures" under the Math Adventures
+     * group. Dash-separated parts that repeat the group are dropped; '' means
+     * the event adds nothing beyond the group.
+     *
+     * @param string $group       Group heading ('' when the list is not grouped).
+     * @param string $event_title Linked event title.
+     * @param string $sheet_title Sheet title, used when there is no event.
+     * @return string
+     */
+    public static function opportunity_event_label($group, $event_title, $sheet_title = '') {
+        $group = trim((string) $group);
+        $source = trim((string) $event_title);
+        if ($source === '') {
+            $source = trim((string) $sheet_title);
+        }
+        if ($source === '') {
+            return '';
+        }
+        if ($group === '') {
+            return $source;
+        }
+        $parts = preg_split('/\s+[\x{2013}\x{2014}-]\s+/u', $source);
+        $keep = array();
+        foreach ((array) $parts as $part) {
+            $part = trim((string) $part);
+            if ($part !== '' && strcasecmp($part, $group) !== 0) {
+                $keep[] = $part;
+            }
+        }
+        if ($keep || trim((string) $event_title) === '') {
+            return implode(' - ', $keep);
+        }
+        return self::opportunity_event_label($group, '', $sheet_title);
+    }
+
+    /**
      * @param object $sheet
      * @return bool
      */
@@ -1900,28 +2353,67 @@ class Azure_Volunteer_Signup {
         }
 
         $instances = 0;
+        $reconnect = null;
         if ($make_template) {
             $template = self::get_sheet($sheet_id);
-            if ($template) {
+            $old_key = ($existing_sheet && !empty($existing_sheet->is_template)) ? (string) ($existing_sheet->series_key ?? '') : '';
+            if ($template && $existing_sheet && $old_key !== (string) ($template->series_key ?? '')) {
+                $reconnect = self::reconnect_series($template);
+                $instances = (int) $reconnect['added'];
+            } elseif ($template) {
                 $instances = (int) self::apply_template_to_matching_events($template);
                 if (!$instances) {
                     $instances = self::ensure_instance_for_event($template, $event_id) ? 1 : 0;
                 }
             }
         }
-        if ($make_template || ($existing_sheet && !empty($existing_sheet->is_template))) {
+        $saved = self::get_sheet($sheet_id);
+        $apply_series = !empty($_POST['apply_to_series']);
+        if ($saved && !empty($saved->is_template)) {
             self::sync_audience_to_instances($sheet_id, $grade, $teacher);
+            self::overwrite_series_instances($saved);
+        } elseif ($saved && $apply_series && !empty($saved->template_id)) {
+            self::overwrite_series_instances($saved);
         }
 
         $payload = array(
             'sheet_id'  => $sheet_id,
             'instances' => $instances,
         );
-        if ($make_template && $instances === 0) {
+        if ($reconnect !== null) {
+            $payload['reconnect'] = $reconnect;
+        } elseif ($make_template && $instances === 0) {
             $payload['warning'] = 'The template was saved, but it could not be copied onto the events in that series.';
         }
         $this->touch_upcoming_cache();
         wp_send_json_success($payload);
+    }
+
+    /**
+     * Counts for the reconnect confirm: what picking a series would add and remove.
+     */
+    public function ajax_series_preview() {
+        check_ajax_referer('azure_plugin_nonce', 'nonce');
+        if (!self::user_can_manage_sheets()) {
+            wp_send_json_error('Permission denied.');
+        }
+        $template = self::get_sheet(absint($_POST['sheet_id'] ?? 0));
+        $event_id = absint($_POST['pta_event_id'] ?? 0);
+        if (!$template || empty($template->is_template) || !$event_id) {
+            wp_send_json_error('Pick a series.');
+        }
+        $key = self::series_key_for_event($event_id);
+        if ($key === '') {
+            wp_send_json_error('That event is not part of a synced series.');
+        }
+        $plan = self::plan_series_reconnect($template, $key);
+        wp_send_json_success(array(
+            'changed' => $key !== (string) ($template->series_key ?? ''),
+            'add'     => count($plan['add']),
+            'remove'  => count($plan['remove']),
+            'keep'    => count($plan['keep']),
+            'signups' => (int) $plan['signups'],
+        ));
     }
 
     public function ajax_delete_sheet() {
@@ -1930,22 +2422,16 @@ class Azure_Volunteer_Signup {
             wp_send_json_error('Permission denied.');
         }
 
-        global $wpdb;
         $sheet_id = absint($_POST['sheet_id'] ?? 0);
         if (!$sheet_id) {
             wp_send_json_error('Invalid sheet.');
         }
 
-        $activities_t = Azure_Database::get_table_name('volunteer_activities');
-        $signups_t    = Azure_Database::get_table_name('volunteer_signups');
-        $sheets_t     = Azure_Database::get_table_name('volunteer_sheets');
-
-        $act_ids = $wpdb->get_col($wpdb->prepare("SELECT id FROM {$activities_t} WHERE sheet_id = %d", $sheet_id));
-        foreach ($act_ids as $aid) {
-            $wpdb->delete($signups_t, array('activity_id' => $aid));
+        if (!empty($_POST['series'])) {
+            self::delete_series($sheet_id);
+        } else {
+            self::delete_one_sheet($sheet_id);
         }
-        $wpdb->delete($activities_t, array('sheet_id' => $sheet_id));
-        $wpdb->delete($sheets_t, array('id' => $sheet_id));
         $this->touch_upcoming_cache();
 
         wp_send_json_success();
@@ -2087,7 +2573,7 @@ class Azure_Volunteer_Signup {
         echo '<h2 class="pta-event-section">' . esc_html__('Volunteer Sign Up', 'azure-plugin') . '</h2>';
         foreach ($sheets as $sheet) {
             if (function_exists('current_user_can') && self::user_can_manage_sheets()) {
-                $edit = admin_url('admin.php?page=azure-plugin-calendar&tab=volunteer&edit_sheet=' . (int) $sheet->id);
+                $edit = admin_url('admin.php?page=azure-plugin-volunteer&edit_sheet=' . (int) $sheet->id);
                 echo '<p class="azure-vs-admin-edit"><a href="' . esc_url($edit) . '">' . esc_html__('Edit this event’s sign-up sheet', 'azure-plugin') . '</a></p>';
             }
             $self->render_frontend($sheet, self::get_activities($sheet->id), $user_id);
@@ -2351,7 +2837,7 @@ class Azure_Volunteer_Signup {
 
         $redirect = wp_get_referer();
         if (!$redirect) {
-            $redirect = admin_url('admin.php?page=azure-plugin-calendar&tab=volunteer');
+            $redirect = admin_url('admin.php?page=azure-plugin-volunteer');
         }
         wp_safe_redirect(add_query_arg('volunteer_reminder', 'saved', $redirect));
         exit;

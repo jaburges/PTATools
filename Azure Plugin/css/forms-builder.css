@@ -1,0 +1,417 @@
+/* Communications > Forms admin */
+
+.azure-forms-admin .nav-tab-wrapper {
+    margin-bottom: 16px;
+}
+
+.azure-forms-list code {
+    font-size: 12px;
+}
+
+.azure-forms-list .column-status,
+.azure-forms-list .column-entries {
+    width: 120px;
+}
+
+.azure-forms-list .column-date {
+    width: 130px;
+}
+
+.azure-forms-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #f0f0f1;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.azure-forms-status.status-open {
+    background: #edfaef;
+    color: #00702a;
+}
+
+.azure-forms-status.status-closed {
+    background: #fcf0f1;
+    color: #8a2424;
+}
+
+.azure-forms-badge {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 7px;
+    border-radius: 9px;
+    background: #d63638;
+    color: #fff;
+    font-size: 11px;
+    line-height: 18px;
+}
+
+/* Builder */
+
+.azure-forms-topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 12px 0;
+}
+
+.azure-forms-title {
+    flex: 1 1 320px;
+    min-width: 240px;
+    padding: 6px 10px !important;
+    font-size: 20px !important;
+}
+
+.azure-forms-save-state {
+    color: #646970;
+}
+
+.azure-forms-shortcode-wrap code {
+    padding: 4px 8px;
+}
+
+.azure-forms-tabs .nav-tab {
+    cursor: pointer;
+    background: #dcdcde;
+    border-bottom: 0;
+}
+
+.azure-forms-tabs .nav-tab-active {
+    background: #f0f0f1;
+}
+
+.azure-forms-columns {
+    display: grid;
+    grid-template-columns: 200px minmax(320px, 1fr) 320px;
+    gap: 16px;
+    align-items: start;
+}
+
+@media (max-width: 1100px) {
+    .azure-forms-columns {
+        grid-template-columns: 1fr;
+    }
+}
+
+.azure-forms-palette,
+.azure-forms-inspector,
+.azure-forms-canvas-wrap {
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.azure-forms-palette h3,
+.azure-forms-inspector h3 {
+    margin-top: 0;
+}
+
+.azure-forms-palette-list {
+    margin: 0;
+}
+
+.azure-forms-palette-list li {
+    margin: 0 0 6px;
+}
+
+.azure-forms-palette-item {
+    width: 100%;
+    text-align: left !important;
+    cursor: grab;
+}
+
+.azure-forms-canvas-wrap {
+    min-height: 200px;
+}
+
+.azure-forms-inspector {
+    position: sticky;
+    top: 40px;
+}
+
+.azure-forms-canvas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 80px;
+    margin: 0;
+}
+
+.azure-forms-canvas > .azure-forms-palette-item {
+    flex: 1 1 100%;
+}
+
+.afb-card {
+    flex: 1 1 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 12px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.afb-card--half {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+}
+
+.afb-card:hover {
+    border-color: #8c8f94;
+}
+
+.afb-card.is-selected {
+    background: #f0f6fc;
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+
+.afb-card:focus {
+    outline: 2px solid #2271b1;
+    outline-offset: 1px;
+}
+
+.afb-handle {
+    color: #8c8f94;
+    cursor: grab;
+}
+
+.afb-card-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.afb-label {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.afb-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+    color: #646970;
+    font-size: 12px;
+}
+
+.afb-badge {
+    padding: 0 6px;
+    border-radius: 8px;
+    background: #dcdcde;
+}
+
+.afb-badge--req {
+    background: #fcf0f1;
+    color: #8a2424;
+}
+
+.afb-name {
+    padding: 0 4px;
+    font-size: 11px;
+}
+
+.afb-card-actions .button-link {
+    color: #646970;
+}
+
+.afb-card-actions .button-link:hover {
+    color: #2271b1;
+}
+
+.afb-card-actions .afb-del:hover {
+    color: #b32d2e;
+}
+
+.afb-placeholder {
+    flex: 1 1 100%;
+    height: 48px;
+    border: 2px dashed #2271b1;
+    border-radius: 4px;
+    background: #f0f6fc;
+}
+
+.azure-forms-empty {
+    color: #646970;
+}
+
+.afb-row {
+    margin: 0 0 12px;
+}
+
+.afb-row > label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.afb-name-warn {
+    display: block;
+    margin-top: 4px;
+    color: #b32d2e;
+}
+
+.azure-forms-preview-box {
+    max-width: 760px;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+/* Entries */
+
+.azure-forms-entries-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 8px 0;
+}
+
+.azure-forms-entries-bar .subsubsub {
+    margin: 0;
+}
+
+.azure-forms-entries .column-date {
+    width: 190px;
+}
+
+.azure-forms-entries .column-actions {
+    width: 200px;
+}
+
+.azure-forms-entries tr.status-new td {
+    font-weight: 600;
+}
+
+.azure-forms-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 4px;
+    border-radius: 50%;
+    background: #2271b1;
+}
+
+.azure-forms-entry-table th {
+    width: 30%;
+}
+
+.azure-forms-focus-entry {
+    max-width: 900px;
+    margin: 12px 0 20px;
+    padding: 12px 16px;
+    background: #fff;
+    border-left: 4px solid #2271b1;
+}
+
+/* Themes */
+
+.azure-forms-themes {
+    display: grid;
+    grid-template-columns: 240px 360px minmax(320px, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+@media (max-width: 1200px) {
+    .azure-forms-themes {
+        grid-template-columns: 1fr;
+    }
+}
+
+.azure-forms-themes__list,
+.azure-forms-themes__editor {
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.azure-forms-theme-list li {
+    margin: 0 0 6px;
+}
+
+.azure-forms-theme-pick {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none !important;
+}
+
+.azure-forms-theme-pick.is-current {
+    font-weight: 700;
+}
+
+.afb-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.azure-forms-theme-copy {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #dcdcde;
+}
+
+.azure-forms-theme-copy select {
+    max-width: 100%;
+    margin: 6px 0;
+}
+
+.azure-forms-themes__editor h3 {
+    margin: 16px 0 8px;
+    font-size: 13px;
+    text-transform: uppercase;
+    color: #646970;
+}
+
+.azure-forms-themes__editor h3:first-of-type {
+    margin-top: 0;
+}
+
+.aft-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 4px 10px;
+    margin-bottom: 8px;
+}
+
+.aft-row .description,
+.aft-row textarea,
+.aft-row input.regular-text {
+    grid-column: 1 / -1;
+}
+
+.aft-row input.regular-text {
+    width: 100%;
+}
+
+.aft-actions {
+    margin-top: 16px;
+}
+
+.azure-forms-registration-check ul {
+    margin: 4px 0 0 4px;
+}
+
+.azure-forms-registration-check .is-ok {
+    color: #008a20;
+}
+
+.azure-forms-registration-check .is-missing {
+    color: #b32d2e;
+    font-weight: 600;
+}

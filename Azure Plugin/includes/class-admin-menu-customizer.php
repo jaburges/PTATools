@@ -66,6 +66,7 @@ class Azure_Admin_Menu_Customizer {
         return array(
             'azure-plugin',
             'azure-plugin' . self::ID_SEP . 'azure-plugin-system',
+            'azure-plugin' . self::ID_SEP . 'azure-plugin-system-menu',
         );
     }
 

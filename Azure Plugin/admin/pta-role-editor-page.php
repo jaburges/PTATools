@@ -210,7 +210,7 @@ $classify_cap = function($cap) {
     // Heuristics for plugin caps.
     if (preg_match('/(woocommerce|shop_order|product|shop_coupon|shop_webhook)/i', $cap)) return 'woocommerce';
     if (preg_match('/(tribe|tec|event-ticket|events_)/i', $cap))                          return 'tec';
-    if (preg_match('/(azure|pta|forminator|beaver|fl_builder|fluentcrm|mailpoet)/i', $cap)) return 'azure';
+    if (preg_match('/(azure|pta|beaver|fl_builder|fluentcrm|mailpoet)/i', $cap)) return 'azure';
 
     return 'other';
 };

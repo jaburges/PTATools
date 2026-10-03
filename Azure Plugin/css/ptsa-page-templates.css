@@ -3,7 +3,7 @@
  *
  * ChromeNews caps .container-wrapper at 1280px. Catch Box caps #page.site at
  * 1000px (740px in one-column) and .entry-content at 660px — that is the
- * grey-gutter squash on lwptsa.net/calendar. These rules widen both themes.
+ * grey-gutter squash on a calendar page. These rules widen both themes.
  */
 
 body.ptsa-template #content.container-wrapper {

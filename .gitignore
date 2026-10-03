@@ -36,3 +36,7 @@ infra/wp-image/.ctest/
 
 # Local zip/build artifacts from infra scripts
 .build/
+
+# Runtime logs the plugin writes into its own folder
+Azure Plugin/logs.txt
+Azure Plugin/logs.md

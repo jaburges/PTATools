@@ -113,7 +113,7 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
 </script>
 
 <p class="description" style="margin: 8px 0 16px;">
-    <?php _e('Create a single sheet, or a recurring template that copies itself onto every event in an Outlook series. Each occurrence gets its own sheet and its own signups. Series are grouped and start collapsed — expand one to see every date. To change volunteers for one date only, edit that event’s sheet — not the template.', 'azure-plugin'); ?>
+    <?php _e('Create a single sheet, or a recurring template that copies itself onto every event in an Outlook series. Each occurrence gets its own sheet and its own signups. Series are grouped and start collapsed. Edit or Delete on the series row changes every date, including dates you edited on their own. Expand a series and use the buttons on one date to change only that event.', 'azure-plugin'); ?>
 </p>
 
 <div class="azure-module-content">
@@ -197,6 +197,17 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                     $date_label = '—';
                 }
                 $child_count = count($children);
+                $health = Azure_Volunteer_Signup::series_health($parent);
+                $health_note = '';
+                if ($health['in_series'] === 0) {
+                    $health_note = __('No upcoming dates in the linked Outlook series.', 'azure-plugin');
+                } elseif ($health['missing'] > 0) {
+                    $health_note = sprintf(
+                        /* translators: %d: number of dates */
+                        _n('%d upcoming date has no sign-up sheet.', '%d upcoming dates have no sign-up sheet.', $health['missing'], 'azure-plugin'),
+                        $health['missing']
+                    );
+                }
             ?>
             <tr class="azure-vs-series" data-series="<?php echo esc_attr($series_key); ?>">
                 <td>
@@ -207,6 +218,12 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                         </button>
                     <?php endif; ?>
                     <strong><?php echo esc_html($parent->title); ?></strong>
+                    <?php if ($health_note !== ''): ?>
+                        <div class="azure-vs-series-warning">
+                            <?php echo esc_html($health_note); ?>
+                            <button type="button" class="button-link azure-vs-edit-sheet" data-id="<?php echo esc_attr($parent->id); ?>" data-apply-series="1" data-reconnect="1"><?php esc_html_e('Reconnect', 'azure-plugin'); ?></button>
+                        </div>
+                    <?php endif; ?>
                 </td>
                 <td><?php echo esc_html__('Series', 'azure-plugin'); ?></td>
                 <td><?php echo esc_html(sprintf(_n('%d event', '%d events', $child_count, 'azure-plugin'), $child_count)); ?></td>
@@ -220,10 +237,10 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                 </td>
                 <td><input type="text" readonly value='[volunteer_signup id="<?php echo esc_attr($parent->id); ?>"]' onclick="this.select();" class="code" style="width:100%;font-size:11px;" /></td>
                 <td>
-                    <button type="button" class="button button-small azure-vs-edit-sheet" data-id="<?php echo esc_attr($parent->id); ?>">
+                    <button type="button" class="button button-small azure-vs-edit-sheet" data-id="<?php echo esc_attr($parent->id); ?>" data-apply-series="1" title="<?php esc_attr_e('Edit every date in this series', 'azure-plugin'); ?>">
                         <span class="dashicons dashicons-edit" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
                     </button>
-                    <button type="button" class="button button-small button-link-delete azure-vs-delete-sheet" data-id="<?php echo esc_attr($parent->id); ?>">
+                    <button type="button" class="button button-small button-link-delete azure-vs-delete-sheet" data-id="<?php echo esc_attr($parent->id); ?>" data-series-delete="1" title="<?php esc_attr_e('Delete every sign-up in this series', 'azure-plugin'); ?>">
                         <span class="dashicons dashicons-trash" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
                     </button>
                 </td>
@@ -244,7 +261,14 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                 <td>—</td>
                 <td>—</td>
                 <td>—</td>
-                <td></td>
+                <td>
+                    <button type="button" class="button button-small azure-vs-edit-sheet" data-id="<?php echo esc_attr($children[0]->id); ?>" data-apply-series="1" title="<?php esc_attr_e('Edit every date in this series', 'azure-plugin'); ?>">
+                        <span class="dashicons dashicons-edit" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
+                    </button>
+                    <button type="button" class="button button-small button-link-delete azure-vs-delete-sheet" data-id="<?php echo esc_attr($children[0]->id); ?>" data-series-delete="1" title="<?php esc_attr_e('Delete every sign-up in this series', 'azure-plugin'); ?>">
+                        <span class="dashicons dashicons-trash" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
+                    </button>
+                </td>
             </tr>
             <?php endif;
 
@@ -310,8 +334,13 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
         <div class="azure-vs-modal-body">
             <input type="hidden" id="azure-vs-sheet-id" value="0" />
             <input type="hidden" id="azure-vs-is-recurring" value="0" />
+            <input type="hidden" id="azure-vs-apply-series" value="0" />
+            <input type="hidden" id="azure-vs-orig-series-key" value="" />
+            <div id="azure-vs-reconnect-help" class="notice notice-warning inline" style="display:none;margin:0 0 12px;">
+                <p><?php _e('Pick the Outlook series these sign-ups belong to. Saving adds a sheet for each date in that series and deletes sheets, and their signups, for dates that are not in it.', 'azure-plugin'); ?></p>
+            </div>
             <p id="azure-vs-recurring-help" class="description" style="display:none;margin:0 0 12px;">
-                <?php _e('Pick any event in the series (for example Grade 1 Math Adventures). We copy this sheet onto every matching event. Later Outlook dates get a new sheet automatically. Editing one event’s sheet does not change the others.', 'azure-plugin'); ?>
+                <?php _e('Pick any event in the series (for example Grade 1 Math Adventures). We copy this sheet onto every matching event. Later Outlook dates get a new sheet automatically. Saving the series row afterwards replaces every date, including dates you changed on their own.', 'azure-plugin'); ?>
             </p>
             <table class="form-table">
                 <tr>
@@ -519,8 +548,11 @@ jQuery(function($) {
         syncEventFields();
     }
 
-    function openModal(editId, recurring) {
+    function openModal(editId, recurring, applySeries, reconnect) {
         activityIdx = 0;
+        $('#azure-vs-apply-series').val(applySeries ? '1' : '0');
+        $('#azure-vs-orig-series-key').val('');
+        $('#azure-vs-reconnect-help').hide();
         $('#azure-vs-activities-list').empty();
         $('#azure-vs-sheet-id').val(0);
         $('#azure-vs-title').val('');
@@ -570,17 +602,27 @@ jQuery(function($) {
                 $('#azure-vs-event-location').val(s.event_location || '');
                 $('#azure-vs-status').val(s.status);
                 setRecurringMode(!!res.data.is_template);
+                var seriesFound = false;
                 if (res.data.is_template && s.series_key) {
+                    $('#azure-vs-orig-series-key').val(s.series_key);
                     $('#azure-vs-pta-event option[data-series-key]').each(function() {
                         if ($(this).attr('data-series-key') === s.series_key) {
                             $('#azure-vs-pta-event').val($(this).val());
+                            seriesFound = true;
                         }
                     });
+                }
+                if (res.data.is_template && (reconnect || !seriesFound)) {
+                    if (!seriesFound) {
+                        $('#azure-vs-pta-event').val(0);
+                    }
+                    $('#azure-vs-reconnect-help').show();
                 }
                 if (res.data.is_instance) {
                     $('#azure-vs-modal-title').text('<?php echo esc_js(__('Edit this event’s sign-up', 'azure-plugin')); ?>');
                 } else if (res.data.is_template) {
-                    $('#azure-vs-modal-title').text('<?php echo esc_js(__('Edit recurring template', 'azure-plugin')); ?>');
+                    $('#azure-vs-apply-series').val('1');
+                    $('#azure-vs-modal-title').text('<?php echo esc_js(__('Edit series', 'azure-plugin')); ?>');
                 }
                 syncEventFields();
                 (res.data.activities || []).forEach(function(a) { addActivityRow(a); });
@@ -594,7 +636,9 @@ jQuery(function($) {
 
     $('#azure-vs-new-sheet').on('click', function() { openModal(0, false); });
     $('#azure-vs-new-recurring-sheet').on('click', function() { openModal(0, true); });
-    $(document).on('click', '.azure-vs-edit-sheet', function() { openModal($(this).data('id')); });
+    $(document).on('click', '.azure-vs-edit-sheet', function() {
+        openModal($(this).data('id'), false, $(this).attr('data-apply-series') === '1', $(this).attr('data-reconnect') === '1');
+    });
     $(document).on('click', '.azure-vs-modal-close', function() { $('#azure-vs-modal').hide(); });
     $('#azure-vs-modal').on('click', function(e) { if (e.target === this) $(this).hide(); });
 
@@ -634,6 +678,49 @@ jQuery(function($) {
             }
         }
 
+        var editingSeries = $('#azure-vs-apply-series').val() === '1' && parseInt($('#azure-vs-sheet-id').val(), 10) > 0;
+        var pickedKey = $('#azure-vs-pta-event option:selected').attr('data-series-key') || '';
+        var reconnecting = editingSeries && $('#azure-vs-is-recurring').val() === '1'
+            && pickedKey !== '' && pickedKey !== $('#azure-vs-orig-series-key').val();
+
+        if (reconnecting) {
+            $btn.prop('disabled', true);
+            $.post(ajaxurl, {
+                action: 'azure_volunteer_series_preview',
+                nonce: azure_plugin_ajax.nonce,
+                sheet_id: $('#azure-vs-sheet-id').val(),
+                pta_event_id: $('#azure-vs-pta-event').val()
+            }, function(res) {
+                $btn.prop('disabled', false);
+                if (!res.success) {
+                    alert(res.data || 'Error');
+                    return;
+                }
+                var p = res.data;
+                var msg = '<?php echo esc_js(__('Reconnect this series to the selected Outlook series?', 'azure-plugin')); ?>'
+                    + '\n\n' + '<?php echo esc_js(__('Sheets added:', 'azure-plugin')); ?> ' + p.add
+                    + '\n' + '<?php echo esc_js(__('Sheets kept:', 'azure-plugin')); ?> ' + p.keep
+                    + '\n' + '<?php echo esc_js(__('Sheets deleted:', 'azure-plugin')); ?> ' + p.remove;
+                if (p.signups > 0) {
+                    msg += '\n\n' + '<?php echo esc_js(__('Signups on deleted sheets are removed:', 'azure-plugin')); ?> ' + p.signups;
+                }
+                msg += '\n\n' + '<?php echo esc_js(__('Every date also takes the title, roles and details from this series. Calendar events are not changed.', 'azure-plugin')); ?>';
+                if (confirm(msg)) {
+                    doSave();
+                }
+            }).fail(function() {
+                $btn.prop('disabled', false);
+                alert('Network error.');
+            });
+            return;
+        }
+
+        if (editingSeries && !confirm('<?php echo esc_js(__('This updates every date in the series, including dates you edited on their own. Calendar events are not changed. Continue?', 'azure-plugin')); ?>')) {
+            return;
+        }
+        doSave();
+
+        function doSave() {
         $btn.prop('disabled', true).text('<?php echo esc_js(__('Saving...', 'azure-plugin')); ?>');
         $.post(ajaxurl, {
             action: 'azure_volunteer_save_sheet',
@@ -650,6 +737,7 @@ jQuery(function($) {
             event_location: $('#azure-vs-event-location').val(),
             status: $('#azure-vs-status').val(),
             is_recurring: $('#azure-vs-is-recurring').val() === '1' ? 1 : 0,
+            apply_to_series: $('#azure-vs-apply-series').val() === '1' ? 1 : 0,
             activities: JSON.stringify(activities)
         }, function(res) {
             $btn.prop('disabled', false).text('<?php echo esc_js(__('Save Sheet', 'azure-plugin')); ?>');
@@ -665,12 +753,17 @@ jQuery(function($) {
             $btn.prop('disabled', false).text('<?php echo esc_js(__('Save Sheet', 'azure-plugin')); ?>');
             alert('Network error.');
         });
+        }
     });
 
     $(document).on('click', '.azure-vs-delete-sheet', function() {
-        if (!confirm('<?php echo esc_js(__('Delete this sign-up sheet and all signups?', 'azure-plugin')); ?>')) return;
+        var series = $(this).attr('data-series-delete') === '1';
+        var msg = series
+            ? '<?php echo esc_js(__('Delete every sign-up sheet in this series, and the signups on them? The calendar events stay.', 'azure-plugin')); ?>'
+            : '<?php echo esc_js(__('Delete this sign-up sheet and all signups?', 'azure-plugin')); ?>';
+        if (!confirm(msg)) return;
         var id = $(this).data('id');
-        $.post(ajaxurl, { action: 'azure_volunteer_delete_sheet', nonce: azure_plugin_ajax.nonce, sheet_id: id }, function(res) {
+        $.post(ajaxurl, { action: 'azure_volunteer_delete_sheet', nonce: azure_plugin_ajax.nonce, sheet_id: id, series: series ? 1 : 0 }, function(res) {
             if (res.success) location.reload();
             else alert(res.data || 'Error');
         });
@@ -722,6 +815,8 @@ jQuery(function($) {
 .azure-vs-series-toggle { text-decoration: none; margin-right: 4px; }
 .azure-vs-series-child-title { padding-left: 28px !important; }
 tr.azure-vs-series { background: #f6f7f7; }
+.azure-vs-series-warning { margin-top: 4px; color: #8a5a00; font-size: 12px; }
+.azure-vs-series-warning .button-link { font-size: 12px; margin-left: 4px; }
 tr.azure-vs-series-child[hidden] { display: none !important; }
 
 .azure-vs-modal-overlay {

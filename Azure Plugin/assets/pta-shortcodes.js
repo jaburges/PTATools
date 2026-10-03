@@ -13,86 +13,17 @@
     function initPTAShortcodes() {
         initRoleCards();
         initOrgCharts();
-        initSignupModal();
         initRoleDescriptionFilters();
     }
     
     function initRoleCards() {
-        $('.pta-role-item').on('click', function(e) {
-            if ($(e.target).hasClass('pta-signup-btn') || $(e.target).closest('.pta-signup-btn').length) {
-                return; // Let the signup button handler deal with it
-            }
+        $('.pta-role-item').on('click', function() {
             $(this).toggleClass('expanded');
         });
     }
     
     function initOrgCharts() {
         // Placeholder - individual org chart shortcodes call renderPTAOrgChart directly
-    }
-
-    // ── Signup Modal ──
-
-    function initSignupModal() {
-        if (typeof ptaSignupConfig === 'undefined' || !ptaSignupConfig.enabled) {
-            return;
-        }
-
-        $(document).on('click', '.pta-signup-btn', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            var roleName = $(this).data('role-name');
-            var deptName = $(this).data('department-name');
-            openSignupModal(roleName, deptName);
-        });
-    }
-
-    function openSignupModal(roleName, deptName) {
-        // Remove any existing modal
-        $('#pta-signup-modal').remove();
-
-        var modalHtml = '<div id="pta-signup-modal" class="pta-modal-overlay">'
-            + '<div class="pta-modal-content">'
-            + '<div class="pta-modal-header">'
-            + '<h3>Sign Up: ' + $('<span>').text(roleName).html() + '</h3>'
-            + '<button type="button" class="pta-modal-close">&times;</button>'
-            + '</div>'
-            + '<div class="pta-modal-body"><p>Loading form...</p></div>'
-            + '</div></div>';
-
-        $('body').append(modalHtml);
-        $('#pta-signup-modal').fadeIn(200);
-
-        // Close handlers
-        $('#pta-signup-modal .pta-modal-close, #pta-signup-modal').on('click', function(e) {
-            if (e.target === this) {
-                $('#pta-signup-modal').fadeOut(200, function() { $(this).remove(); });
-            }
-        });
-
-        // Load form via AJAX
-        $.post(ptaSignupConfig.ajax_url, {
-            action: 'pta_render_signup_form',
-            nonce: ptaSignupConfig.nonce,
-            role_name: roleName,
-            department_name: deptName
-        }, function(response) {
-            if (response.success && response.data && response.data.html) {
-                $('#pta-signup-modal .pta-modal-body').html(response.data.html);
-
-                // Re-init Forminator if its JS needs to bind to new form elements
-                if (typeof ForminatorFront !== 'undefined') {
-                    try { ForminatorFront.init(); } catch(err) { /* ignore */ }
-                }
-            } else {
-                $('#pta-signup-modal .pta-modal-body').html(
-                    '<p class="pta-error">Unable to load the signup form. Please try again later.</p>'
-                );
-            }
-        }).fail(function() {
-            $('#pta-signup-modal .pta-modal-body').html(
-                '<p class="pta-error">Unable to load the signup form. Please try again later.</p>'
-            );
-        });
     }
 
     function initRoleDescriptionFilters() {
@@ -206,9 +137,6 @@
         });
     }
 
-    // Expose globally so the D3 chart can call it
-    window.ptaOpenSignupModal = openSignupModal;
-    
     // Org chart geometry, in the SVG's own coordinate space
     var ORG_CHART_LAYOUT = {
         margin: 20,
@@ -436,33 +364,6 @@
             });
         });
         
-        // Store role data on each role group for click handling
-        svg.selectAll(".role").each(function(d, i) {
-            var allRoles = [];
-            departments.forEach(function(dept) {
-                var deptRoles = roles.filter(function(r) { return r.department_id == dept.id; });
-                deptRoles.forEach(function(r) {
-                    allRoles.push({ name: r.name, dept: dept.name, assigned: r.assigned_count, max: r.max_occupants });
-                });
-            });
-            if (allRoles[i]) {
-                d3.select(this).datum(allRoles[i]);
-            }
-        });
-
-        if (options.interactive) {
-            svg.selectAll(".role")
-                .style("cursor", "pointer")
-                .on("click", function(event, d) {
-                    if (d && typeof window.ptaOpenSignupModal === 'function'
-                        && typeof ptaSignupConfig !== 'undefined' && ptaSignupConfig.enabled) {
-                        var openOnly = ptaSignupConfig.open_roles_only;
-                        if (!openOnly || d.assigned < d.max) {
-                            window.ptaOpenSignupModal(d.name, d.dept);
-                        }
-                    }
-                });
-        }
     }
     
 })(jQuery);

@@ -25,7 +25,7 @@ $rule_id = isset($_GET['rule_id']) ? absint($_GET['rule_id']) : 0;
 $rule = Azure_Order_Rules_Module::get_rule($rule_id);
 if (!$rule) {
     echo '<div class="wrap"><div class="notice notice-error"><p>' . esc_html__('Rule not found.', 'azure-plugin') . '</p></div>';
-    echo '<p><a href="' . esc_url(admin_url('admin.php?page=azure-plugin-selling&tab=rules')) . '">&larr; ' . esc_html__('Back to Rules', 'azure-plugin') . '</a></p></div>';
+    echo '<p><a href="' . esc_url(admin_url('admin.php?page=azure-plugin-system&tab=rules')) . '">&larr; ' . esc_html__('Back to Rules', 'azure-plugin') . '</a></p></div>';
     return;
 }
 
@@ -33,7 +33,7 @@ $tokens = Azure_Order_Rules_Module::tokens();
 $subject = $rule->email_subject ?: Azure_Order_Rules_Module::default_email_subject();
 $initial_html = $rule->content_html ?: Azure_Order_Rules_Module::default_email_html();
 $initial_json = $rule->content_json ?: '';
-$back_url = admin_url('admin.php?page=azure-plugin-selling&tab=rules');
+$back_url = admin_url('admin.php?page=azure-plugin-system&tab=rules');
 ?>
 
 <div class="wrap newsletter-editor-wrap azure-order-rule-editor-wrap">

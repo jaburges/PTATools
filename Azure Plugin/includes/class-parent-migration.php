@@ -686,7 +686,7 @@ class Azure_Parent_Migration {
     // ─────────────────────────────────────────────────────────────────
 
     /**
-     * Provision a single user (Jamie's "test me first" flow). Accepts
+     * Provision a single user (the admin's "test me first" flow). Accepts
      * email, display name, optional phone and child name/grade/teacher.
      * Always lands in the Parent role (even for @org_domain emails) so
      * the welcome email + magic link can be exercised end-to-end without

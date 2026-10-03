@@ -318,7 +318,8 @@ if (class_exists('Azure_UpNext_Themes')) {
                                     <fieldset style="grid-column:1/-1;border:1px solid #dcdcde;padding:10px 12px;border-radius:4px;background:#fff;">
                                         <legend style="padding:0 6px;font-weight:600;">Footer HTML (below all events)</legend>
                                         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;">
-                                            <label style="grid-column:1/3;">HTML (links allowed) <textarea class="t-footer-html" rows="2" style="width:100%;" placeholder='e.g. Find out more on our website:&lt;br&gt;&lt;strong&gt;example.net/calendar&lt;/strong&gt;'><?php echo esc_textarea($t['footer_html'] ?? ''); ?></textarea></label>
+                                            <label style="grid-column:1/3;">HTML (links allowed) <textarea class="t-footer-html" rows="2" style="width:100%;" placeholder='e.g. See the &lt;a href="https://example.net/calendar"&gt;full calendar&lt;/a&gt;'><?php echo esc_textarea($t['footer_html'] ?? ''); ?></textarea>
+                                                <span class="description" style="display:block;">A web address starting with https:// becomes a link on its own. To link other words, use &lt;a href="https://…"&gt;words&lt;/a&gt;.</span></label>
                                             <label>Color <input type="color" class="t-footer-color" value="<?php echo esc_attr($t['footer_color'] ?? '#646970'); ?>"></label>
                                             <label>Size (px) <input type="number" min="10" max="28" class="t-footer-size small-text" value="<?php echo esc_attr((int) ($t['footer_size'] ?? 14)); ?>"></label>
                                             <label>Align
@@ -344,6 +345,7 @@ if (class_exists('Azure_UpNext_Themes')) {
                                             <label>Text color <input type="color" class="t-pill-text-color" value="<?php echo esc_attr($t['pill_text_color'] ?? '#0a2d57'); ?>"></label>
                                             <label>Radius (px) <input type="number" min="0" max="32" class="t-pill-radius small-text" value="<?php echo esc_attr((int) ($t['pill_radius'] ?? 12)); ?>"></label>
                                             <label>Width (px) <input type="number" min="40" max="160" class="t-pill-width small-text" value="<?php echo esc_attr((int) ($t['pill_width'] ?? 72)); ?>"></label>
+                                            <label style="grid-column:1/-1;"><input type="checkbox" class="t-group-by-day" <?php checked(!empty($t['group_by_day'])); ?>> Group events on the same day into one card</label>
                                         </div>
                                     </fieldset>
 
@@ -367,6 +369,9 @@ if (class_exists('Azure_UpNext_Themes')) {
                                             <label>Card gap (px) <input type="number" min="0" max="64" class="t-card-gap small-text" value="<?php echo esc_attr((int) ($t['card_gap'] ?? 10)); ?>"></label>
                                             <label>Title size (px) <input type="number" min="10" max="36" class="t-title-size small-text" value="<?php echo esc_attr((int) ($t['title_size'] ?? 16)); ?>"></label>
                                             <label>Date size (px) <input type="number" min="9" max="28" class="t-date-size small-text" value="<?php echo esc_attr((int) ($t['date_size'] ?? 13)); ?>"></label>
+                                            <label>Week gap (px) <input type="number" min="0" max="96" class="t-section-gap small-text" value="<?php echo esc_attr((int) ($t['section_gap'] ?? 24)); ?>"></label>
+                                            <label>Week header size (px) <input type="number" min="12" max="36" class="t-section-header-size small-text" value="<?php echo esc_attr((int) ($t['section_header_size'] ?? 18)); ?>"></label>
+                                            <label style="grid-column:span 2;"><input type="checkbox" class="t-compact-cards" <?php checked(!empty($t['compact_cards'])); ?>> Compact cards (title, then time · location underneath; slimmer date pill)</label>
                                             <label><input type="checkbox" class="t-show-time" <?php checked(!empty($t['show_time'])); ?>> Show time</label>
                                             <label><input type="checkbox" class="t-show-section-headers" <?php checked(!empty($t['show_section_headers'])); ?>> Show "This Week" / "Next Week" headers</label>
                                             <label><input type="checkbox" class="t-show-join-button" <?php checked(!empty($t['show_join_button'])); ?>> Show Join button</label>
@@ -504,6 +509,8 @@ jQuery(function ($) {
                 pill_text_color:       adv('.t-pill-text-color',       '#0a2d57'),
                 pill_radius:           adv('.t-pill-radius',           12),
                 pill_width:            adv('.t-pill-width',            72),
+                group_by_day:          adv('.t-group-by-day',          false),
+                compact_cards:         adv('.t-compact-cards',         false),
                 // Location badge
                 show_location_badge:   adv('.t-show-location-badge',   false),
                 badge_in_person_text:  adv('.t-badge-in-person-text',  'IN PERSON'),
@@ -527,8 +534,8 @@ jQuery(function ($) {
                 muted_color:           '#646970',
                 section_header_bg:     '#f6f7f7',
                 section_header_text:   '#1d2327',
-                section_gap:           24,
-                section_header_size:   18
+                section_gap:           adv('.t-section-gap',           24),
+                section_header_size:   adv('.t-section-header-size',   18)
             });
 
             out.push(t);

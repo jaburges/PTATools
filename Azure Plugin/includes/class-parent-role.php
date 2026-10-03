@@ -314,6 +314,12 @@ class Azure_Parent_Role {
         }
         $disabled = get_user_meta($user->ID, self::META_LOGIN_DISABLED, true);
         if (!empty($disabled) && $disabled !== '0') {
+            if (get_user_meta($user->ID, '_pta_imported_source', true) === 'form_registration') {
+                return new WP_Error(
+                    'pta_login_disabled',
+                    __('This account is not active yet. Use the activation link we emailed you when you registered.', 'azure-plugin')
+                );
+            }
             return new WP_Error(
                 'pta_login_disabled',
                 __('This account is not yet active. Please contact the PTA for an invitation.', 'azure-plugin')

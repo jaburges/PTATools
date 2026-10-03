@@ -1,0 +1,317 @@
+/* [pta_form]. Colours and sizes come from .pta-form-theme-<slug> variables. */
+
+.pta-form-wrap {
+    --pta-bg: #ffffff;
+    --pta-text: #1d2327;
+    --pta-accent: #2271b1;
+    --pta-accent-text: #ffffff;
+    --pta-muted: #646970;
+    --pta-border: #c3c4c7;
+    --pta-border-width: 1px;
+    --pta-radius: 6px;
+    --pta-font-size: 16px;
+    --pta-error: #b32d2e;
+
+    box-sizing: border-box;
+    max-width: var(--pta-outer-max, none);
+    margin: 0 auto 1.5em;
+    padding: var(--pta-outer-padding, 0);
+    background: var(--pta-outer-bg, transparent);
+    border: var(--pta-outer-border, 0 solid transparent);
+    border-radius: var(--pta-outer-radius, 0);
+    color: var(--pta-text);
+    font-size: var(--pta-font-size);
+    line-height: 1.5;
+}
+
+.pta-form-wrap *,
+.pta-form-wrap *::before,
+.pta-form-wrap *::after {
+    box-sizing: border-box;
+}
+
+.pta-form__header {
+    margin: 0 0 0.75em;
+    color: var(--pta-header-color, inherit);
+    font-family: var(--pta-header-font, inherit);
+    font-size: var(--pta-header-size, 28px);
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: var(--pta-header-align, left);
+    text-decoration: var(--pta-header-line, none);
+}
+
+.pta-form__footer {
+    margin-top: 1em;
+    color: var(--pta-footer-color, var(--pta-muted));
+    font-size: var(--pta-footer-size, 14px);
+    text-align: var(--pta-footer-align, center);
+}
+
+.pta-form {
+    margin: 0;
+    padding: 1.25em;
+    background: var(--pta-bg);
+    border-radius: var(--pta-radius);
+}
+
+.pta-form__fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1em 1.25em;
+}
+
+.pta-form__field,
+.pta-form__heading,
+.pta-form__text {
+    flex: 1 1 100%;
+    min-width: 0;
+    margin: 0;
+}
+
+.pta-form__field--half {
+    flex: 1 1 calc(50% - 0.625em);
+}
+
+@media (max-width: 600px) {
+    .pta-form__field--half {
+        flex-basis: 100%;
+    }
+}
+
+.pta-form__heading {
+    margin-top: 0.5em;
+    font-size: 1.25em;
+    line-height: 1.3;
+}
+
+.pta-form__text p {
+    margin: 0 0 0.5em;
+}
+
+.pta-form__label,
+.pta-form__choices legend {
+    display: block;
+    margin: 0 0 0.35em;
+    padding: 0;
+    font-weight: 600;
+}
+
+.pta-form__req {
+    color: var(--pta-error);
+}
+
+.pta-form input[type="text"],
+.pta-form input[type="email"],
+.pta-form input[type="tel"],
+.pta-form input[type="number"],
+.pta-form input[type="date"],
+.pta-form select,
+.pta-form textarea {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 0.55em 0.75em;
+    background: #fff;
+    color: #1d2327;
+    border: var(--pta-border-width) solid var(--pta-border);
+    border-radius: var(--pta-radius);
+    font: inherit;
+    line-height: 1.4;
+}
+
+.pta-form textarea {
+    min-height: 7em;
+    resize: vertical;
+}
+
+.pta-form input:focus,
+.pta-form select:focus,
+.pta-form textarea:focus {
+    outline: 2px solid var(--pta-accent);
+    outline-offset: 1px;
+    border-color: var(--pta-accent);
+}
+
+.pta-form__choices {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.pta-form__choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+    margin: 0 0 0.35em;
+    font-weight: 400;
+    cursor: pointer;
+}
+
+.pta-form__choice input {
+    flex: 0 0 auto;
+    width: 1.15em;
+    height: 1.15em;
+    margin: 0.2em 0 0;
+    accent-color: var(--pta-accent);
+}
+
+.pta-form__help {
+    margin: 0.3em 0 0;
+    color: var(--pta-muted);
+    font-size: 0.875em;
+}
+
+.pta-form__error {
+    margin: 0.3em 0 0;
+    color: var(--pta-error);
+    font-size: 0.875em;
+    font-weight: 600;
+}
+
+.pta-form__field.has-error input,
+.pta-form__field.has-error select,
+.pta-form__field.has-error textarea {
+    border-color: var(--pta-error);
+}
+
+.pta-form__children {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.pta-form__child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75em 1.25em;
+    margin: 0 0 0.75em;
+    padding: 0.9em 1em 1em;
+    border: var(--pta-border-width) solid var(--pta-border);
+    border-radius: var(--pta-radius);
+}
+
+.pta-form__child-head {
+    display: flex;
+    flex: 1 1 100%;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.pta-form__child-title {
+    font-weight: 600;
+    color: var(--pta-muted);
+}
+
+.pta-form__child-remove,
+.pta-form__child-add {
+    padding: 0.35em 0.9em;
+    background: transparent;
+    color: var(--pta-accent);
+    border: var(--pta-border-width) solid currentColor;
+    border-radius: var(--pta-radius);
+    font: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+
+.pta-form__child-remove {
+    border-color: transparent;
+    text-decoration: underline;
+}
+
+.pta-form__child-add {
+    min-height: 40px;
+    font-weight: 600;
+}
+
+.pta-form__actions {
+    margin-top: 1.25em;
+}
+
+.pta-form__submit {
+    display: inline-block;
+    min-height: 44px;
+    padding: 0.6em 1.6em;
+    background: var(--pta-accent);
+    color: var(--pta-accent-text);
+    border: 0;
+    border-radius: var(--pta-radius);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.pta-form__submit:hover:not(:disabled),
+.pta-form__submit:focus-visible {
+    filter: brightness(0.92);
+}
+
+.pta-form__submit:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.pta-form__status {
+    margin: 0 0 1em;
+    padding: 0.75em 1em;
+    border-radius: var(--pta-radius);
+    background: #f0f6fc;
+}
+
+.pta-form__status.is-error {
+    background: #fcf0f1;
+    color: var(--pta-error);
+    font-weight: 600;
+}
+
+.pta-form__success,
+.pta-form__login,
+.pta-form-closed {
+    padding: 1em 1.25em;
+    background: var(--pta-bg, #fff);
+    border-left: 4px solid var(--pta-accent, #2271b1);
+    border-radius: var(--pta-radius, 6px);
+}
+
+.pta-form__success:focus {
+    outline: none;
+}
+
+.pta-form__success p:last-child {
+    margin-bottom: 0;
+}
+
+.pta-form-notice {
+    margin: 0 0 1em;
+    padding: 0.6em 0.9em;
+    background: #fcf9e8;
+    border-left: 4px solid #dba617;
+    color: #1d2327;
+    font-size: 14px;
+}
+
+.pta-form__captcha {
+    margin: 4px 0 12px;
+    min-height: 65px;
+}
+
+.pta-form__hp {
+    position: absolute !important;
+    left: -9999px !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+}
+
+.pta-form-wrap [hidden],
+[hidden].pta-form__status,
+[hidden].pta-form__success,
+[hidden].pta-form__error,
+.pta-form[hidden] {
+    display: none !important;
+}

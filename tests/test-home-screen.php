@@ -6,6 +6,9 @@
  */
 
 require_once __DIR__ . '/wp-shim.php';
+if (!defined('AZURE_PLUGIN_PATH')) {
+    define('AZURE_PLUGIN_PATH', dirname(__DIR__) . '/Azure Plugin/');
+}
 require_once dirname(__DIR__) . '/Azure Plugin/includes/class-web-push.php';
 require_once dirname(__DIR__) . '/Azure Plugin/includes/class-home-screen.php';
 
@@ -40,5 +43,29 @@ $t->check(!Azure_Home_Screen::subscription_matches(649, $kids, 'teacher', array(
 $t->check(Azure_Home_Screen::grade_matches('4', array('4/5')), 'a child in grade 4 matches a mixed 4/5 class');
 $t->check(Azure_Home_Screen::grade_matches('4/5', array('5')), 'a mixed 4/5 class matches a child stored as 5');
 $t->check(!Azure_Home_Screen::grade_matches('3', array('4/5')), 'grade 3 does not overlap 4/5');
+
+$bundled = Azure_Home_Screen::icon_file(192);
+$t->equals(AZURE_PLUGIN_PATH . 'assets/pta-icon-192.png', $bundled, 'with no site icon the generic icon is used');
+foreach (array(180, 192, 512) as $size) {
+    $dims = getimagesize(Azure_Home_Screen::icon_file($size));
+    $t->check($dims && $dims[0] === $size && $dims[1] === $size, "bundled icon is {$size}x{$size}");
+}
+$t->equals(AZURE_PLUGIN_PATH . 'assets/pta-icon-180.png', Azure_Home_Screen::icon_file(64), 'an unknown size falls back to the touch icon');
+$t->equals('image/png', Azure_Home_Screen::icon_mime('/x/icon.PNG'), 'png mime');
+$t->equals('image/jpeg', Azure_Home_Screen::icon_mime('/x/icon.jpg'), 'jpeg mime');
+$t->equals('', Azure_Home_Screen::icon_mime('/x/icon.php'), 'non-image is rejected');
+
+$site_icon = tempnam(sys_get_temp_dir(), 'icon') . '.png';
+copy($bundled, $site_icon);
+if (!function_exists('apply_filters')) {
+    function apply_filters($hook, $value, ...$args) {
+        return $hook === 'pta_home_screen_icon_file' ? ($GLOBALS['test_icon_override'] ?? $value) : $value;
+    }
+}
+$GLOBALS['test_icon_override'] = $site_icon;
+$t->equals($site_icon, Azure_Home_Screen::icon_file(192), 'a site can supply its own icon');
+$GLOBALS['test_icon_override'] = '/nonexistent/icon.png';
+$t->equals($bundled, Azure_Home_Screen::icon_file(192), 'a missing custom icon falls back to the generic one');
+@unlink($site_icon);
 
 exit($t->finish() === 0 ? 0 : 1);

@@ -14,6 +14,10 @@ class Azure_Email_Messages {
 
     const OPTION = 'azure_email_messages';
 
+    /** User-created emails: {next:int, emails:{custom_<n>:{label,subject,body}}}. */
+    const CUSTOM_OPTION = 'azure_email_custom';
+    const CUSTOM_PREFIX = 'custom_';
+
     public static function site_name() {
         $name = function_exists('get_bloginfo') ? trim((string) get_bloginfo('name')) : '';
         return $name !== '' ? $name : 'PTA';
@@ -77,6 +81,24 @@ class Azure_Email_Messages {
                 'body'        => self::parent_activation_body(),
                 'tokens'      => array('{site_name}', '{greeting}', '{activation_url}', '{temp_password}', '{support_email}'),
             ),
+            'parent_registration' => array(
+                'group'       => __('Accounts', 'azure-plugin'),
+                'label'       => __('New parent registration', 'azure-plugin'),
+                'description' => __('Sent when someone registers through a form with "Create a parent account" turned on. The link activates the account and asks them to choose a password; it expires in 7 days.', 'azure-plugin'),
+                'format'      => 'html',
+                'subject'     => 'Activate your {site_name} account',
+                'body'        => self::parent_registration_body(),
+                'tokens'      => array('{site_name}', '{first_name}', '{activation_url}'),
+            ),
+            'parent_registration_exists' => array(
+                'group'       => __('Accounts', 'azure-plugin'),
+                'label'       => __('Registration: already registered', 'azure-plugin'),
+                'description' => __('Sent instead of a new account when someone registers with an email that already has an account.', 'azure-plugin'),
+                'format'      => 'html',
+                'subject'     => 'You already have a {site_name} account',
+                'body'        => self::parent_registration_exists_body(),
+                'tokens'      => array('{site_name}', '{first_name}', '{login_url}', '{reset_url}'),
+            ),
             'office365_welcome' => array(
                 'group'       => __('Accounts', 'azure-plugin'),
                 'label'       => __('Office 365 account', 'azure-plugin'),
@@ -95,7 +117,130 @@ class Azure_Email_Messages {
                 'body'        => "Backup notification from {site_name}\n\nStatus: {status}\nMessage: {message}\nTime: {time}\nSite URL: {site_url}\nBackup ID: {backup_id}\nNext scheduled backup: {next_backup}\n",
                 'tokens'      => array('{status_label}', '{site_name}', '{status}', '{message}', '{time}', '{site_url}', '{backup_id}', '{next_backup}'),
             ),
+        ) + self::custom_catalog();
+    }
+
+    // ─── Custom (form) emails ─────────────────────────────────────────
+
+    public static function form_tokens() {
+        return array('{form_title}', '{field:name}', '{all_fields}', '{submitted_at}', '{entry_link}', '{submitter_email}', '{site_name}');
+    }
+
+    public static function is_custom_key($key) {
+        return is_string($key) && preg_match('/^' . self::CUSTOM_PREFIX . '\d+$/', $key) === 1;
+    }
+
+    private static function custom_store() {
+        $saved = function_exists('get_option') ? get_option(self::CUSTOM_OPTION, array()) : array();
+        $saved = is_array($saved) ? $saved : array();
+        $emails = isset($saved['emails']) && is_array($saved['emails']) ? $saved['emails'] : array();
+        return array(
+            'next'   => max(1, (int) ($saved['next'] ?? 1)),
+            'emails' => $emails,
         );
+    }
+
+    /**
+     * @return array<string,array{label:string,subject:string,body:string}>
+     */
+    public static function custom_emails() {
+        $out = array();
+        foreach (self::custom_store()['emails'] as $key => $email) {
+            if (self::is_custom_key($key) && is_array($email)) {
+                $out[$key] = array(
+                    'label'   => (string) ($email['label'] ?? ''),
+                    'subject' => (string) ($email['subject'] ?? ''),
+                    'body'    => (string) ($email['body'] ?? ''),
+                );
+            }
+        }
+        return $out;
+    }
+
+    private static function custom_catalog() {
+        $out = array();
+        foreach (self::custom_emails() as $key => $email) {
+            $out[$key] = array(
+                'group'       => __('Forms', 'azure-plugin'),
+                'label'       => $email['label'] !== '' ? $email['label'] : $key,
+                'description' => __('Your own email. Form rules in System > Rules send it when a form is submitted.', 'azure-plugin'),
+                'format'      => 'html',
+                'subject'     => $email['subject'],
+                'body'        => $email['body'],
+                'raw'         => array('all_fields'),
+                'tokens'      => self::form_tokens(),
+                'custom'      => true,
+            );
+        }
+        return $out;
+    }
+
+    public static function default_custom_subject() {
+        return '{form_title}: new response';
+    }
+
+    public static function default_custom_body() {
+        return <<<'HTML'
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#1d2327;">
+  <p style="margin:0 0 8px;font-size:13px;color:#646970;">{site_name}</p>
+  <h2 style="margin:0 0 12px;font-size:20px;">{form_title}</h2>
+  <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">A new response was submitted on {submitted_at}.</p>
+  {all_fields}
+  <p style="margin:16px 0 0;font-size:14px;"><a href="{entry_link}" style="color:#2271b1;">View this response in PTA Tools</a></p>
+</div>
+HTML;
+    }
+
+    /**
+     * @return string The new key.
+     */
+    public static function create_custom($label = '') {
+        $store = self::custom_store();
+        $n = $store['next'];
+        while (isset($store['emails'][self::CUSTOM_PREFIX . $n])) {
+            $n++;
+        }
+        $key = self::CUSTOM_PREFIX . $n;
+        $label = function_exists('sanitize_text_field') ? sanitize_text_field((string) $label) : trim(strip_tags((string) $label));
+        $store['emails'][$key] = array(
+            'label'   => $label !== '' ? $label : sprintf(__('Form email %d', 'azure-plugin'), $n),
+            'subject' => self::default_custom_subject(),
+            'body'    => self::default_custom_body(),
+        );
+        $store['next'] = $n + 1;
+        update_option(self::CUSTOM_OPTION, $store, false);
+        return $key;
+    }
+
+    public static function save_custom($key, $label, $subject, $body) {
+        if (!self::is_custom_key($key)) {
+            return;
+        }
+        $store = self::custom_store();
+        if (!isset($store['emails'][$key])) {
+            return;
+        }
+        $clean = function ($v) {
+            return function_exists('sanitize_text_field') ? sanitize_text_field((string) $v) : trim(strip_tags((string) $v));
+        };
+        $label = $clean($label);
+        $subject = $clean($subject);
+        $body = str_replace("\0", '', (string) $body);
+        $store['emails'][$key] = array(
+            'label'   => $label !== '' ? $label : (string) ($store['emails'][$key]['label'] ?? $key),
+            'subject' => $subject !== '' ? $subject : self::default_custom_subject(),
+            'body'    => trim($body) !== '' ? $body : self::default_custom_body(),
+        );
+        update_option(self::CUSTOM_OPTION, $store, false);
+    }
+
+    public static function delete_custom($key) {
+        if (!self::is_custom_key($key)) {
+            return;
+        }
+        $store = self::custom_store();
+        unset($store['emails'][$key]);
+        update_option(self::CUSTOM_OPTION, $store, false);
     }
 
     public static function overrides() {
@@ -112,6 +257,9 @@ class Azure_Email_Messages {
             return null;
         }
         $msg = $defaults[$key];
+        if (!empty($msg['custom'])) {
+            return $msg;
+        }
         $saved = self::overrides();
         if (!empty($saved[$key]['subject'])) {
             $msg['subject'] = (string) $saved[$key]['subject'];
@@ -163,7 +311,7 @@ class Azure_Email_Messages {
 
     public static function save_message($key, $subject, $body) {
         $defaults = self::catalog();
-        if (!isset($defaults[$key])) {
+        if (!isset($defaults[$key]) || !empty($defaults[$key]['custom'])) {
             return;
         }
         $subject = function_exists('sanitize_text_field') ? sanitize_text_field($subject) : trim(strip_tags((string) $subject));
@@ -198,11 +346,22 @@ class Azure_Email_Messages {
         check_admin_referer('azure_email_messages');
 
         $reset = isset($_POST['azure_email_message_reset']) ? sanitize_key(wp_unslash($_POST['azure_email_message_reset'])) : '';
+        $delete = isset($_POST['azure_email_custom_delete']) ? sanitize_key(wp_unslash($_POST['azure_email_custom_delete'])) : '';
+        $create = !empty($_POST['azure_email_custom_create']);
         $subjects = isset($_POST['message_subject']) && is_array($_POST['message_subject']) ? wp_unslash($_POST['message_subject']) : array();
         $bodies = isset($_POST['message_body']) && is_array($_POST['message_body']) ? wp_unslash($_POST['message_body']) : array();
-        foreach (array_keys(self::catalog()) as $key) {
+        $labels = isset($_POST['message_label']) && is_array($_POST['message_label']) ? wp_unslash($_POST['message_label']) : array();
+        foreach (self::catalog() as $key => $msg) {
             if ($reset !== '' && $key === $reset) {
                 self::reset_message($key);
+                continue;
+            }
+            if (!empty($msg['custom'])) {
+                if ($key === $delete) {
+                    self::delete_custom($key);
+                } elseif (isset($subjects[$key]) || isset($bodies[$key])) {
+                    self::save_custom($key, $labels[$key] ?? '', $subjects[$key] ?? '', $bodies[$key] ?? '');
+                }
                 continue;
             }
             self::save_message(
@@ -212,11 +371,21 @@ class Azure_Email_Messages {
             );
         }
 
-        wp_safe_redirect(add_query_arg(array(
+        $anchor = '';
+        if ($create) {
+            $anchor = '#azure-msg-' . self::create_custom('');
+        }
+
+        $args = array(
             'page'  => 'azure-plugin-emails',
             'tab'   => 'messages',
             'saved' => '1',
-        ), admin_url('admin.php')));
+        );
+        $return_rule = isset($_POST['return_rule']) ? absint($_POST['return_rule']) : 0;
+        if ($return_rule > 0) {
+            $args['return_rule'] = $return_rule;
+        }
+        wp_safe_redirect(add_query_arg($args, admin_url('admin.php')) . $anchor);
         exit;
     }
 
@@ -367,6 +536,33 @@ HTML;
     </td></tr>
   </table>
 </body></html>
+HTML;
+    }
+
+    private static function parent_registration_body() {
+        return <<<'HTML'
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; color: #1d2327;">
+    <h2 style="margin: 0 0 12px;">Welcome to {site_name}</h2>
+    <p>Hi {first_name},</p>
+    <p>Thanks for registering. Your family's details are saved. Press the button below to activate your account and choose a password.</p>
+    <p style="text-align: center; margin: 28px 0;">
+        <a href="{activation_url}" style="display: inline-block; padding: 14px 28px; background: #0078d4; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Activate my account</a>
+    </p>
+    <p style="font-size: 13px; color: #646970;">If the button doesn't work, copy this link into your browser:<br><span style="word-break: break-all;">{activation_url}</span></p>
+    <p style="font-size: 13px; color: #646970;">The link expires in 7 days. If you didn't register, ignore this email and the account will be deleted automatically.</p>
+</div>
+HTML;
+    }
+
+    private static function parent_registration_exists_body() {
+        return <<<'HTML'
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; color: #1d2327;">
+    <h2 style="margin: 0 0 12px;">You already have an account</h2>
+    <p>Hi {first_name},</p>
+    <p>Someone tried to register on {site_name} with this email address, but it already has an account, so we didn't create a new one or change anything.</p>
+    <p>You can <a href="{login_url}">sign in here</a>. If you've forgotten your password, <a href="{reset_url}">reset it here</a>.</p>
+    <p style="font-size: 13px; color: #646970;">If this wasn't you, you can ignore this email.</p>
+</div>
 HTML;
     }
 }

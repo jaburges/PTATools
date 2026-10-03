@@ -284,6 +284,13 @@ class Azure_UpNext_Themes {
             'pill_radius'           => $px($t['pill_radius']         ?? 12, 12, 0, 32),
             'pill_width'            => $px($t['pill_width']          ?? 72, 72, 40, 160),
 
+            // Time beside the title, a slimmer pill, and less space
+            // around the header and footer.
+            'compact_cards'         => !empty($t['compact_cards']),
+            // One card per date, with that day's events stacked beside
+            // a single pill. Only applies with date_pill='left'.
+            'group_by_day'          => !empty($t['group_by_day']),
+
             // v3.128 — Location badge (IN PERSON / ONLINE) on
             // each card. Auto-derived from event's online_url:
             // truthy → online; otherwise → in person.
@@ -471,6 +478,7 @@ class Azure_UpNext_Themes {
             $hide_section_headers = empty($t['show_section_headers']);
             $hide_time            = empty($t['show_time']);
             $hide_join            = empty($t['show_join_button']);
+            $compact              = !empty($t['compact_cards']);
 
             // v3.128 — Outer container styling. The renderer wraps
             // the events block in <div class="up-next-outer">
@@ -512,7 +520,7 @@ class Azure_UpNext_Themes {
             $out .= "font-size:" . (int) $t['header_size'] . "px;";
             $out .= "font-family:" . $font_stack . ";";
             $out .= "text-align:" . esc_attr($t['header_align']) . ";";
-            $out .= "margin:0 0 18px;font-weight:800;letter-spacing:0.5px;";
+            $out .= "margin:0 0 " . ($compact ? 8 : 18) . "px;font-weight:800;letter-spacing:0.5px;";
             $out .= "}\n";
             if (!empty($t['header_underline'])) {
                 // Underline alignment tracks header_align so a
@@ -533,7 +541,7 @@ class Azure_UpNext_Themes {
             $out .= "color:" . self::c($t['footer_color']) . ";";
             $out .= "font-size:" . (int) $t['footer_size'] . "px;";
             $out .= "text-align:" . esc_attr($t['footer_align']) . ";";
-            $out .= "margin:24px 0 0;line-height:1.4;";
+            $out .= "margin:" . ($compact ? 12 : 24) . "px 0 0;line-height:1.4;";
             $out .= "}\n";
             $out .= "{$sel} .up-next-footer a{color:inherit;text-decoration:underline;}\n";
 
@@ -653,15 +661,32 @@ class Azure_UpNext_Themes {
                 $out .= "border-radius:" . (int) $t['pill_radius'] . "px;";
                 $out .= "flex:0 0 " . (int) $t['pill_width'] . "px;";
                 $out .= "display:flex;flex-direction:column;align-items:center;justify-content:center;";
-                $out .= "padding:8px 6px;text-transform:uppercase;line-height:1.05;";
+                $out .= "padding:" . ($compact ? '4px 4px' : '8px 6px') . ";text-transform:uppercase;line-height:1.05;";
                 $out .= "}\n";
-                $out .= "{$sel} .upcoming-date-pill-day{font-size:" . max(12, (int) $t['date_size']) . "px;font-weight:700;}\n";
-                $out .= "{$sel} .upcoming-date-pill-num{font-size:" . max(18, (int) $t['title_size'] + 4) . "px;font-weight:800;margin-top:2px;}\n";
+                if ($compact) {
+                    $out .= "{$sel} .upcoming-date-pill-day{font-size:" . max(9, (int) $t['date_size']) . "px;font-weight:700;}\n";
+                    $out .= "{$sel} .upcoming-date-pill-num{font-size:" . ((int) $t['title_size'] + 1) . "px;font-weight:800;margin-top:2px;}\n";
+                } else {
+                    $out .= "{$sel} .upcoming-date-pill-day{font-size:" . max(12, (int) $t['date_size']) . "px;font-weight:700;}\n";
+                    $out .= "{$sel} .upcoming-date-pill-num{font-size:" . max(18, (int) $t['title_size'] + 4) . "px;font-weight:800;margin-top:2px;}\n";
+                }
                 // Card body grows to fill remaining width. Time + title
                 // stack; a compact Join button sits on the right of the time row.
                 $out .= "{$itemSel} .upcoming-body{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:4px;}\n";
-                $out .= "{$itemSel} .upcoming-body-main{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}\n";
-                $out .= "{$itemSel} .upcoming-body-copy{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;}\n";
+                $out .= "{$itemSel} .upcoming-body-main{display:flex;align-items:" . ($compact ? 'center' : 'flex-start') . ";justify-content:space-between;gap:8px;}\n";
+                if ($compact) {
+                    // Title on top; "time · place" underneath.
+                    $out .= "{$itemSel} .upcoming-body-copy{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0;line-height:1.35;}\n";
+                    $out .= "{$itemSel} .upcoming-meta-line{font-size:" . max(11, (int) $t['title_size'] - 1) . "px;color:" . self::c($t['muted_color']) . ";}\n";
+                    $out .= "{$itemSel} .upcoming-meta-line .upcoming-time-only{font-weight:700;color:" . self::c($t['text_color']) . ";}\n";
+                    $out .= "{$itemSel} .upcoming-meta-sep{color:" . self::c($t['muted_color']) . ";}\n";
+                } else {
+                    $out .= "{$itemSel} .upcoming-body-copy{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;}\n";
+                }
+                // Same-day events share one card: bodies stack beside the pill.
+                $out .= "{$itemSel} .upcoming-day-events{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:4px;}\n";
+                $out .= "{$itemSel} .upcoming-day-events > .upcoming-body{flex:0 0 auto;}\n";
+                $out .= "{$itemSel} .upcoming-day-events .upcoming-corner{position:static;max-width:none;text-align:left;}\n";
             } else {
                 $out .= "{$sel} .upcoming-date-pill{display:none;}\n";
             }

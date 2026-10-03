@@ -8,6 +8,14 @@ if (!defined('ABSPATH')) {
 }
 
 $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'auction';
+if ($active_tab === 'rules') {
+    $url = admin_url('admin.php?page=azure-plugin-system&tab=rules');
+    if (!empty($_GET['edit'])) {
+        $url = add_query_arg('edit', absint($_GET['edit']), $url);
+    }
+    wp_safe_redirect($url);
+    exit;
+}
 // Legacy slugs (v3.67/v3.68) — the Parent Tools / Consolidate / CSV import
 // surfaces moved out of Selling. Bounce visitors who follow old bookmarks
 // to the new User Management page (in PTA Tools) so they don't 404.
@@ -15,7 +23,7 @@ if (in_array($active_tab, array('parent-tools', 'parent-children-import', 'produ
     wp_safe_redirect(admin_url('admin.php?page=azure-plugin-user-management&tab=role-editor'));
     exit;
 }
-$valid_tabs = array('auction', 'classes', 'product-fields', 'donations', 'reports', 'rules');
+$valid_tabs = array('auction', 'classes', 'product-fields', 'donations', 'reports');
 if (!in_array($active_tab, $valid_tabs)) {
     $active_tab = 'auction';
 }
@@ -46,10 +54,6 @@ $GLOBALS['azure_tab_mode'] = true;
            class="azure-tab-link <?php echo $active_tab === 'reports' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-media-spreadsheet"></span> Reports
         </a>
-        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-selling&tab=rules')); ?>"
-           class="azure-tab-link <?php echo $active_tab === 'rules' ? 'active' : ''; ?>">
-            <span class="dashicons dashicons-randomize"></span> Rules
-        </a>
     </nav>
 
     <?php
@@ -68,9 +72,6 @@ $GLOBALS['azure_tab_mode'] = true;
             break;
         case 'reports':
             include AZURE_PLUGIN_PATH . 'admin/orders-reports-page.php';
-            break;
-        case 'rules':
-            include AZURE_PLUGIN_PATH . 'admin/order-rules-page.php';
             break;
     }
     ?>

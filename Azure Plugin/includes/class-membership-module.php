@@ -3476,6 +3476,9 @@ class Azure_Membership_Module {
     }
 
     public function register_admin_page() {
+        if (did_action('azure_pta_menu_registered')) {
+            return;
+        }
         $cap = class_exists('Azure_Finance_Role') ? Azure_Finance_Role::CAP : 'manage_options';
         add_submenu_page(
             'azure-plugin',
@@ -3499,20 +3502,164 @@ class Azure_Membership_Module {
         echo '<div class="wrap"><h1>' . esc_html__('Membership', 'azure-plugin') . '</h1></div>';
     }
 
-    public function maybe_export_csv() {
-        if (!is_admin() || empty($_GET['page']) || $_GET['page'] !== 'azure-plugin-membership') {
-            return;
-        }
-        if (empty($_GET['export']) || $_GET['export'] !== 'csv') {
-            return;
-        }
-        if (!self::current_user_can_manage()) {
-            wp_die(esc_html__('Forbidden', 'azure-plugin'));
-        }
-        check_admin_referer(self::NONCE_ADMIN);
+    public static function givebacks_csv_url() {
+        $url = admin_url('admin.php?page=azure-plugin-membership&export=givebacks');
+        return function_exists('wp_nonce_url') ? wp_nonce_url($url, self::NONCE_ADMIN) : $url;
+    }
 
-        $rows = self::build_sold_membership_rows();
+    /**
+     * Calendar year the current school year ends in (Aug 2026 – Jul 2027 → 2027).
+     */
+    public static function school_year_ending() {
+        $range = self::school_year_range();
+        return (int) substr($range['from'], 0, 4) + 1;
+    }
 
+    public static function givebacks_member_type($type) {
+        return $type === 'staff' ? 'Faculty/Staff' : 'Parent/Guardian';
+    }
+
+    /**
+     * One row per member for the GiveBacks import: the purchaser, plus Parent 2
+     * on a Family membership. Donated lines are skipped by
+     * item_membership_type(); the same person and member type appears once.
+     *
+     * @param object[] $orders
+     * @param int      $year_ending
+     * @return array<int, string[]> First Name, Last Name, Email, Phone Number, Member Type, School Year Ending
+     */
+    public static function givebacks_rows_from_orders($orders, $year_ending) {
+        $rows = array();
+        foreach ((array) $orders as $order) {
+            if (!is_object($order) || !method_exists($order, 'get_items')) {
+                continue;
+            }
+            foreach ($order->get_items() as $item) {
+                $type = self::item_membership_type($item);
+                if ($type === '') {
+                    continue;
+                }
+                $member_type = self::givebacks_member_type($type);
+                $people = array(self::givebacks_person_from_order($order));
+                if ($type === 'family') {
+                    $p2 = self::givebacks_parent_2_from_item($order, $item);
+                    if ($p2) {
+                        $people[] = $p2;
+                    }
+                }
+                foreach ($people as $person) {
+                    $key = $person['email'] !== ''
+                        ? strtolower($person['email'])
+                        : strtolower($person['first'] . ' ' . $person['last']);
+                    $key .= '|' . $member_type;
+                    if (isset($rows[$key])) {
+                        continue;
+                    }
+                    $rows[$key] = array(
+                        $person['first'],
+                        $person['last'],
+                        $person['email'],
+                        $person['phone'],
+                        $member_type,
+                        (string) (int) $year_ending,
+                    );
+                }
+            }
+        }
+        $rows = array_values($rows);
+        usort($rows, function ($a, $b) {
+            $cmp = strcasecmp($a[1], $b[1]);
+            return $cmp !== 0 ? $cmp : strcasecmp($a[0], $b[0]);
+        });
+        return $rows;
+    }
+
+    /**
+     * @return array{first:string,last:string,email:string,phone:string}
+     */
+    private static function givebacks_person_from_order($order) {
+        $user_id = method_exists($order, 'get_user_id') ? (int) $order->get_user_id() : 0;
+        $user = ($user_id && function_exists('get_userdata')) ? get_userdata($user_id) : null;
+
+        $first = method_exists($order, 'get_billing_first_name') ? trim((string) $order->get_billing_first_name()) : '';
+        $last = method_exists($order, 'get_billing_last_name') ? trim((string) $order->get_billing_last_name()) : '';
+        if ($first === '' && $last === '' && $user_id && function_exists('get_user_meta')) {
+            $first = trim((string) get_user_meta($user_id, 'first_name', true));
+            $last = trim((string) get_user_meta($user_id, 'last_name', true));
+        }
+        if ($first === '' && $last === '' && $user) {
+            list($first, $last) = self::split_full_name((string) $user->display_name);
+        }
+
+        $email = $user ? trim((string) $user->user_email) : '';
+        if ($email === '' && method_exists($order, 'get_billing_email')) {
+            $email = trim((string) $order->get_billing_email());
+        }
+
+        $phone = method_exists($order, 'get_billing_phone') ? trim((string) $order->get_billing_phone()) : '';
+        if ($phone === '' && $user_id && function_exists('get_user_meta')) {
+            $phone = trim((string) get_user_meta($user_id, 'billing_phone', true));
+        }
+
+        return array('first' => $first, 'last' => $last, 'email' => $email, 'phone' => $phone);
+    }
+
+    /**
+     * Last word is the last name; everything before it is the first name.
+     *
+     * @return array{0:string,1:string}
+     */
+    public static function split_full_name($name) {
+        $name = trim(preg_replace('/\s+/', ' ', (string) $name));
+        $pos = strrpos($name, ' ');
+        if ($pos === false) {
+            return array($name, '');
+        }
+        return array(substr($name, 0, $pos), substr($name, $pos + 1));
+    }
+
+    /**
+     * Parent 2 on a Family line, or null when neither a name nor an email is known.
+     *
+     * @return array{first:string,last:string,email:string,phone:string}|null
+     */
+    private static function givebacks_parent_2_from_item($order, $item) {
+        $user_id = method_exists($order, 'get_user_id') ? (int) $order->get_user_id() : 0;
+        $p2 = self::parent_2_from_order_item($order, $item, $user_id);
+        $name = trim((string) $p2['name']);
+        $email = trim((string) $p2['email']);
+        if ($name === '' && $email === '') {
+            return null;
+        }
+        $parts = self::split_full_name($name);
+        $phone = self::item_product_field($item, 'parent_2_cell', array('Parent 2 Cell', 'Parent 2 Phone', 'Parent2 Cell'));
+        if ($phone === '' && $user_id && function_exists('get_user_meta')) {
+            $phone = trim((string) get_user_meta($user_id, self::META_P2_CELL, true));
+        }
+        return array(
+            'first' => $parts[0] ?? '',
+            'last'  => $parts[1] ?? '',
+            'email' => $email,
+            'phone' => trim((string) $phone),
+        );
+    }
+
+    /**
+     * GiveBacks' template quotes every field, so match it rather than fputcsv.
+     */
+    public static function givebacks_csv_line(array $fields) {
+        $out = array();
+        foreach ($fields as $field) {
+            $field = (string) $field;
+            if ($field !== '' && strpos('=+-@', $field[0]) !== false && !preg_match('/^\+?[\d\s().-]+$/', $field)) {
+                $field = "'" . $field;
+            }
+            $out[] = '"' . str_replace('"', '""', $field) . '"';
+        }
+        return implode(',', $out) . "\n";
+    }
+
+    private static function export_filename($kind) {
         $slug = 'membership';
         if (function_exists('sanitize_title') && function_exists('get_bloginfo')) {
             $slug = sanitize_title(get_bloginfo('name'));
@@ -3520,7 +3667,52 @@ class Azure_Membership_Module {
         if ($slug === '') {
             $slug = 'membership';
         }
-        $filename = $slug . '-membership-' . gmdate('Y-m-d') . '.csv';
+        return $slug . '-' . $kind . '-' . gmdate('Y-m-d') . '.csv';
+    }
+
+    private function export_givebacks_csv() {
+        $orders = array();
+        if (function_exists('wc_get_orders')) {
+            $range = self::school_year_range();
+            $orders = wc_get_orders(array(
+                'status'       => array('processing', 'completed'),
+                'type'         => 'shop_order',
+                'date_created' => $range['from'] . '...' . $range['to'],
+                'limit'        => -1,
+                'return'       => 'objects',
+            ));
+        }
+        $rows = self::givebacks_rows_from_orders($orders, self::school_year_ending());
+
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . self::export_filename('givebacks') . '"');
+        echo self::givebacks_csv_line(array('First Name', 'Last Name', 'Email', 'Phone Number', 'Member Type', 'School Year Ending'));
+        foreach ($rows as $row) {
+            echo self::givebacks_csv_line($row);
+        }
+        exit;
+    }
+
+    public function maybe_export_csv() {
+        if (!is_admin() || empty($_GET['page']) || $_GET['page'] !== 'azure-plugin-membership') {
+            return;
+        }
+        if (empty($_GET['export']) || !in_array($_GET['export'], array('csv', 'givebacks'), true)) {
+            return;
+        }
+        if (!self::current_user_can_manage()) {
+            wp_die(esc_html__('Forbidden', 'azure-plugin'));
+        }
+        check_admin_referer(self::NONCE_ADMIN);
+
+        if ($_GET['export'] === 'givebacks') {
+            $this->export_givebacks_csv();
+        }
+
+        $rows = self::build_sold_membership_rows();
+
+        $filename = self::export_filename('membership');
         nocache_headers();
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');

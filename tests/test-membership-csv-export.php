@@ -213,6 +213,65 @@ $t->check(strpos($export_url, 'page=azure-plugin-membership') !== false, 'export
 $t->check(strpos($export_url, 'export=csv') !== false, 'export URL requests the sold-memberships CSV');
 $t->check(strpos($export_url, 'nonce-azure_membership_admin') !== false, 'export URL carries the Membership admin nonce');
 
+$gb_url = Azure_Membership_Module::givebacks_csv_url();
+$t->check(strpos($gb_url, 'export=givebacks') !== false, 'GiveBacks URL requests the GiveBacks export');
+$t->check(strpos($gb_url, 'nonce-azure_membership_admin') !== false, 'GiveBacks URL carries the Membership admin nonce');
+
+$t->equals('Parent/Guardian', Azure_Membership_Module::givebacks_member_type('family'), 'family is Parent/Guardian');
+$t->equals('Parent/Guardian', Azure_Membership_Module::givebacks_member_type('individual'), 'individual is Parent/Guardian');
+$t->equals('Faculty/Staff', Azure_Membership_Module::givebacks_member_type('staff'), 'staff is Faculty/Staff');
+
+$repeat = new Azure_Test_Membership_Order();
+$repeat->first = 'Melanie';
+$repeat->last = 'Modrell';
+$repeat->email = 'guest@example.com';
+$repeat->items[] = new Azure_Test_Membership_Item(23231, 'PTSA Individual Membership');
+
+$solo_family = new Azure_Test_Membership_Order();
+$solo_family->first = 'Grace';
+$solo_family->last = 'Hopper';
+$solo_family->email = 'grace@example.com';
+$solo_family->items[] = new Azure_Test_Membership_Item(23233, 'PTSA Family Membership');
+
+$gb = Azure_Membership_Module::givebacks_rows_from_orders(array($family, $guest_indiv, $staff, $donated, $repeat, $solo_family), 2027);
+$t->equals(5, count($gb), 'GiveBacks has one row per member: both family parents, donated and repeat buyers excluded');
+$by_email = array();
+foreach ($gb as $r) {
+    $by_email[$r[2]] = $r;
+}
+$t->equals(array('Ada', 'Lovelace', 'ada@example.com', '', 'Parent/Guardian', '2027'), $by_email['ada@example.com'] ?? null, 'family purchaser row');
+$t->equals(array('William', 'King', 'william@example.com', '', 'Parent/Guardian', '2027'), $by_email['william@example.com'] ?? null, 'family parent 2 gets its own Parent/Guardian row');
+$t->check(isset($by_email['grace@example.com']), 'family with no parent 2 on file still exports the purchaser');
+$t->equals('Faculty/Staff', $by_email['pat@wilderptsa.net'][4] ?? '', 'staff row is Faculty/Staff');
+$t->check(!isset($by_email['skip@example.com']), 'donated membership excluded from GiveBacks');
+$t->equals('Hopper', $gb[0][1], 'rows sorted by last name');
+
+$t->equals(array('Yuxun (Mingming)', 'Lei'), Azure_Membership_Module::split_full_name('Yuxun (Mingming) Lei'), 'last word is the last name');
+$t->equals(array('Mary Ann', 'Smith'), Azure_Membership_Module::split_full_name('  Mary  Ann Smith '), 'extra spaces collapse');
+$t->equals(array('Cher', ''), Azure_Membership_Module::split_full_name('Cher'), 'single name is a first name');
+
+$same_p2 = new Azure_Test_Membership_Order();
+$same_p2->first = 'Ada';
+$same_p2->last = 'Lovelace';
+$same_p2->email = 'ada@example.com';
+$same_p2->items[] = new Azure_Test_Membership_Item(23233, 'PTSA Family Membership', array(
+    '_pta_parent_2_name' => 'Ada Lovelace',
+    '_pta_parent_2_email' => 'ADA@example.com',
+));
+$t->equals(1, count(Azure_Membership_Module::givebacks_rows_from_orders(array($same_p2), 2027)), 'parent 2 matching the purchaser is not duplicated');
+
+$t->equals(
+    "\"First Name\",\"Last Name\",\"Email\",\"Phone Number\",\"Member Type\",\"School Year Ending\"\n",
+    Azure_Membership_Module::givebacks_csv_line(array('First Name', 'Last Name', 'Email', 'Phone Number', 'Member Type', 'School Year Ending')),
+    'header matches the GiveBacks template byte for byte'
+);
+$t->equals("\"O\"\"Brien\",\"+1 425 555 0100\",\"'=SUM(A1)\"\n", Azure_Membership_Module::givebacks_csv_line(array('O"Brien', '+1 425 555 0100', '=SUM(A1)')), 'quotes escaped, phone kept, formulas neutralised');
+
+$year = Azure_Membership_Module::school_year_ending();
+$now = new DateTimeImmutable('now', wp_timezone());
+$expected_year = ((int) $now->format('n') >= 8) ? (int) $now->format('Y') + 1 : (int) $now->format('Y');
+$t->equals($expected_year, $year, 'school year ending follows the Aug 1 school year');
+
 $widget = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-membership-module.php');
 $t->check(strpos($widget, 'export_csv_url()') !== false, 'Membership dashboard widget uses the same CSV URL');
 $t->check(strpos($widget, "esc_html_e('Export'") !== false, 'Membership dashboard widget has an Export button');

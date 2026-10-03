@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.116
+ * Version: 3.147.150
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.116');
+define('AZURE_PLUGIN_VERSION', '3.147.150');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -745,6 +745,7 @@ class AzurePlugin {
                             Azure_Finance_Role::ensure_role();
                         }
                     }
+                    require_once AZURE_PLUGIN_PATH . 'includes/class-parent-activation.php';
                     if (!wp_next_scheduled(Azure_Parent_Activation::CLEANUP_HOOK)) {
                         wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', Azure_Parent_Activation::CLEANUP_HOOK);
                     }
@@ -1048,6 +1049,11 @@ class AzurePlugin {
                 $this->init_volunteer_components($ctx);
             }
 
+            if (!empty($settings['enable_forms'])) {
+                PTA_Trace::module('forms');
+                $this->init_forms_components($ctx);
+            }
+
             // Centralized "ensure scheduled" pass for all module cron events.
             // Skipped on frontend pageloads — only the WP-Cron daemon, admin,
             // and AJAX requests need to verify event registrations. Idempotent;
@@ -1322,18 +1328,17 @@ class AzurePlugin {
 
     /**
      * PTA module
-     *   - Database, Manager, Shortcode, Forminator: front-end + admin
+     *   - Database, Manager, Shortcode: front-end + admin
      *   - Sync Engine, Groups Manager: admin/cron only (Graph API user provisioning)
      */
     private function init_pta_components($ctx) {
         try {
-            // Always loaded (front-end shortcodes + Forminator integration + table accessors)
+            // Always loaded (front-end shortcodes + table accessors)
             $this->require_module_files(array(
                 'class-pta-database.php',
                 'class-pta-role-descriptions.php',
                 'class-pta-manager.php',
                 'class-pta-shortcode.php',
-                'class-pta-forminator.php',
                 'class-local-avatars.php',
                 'class-ptsa-page-templates.php',
             ));
@@ -1349,9 +1354,6 @@ class AzurePlugin {
             }
             if (class_exists('Azure_PTA_Shortcode')) {
                 new Azure_PTA_Shortcode();
-            }
-            if (class_exists('Azure_PTA_Forminator')) {
-                Azure_PTA_Forminator::get_instance();
             }
             if (class_exists('Azure_PTSA_Page_Templates')) {
                 Azure_PTSA_Page_Templates::init();
@@ -1741,6 +1743,23 @@ class AzurePlugin {
         } catch (\Throwable $e) {
             Azure_Logger::error('Order rules init failed: ' . $e->getMessage(), array('module' => 'OrderRules', 'file' => $e->getFile(), 'line' => $e->getLine()));
             error_log('Azure Plugin: Order rules init error - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Forms ([pta_form]): the shortcode, the REST submit route and the
+     * no-JS page post all have to be registered on every request type.
+     * Front-end assets load only when the shortcode renders.
+     */
+    private function init_forms_components($ctx) {
+        try {
+            $this->require_module_files(array('class-forms-module.php'));
+            if (class_exists('Azure_Forms_Module')) {
+                Azure_Forms_Module::get_instance();
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('Forms init failed: ' . $e->getMessage(), array('module' => 'Forms', 'file' => $e->getFile(), 'line' => $e->getLine()));
+            error_log('Azure Plugin: Forms init error - ' . $e->getMessage());
         }
     }
 

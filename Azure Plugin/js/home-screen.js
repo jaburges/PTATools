@@ -1,10 +1,12 @@
 (function () {
   if (!window.ptaHomeScreen) return;
 
+  function boot() {
   var dismissedKey = 'pta-pin-dismissed';
   var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   var narrow = window.matchMedia('(max-width: 782px)').matches;
   var ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  var edge = /EdgiOS|EdgA|Edg\//.test(navigator.userAgent);
   var sheet = document.getElementById('pta-pin-sheet');
   var allow = document.getElementById('pta-push-allow');
 
@@ -12,13 +14,15 @@
     if (el) el.hidden = false;
   }
 
-  if (sheet && ptaHomeScreen.showPin && !standalone && narrow && !localStorage.getItem(dismissedKey)) {
-    sheet.classList.add(ios ? 'is-ios' : 'is-android');
+  var dismissed = false;
+  try { dismissed = !!localStorage.getItem(dismissedKey); } catch (e) {}
+  if (sheet && ptaHomeScreen.showPin && !standalone && narrow && !dismissed) {
+    sheet.classList.add(edge && ios ? 'is-edge' : (ios ? 'is-ios' : 'is-android'));
     show(sheet);
     var close = sheet.querySelector('.pta-pin-sheet__close');
     if (close) {
       close.addEventListener('click', function () {
-        localStorage.setItem(dismissedKey, '1');
+        try { localStorage.setItem(dismissedKey, '1'); } catch (e) {}
         sheet.hidden = true;
       });
     }
@@ -78,5 +82,12 @@
     var out = new Uint8Array(raw.length);
     for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
     return out;
+  }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
   }
 })();

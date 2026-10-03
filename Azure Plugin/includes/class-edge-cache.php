@@ -314,7 +314,7 @@ class Azure_Edge_Cache {
      * that fails is a bounded staleness problem rather than a lost edit,
      * because SHARED_MAX_AGE still expires the entry.
      */
-    private function request_purge($reason) {
+    public function request_purge($reason) {
         if (!class_exists('Azure_Platform_Sync')
             || !method_exists('Azure_Platform_Sync', 'burst_afd_cache')) {
             return;

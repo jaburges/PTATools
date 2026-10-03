@@ -34,10 +34,13 @@ if ($editing && !empty($editing->send_at)) {
         $send_local = '';
     }
 }
+$screen = (isset($screen) && $screen === 'notifications') ? 'notifications' : 'pin';
 ?>
 <div class="wrap">
-    <h1><?php esc_html_e('Home Screen', 'azure-plugin'); ?></h1>
-    <?php Azure_Home_Screen::render_module_switch('home_screen', __('Pinned home-screen icon and scheduled notifications.', 'azure-plugin')); ?>
+    <h1><?php echo $screen === 'notifications' ? esc_html__('Notifications', 'azure-plugin') : esc_html__('Mobile App', 'azure-plugin'); ?></h1>
+    <?php Azure_Home_Screen::render_module_switch('home_screen', $screen === 'notifications'
+        ? __('Scheduled notifications for people who allowed them.', 'azure-plugin')
+        : __('Pinned home-screen icon and scheduled notifications.', 'azure-plugin')); ?>
 
     <?php if ($notice !== ''): ?>
         <div class="notice notice-success is-dismissible"><p><?php echo esc_html($notice); ?></p></div>
@@ -45,7 +48,7 @@ if ($editing && !empty($editing->send_at)) {
 
     <?php if (!Azure_Home_Screen::is_enabled()): ?>
         <p><?php esc_html_e('Turn the module on to show the pin popup and send notifications.', 'azure-plugin'); ?></p>
-    <?php else: ?>
+    <?php elseif ($screen === 'pin'): ?>
 
     <form method="post" style="background:#fff;border:1px solid #c3c4c7;padding:16px;margin:0 0 20px;max-width:760px;">
         <?php wp_nonce_field(Azure_Home_Screen::NONCE); ?>
@@ -57,7 +60,7 @@ if ($editing && !empty($editing->send_at)) {
         <p class="description"><?php esc_html_e('A small popup on phones tells every visitor how to add the site to their home screen. It stays hidden after they close it, and it does not appear when the site is already opened from that icon.', 'azure-plugin'); ?></p>
         <?php submit_button(__('Save', 'azure-plugin'), 'secondary', 'submit', false); ?>
     </form>
-
+    <?php else: ?>
     <p>
         <?php
         printf(
@@ -87,7 +90,7 @@ if ($editing && !empty($editing->send_at)) {
             <tr>
                 <th scope="row"><label for="pta-push-link"><?php esc_html_e('Link', 'azure-plugin'); ?></label></th>
                 <td>
-                    <input type="url" class="regular-text" id="pta-push-link" name="link_url" value="<?php echo esc_attr($editing ? $editing->link_url : ''); ?>" placeholder="https://wilderptsa.net/" />
+                    <input type="url" class="regular-text" id="pta-push-link" name="link_url" value="<?php echo esc_attr($editing ? $editing->link_url : ''); ?>" placeholder="<?php echo esc_attr(home_url('/')); ?>" />
                     <p class="description"><?php esc_html_e('Opened when the notification is tapped. Leave blank for the home page.', 'azure-plugin'); ?></p>
                 </td>
             </tr>
@@ -169,7 +172,7 @@ if ($editing && !empty($editing->send_at)) {
                     <td><?php echo (int) $note->sent_count; ?> / <?php echo (int) $note->failed_count; ?> <?php esc_html_e('failed', 'azure-plugin'); ?></td>
                     <td>
                         <?php if (in_array($note->status, array('draft', 'scheduled'), true)): ?>
-                            <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-home-screen&action=edit&id=' . (int) $note->id)); ?>"><?php esc_html_e('Edit', 'azure-plugin'); ?></a>
+                            <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-notifications&action=edit&id=' . (int) $note->id)); ?>"><?php esc_html_e('Edit', 'azure-plugin'); ?></a>
                         <?php endif; ?>
                         <form method="post" style="display:inline;">
                             <?php wp_nonce_field(Azure_Home_Screen::NONCE); ?>

@@ -34,7 +34,7 @@ $total = class_exists('Azure_Class_Competitions') ? Azure_Class_Competitions::st
 <div style="background:#fff; border:1px solid #ccd0d4; padding:20px; margin:16px 0; max-width:920px;">
     <h2 style="margin:0 0 8px;">
         <span class="dashicons dashicons-groups"></span>
-        <?php esc_html_e('Classes', 'azure-plugin'); ?>
+        <?php esc_html_e('Class Count', 'azure-plugin'); ?>
     </h2>
     <p class="description" style="margin:0 0 12px;">
         <?php esc_html_e('This is the teacher list. Each row is a teacher, the grade they teach, and how many students are in the class. A mixed class is written 4/5. Saving here updates the Child Teacher dropdown.', 'azure-plugin'); ?>

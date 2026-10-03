@@ -13,7 +13,7 @@ class Azure_Calendar_Auth {
      * Option key holding per-user token health (status, last error, last check).
      * Format:
      *   [
-     *     'jamieb@example.com' => [
+     *     'calendar-owner@example.com' => [
      *        'status'        => 'ok' | 'expires_soon' | 'expired_no_refresh' | 'refresh_failed',
      *        'last_error'    => string|null,
      *        'last_error_at' => 'YYYY-mm-dd HH:ii:ss' (UTC),

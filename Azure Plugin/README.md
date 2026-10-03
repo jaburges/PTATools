@@ -3,7 +3,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue.svg)](https://wordpress.org/)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/License-GPL%20v2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
-[![Version](https://img.shields.io/badge/Version-3.130-orange.svg)](https://github.com/jaburges/PTATools)
+[![Version](https://img.shields.io/badge/Version-3.147.150-orange.svg)](https://github.com/jaburges/PTATools)
 
 **A comprehensive Microsoft 365 integration plugin for WordPress** designed for PTAs, nonprofits, and organizations. Features Azure AD Single Sign-On, automated backups to Azure Blob Storage, email newsletters with visual editor, Outlook calendar embedding, a native PTA event calendar (`pta_event` CPT) that syncs from Outlook, PTA role management, WooCommerce class products, and more.
 
@@ -24,7 +24,7 @@
 3. **Enter credentials** → Add Client ID, Secret, and Tenant ID in plugin settings
 4. **Enable modules** → Turn on the features you need
 
-📖 **[Full Documentation →](https://github.com/jaburges/AzureSSO/wiki)**
+📖 **[Full Documentation →](https://github.com/jaburges/PTATools/wiki)**
 
 ---
 
@@ -33,30 +33,32 @@
 ### 🔐 Authentication & Security
 | Module | Description |
 |--------|-------------|
-| **[SSO Authentication](https://github.com/jaburges/AzureSSO/wiki/SSO-Module)** | Azure AD login with claims mapping, auto user creation, role sync |
+| **[SSO Authentication](https://github.com/jaburges/PTATools/wiki/SSO-Module)** | Azure AD login with claims mapping, auto user creation, role sync |
 
 ### 💾 Data Management
 | Module | Description |
 |--------|-------------|
-| **[Backup to Azure](https://github.com/jaburges/AzureSSO/wiki/Backup-Module)** | Automated backups to Azure Blob Storage with scheduling, granular plugin/theme selection, restore progress tracking, and remote backup sync |
+| **[Backup to Azure](https://github.com/jaburges/PTATools/wiki/Backup-Module)** | Automated backups to Azure Blob Storage with scheduling, granular plugin/theme selection, restore progress tracking, and remote backup sync |
 
 ### 📅 Calendar & Events
 | Module | Description |
 |--------|-------------|
-| **[Calendar Embed](https://github.com/jaburges/AzureSSO/wiki/Calendar-Embed-Module)** | Embed Outlook calendars with shortcodes, shared mailbox support |
-| **[Calendar Sync](https://github.com/jaburges/AzureSSO/wiki/Calendar-Sync-Module)** | Sync Outlook calendars into the native `pta_event` CPT with category mapping |
-| **[Upcoming Events](https://github.com/jaburges/AzureSSO/wiki/Upcoming-Events-Module)** | Display upcoming `pta_event` posts with the customizable `[up-next]` shortcode |
+| **[Calendar Embed](https://github.com/jaburges/PTATools/wiki/Calendar-Embed-Module)** | Embed Outlook calendars with shortcodes, shared mailbox support |
+| **[Calendar Sync](https://github.com/jaburges/PTATools/wiki/Calendar-Sync-Module)** | Sync Outlook calendars into the native `pta_event` CPT with category mapping |
+| **[Upcoming Events](https://github.com/jaburges/PTATools/wiki/Upcoming-Events-Module)** | Display upcoming `pta_event` posts with the customizable `[up-next]` shortcode |
 
 ### 📧 Communication
 | Module | Description |
 |--------|-------------|
-| **[Email via Graph API](https://github.com/jaburges/AzureSSO/wiki/Email-Module)** | Send WordPress emails through Microsoft Graph |
-| **[Newsletter](https://github.com/jaburges/AzureSSO/wiki/Newsletter-Module)** | Visual email editor, campaigns, subscriber lists, analytics, spam testing |
+| **[Email via Graph API](https://github.com/jaburges/PTATools/wiki/Email-Module)** | Send WordPress emails through Microsoft Graph |
+| **[Newsletter](https://github.com/jaburges/PTATools/wiki/Newsletter-Module)** | Visual email editor, campaigns, subscriber lists, analytics, spam testing |
+| **[Forms](https://github.com/jaburges/PTATools/wiki/Forms-Module)** | Drag-and-drop forms with `[pta_form]`, entries and CSV export, email rules, optional Turnstile, and parent self-registration |
+| **[Home Screen](https://github.com/jaburges/PTATools/wiki/Home-Screen-Module)** | Add-to-home-screen prompt and push notifications to parents by grade or teacher |
 
 ### 👥 Organization Management
 | Module | Description |
 |--------|-------------|
-| **[PTA Roles](https://github.com/jaburges/AzureSSO/wiki/PTA-Roles-Module)** | Manage volunteer roles, departments, O365 group sync, org chart with emails, Forminator signup integration |
+| **[PTA Roles](https://github.com/jaburges/PTATools/wiki/PTA-Roles-Module)** | Manage volunteer roles, departments, O365 group sync, org chart with emails |
 
 ### 🛒 E-Commerce
 | Module | Description |
@@ -64,7 +66,7 @@
 | **[Classes (WooCommerce)](https://github.com/jaburges/PTATools/wiki/Classes-Module)** | Create class products that auto-generate `pta_event` sessions on the calendar, variable pricing, commit-to-buy |
 | **[Auction](https://github.com/jaburges/PTATools/wiki/Auction-Module)** | Timed manual bidding, Buy It Now, confirm-bid modal, outbid + winner emails, instant updates |
 | **[Product Fields](https://github.com/jaburges/PTATools/wiki/Product-Fields-Module)** | Custom checkout fields with children profiles, applied by category |
-| **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, gift products, admin email, `[pta-donate]` and `[donations-list]` |
+| **[Donations](https://github.com/jaburges/PTATools/wiki/Donations-Module)** | Round-up at checkout, gift products, suggested giving levels, class competitions, `[pta-donate]`, `[giving-levels]` and `[donations-list]` |
 
 ### 🙋 Volunteering
 | Module | Description |
@@ -74,7 +76,7 @@
 ### 📁 Media
 | Module | Description |
 |--------|-------------|
-| **[OneDrive Media](https://github.com/jaburges/AzureSSO/wiki/OneDrive-Module)** | Store media in OneDrive/SharePoint with recursive sync, cloud serving, and Repair Missing Media tool |
+| **[OneDrive Media](https://github.com/jaburges/PTATools/wiki/OneDrive-Module)** | Store media in OneDrive/SharePoint with recursive sync, cloud serving, and Repair Missing Media tool |
 
 ---
 
@@ -94,7 +96,6 @@
 | Plugin | Required For |
 |--------|--------------|
 | [WooCommerce](https://woocommerce.com/) | Classes, Event Tickets, Auction modules |
-| [Forminator](https://wpmudev.com/project/forminator/) | PTA Roles signup form integration |
 | [Event Tickets](https://theeventscalendar.com/products/wordpress-event-tickets/) | Event Tickets module |
 
 ---
@@ -113,7 +114,8 @@
 cd /path/to/wordpress/wp-content/plugins/
 
 # Clone or extract the plugin
-git clone https://github.com/jaburges/AzureSSO.git azure-plugin
+git clone https://github.com/jaburges/PTATools.git
+cp -R "PTATools/Azure Plugin" "Azure Plugin"
 ```
 
 ### After Installation
@@ -268,8 +270,6 @@ Credentials: Required for O365 Groups sync
 - User assignments with audit logging
 - O365 Groups synchronization at department and role level
 - Interactive org chart with O365 group email links (mailto)
-- Forminator integration for role signup forms (opens in modal from org chart)
-- Pre-populated forms for logged-in users
 
 **Shortcodes:**
 ```
@@ -361,18 +361,18 @@ View logs at: **Azure Plugin → System Logs**
 
 ## 📖 Documentation
 
-- **[Wiki Home](https://github.com/jaburges/AzureSSO/wiki)** - Full documentation
-- **[Prerequisites](https://github.com/jaburges/AzureSSO/wiki/Prerequisites)** - What you need before installing
-- **[Quick Start](https://github.com/jaburges/AzureSSO/wiki/Quick-Start)** - Get up and running fast
-- **[Module Guides](https://github.com/jaburges/AzureSSO/wiki/Modules)** - Detailed module documentation
-- **[Advanced Config](https://github.com/jaburges/AzureSSO/wiki/Advanced-Configuration)** - Power user settings
-- **[Contributing](https://github.com/jaburges/AzureSSO/wiki/Contributing)** - How to contribute
+- **[Wiki Home](https://github.com/jaburges/PTATools/wiki)** - Full documentation
+- **[Prerequisites](https://github.com/jaburges/PTATools/wiki/Prerequisites)** - What you need before installing
+- **[Quick Start](https://github.com/jaburges/PTATools/wiki/Quick-Start)** - Get up and running fast
+- **[Module Guides](https://github.com/jaburges/PTATools/wiki/Modules)** - Detailed module documentation
+- **[Advanced Config](https://github.com/jaburges/PTATools/wiki/Advanced-Configuration)** - Power user settings
+- **[Contributing](https://github.com/jaburges/PTATools/wiki/Contributing)** - How to contribute
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see our [Contributing Guide](https://github.com/jaburges/AzureSSO/wiki/Contributing).
+Contributions are welcome! Please see our [Contributing Guide](https://github.com/jaburges/PTATools/wiki/Contributing).
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/amazing-feature`
@@ -396,7 +396,58 @@ This project is licensed under the GPL v2 or later - see the [LICENSE](LICENSE) 
 
 ---
 
-**Version 3.143.0** | [Report Issue](https://github.com/jaburges/PTATools/issues)
+**Version 3.147.150** | [Report Issue](https://github.com/jaburges/PTATools/issues) | [Full changelog](https://github.com/jaburges/PTATools/wiki/Changelog)
+
+### What's new in v3.147.150
+
+Changes since v3.147.116. The full list, version by version, is in the
+[changelog](https://github.com/jaburges/PTATools/wiki/Changelog).
+
+**Forms replaces Forminator.** A new Forms module (off by default; turn it on
+from the dashboard) builds forms with drag and drop and embeds them with
+`[pta_form id="…"]`. Entries have a detail view and CSV export, and old ones are
+deleted after a retention period. Forms can show fields conditionally, pick a
+child, grade or teacher from the school's class list, and use Cloudflare
+Turnstile. A form's *Send responses to* field emails each response, with
+Reply-To set to the person who filled it in. Any email in Emails → Messages can
+be sent through the new *Form submitted* rule. The Forminator integration is
+gone: rebuild each old form and set *Replaces old form* to its Forminator ID so
+existing pages keep working.
+
+**Parents can register themselves.** A form with *Create a parent account* on
+creates a locked account with the family's children, and emails an activation
+link. That link opens WooCommerce's choose-a-password page, so there are no
+temporary passwords and no admin approval. Unactivated accounts are deleted
+after 8 days, and the form never reveals whether an email is already
+registered. Pick the registration page in Forms → Settings to add a *Register*
+link under the sign-in form.
+
+**Volunteer sign-up series.** Edit and Delete on a series apply to every date.
+A series that has lost its Outlook dates can be reconnected, with a preview of
+what will change. Deleting an event deletes its sign-up sheet.
+
+**Calendar and Upcoming.** `[azure_calendar_events include_signups="true"]`
+shows spots filled. Outlook descriptions keep their links and formatting, and
+portrait images are no longer cropped. `[up-next]` themes add compact cards and
+can group events on the same day.
+
+**Membership.** A GiveBacks Export writes one row per member in the GiveBacks
+import format.
+
+**Admin menu.** PTA Tools is regrouped into Roles & Access, Scheduling & Events,
+Communications, Selling, Backup and System. Calendar → Config moved to System →
+Config, and Selling → Rules to System → Rules. Old links redirect.
+
+**Nothing organization-specific ships any more.**
+- `[giving-levels]` is the new name for the suggested giving levels block, and
+  `[WAG]` still works. The default level names are now Champion, Supporter and
+  Friend; names you have saved are unchanged.
+- The home-screen icon is the WordPress Site Icon (Settings → General), or a
+  generic icon if none is set.
+- Class-race lanes use coloured markers.
+- A site can supply its own artwork through the `pta_home_screen_icon_file` and
+  `pta_class_race_runner_url` filters.
+
 
 ### What's new in v3.143.0
 

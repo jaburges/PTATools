@@ -305,6 +305,10 @@
     background-repeat: no-repeat;
     border-radius: 4px;
 }
+.pta-events-list-thumb.is-portrait {
+    background-color: #fff;
+    background-size: contain;
+}
 .pta-events-list-date {
     flex: 0 0 auto;
     width: 56px;
@@ -361,6 +365,9 @@
         flex: 0 0 auto;
         width: 100%;
         height: 140px;
+    }
+    .pta-events-list-thumb.is-portrait {
+        height: 240px;
     }
     .pta-events-list-join {
         border-left: none;

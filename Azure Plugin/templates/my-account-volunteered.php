@@ -45,13 +45,44 @@ $event_url = function ($sheet) {
     return is_string($url) ? $url : '';
 };
 
-$activity_name = function ($sheet, $activity) use ($event_url) {
-    $name = (string) ($activity->name ?? '');
+$event_ids = array();
+foreach ((array) $signups as $row) {
+    $event_ids[] = (int) ($row['sheet']->pta_event_id ?? 0);
+}
+foreach (array('general', 'specific') as $bucket) {
+    foreach ((array) ($opportunities[$bucket] ?? array()) as $entries) {
+        foreach ((array) $entries as $entry) {
+            $event_ids[] = (int) ($entry['sheet']->pta_event_id ?? 0);
+        }
+    }
+}
+$event_ids = array_values(array_filter(array_unique($event_ids)));
+if ($event_ids && function_exists('_prime_post_caches')) {
+    _prime_post_caches($event_ids, false, false);
+}
+
+$event_title = function ($sheet) {
+    $id = (int) ($sheet->pta_event_id ?? 0);
+    if (!$id || !function_exists('get_the_title')) {
+        return '';
+    }
+    return trim(html_entity_decode(wp_strip_all_tags(get_the_title($id)), ENT_QUOTES, 'UTF-8'));
+};
+
+$activity_name = function ($sheet, $activity, $group = '') use ($event_url, $event_title) {
+    $role = (string) ($activity->name ?? '');
+    $event = Azure_Volunteer_Signup::opportunity_event_label($group, $event_title($sheet), (string) ($sheet->title ?? ''));
+    $inner = esc_html($role);
+    $full = $role;
+    if ($event !== '') {
+        $inner = '<span class="pta-vol-event">' . esc_html($event) . '</span><span class="pta-vol-sep"> – </span>' . $inner;
+        $full = $event . ' – ' . $role;
+    }
     $url = $event_url($sheet);
     if ($url === '') {
-        return '<span class="pta-vol-name">' . esc_html($name) . '</span>';
+        return '<span class="pta-vol-name" title="' . esc_attr($full) . '">' . $inner . '</span>';
     }
-    return '<a class="pta-vol-name" href="' . esc_url($url) . '">' . esc_html($name) . '</a>';
+    return '<a class="pta-vol-name" href="' . esc_url($url) . '" title="' . esc_attr($full) . '">' . $inner . '</a>';
 };
 
 $render_signup_list = function ($rows) use ($shift_date, $activity_name) {
@@ -80,8 +111,17 @@ $render_groups = function ($groups) use ($shift_date, $activity_name) {
         return;
     }
     foreach ($groups as $label => $entries) {
-        echo '<details class="pta-volunteered-group" open>';
-        echo '<summary>' . esc_html((string) $label) . '</summary>';
+        $dates = count((array) $entries);
+        echo '<details class="pta-volunteered-group">';
+        echo '<summary>';
+        echo '<span class="pta-vol-group-title">' . esc_html((string) $label) . '</span>';
+        echo '<span class="pta-vol-group-count">' . esc_html(sprintf(
+            /* translators: %d: number of signup dates in the group */
+            _n('%d date', '%d dates', $dates, 'azure-plugin'),
+            $dates
+        )) . '</span>';
+        echo '<span class="pta-vol-group-toggle" aria-hidden="true"></span>';
+        echo '</summary>';
         echo '<div class="pta-vol-table">';
         echo '<div class="pta-vol-line pta-vol-head">';
         echo '<span></span>';
@@ -115,7 +155,7 @@ $render_groups = function ($groups) use ($shift_date, $activity_name) {
                 } else {
                     echo '<span></span>';
                 }
-                echo $activity_name($sheet, $activity);
+                echo $activity_name($sheet, $activity, (string) $label);
                 echo '<span class="pta-vol-date">' . esc_html($shift_date($sheet, $activity)) . '</span>';
                 echo '<span class="pta-vol-time">' . esc_html(Azure_Volunteer_Signup::slot_time_label($sheet, $activity)) . '</span>';
                 echo '<span class="pta-vol-slots ' . esc_attr($state) . '">' . esc_html($filled . '/' . $needed) . '</span>';

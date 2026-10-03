@@ -12,33 +12,26 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-$valid_tabs = array('config', 'embed', 'sync', 'upcoming', 'volunteer');
-$active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : '';
-
-// Default landing rules:
-// - Post-OAuth callback (`?auth=success`) → Config, so the user sees
-//   the new "Authenticated as …" badge in context.
-// - No token yet → Config, where the sign-in form lives.
-// - Otherwise → Embed (the most common day-to-day landing).
-if (!in_array($active_tab, $valid_tabs, true)) {
-    if (isset($_GET['auth']) && $_GET['auth'] === 'success') {
-        $active_tab = 'config';
-    } else {
-        $needs_setup = true;
-        if (class_exists('Azure_Calendar_Auth') && class_exists('Azure_Settings')) {
-            try {
-                $cal_user_email = (string) Azure_Settings::get_setting('calendar_embed_user_email', '');
-                if ($cal_user_email !== '') {
-                    $auth        = new Azure_Calendar_Auth();
-                    $needs_setup = !$auth->has_valid_user_token($cal_user_email);
-                }
-            } catch (\Throwable $e) {
-                $needs_setup = true;
-            }
-        }
-        $active_tab = $needs_setup ? 'config' : 'embed';
+$requested = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : '';
+if ($requested === 'volunteer') {
+    $url = admin_url('admin.php?page=azure-plugin-volunteer');
+    if (isset($_GET['edit_sheet'])) {
+        $url = add_query_arg('edit_sheet', absint($_GET['edit_sheet']), $url);
     }
+    wp_safe_redirect($url);
+    exit;
 }
+if ($requested === 'config' || (isset($_GET['auth']) && $_GET['auth'] === 'success' && $requested === '')) {
+    $url = admin_url('admin.php?page=azure-plugin-system&tab=config');
+    if (isset($_GET['auth'])) {
+        $url = add_query_arg('auth', sanitize_key(wp_unslash($_GET['auth'])), $url);
+    }
+    wp_safe_redirect($url);
+    exit;
+}
+
+$valid_tabs = array('embed', 'sync', 'upcoming');
+$active_tab = in_array($requested, $valid_tabs, true) ? $requested : 'embed';
 
 $GLOBALS['azure_tab_mode'] = true;
 ?>
@@ -46,44 +39,30 @@ $GLOBALS['azure_tab_mode'] = true;
     <h1><span class="dashicons dashicons-calendar-alt"></span> <?php _e('Calendar', 'azure-plugin'); ?></h1>
 
     <nav class="azure-tabs-nav">
-        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=config')); ?>"
-           class="azure-tab-link <?php echo $active_tab === 'config' ? 'active' : ''; ?>">
-            <span class="dashicons dashicons-admin-generic"></span> Config
-        </a>
         <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=embed')); ?>"
            class="azure-tab-link <?php echo $active_tab === 'embed' ? 'active' : ''; ?>">
-            <span class="dashicons dashicons-calendar-alt"></span> Calendar Embed
+            <span class="dashicons dashicons-calendar-alt"></span> <?php esc_html_e('Embed', 'azure-plugin'); ?>
         </a>
         <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=sync')); ?>"
            class="azure-tab-link <?php echo $active_tab === 'sync' ? 'active' : ''; ?>">
-            <span class="dashicons dashicons-update"></span> Calendar Sync
+            <span class="dashicons dashicons-update"></span> <?php esc_html_e('Sync', 'azure-plugin'); ?>
         </a>
         <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=upcoming')); ?>"
            class="azure-tab-link <?php echo $active_tab === 'upcoming' ? 'active' : ''; ?>">
-            <span class="dashicons dashicons-clock"></span> Upcoming Events
-        </a>
-        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=volunteer')); ?>"
-           class="azure-tab-link <?php echo $active_tab === 'volunteer' ? 'active' : ''; ?>">
-            <span class="dashicons dashicons-groups"></span> Volunteer Sign Up
+            <span class="dashicons dashicons-clock"></span> <?php esc_html_e('Upcoming Events', 'azure-plugin'); ?>
         </a>
     </nav>
 
     <?php
     switch ($active_tab) {
-        case 'config':
-            include AZURE_PLUGIN_PATH . 'admin/calendar-config-page.php';
-            break;
-        case 'embed':
-            include AZURE_PLUGIN_PATH . 'admin/calendar-page.php';
-            break;
         case 'sync':
             include AZURE_PLUGIN_PATH . 'admin/calendar-sync-page.php';
             break;
         case 'upcoming':
             include AZURE_PLUGIN_PATH . 'admin/upcoming-page.php';
             break;
-        case 'volunteer':
-            include AZURE_PLUGIN_PATH . 'admin/volunteer-page.php';
+        default:
+            include AZURE_PLUGIN_PATH . 'admin/calendar-page.php';
             break;
     }
     ?>

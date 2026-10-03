@@ -31,7 +31,7 @@ class Azure_Home_Screen {
     }
 
     private function __construct() {
-        add_action('admin_menu', array($this, 'admin_menu'), 20);
+        $this->maybe_serve_touch_icon();
         add_action('wp_ajax_pta_home_screen_subscribe', array($this, 'ajax_subscribe'));
         add_action('wp_ajax_nopriv_pta_home_screen_subscribe', array($this, 'ajax_subscribe'));
         add_filter('cron_schedules', array($this, 'cron_schedules'));
@@ -49,17 +49,6 @@ class Azure_Home_Screen {
             return false;
         }
         return (bool) Azure_Settings::get_setting(self::SHOW_PIN, true);
-    }
-
-    public function admin_menu() {
-        add_submenu_page(
-            'azure-plugin',
-            'PTA Tools - Home Screen',
-            'Home Screen',
-            'manage_options',
-            'azure-plugin-home-screen',
-            array($this, 'render_admin_page')
-        );
     }
 
     /**
@@ -93,9 +82,12 @@ class Azure_Home_Screen {
         <?php
     }
 
-    public function render_admin_page() {
+    public function render_admin_page($screen = 'pin') {
         if (!current_user_can('manage_options')) {
             return;
+        }
+        if ($screen !== 'notifications' && $screen !== 'pin') {
+            $screen = 'pin';
         }
         $this->ensure_tables();
         $notice = $this->handle_admin_post();
@@ -126,16 +118,113 @@ class Azure_Home_Screen {
         }
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend'));
         add_action('wp_head', array($this, 'head_tags'), 2);
-        add_action('wp_footer', array($this, 'footer_ui'), 20);
+        remove_action('wp_head', 'wp_site_icon', 99);
+        add_action('wp_head', array($this, 'head_icons'), 100);
+        // Before footer scripts. The pin script looks up this markup on run.
+        add_action('wp_footer', array($this, 'footer_ui'), 5);
+    }
+
+    public static function app_name() {
+        $name = function_exists('get_bloginfo') ? trim((string) get_bloginfo('name')) : '';
+        return $name !== '' ? $name : 'PTA';
+    }
+
+    /**
+     * Square icon for the home screen, in order of preference: a file supplied
+     * through the `pta_home_screen_icon_file` filter, the WordPress Site Icon,
+     * then the plugin's generic icon.
+     */
+    public static function icon_file($size) {
+        $size = (int) $size;
+        if (!in_array($size, array(180, 192, 512), true)) {
+            $size = 180;
+        }
+        $file = self::site_icon_file($size);
+        if ($file === '') {
+            $file = AZURE_PLUGIN_PATH . 'assets/pta-icon-' . $size . '.png';
+        }
+        if (function_exists('apply_filters')) {
+            $custom = apply_filters('pta_home_screen_icon_file', $file, $size);
+            if (is_string($custom) && $custom !== '' && is_readable($custom)) {
+                $file = $custom;
+            }
+        }
+        return $file;
+    }
+
+    /**
+     * Local path of the Site Icon (Settings > General / Customizer) at $size,
+     * or '' when none is set or the file is not on this server.
+     */
+    private static function site_icon_file($size) {
+        if (!function_exists('get_option') || !function_exists('get_attached_file')) {
+            return '';
+        }
+        $id = (int) get_option('site_icon');
+        if ($id <= 0) {
+            return '';
+        }
+        if ($size !== 512 && function_exists('image_get_intermediate_size') && function_exists('wp_get_upload_dir')) {
+            $meta = image_get_intermediate_size($id, 'site_icon-' . $size);
+            if (is_array($meta) && !empty($meta['path'])) {
+                $uploads = wp_get_upload_dir();
+                $sized = rtrim($uploads['basedir'], '/') . '/' . $meta['path'];
+                if (self::icon_mime($sized) !== '' && is_readable($sized)) {
+                    return $sized;
+                }
+            }
+        }
+        $full = get_attached_file($id);
+        return (is_string($full) && self::icon_mime($full) !== '' && is_readable($full)) ? $full : '';
+    }
+
+    public static function icon_mime($file) {
+        $types = array('png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'webp' => 'image/webp', 'gif' => 'image/gif');
+        $ext = strtolower(pathinfo((string) $file, PATHINFO_EXTENSION));
+        return isset($types[$ext]) ? $types[$ext] : '';
+    }
+
+    /**
+     * iOS requests /apple-touch-icon.png on its own and ignores icons whose
+     * URL contains a space. Serve the icon from a root path.
+     */
+    public function maybe_serve_touch_icon() {
+        $uri = isset($_SERVER['REQUEST_URI']) ? wp_unslash($_SERVER['REQUEST_URI']) : '';
+        $path = (string) parse_url($uri, PHP_URL_PATH);
+        $map = array(
+            '/apple-touch-icon.png' => 180,
+            '/apple-touch-icon-precomposed.png' => 180,
+            '/pta-icon-192.png' => 192,
+            '/pta-icon-512.png' => 512,
+        );
+        if (!isset($map[$path])) {
+            return;
+        }
+        $file = self::icon_file($map[$path]);
+        if (!is_readable($file)) {
+            return;
+        }
+        if (function_exists('status_header')) {
+            status_header(200);
+        }
+        header('Content-Type: ' . self::icon_mime($file));
+        header('Content-Length: ' . filesize($file));
+        header('Cache-Control: public, max-age=3600');
+        header('X-Content-Type-Options: nosniff');
+        readfile($file);
+        exit;
     }
 
     public function head_tags() {
-        $icon = esc_url(home_url('/?pta_pwa_icon=192'));
         echo '<link rel="manifest" href="' . esc_url(home_url('/?pta_webmanifest=1')) . '">' . "\n";
-        echo '<link rel="apple-touch-icon" href="' . $icon . '">' . "\n";
         echo '<meta name="mobile-web-app-capable" content="yes">' . "\n";
         echo '<meta name="apple-mobile-web-app-capable" content="yes">' . "\n";
         echo '<meta name="theme-color" content="#0b2545">' . "\n";
+    }
+
+    public function head_icons() {
+        echo '<link rel="icon" href="' . esc_url(home_url('/pta-icon-192.png')) . '" sizes="192x192">' . "\n";
+        echo '<link rel="apple-touch-icon" href="' . esc_url(home_url('/apple-touch-icon.png')) . '">' . "\n";
     }
 
     public function enqueue_frontend() {
@@ -148,7 +237,7 @@ class Azure_Home_Screen {
             'showPin' => self::show_pin_instructions() ? 1 : 0,
             'sw' => home_url('/?pta_push_sw=1'),
             'vapid' => $keys ? $keys['public'] : '',
-            'icon' => home_url('/?pta_pwa_icon=192'),
+            'icon' => home_url('/apple-touch-icon.png'),
         ));
     }
 
@@ -160,15 +249,22 @@ class Azure_Home_Screen {
         <div id="pta-pin-sheet" class="pta-pin-sheet" hidden>
             <div class="pta-pin-sheet__card">
                 <button type="button" class="pta-pin-sheet__close" aria-label="<?php esc_attr_e('Close', 'azure-plugin'); ?>">&times;</button>
-                <p class="pta-pin-sheet__title"><?php esc_html_e('Add Wilder PTSA to your home screen', 'azure-plugin'); ?></p>
+                <p class="pta-pin-sheet__title"><?php
+                    /* translators: %s: site name */
+                    echo esc_html(sprintf(__('Add %s to your home screen', 'azure-plugin'), self::app_name()));
+                ?></p>
                 <p class="pta-pin-sheet__ios"><?php esc_html_e('Tap the Share button, then Add to Home Screen.', 'azure-plugin'); ?></p>
+                <p class="pta-pin-sheet__edge"><?php esc_html_e('Tap the … menu, then Share, then Add to Home Screen.', 'azure-plugin'); ?></p>
                 <p class="pta-pin-sheet__android"><?php esc_html_e('Tap the browser menu, then Add to Home screen or Install app.', 'azure-plugin'); ?></p>
             </div>
         </div>
         <div id="pta-push-allow" class="pta-pin-sheet" hidden>
             <div class="pta-pin-sheet__card">
                 <p class="pta-pin-sheet__title"><?php esc_html_e('Turn on notifications', 'azure-plugin'); ?></p>
-                <p><?php esc_html_e('Get Wilder PTSA alerts on this home screen icon.', 'azure-plugin'); ?></p>
+                <p><?php
+                    /* translators: %s: site name */
+                    echo esc_html(sprintf(__('Get %s alerts on this home screen icon.', 'azure-plugin'), self::app_name()));
+                ?></p>
                 <button type="button" class="pta-pin-sheet__allow"><?php esc_html_e('Allow notifications', 'azure-plugin'); ?></button>
             </div>
         </div>
@@ -371,7 +467,7 @@ class Azure_Home_Screen {
         $failed = (int) $note->failed_count;
         $last = (int) $note->last_subscription_id;
         $subject = 'mailto:' . (string) get_option('admin_email');
-        $icon = home_url('/?pta_pwa_icon=192');
+        $icon = home_url('/apple-touch-icon.png');
         $payload = wp_json_encode(array(
             'title' => (string) $note->title,
             'body' => (string) $note->body,
@@ -633,12 +729,10 @@ class Azure_Home_Screen {
     }
 
     private function serve_manifest() {
-        $icon192 = home_url('/?pta_pwa_icon=192');
-        $icon512 = home_url('/?pta_pwa_icon=512');
-        $name = get_bloginfo('name');
-        if ($name === '') {
-            $name = 'Wilder PTSA';
-        }
+        $icon192 = esc_url_raw(home_url('/pta-icon-192.png'));
+        $icon512 = esc_url_raw(home_url('/pta-icon-512.png'));
+        $name = self::app_name();
+        $icon_type = self::icon_mime(self::icon_file(512));
         $manifest = array(
             'name' => $name,
             'short_name' => $name,
@@ -648,8 +742,8 @@ class Azure_Home_Screen {
             'background_color' => '#ffffff',
             'theme_color' => '#0b2545',
             'icons' => array(
-                array('src' => $icon192, 'sizes' => '192x192', 'type' => 'image/png', 'purpose' => 'any'),
-                array('src' => $icon512, 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'any'),
+                array('src' => $icon192, 'sizes' => '192x192', 'type' => $icon_type, 'purpose' => 'any'),
+                array('src' => $icon512, 'sizes' => '512x512', 'type' => $icon_type, 'purpose' => 'any'),
             ),
         );
         header('Content-Type: application/manifest+json; charset=UTF-8');
@@ -663,10 +757,10 @@ class Azure_Home_Screen {
         if ($size !== 512) {
             $size = 192;
         }
-        $file = AZURE_PLUGIN_PATH . 'assets/pta-icon-' . $size . '.png';
-        header('Content-Type: image/png');
+        $file = self::icon_file($size);
+        header('Content-Type: ' . self::icon_mime($file));
         header('Cache-Control: public, max-age=86400');
-        if (file_exists($file)) {
+        if (is_readable($file)) {
             readfile($file);
         }
         exit;

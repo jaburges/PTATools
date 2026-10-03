@@ -158,6 +158,22 @@ if (!defined('ABSPATH')) {
                     </div>
                 </div>
                 
+                <div class="module-card <?php echo ($settings['enable_forms'] ?? false) ? 'enabled' : 'disabled'; ?>">
+                    <div class="module-header">
+                        <h3><span class="dashicons dashicons-feedback"></span> Forms</h3>
+                        <div class="module-controls">
+                            <label class="switch">
+                                <input type="checkbox" class="module-toggle" data-module="forms" <?php checked($settings['enable_forms'] ?? false); ?> />
+                                <span class="slider"></span>
+                            </label>
+                            <a href="<?php echo admin_url('admin.php?page=azure-plugin-forms'); ?>" class="button button-configure">Configure</a>
+                        </div>
+                    </div>
+                    <div class="module-description">
+                        <p>Build forms with drag and drop, embed them with [pta_form], and collect entries. Replaces Forminator.</p>
+                    </div>
+                </div>
+
                 <div class="module-card <?php echo ($settings['enable_home_screen'] ?? false) ? 'enabled' : 'disabled'; ?>">
                     <div class="module-header">
                         <h3><span class="dashicons dashicons-smartphone"></span> Home Screen</h3>
@@ -323,11 +339,6 @@ if (!defined('ABSPATH')) {
                             'check'   => class_exists('WooCommerce'),
                             'modules' => 'Classes, Auction, Tickets, Product Fields, Donations',
                         ),
-                        array(
-                            'name'    => 'Forminator',
-                            'check'   => class_exists('Forminator'),
-                            'modules' => 'PTA Roles (Signup Forms)',
-                        ),
                     );
                     foreach ($dependencies as $dep):
                         $status_class = $dep['check'] ? 'success' : 'error';
@@ -365,6 +376,7 @@ if (!defined('ABSPATH')) {
                 <input type="hidden" name="enable_product_fields" id="hidden_enable_product_fields" value="<?php echo ($settings['enable_product_fields'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_volunteer" id="hidden_enable_volunteer" value="<?php echo ($settings['enable_volunteer'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_donations" id="hidden_enable_donations" value="<?php echo ($settings['enable_donations'] ?? false) ? '1' : '0'; ?>" />
+                <input type="hidden" name="enable_forms" id="hidden_enable_forms" value="<?php echo ($settings['enable_forms'] ?? false) ? '1' : '0'; ?>" />
                 
                 <div class="credentials-section">
                     <h2>Azure Credentials</h2>

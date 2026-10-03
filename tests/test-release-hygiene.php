@@ -7,7 +7,7 @@
  * installs it — outgoing mail branded with the wrong PTA, an allow-list that
  * rejects every sign-in, a cache purge aimed at another tenant's resource
  * group. This suite is the tripwire for that: a static scan of every shipped
- * PHP file plus unit checks that the replaced defaults really do derive from
+ * file plus unit checks that the replaced defaults really do derive from
  * the site's own configuration.
  *
  * Run: php tests/test-release-hygiene.php
@@ -57,16 +57,17 @@ function shipped_files($root, array $extensions = array('php')) {
 $php_files = shipped_files($plugin_dir, array('php'));
 $t->check(count($php_files) > 90, 'the scan sees the whole plugin', count($php_files) . ' php files');
 
-// Docs ship in the zip alongside the code, so they are scanned on equal terms.
-$files = shipped_files($plugin_dir, array('php', 'md'));
+// Docs, scripts, styles and seed data ship in the zip alongside the code, so
+// they are scanned on equal terms.
+$files = shipped_files($plugin_dir, array('php', 'md', 'js', 'css', 'json', 'txt'));
 $t->check(
     count($files) > count($php_files),
-    'the scan includes shipped documentation',
-    (count($files) - count($php_files)) . ' markdown files'
+    'the scan includes shipped docs, scripts, styles and data',
+    (count($files) - count($php_files)) . ' non-PHP files'
 );
 
 // Identifiers that belong to the site this plugin was built for. Any of these
-// appearing anywhere in shipped PHP — default value, admin copy, or comment —
+// appearing anywhere in a shipped file — default value, admin copy, or comment —
 // is a leak that a fresh install would inherit.
 $forbidden = array(
     'wilderptsa'     => 'production domain of the origin site',
@@ -78,6 +79,12 @@ $forbidden = array(
     'Wilder Staff'   => 'AcyMailing list name from the origin install',
     'PTSAWebsite'    => 'Azure resource group of the origin install',
     'WilderPTSAAFD'  => 'Azure Front Door profile of the origin install',
+    'Wilder'         => 'school name of the origin install',
+    'About Giving'   => 'annual campaign name of the origin install',
+    'Pack Leader'    => 'giving level named after the origin school mascot',
+    'Howler'         => 'giving level named after the origin school mascot',
+    'Positive Paw'   => 'giving level named after the origin school mascot',
+    'Wolf Pack'      => 'giving level named after the origin school mascot',
 );
 
 foreach ($forbidden as $needle => $why) {

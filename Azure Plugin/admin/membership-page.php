@@ -244,6 +244,7 @@ foreach ($rows as $r) {
         </select>
         <span id="azure-mem-count"></span>
         <a class="button" href="<?php echo esc_url($export_url); ?>"><?php esc_html_e('Export sold memberships CSV (WA / LW)', 'azure-plugin'); ?></a>
+        <a class="button" href="<?php echo esc_url(Azure_Membership_Module::givebacks_csv_url()); ?>" title="<?php esc_attr_e('One row per member in the GiveBacks import format; Family memberships list both parents. Donated memberships are excluded.', 'azure-plugin'); ?>"><?php esc_html_e('GiveBacks Export', 'azure-plugin'); ?></a>
     </div>
 
     <table class="widefat striped" id="azure-mem-table">

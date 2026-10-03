@@ -149,25 +149,40 @@ $t->check(strpos($encoded, 'raised') === false, 'rows have no raised field');
 $t->check(!isset($rows[0]['dollars']) && !isset($rows[0]['money']), 'rows have no money fields');
 
 $html = Azure_Class_Competitions::render_table(
-    array('name' => 'WAG classrooms', 'show_count' => true, 'show_percent' => true),
+    array('name' => 'Giving classrooms', 'show_count' => true, 'show_percent' => true),
     $rows
 );
 $t->check(strpos($html, '$') === false, 'board HTML never includes a dollar sign');
 $t->check(strpos($html, '2 Donations') !== false, 'count is labeled as Donations');
 $t->check(strpos($html, 'purchase') === false, 'board no longer says purchases');
 $t->check(strpos($html, 'pta-class-race') !== false, 'board uses the race layout');
-$t->check(strpos($html, 'pta-class-race-wolf') !== false, 'each lane has a wolf');
+$t->check(strpos($html, 'pta-class-race-marker') !== false, 'each lane has a marker');
 $t->check(strpos($html, 'Ms. Rivera') !== false, 'teacher names render');
-$t->check(strpos($html, '--sweater:') !== false, 'lanes get a sweater color');
+$t->check(strpos($html, '--sweater:') !== false, 'lanes get a marker color');
 $t->check(strpos($html, 'pta-class-race-num') !== false, 'lanes are numbered like a track');
 $t->check(strpos($html, 'pta-class-race-finish') !== false, 'track has a finish line');
-$t->check(strpos($html, 'assets/race/wolf-') !== false, 'each lane uses a rendered wolf marker');
-$t->check(strpos($html, 'left: calc(10px + (100% - 124px) * 10 / 100)') !== false, 'wolf marker is placed by percent');
+$t->check(strpos($html, '<svg class="pta-class-race-marker"') !== false, 'without a site image the built-in marker is drawn');
+$t->check(strpos($html, '<img') === false, 'no image ships with the plugin');
+$t->check(strpos($html, 'left: calc(10px + (100% - 124px) * 10 / 100)') !== false, 'marker is placed by percent');
 $t->check(strpos($html, 'pta-class-race-trail') !== false, 'each lane has a trail');
-$t->check(strpos($html, 'width: calc(62px + (100% - 124px) * 10 / 100)') !== false, 'trail reaches the wolf');
+$t->check(strpos($html, 'width: calc(62px + (100% - 124px) * 10 / 100)') !== false, 'trail reaches the marker');
 $t->check(strpos($html, 'pta-class-race-grade') === false, 'grade line is gone from the lane');
 $t->check(strpos($html, 'Distance is % of class donated') !== false, 'kicker copy updated');
 $t->check(strpos($html, 'pta-class-race-link') === false, 'board is not a link by default');
+
+// A site can swap in its own artwork (e.g. a mascot) per lane.
+if (!function_exists('apply_filters')) {
+    function apply_filters($hook, $value, ...$args) {
+        if ($hook === 'pta_class_race_runner_url') {
+            return 'https://example.test/mascot-' . $args[0] . '.png';
+        }
+        return $value;
+    }
+}
+$branded = Azure_Class_Competitions::render_table(array('name' => 'Classrooms'), $rows);
+$t->check(strpos($branded, 'src="https://example.test/mascot-1.png"') !== false, 'site marker image replaces the built-in marker');
+$t->check(strpos($branded, '<svg class="pta-class-race-marker"') === false, 'built-in marker is not drawn when a site image is set');
+$t->equals('#3f7fc0', substr(Azure_Class_Competitions::runner_svg('javascript:x'), strpos(Azure_Class_Competitions::runner_svg('javascript:x'), 'stroke="') + 8, 7), 'a bad colour falls back to the default');
 
 $t->equals('https://wilderptsa.net', Azure_Class_Competitions::sanitize_link('https://wilderptsa.net'), 'https link is kept');
 $t->equals('', Azure_Class_Competitions::sanitize_link(''), 'empty link is dropped');
@@ -175,7 +190,7 @@ $t->equals('', Azure_Class_Competitions::sanitize_link('javascript:alert(1)'), '
 $t->equals('', Azure_Class_Competitions::sanitize_link('wilderptsa.net'), 'bare host without scheme is dropped');
 
 $linked = Azure_Class_Competitions::render_table(
-    array('name' => 'WAG classrooms', 'show_count' => true, 'show_percent' => true),
+    array('name' => 'Giving classrooms', 'show_count' => true, 'show_percent' => true),
     $rows,
     'https://wilderptsa.net/giving/'
 );

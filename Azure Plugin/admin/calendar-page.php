@@ -80,7 +80,7 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
             <p>
                 <strong>Calendar sign-in required.</strong>
                 Connect your M365 account and shared mailbox on the
-                <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=config')); ?>">Calendar &rsaquo; Config</a>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-system&tab=config')); ?>">System &rsaquo; Config</a>
                 tab before managing calendar embeds here.
             </p>
         </div>
@@ -178,6 +178,7 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                                     <input type="text" readonly 
                                            value='[azure_calendar_events email="<?php echo esc_attr($mailbox_email); ?>" id="<?php echo esc_attr($calendar['id']); ?>" limit="10"]' 
                                            onclick="this.select();" class="shortcode-input">
+                                    <p class="description">Add <code>include_signups="true"</code> to show volunteer spots on this list, such as 0/2. The month calendar is unchanged.</p>
                                 </div>
                             </div>
                         </div>
@@ -401,6 +402,7 @@ $show_auth_success = isset($_GET['auth']) && $_GET['auth'] === 'success';
                         <li><code>show_times</code> - true/false (default: true)</li>
                         <li><code>show_location</code> - true/false (default: true)</li>
                         <li><code>show_description</code> - true/false (default: false)</li>
+                        <li><code>include_signups</code> - true/false (default: false). Shows volunteer spots on this list, such as 0/2. The month calendar is unchanged.</li>
                     </ul>
                 </div>
             </div>

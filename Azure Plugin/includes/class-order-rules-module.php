@@ -14,7 +14,9 @@ if (!defined('ABSPATH')) {
 class Azure_Order_Rules_Module {
 
     const TRIGGER_PRODUCT_ORDERED = 'product_ordered';
+    const TRIGGER_FORM_SUBMITTED = 'form_submitted';
     const ACTION_SEND_EMAIL = 'send_email';
+    const NEW_EMAIL = '__new';
     const META_FIRED_PREFIX = '_azure_order_rule_';
 
     private static $instance = null;
@@ -39,6 +41,8 @@ class Azure_Order_Rules_Module {
         add_action('admin_post_azure_order_rule_delete', array($this, 'handle_delete_rule'));
         add_action('wp_ajax_azure_order_rule_toggle', array($this, 'ajax_toggle'));
         add_action('wp_ajax_azure_order_rule_save_email', array($this, 'ajax_save_email'));
+
+        add_action('pta_form_submitted', array($this, 'run_form_rules'), 10, 4);
     }
 
     public static function table_name() {
@@ -53,9 +57,13 @@ class Azure_Order_Rules_Module {
     }
 
     public static function triggers() {
-        return array(
+        $triggers = array(
             self::TRIGGER_PRODUCT_ORDERED => __('Product ordered', 'azure-plugin'),
         );
+        if (class_exists('Azure_Forms_Module')) {
+            $triggers[self::TRIGGER_FORM_SUBMITTED] = __('Form submitted', 'azure-plugin');
+        }
+        return $triggers;
     }
 
     public static function actions() {
@@ -121,7 +129,33 @@ class Azure_Order_Rules_Module {
     }
 
     /**
-     * Replace {token} / {token name} / {{token}} placeholders.
+     * Recipients for a rule: fixed addresses, plus (form rules only)
+     * {submitter_email} and {field:name} resolved per submission.
+     *
+     * @return array{emails: string[], tokens: string[], errors: string[]}
+     */
+    public static function parse_recipients($raw, $allow_tokens = false) {
+        $parts = is_array($raw) ? $raw : preg_split('/[\s,;]+/', (string) $raw, -1, PREG_SPLIT_NO_EMPTY);
+        $tokens = array();
+        $plain = array();
+        foreach ((array) $parts as $part) {
+            $part = trim((string) $part);
+            if ($allow_tokens && preg_match('/^\{(submitter_email|field:[a-z0-9_]{1,40})\}$/i', $part)) {
+                $tokens[strtolower($part)] = strtolower($part);
+                continue;
+            }
+            $plain[] = $part;
+        }
+        $parsed = self::parse_to_emails($plain);
+        return array(
+            'emails' => $parsed['emails'],
+            'tokens' => array_values($tokens),
+            'errors' => $parsed['errors'],
+        );
+    }
+
+    /**
+     * Replace {token} / {token name} / {{token}} / {field:name} placeholders.
      * Unknown tokens are left unchanged.
      */
     public static function replace_tokens($text, array $context) {
@@ -134,7 +168,7 @@ class Azure_Order_Rules_Module {
         }
 
         return preg_replace_callback(
-            '/\{\{?\s*([a-z0-9_ ]+)\s*\}?\}/i',
+            '/\{\{?\s*([a-z0-9_: ]+)\s*\}?\}/i',
             function ($m) use ($normalized) {
                 $key = self::normalize_token_key($m[1]);
                 if (array_key_exists($key, $normalized)) {
@@ -254,9 +288,48 @@ class Azure_Order_Rules_Module {
 
     public static function hydrate_rule($row) {
         $rule = is_object($row) ? $row : (object) $row;
-        $parsed = self::parse_to_emails(self::decode_to_emails($rule->to_emails ?? ''));
+        $is_form = ($rule->trigger_type ?? '') === self::TRIGGER_FORM_SUBMITTED;
+        $parsed = self::parse_recipients(self::decode_to_emails($rule->to_emails ?? ''), $is_form);
         $rule->to_email_list = $parsed['emails'];
+        $rule->to_token_list = $parsed['tokens'];
+        $rule->condition = self::decode_condition($rule->condition_json ?? '');
+        $rule->email_key = isset($rule->email_key) && $rule->email_key !== null ? (string) $rule->email_key : '';
         return $rule;
+    }
+
+    /**
+     * @return array{field:string,value:string}|null
+     */
+    public static function decode_condition($stored) {
+        $cond = is_array($stored) ? $stored : json_decode((string) $stored, true);
+        if (!is_array($cond)) {
+            return null;
+        }
+        $field = strtolower((string) ($cond['field'] ?? ''));
+        if (!preg_match('/^[a-z0-9_]{1,40}$/', $field)) {
+            return null;
+        }
+        return array('field' => $field, 'value' => (string) ($cond['value'] ?? ''));
+    }
+
+    /**
+     * Case-insensitive equals. Checkbox answers match if any ticked
+     * option equals the value; an empty value means "answered at all".
+     */
+    public static function condition_matches($condition, array $data) {
+        if (!$condition) {
+            return true;
+        }
+        $want = strtolower(trim($condition['value']));
+        $actual = $data[$condition['field']] ?? null;
+        $values = is_array($actual) ? $actual : array($actual);
+        foreach ($values as $v) {
+            $v = strtolower(trim(is_scalar($v) ? (string) $v : ''));
+            if ($want === '' ? $v !== '' : $v === $want) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static function decode_to_emails($stored) {
@@ -275,10 +348,26 @@ class Azure_Order_Rules_Module {
     }
 
     public static function sanitize_rule_input($input) {
-        $parsed = self::parse_to_emails($input['to_emails'] ?? '');
         $trigger = sanitize_key($input['trigger_type'] ?? self::TRIGGER_PRODUCT_ORDERED);
         if (!isset(self::triggers()[$trigger])) {
             $trigger = self::TRIGGER_PRODUCT_ORDERED;
+        }
+        $is_form = $trigger === self::TRIGGER_FORM_SUBMITTED;
+        $parsed = self::parse_recipients($input['to_emails'] ?? '', $is_form);
+        $trigger_value = $is_form ? ($input['trigger_form'] ?? 0) : ($input['trigger_value'] ?? 0);
+
+        $condition_json = '';
+        $email_key = '';
+        if ($is_form) {
+            $cond = self::decode_condition(array(
+                'field' => sanitize_key($input['condition_field'] ?? ''),
+                'value' => substr(sanitize_text_field($input['condition_value'] ?? ''), 0, 200),
+            ));
+            $condition_json = $cond ? wp_json_encode($cond) : '';
+            $email_key = sanitize_key($input['email_key'] ?? '');
+            if ($email_key !== self::NEW_EMAIL && !(class_exists('Azure_Email_Messages') && Azure_Email_Messages::is_custom_key($email_key))) {
+                $email_key = '';
+            }
         }
         $action = sanitize_key($input['action_type'] ?? self::ACTION_SEND_EMAIL);
         if (!isset(self::actions()[$action])) {
@@ -292,12 +381,15 @@ class Azure_Order_Rules_Module {
             'name'          => $name,
             'enabled'       => empty($input['enabled']) ? 0 : 1,
             'trigger_type'  => $trigger,
-            'trigger_value' => (string) max(0, (int) ($input['trigger_value'] ?? 0)),
+            'trigger_value' => (string) max(0, (int) $trigger_value),
             'action_type'   => $action,
-            'to_emails'     => wp_json_encode($parsed['emails']),
+            'to_emails'     => wp_json_encode(array_merge($parsed['emails'], $parsed['tokens'])),
             'to_email_list' => $parsed['emails'],
+            'to_token_list' => $parsed['tokens'],
             'to_errors'     => $parsed['errors'],
             'email_subject' => sanitize_text_field($input['email_subject'] ?? self::default_email_subject()),
+            'email_key'     => $email_key,
+            'condition_json'=> $condition_json,
         );
     }
 
@@ -309,42 +401,214 @@ class Azure_Order_Rules_Module {
 
         $id = isset($_POST['rule_id']) ? absint($_POST['rule_id']) : 0;
         $clean = self::sanitize_rule_input(wp_unslash($_POST));
+        $is_form = $clean['trigger_type'] === self::TRIGGER_FORM_SUBMITTED;
         if ($clean['trigger_value'] === '0' || $clean['trigger_value'] === '') {
-            $this->redirect_rules('error', 'pick_product');
+            $this->redirect_rules('error', $is_form ? 'pick_form' : 'pick_product', $id);
         }
-        if (empty($clean['to_email_list'])) {
-            $this->redirect_rules('error', empty($clean['to_errors']) ? 'need_to' : 'bad_to');
+        if (empty($clean['to_email_list']) && empty($clean['to_token_list'])) {
+            $this->redirect_rules('error', empty($clean['to_errors']) ? 'need_to' : 'bad_to', $id);
+        }
+        if ($is_form && $clean['email_key'] === '') {
+            $this->redirect_rules('error', 'pick_email', $id);
+        }
+
+        $new_email = $is_form && $clean['email_key'] === self::NEW_EMAIL;
+        if ($new_email) {
+            if (!class_exists('Azure_Email_Messages')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-email-messages.php';
+            }
+            $clean['email_key'] = Azure_Email_Messages::create_custom($clean['name']);
         }
 
         global $wpdb;
         $table = self::table_name();
         $data = array(
-            'name'          => $clean['name'],
-            'enabled'       => $clean['enabled'],
-            'trigger_type'  => $clean['trigger_type'],
-            'trigger_value' => $clean['trigger_value'],
-            'action_type'   => $clean['action_type'],
-            'to_emails'     => $clean['to_emails'],
-            'email_subject' => $clean['email_subject'] !== '' ? $clean['email_subject'] : self::default_email_subject(),
+            'name'           => $clean['name'],
+            'enabled'        => $clean['enabled'],
+            'trigger_type'   => $clean['trigger_type'],
+            'trigger_value'  => $clean['trigger_value'],
+            'action_type'    => $clean['action_type'],
+            'to_emails'      => $clean['to_emails'],
+            'email_subject'  => $clean['email_subject'] !== '' ? $clean['email_subject'] : self::default_email_subject(),
+            'email_key'      => $clean['email_key'] !== '' ? $clean['email_key'] : null,
+            'condition_json' => $clean['condition_json'],
         );
-        $formats = array('%s', '%d', '%s', '%s', '%s', '%s', '%s');
+        $formats = array('%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s');
 
         if ($id > 0) {
             $wpdb->update($table, $data, array('id' => $id), $formats, array('%d'));
-            $this->redirect_rules('updated', $id);
+        } else {
+            $data['content_html'] = $is_form ? '' : self::default_email_html();
+            $data['content_json'] = '';
+            $formats[] = '%s';
+            $formats[] = '%s';
+            $wpdb->insert($table, $data, $formats);
+            $id = (int) $wpdb->insert_id;
+            if ($id < 1) {
+                $this->redirect_rules('error', 'save_failed');
+            }
+            if (!$is_form) {
+                wp_safe_redirect(admin_url('admin.php?page=azure-plugin-selling-rule-email&rule_id=' . $id));
+                exit;
+            }
         }
 
-        $data['content_html'] = self::default_email_html();
-        $data['content_json'] = '';
-        $formats[] = '%s';
-        $formats[] = '%s';
-        $wpdb->insert($table, $data, $formats);
-        $new_id = (int) $wpdb->insert_id;
-        if ($new_id < 1) {
-            $this->redirect_rules('error', 'save_failed');
+        if ($new_email) {
+            wp_safe_redirect(self::email_edit_url($clean['email_key'], $id));
+            exit;
         }
-        wp_safe_redirect(admin_url('admin.php?page=azure-plugin-selling-rule-email&rule_id=' . $new_id));
-        exit;
+        $this->redirect_rules('updated', $id);
+    }
+
+    // ─── Form "Send responses to" setting ─────────────────────────────
+
+    /**
+     * @return object[] Hydrated rules for one form, oldest first.
+     */
+    public static function form_rules($form_id) {
+        global $wpdb;
+        $form_id = (int) $form_id;
+        if ($form_id < 1) {
+            return array();
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT * FROM ' . self::table_name() . ' WHERE trigger_type = %s AND trigger_value = %s ORDER BY id ASC',
+            self::TRIGGER_FORM_SUBMITTED,
+            (string) $form_id
+        ));
+        $out = array();
+        foreach ((array) $rows as $row) {
+            $out[] = self::hydrate_rule($row);
+        }
+        return $out;
+    }
+
+    /**
+     * The rule the form's Settings field edits: its oldest rule without
+     * a condition. Conditional rules are only ever edited under Rules.
+     *
+     * @param object[] $rules From form_rules().
+     */
+    public static function basic_form_rule(array $rules) {
+        foreach ($rules as $rule) {
+            if (empty($rule->condition)) {
+                return $rule;
+            }
+        }
+        return null;
+    }
+
+    public static function recipients_text($rule) {
+        return implode(', ', array_merge((array) ($rule->to_email_list ?? array()), (array) ($rule->to_token_list ?? array())));
+    }
+
+    public static function rule_edit_url($rule_id) {
+        return admin_url('admin.php?page=azure-plugin-system&tab=rules&edit=' . (int) $rule_id);
+    }
+
+    /**
+     * What the form's Settings pane shows about who gets emailed.
+     */
+    public static function form_notify_summary($form_id) {
+        $rules = self::form_rules($form_id);
+        $basic = self::basic_form_rule($rules);
+        $others = array();
+        foreach ($rules as $rule) {
+            if ($basic && (int) $rule->id === (int) $basic->id) {
+                continue;
+            }
+            $others[] = array(
+                'name'      => (string) $rule->name,
+                'to'        => self::recipients_text($rule),
+                'condition' => $rule->condition,
+                'enabled'   => !empty($rule->enabled),
+                'edit_url'  => self::rule_edit_url($rule->id),
+            );
+        }
+        $to = $basic ? self::recipients_text($basic) : '';
+        return array(
+            'to'        => $to,
+            'paused'    => $basic && empty($basic->enabled) && $to !== '',
+            'email_url' => $basic && $basic->email_key !== '' ? self::email_edit_url($basic->email_key, $basic->id) : '',
+            'rule_url'  => $basic ? self::rule_edit_url($basic->id) : '',
+            'others'    => $others,
+            'rules_url' => admin_url('admin.php?page=azure-plugin-system&tab=rules'),
+            'can_edit'  => self::current_user_can_manage(),
+        );
+    }
+
+    /**
+     * Point the form's basic rule at these recipients, creating the rule
+     * (and its email) the first time. Clearing the list pauses the rule
+     * rather than deleting it, so a customised email is never lost.
+     *
+     * @return true|WP_Error
+     */
+    public static function set_form_recipients($form_id, $form_title, $raw) {
+        global $wpdb;
+        $form_id = (int) $form_id;
+        $parsed = self::parse_recipients($raw, true);
+        if (!empty($parsed['errors'])) {
+            return new WP_Error('bad_to', sprintf(
+                /* translators: %s: comma-separated invalid addresses. */
+                __('Not saved. These are not valid email addresses: %s', 'azure-plugin'),
+                implode(', ', $parsed['errors'])
+            ));
+        }
+        $list = array_merge($parsed['emails'], $parsed['tokens']);
+        $basic = self::basic_form_rule(self::form_rules($form_id));
+
+        if ($basic) {
+            $old = array_merge($basic->to_email_list, $basic->to_token_list);
+            if ($old === $list) {
+                return true;
+            }
+            $data = array('to_emails' => wp_json_encode($list));
+            if (empty($list)) {
+                $data['enabled'] = 0;
+            } elseif (empty($old)) {
+                $data['enabled'] = 1;
+            }
+            $ok = $wpdb->update(self::table_name(), $data, array('id' => (int) $basic->id));
+            return $ok === false ? new WP_Error('db', __('Could not save the recipients.', 'azure-plugin')) : true;
+        }
+
+        if (empty($list)) {
+            return true;
+        }
+        if (!class_exists('Azure_Email_Messages')) {
+            require_once AZURE_PLUGIN_PATH . 'includes/class-email-messages.php';
+        }
+        $name = sprintf(
+            /* translators: %s: form title. */
+            __('%s: new response', 'azure-plugin'),
+            sanitize_text_field((string) $form_title)
+        );
+        $ok = $wpdb->insert(self::table_name(), array(
+            'name'           => $name,
+            'enabled'        => 1,
+            'trigger_type'   => self::TRIGGER_FORM_SUBMITTED,
+            'trigger_value'  => (string) $form_id,
+            'action_type'    => self::ACTION_SEND_EMAIL,
+            'to_emails'      => wp_json_encode($list),
+            'email_subject'  => self::default_email_subject(),
+            'email_key'      => Azure_Email_Messages::create_custom($name),
+            'condition_json' => '',
+            'content_html'   => '',
+            'content_json'   => '',
+        ));
+        return $ok === false ? new WP_Error('db', __('Could not save the recipients.', 'azure-plugin')) : true;
+    }
+
+    /**
+     * Emails > Messages, scrolled to one email, with a way back to the rule.
+     */
+    public static function email_edit_url($email_key, $rule_id = 0) {
+        $url = admin_url('admin.php?page=azure-plugin-emails&tab=messages');
+        if ($rule_id > 0) {
+            $url = add_query_arg('return_rule', (int) $rule_id, $url);
+        }
+        return $url . '#azure-msg-' . sanitize_key($email_key);
     }
 
     public function handle_delete_rule() {
@@ -470,6 +734,252 @@ class Azure_Order_Rules_Module {
                 'to'      => implode(',', $to),
             ));
         }
+        return (bool) $ok;
+    }
+
+    // ─── Form rules ───────────────────────────────────────────────────
+
+    /**
+     * `pta_form_submitted` listener.
+     *
+     * @param array $form    Hydrated form (Azure_Forms_Module).
+     * @param int   $entry_id
+     * @param array $data    Validated answers, name => value.
+     * @param int   $user_id
+     */
+    public function run_form_rules($form, $entry_id, $data, $user_id = 0) {
+        if (!is_array($form) || empty($form['id']) || !is_array($data)) {
+            return;
+        }
+        foreach (self::get_enabled_rules_for_trigger(self::TRIGGER_FORM_SUBMITTED) as $rule) {
+            if (!self::form_rule_matches($rule, $form, $data)) {
+                continue;
+            }
+            if (($rule->action_type ?? '') !== self::ACTION_SEND_EMAIL) {
+                continue;
+            }
+            try {
+                $this->send_form_rule_email($rule, $form, (int) $entry_id, $data, (int) $user_id);
+            } catch (\Throwable $e) {
+                if (class_exists('Azure_Logger')) {
+                    Azure_Logger::error('Form rule email failed: ' . $e->getMessage(), array('module' => 'OrderRules', 'rule_id' => (int) $rule->id));
+                }
+            }
+        }
+    }
+
+    public static function form_rule_matches($rule, array $form, array $data) {
+        if (($rule->trigger_type ?? '') !== self::TRIGGER_FORM_SUBMITTED) {
+            return false;
+        }
+        if ((int) ($rule->trigger_value ?? 0) !== (int) ($form['id'] ?? 0)) {
+            return false;
+        }
+        $condition = isset($rule->condition) ? $rule->condition : self::decode_condition($rule->condition_json ?? '');
+        return self::condition_matches($condition, $data);
+    }
+
+    /**
+     * Fixed addresses plus {submitter_email} / {field:name} resolved
+     * against this submission. Invalid resolved values are skipped.
+     *
+     * @return string[]
+     */
+    public static function resolve_form_recipients($rule, array $form, array $data, $user_id = 0) {
+        $to = array();
+        foreach ((array) ($rule->to_email_list ?? array()) as $email) {
+            $to[strtolower($email)] = $email;
+        }
+        foreach ((array) ($rule->to_token_list ?? array()) as $token) {
+            $value = '';
+            if ($token === '{submitter_email}') {
+                $value = self::submitter_email($form, $data, $user_id);
+            } elseif (preg_match('/^\{field:([a-z0-9_]+)\}$/', $token, $m)) {
+                $raw = $data[$m[1]] ?? '';
+                $value = is_scalar($raw) ? trim((string) $raw) : '';
+            }
+            if ($value === '') {
+                continue;
+            }
+            $parsed = self::parse_to_emails(array($value));
+            foreach ($parsed['emails'] as $email) {
+                $to[strtolower($email)] = $email;
+            }
+        }
+        return array_values($to);
+    }
+
+    /**
+     * Replies go to the person who filled the form in, unless the email
+     * is being sent to them.
+     *
+     * @param string[] $to
+     * @return string[]
+     */
+    public static function form_email_headers(array $form, array $data, $user_id, array $to) {
+        $headers = array('Content-Type: text/html; charset=UTF-8');
+        $parsed = self::parse_to_emails(array(self::submitter_email($form, $data, $user_id)));
+        $reply = $parsed['emails'][0] ?? '';
+        if ($reply !== '' && !in_array(strtolower($reply), array_map('strtolower', $to), true)) {
+            $headers[] = 'Reply-To: ' . $reply;
+        }
+        return $headers;
+    }
+
+    /**
+     * The form's first email field only. A later field such as "Teacher
+     * email" is never treated as the person who filled the form in.
+     */
+    private static function submitter_email(array $form, array $data, $user_id) {
+        if (class_exists('Azure_Forms_Schema')) {
+            foreach (Azure_Forms_Schema::input_fields($form['schema'] ?? array()) as $field) {
+                if ($field['type'] === 'email') {
+                    $value = $data[$field['name']] ?? '';
+                    if (is_string($value) && trim($value) !== '') {
+                        return trim($value);
+                    }
+                    break;
+                }
+            }
+        }
+        if ($user_id > 0 && function_exists('get_userdata')) {
+            $user = get_userdata($user_id);
+            if ($user && !empty($user->user_email)) {
+                return (string) $user->user_email;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Plain-text values for every form token. Callers escape for HTML;
+     * `all_fields_html` is the only pre-built HTML and is escaped here.
+     *
+     * @return array{text:array<string,string>,all_fields_html:string}
+     */
+    public static function build_form_context(array $form, $entry_id, array $data, $user_id = 0, $submitted_ts = null) {
+        $one_line = function ($v) {
+            return trim(preg_replace('/[\r\n]+/', ' ', (string) $v));
+        };
+        $display = function ($v) {
+            if (class_exists('Azure_Forms_Schema')) {
+                return Azure_Forms_Schema::display_value($v);
+            }
+            return is_array($v) ? implode(', ', array_map('strval', $v)) : (string) $v;
+        };
+
+        $fields = class_exists('Azure_Forms_Schema') ? Azure_Forms_Schema::input_fields($form['schema'] ?? array()) : array();
+        $text = array();
+        $rows_html = '';
+        $rows_text = array();
+        $seen = array();
+        foreach ($fields as $field) {
+            $name = $field['name'];
+            $seen[$name] = true;
+            $value = $display($data[$name] ?? '');
+            $label = trim(strip_tags((string) ($field['label'] ?? ''))) ?: $name;
+            $text['field:' . $name] = $value;
+            $rows_text[] = $label . ': ' . $value;
+            $rows_html .= self::all_fields_row($label, $value);
+        }
+        foreach ($data as $name => $value) {
+            if (!isset($seen[$name])) {
+                $text['field:' . $name] = $display($value);
+            }
+        }
+
+        $ts = $submitted_ts === null ? time() : (int) $submitted_ts;
+        $date_format = function_exists('get_option') ? trim(get_option('date_format', 'F j, Y') . ' ' . get_option('time_format', 'g:i a')) : 'Y-m-d H:i';
+        $submitted_at = function_exists('wp_date') ? wp_date($date_format, $ts) : gmdate('Y-m-d H:i', $ts);
+
+        $entry_link = class_exists('Azure_Forms_Module')
+            ? Azure_Forms_Module::entry_link((int) ($form['id'] ?? 0), (int) $entry_id)
+            : admin_url('admin.php?page=azure-plugin-forms&tab=entries&form=' . (int) ($form['id'] ?? 0) . '&entry=' . (int) $entry_id);
+
+        $text += array(
+            'form_title'      => $one_line($form['title'] ?? ''),
+            'submitted_at'    => $submitted_at,
+            'entry_link'      => $entry_link,
+            'submitter_email' => self::submitter_email($form, $data, $user_id),
+            'site_name'       => class_exists('Azure_Email_Messages') ? Azure_Email_Messages::site_name() : (string) get_bloginfo('name'),
+            'all_fields'      => implode("\n", $rows_text),
+        );
+
+        $all_html = '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 16px;font-size:14px;">'
+            . $rows_html . '</table>';
+
+        return array('text' => $text, 'all_fields_html' => $all_html);
+    }
+
+    private static function all_fields_row($label, $value) {
+        $esc = function ($s) {
+            return htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+        };
+        return '<tr>'
+            . '<th align="left" valign="top" style="padding:6px 12px 6px 0;border-bottom:1px solid #eee;color:#646970;font-weight:600;width:35%;">' . $esc($label) . '</th>'
+            . '<td valign="top" style="padding:6px 0;border-bottom:1px solid #eee;color:#1d2327;">' . nl2br($esc($value)) . '</td>'
+            . '</tr>';
+    }
+
+    /**
+     * @return array{0:string,1:string} subject, HTML body ('' when the email no longer exists).
+     */
+    public static function render_form_email($rule, array $context) {
+        $text = $context['text'];
+        $subject_vars = array();
+        foreach ($text as $k => $v) {
+            $subject_vars[$k] = trim(preg_replace('/[\r\n]+/', ' ', (string) $v));
+        }
+
+        $email_key = (string) ($rule->email_key ?? '');
+        if ($email_key !== '') {
+            if (!class_exists('Azure_Email_Messages')) {
+                return array('', '');
+            }
+            $vars = $text;
+            $vars['all_fields'] = $context['all_fields_html'];
+            list($subject, $body) = Azure_Email_Messages::render($email_key, $vars);
+            if ($body === '') {
+                return array('', '');
+            }
+            $subject = Azure_Email_Messages::apply(Azure_Email_Messages::message_for($email_key)['subject'] ?? $subject, $subject_vars);
+            return array($subject, $body);
+        }
+
+        $html_vars = array();
+        foreach ($text as $k => $v) {
+            $html_vars[$k] = htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+        }
+        $html_vars['all_fields'] = $context['all_fields_html'];
+        return array(
+            self::replace_tokens($rule->email_subject ?: '{form_title}: new response', $subject_vars),
+            self::replace_tokens((string) ($rule->content_html ?? ''), $html_vars),
+        );
+    }
+
+    public function send_form_rule_email($rule, array $form, $entry_id, array $data, $user_id = 0) {
+        $to = self::resolve_form_recipients($rule, $form, $data, $user_id);
+        $log = function ($msg, $extra = array()) use ($rule, $form, $entry_id) {
+            if (class_exists('Azure_Logger')) {
+                Azure_Logger::info($msg, array_merge(array(
+                    'module'   => 'OrderRules',
+                    'rule_id'  => (int) $rule->id,
+                    'form_id'  => (int) $form['id'],
+                    'entry_id' => (int) $entry_id,
+                ), $extra));
+            }
+        };
+        if (empty($to)) {
+            $log('Form rule skipped: no recipients for this submission');
+            return false;
+        }
+        list($subject, $html) = self::render_form_email($rule, self::build_form_context($form, $entry_id, $data, $user_id));
+        if (trim($html) === '') {
+            $log('Form rule skipped: its email is missing or empty', array('email_key' => (string) ($rule->email_key ?? '')));
+            return false;
+        }
+        $ok = wp_mail($to, $subject, $html, self::form_email_headers($form, $data, $user_id, $to));
+        $log('Form rule email ' . ($ok ? 'sent' : 'failed'), array('to' => implode(',', $to)));
         return (bool) $ok;
     }
 
@@ -634,9 +1144,12 @@ class Azure_Order_Rules_Module {
         return '';
     }
 
-    private function redirect_rules($flag, $extra = '') {
-        $url = admin_url('admin.php?page=azure-plugin-selling&tab=rules');
+    private function redirect_rules($flag, $extra = '', $edit_id = 0) {
+        $url = admin_url('admin.php?page=azure-plugin-system&tab=rules');
         $url = add_query_arg('azure_rule', sanitize_key($flag), $url);
+        if ($edit_id > 0) {
+            $url = add_query_arg('edit', (int) $edit_id, $url);
+        }
         if ($extra !== '' && $extra !== null) {
             $url = add_query_arg('azure_rule_extra', sanitize_text_field((string) $extra), $url);
         }

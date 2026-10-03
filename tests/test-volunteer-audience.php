@@ -42,6 +42,18 @@ $t->equals('Congdon', $free['teacher'], 'with no teacher list the name before th
 $t->equals('Math Adventures', Azure_Volunteer_Signup::opportunity_group_label('Math Adventures - Example'), 'groups use the activity name, not the name after the dash');
 $t->equals('Carnival', Azure_Volunteer_Signup::opportunity_group_label('Carnival'), 'a general title is its own group');
 
+$t->equals('Example Signup', Azure_Volunteer_Signup::opportunity_event_label('Math Adventures', 'Example Signup - Math Adventures', 'Math Adventures - Example'), 'row names the event and drops the repeated group');
+$t->equals('Sigel', Azure_Volunteer_Signup::opportunity_event_label('Math Adventures', 'Sigel – Math Adventures'), 'en dash separator is understood');
+$t->equals('2nd Grade - Doherty - Clay Houses', Azure_Volunteer_Signup::opportunity_event_label('2nd Grade Art', '2nd Grade - Doherty - Clay Houses'), 'event title kept when it does not repeat the group');
+$t->equals('', Azure_Volunteer_Signup::opportunity_event_label('WatchDOGS', 'WatchDOGS', 'WatchDOGS'), 'event that is only the group name adds nothing');
+$t->equals('Example', Azure_Volunteer_Signup::opportunity_event_label('Math Adventures', 'Math Adventures', 'Math Adventures - Example'), 'falls back to the sheet title when the event only repeats the group');
+$t->equals('Example', Azure_Volunteer_Signup::opportunity_event_label('Math Adventures', '', 'Math Adventures - Example'), 'sheet title used when there is no event');
+$t->equals('Example Signup - Math Adventures', Azure_Volunteer_Signup::opportunity_event_label('', 'Example Signup - Math Adventures'), 'ungrouped list shows the full event title');
+
+$tpl = file_get_contents(dirname(__DIR__) . '/Azure Plugin/templates/my-account-volunteered.php');
+$t->check(strpos($tpl, '<details class="pta-volunteered-group">') !== false, 'opportunity groups start collapsed');
+$t->check(strpos($tpl, 'pta-vol-group-toggle') !== false, 'group heading has an expand button');
+
 $congdon = (object) array('teacher' => 'Congdon', 'grade' => '');
 $both = (object) array('teacher' => 'Congdon', 'grade' => '2');
 $open = (object) array('teacher' => '', 'grade' => '');

@@ -432,6 +432,7 @@ class Azure_Calendar_Sync_Ajax {
             return;
         }
 
+        $settings       = class_exists('Azure_Settings') ? Azure_Settings::get_all_settings() : array();
         $lookback_days  = (int) ($settings['calendar_sync_lookback_days']  ?? 30);
         $lookahead_days = (int) ($settings['calendar_sync_lookahead_days'] ?? 365);
         $start          = gmdate('Y-m-d\TH:i:s\Z', strtotime("-{$lookback_days} days"));

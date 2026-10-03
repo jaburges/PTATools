@@ -48,12 +48,28 @@ function pta_header_mobile_inject() {
     .header-layout-centered .bottom-bar-flex {
         align-items: center;
     }
+    body .header-layout-centered .bottom-header .bottom-bar-flex {
+        align-items: center;
+        min-height: 48px;
+    }
     body .header-layout-centered .main-navigation .toggle-menu {
-        padding: 12px 10px 12px 0 !important;
+        display: flex !important;
+        align-items: center;
+        box-sizing: border-box;
         width: auto;
-        height: auto;
+        height: 48px !important;
+        margin: 0;
+        padding: 0 10px 0 0 !important;
+    }
+    body .header-layout-centered .main-navigation .toggle-menu a {
         display: flex;
         align-items: center;
+        height: 18px;
+        margin: 0;
+    }
+    /* Theme shifts .ham down by 50%, which hangs the bottom line under the blue bar. */
+    body .header-layout-centered .main-navigation .toggle-menu .ham {
+        top: 0;
     }
     .header-layout-centered .bottom-header .main-bar-right {
         display: flex !important;

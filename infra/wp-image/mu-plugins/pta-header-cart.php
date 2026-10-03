@@ -30,7 +30,7 @@ function pta_header_cart_markup($count = null) {
 
     ob_start();
     ?>
-<a class="pta-header-cart" href="<?php echo esc_url($url); ?>" aria-label="<?php echo esc_attr(sprintf(__('View cart (%d items)', 'azure-plugin'), $count)); ?>">
+<a class="pta-header-cart<?php echo $count > 0 ? ' pta-header-cart--has-items' : ''; ?>" href="<?php echo esc_url($url); ?>" aria-label="<?php echo esc_attr(sprintf(__('View cart (%d items)', 'azure-plugin'), $count)); ?>">
     <span class="pta-header-cart__icon" aria-hidden="true">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="9" cy="21" r="1"></circle>
@@ -80,6 +80,37 @@ function pta_header_cart_inject() {
   min-width:1.1em;
   font-size:12px;
   font-weight:700;
+}
+@media screen and (max-width: 480px) {
+  a.pta-header-cart.pta-header-cart--has-items {
+    position: fixed;
+    right: calc(16px + env(safe-area-inset-right));
+    /* #scroll-up is 50px tall and sits 45px off the bottom. Sit one button above it. */
+    bottom: calc(45px + 50px + 12px + env(safe-area-inset-bottom));
+    z-index: 100000;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border-radius: 28px;
+    background: #003bb3;
+    color: #fff !important;
+    justify-content: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  }
+  a.pta-header-cart.pta-header-cart--has-items .pta-header-cart__count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 9px;
+    background: #fff;
+    color: #003bb3;
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
+  }
 }
 </style>
 <script>

@@ -81,6 +81,7 @@ class Azure_Product_Fields_Module {
         add_filter('wc_stripe_show_payment_request_on_product_page', array($this, 'hide_product_page_express_pay'), 20);
         add_filter('wcpay_payment_request_is_product_supported', array($this, 'hide_product_page_express_pay'), 20);
         add_filter('should_show_express_checkout_button', array($this, 'hide_product_page_express_pay'), 20);
+        add_filter('wc_stripe_hide_payment_request_on_product_page', array($this, 'hide_stripe_product_page_wallet'), 20, 2);
         add_action('woocommerce_after_add_to_cart_button', array($this, 'render_express_pay_after_fields_note'));
     }
 
@@ -540,6 +541,28 @@ class Azure_Product_Fields_Module {
             return false;
         }
         return $allowed;
+    }
+
+    /**
+     * Stripe can evaluate this before the loop sets global $product, so
+     * resolve the product from the post Stripe passes.
+     */
+    public function hide_stripe_product_page_wallet($hide, $post = null) {
+        $product_id = (is_object($post) && isset($post->ID)) ? (int) $post->ID : 0;
+        if ($product_id < 1 && function_exists('is_product') && is_product()) {
+            $product_id = (int) get_queried_object_id();
+        }
+        if ($product_id < 1 || get_post_type($product_id) !== 'product') {
+            return $hide;
+        }
+        $type = class_exists('Azure_Membership_Module')
+            ? Azure_Membership_Module::classify_membership_product($product_id)
+            : '';
+        return Azure_Express_Checkout::hide_stripe_product_page_wallet(
+            (bool) $hide,
+            self::product_has_required_fields($product_id),
+            $type
+        );
     }
 
     public function render_express_pay_after_fields_note() {

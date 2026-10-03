@@ -37,6 +37,7 @@ class Azure_Parent_Activation {
     const META_EXPIRES_AT = '_pta_activation_expires_at';
     const META_IMPORTED_AT = '_pta_imported_at';
     const META_IMPORT_SOURCE = '_pta_imported_source';
+    const SOURCE_FORM_REGISTRATION = 'form_registration';
 
     const QUERY_VAR = 'pta-activate';
     const TOKEN_TTL_SECONDS = 1209600; // 14 days
@@ -239,6 +240,13 @@ class Azure_Parent_Activation {
         // Token is valid. Branch on HTTP method.
         $method = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
         if ($method === 'POST') {
+            if (get_user_meta($user_id, self::META_IMPORT_SOURCE, true) === self::SOURCE_FORM_REGISTRATION) {
+                $reset = self::activate_registration($user);
+                if ($reset !== '') {
+                    wp_safe_redirect($reset);
+                    exit;
+                }
+            }
             // Stage 2: real activation.
             self::activate_user($user);
 
@@ -337,6 +345,37 @@ class Azure_Parent_Activation {
      * 2026-05-06 after the welcome blast revealed too many parents
      * hitting the previous "already used" page on their second click.
      */
+    /**
+     * Self-registered parents never had a password, so activation sends
+     * them straight to "choose a password" rather than signing them in.
+     * Like activate_user(), the link stays usable until it expires; each
+     * use issues a fresh reset key, which invalidates the previous one.
+     *
+     * @return string Password-reset URL, or '' if no reset key could be made.
+     */
+    public static function activate_registration(WP_User $user) {
+        $key = get_password_reset_key($user);
+        if (is_wp_error($key)) {
+            return '';
+        }
+        delete_user_meta($user->ID, Azure_Parent_Role::META_LOGIN_DISABLED);
+        delete_user_meta($user->ID, Azure_Parent_Role::META_FORCE_PW_RESET);
+
+        if (function_exists('wc_get_page_permalink') && function_exists('wc_get_endpoint_url')) {
+            $url = add_query_arg(array(
+                'key' => $key,
+                'id'  => $user->ID,
+            ), wc_get_endpoint_url('lost-password', '', wc_get_page_permalink('myaccount')));
+        } else {
+            $url = network_site_url('wp-login.php?action=rp&key=' . rawurlencode($key) . '&login=' . rawurlencode($user->user_login), 'login');
+        }
+
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info(sprintf('Registered parent activated: user_id=%d', $user->ID), array('module' => 'ParentActivation'));
+        }
+        return $url;
+    }
+
     public static function activate_user(WP_User $user) {
         delete_user_meta($user->ID, Azure_Parent_Role::META_LOGIN_DISABLED);
 

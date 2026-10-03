@@ -821,12 +821,75 @@ class Azure_Calendar_GraphAPI {
         
         $content = $body_obj['content'];
         
-        // Strip HTML if content type is HTML
         if (($body_obj['contentType'] ?? '') === 'html') {
-            $content = wp_strip_all_tags($content);
+            $content = self::clean_outlook_html($content);
         }
         
         return $content;
+    }
+
+    /**
+     * Keep links and basic structure from an Outlook HTML body; drop styling.
+     * Stripping every tag used to lose link targets ("Sign up here" with no URL).
+     *
+     * @param string $html
+     * @return string
+     */
+    public static function clean_outlook_html($html) {
+        $html = (string) $html;
+        $html = preg_replace('~<(head|style|script|title)\b[^>]*>.*?</\1>~is', '', $html);
+        $html = preg_replace('~<!--.*?-->~s', '', $html);
+        // Outlook puts each line in its own <div>; keep the breaks once the tags go.
+        $html = preg_replace('~</(div|tr|h[1-6])>~i', "\n", $html);
+        $html = preg_replace('~<br\s*/?>~i', "\n", $html);
+
+        $html = preg_replace_callback('~href=(["\'])(.*?)\1~is', function ($m) {
+            $url = self::unwrap_safelink(html_entity_decode($m[2], ENT_QUOTES, 'UTF-8'));
+            if (!preg_match('~^(https?:|mailto:|tel:)~i', $url)) {
+                return '';
+            }
+            return 'href="' . esc_attr($url) . '"';
+        }, $html);
+
+        $html = wp_kses($html, array(
+            'a'      => array('href' => true),
+            'p'      => array(),
+            'strong' => array(),
+            'b'      => array(),
+            'em'     => array(),
+            'i'      => array(),
+            'u'      => array(),
+            'ul'     => array(),
+            'ol'     => array(),
+            'li'     => array(),
+        ));
+
+        $html = str_replace(array("\xC2\xA0", '&nbsp;'), ' ', $html);
+        $html = preg_replace("~[ \t]+~", ' ', $html);
+        $html = preg_replace("~ *\n *~", "\n", $html);
+        $html = preg_replace("~\n{3,}~", "\n\n", $html);
+        $html = preg_replace('~<p>\s*</p>~i', '', $html);
+        $html = trim($html);
+
+        if (function_exists('make_clickable')) {
+            $html = make_clickable($html);
+        }
+        return $html;
+    }
+
+    /**
+     * Outlook "Safe Links" wrap every URL; link to the real address instead.
+     */
+    private static function unwrap_safelink($url) {
+        $url = trim((string) $url);
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        if ($host !== '' && stripos($host, 'safelinks.protection.outlook.com') !== false) {
+            parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+            if (!empty($q['url']) && preg_match('~^https?://~i', (string) $q['url'])) {
+                return (string) $q['url'];
+            }
+        }
+        return $url;
     }
     
     /**
