@@ -144,7 +144,7 @@ class Azure_Newsletter_Shortcodes {
      * @return string|null Rendered HTML, or null to leave the source alone.
      */
     private static function render_shortcode($raw) {
-        $token = html_entity_decode($raw, ENT_QUOTES, 'UTF-8');
+        $token = self::clean_token($raw);
         try {
             ob_start();
             $rendered = do_shortcode($token);
@@ -164,5 +164,44 @@ class Azure_Newsletter_Shortcodes {
         }
 
         return $rendered;
+    }
+
+    /**
+     * The shortcode sits in an editable text block, so the designer's rich
+     * text tools can wrap part of it in markup, e.g.
+     * exclude-calendars="<span class="c1">Math Adventures"</span>. WordPress
+     * would then read the attribute as `<span class=`. Attributes never carry
+     * HTML here, so tags inside a registered shortcode's brackets are dropped.
+     *
+     * @param string $html
+     * @return string
+     */
+    public static function clean_tokens_in_html($html) {
+        if (!is_string($html) || strpos($html, '[') === false || strpos($html, '<') === false) {
+            return $html;
+        }
+        $out = preg_replace_callback('/\[([a-zA-Z][a-zA-Z0-9_-]+)(\s[^\]]*)?\]/', function ($m) {
+            if (strpos($m[0], '<') === false) {
+                return $m[0];
+            }
+            if (function_exists('shortcode_exists') && !shortcode_exists($m[1])) {
+                return $m[0];
+            }
+            return preg_replace('/<[^>]*>/', '', $m[0]);
+        }, $html);
+        return is_string($out) ? $out : $html;
+    }
+
+    /**
+     * One shortcode token as do_shortcode should see it: no tags, entities
+     * decoded, non-breaking spaces as plain spaces.
+     *
+     * @param string $raw
+     * @return string
+     */
+    public static function clean_token($raw) {
+        $token = preg_replace('/<[^>]*>/', '', (string) $raw);
+        $token = html_entity_decode($token, ENT_QUOTES, 'UTF-8');
+        return str_replace("\xC2\xA0", ' ', $token);
     }
 }

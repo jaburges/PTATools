@@ -25,6 +25,7 @@ if (!function_exists('shortcode_exists')) {
 }
 if (!function_exists('do_shortcode')) {
     function do_shortcode($content) {
+        $GLOBALS['test_do_shortcode_input'][] = $content;
         return preg_replace_callback(
             '/\[([a-zA-Z][a-zA-Z0-9_-]+)(\s[^\]]*)?\]/',
             function ($m) {
@@ -124,5 +125,36 @@ $plain_out = Azure_Newsletter_Shortcodes::expand($plain_nn);
 $t->check(strpos($plain_out, 'This Week') !== false, 'plain Now and Next block still expands');
 $t->check(strpos($plain_out, '[nl-now-next') === false, 'plain Now and Next token is gone');
 $t->check(substr_count(strtolower($plain_out), '<table') === 1, 'plain Now and Next wrapper is replaced, not nested');
+
+// The designer's rich text tools once wrapped a calendar name in a span
+// inside the shortcode, so WordPress read exclude-calendars as `<span class=`
+// and nothing was excluded.
+$styled = '<table width="100%" cellpadding="0" cellspacing="0" border="0" class="nl-now-next"><tbody><tr><td class="c13049">'
+    . '<p class="c13052">[nl-now-next enable_links="false" exclude-calendars="<span class="c12361">Math Adventures"</span>]</p>'
+    . '<p class="c13070"></p></td></tr></tbody></table>';
+$GLOBALS['test_do_shortcode_input'] = array();
+$styled_out = Azure_Newsletter_Shortcodes::expand($styled);
+$t->equals(
+    array('[nl-now-next enable_links="false" exclude-calendars="Math Adventures"]'),
+    $GLOBALS['test_do_shortcode_input'],
+    'markup inside the shortcode is dropped before WordPress parses it'
+);
+$t->check(strpos($styled_out, 'This Week') !== false, 'styled Now and Next block still expands');
+$t->check(strpos($styled_out, 'c12361') === false, 'no leftover span from the shortcode is sent');
+
+$t->equals(
+    '[up-next exclude-calendars="Art Calendar"]',
+    Azure_Newsletter_Shortcodes::clean_token('[up-next exclude-calendars=&quot;Art&nbsp;Calendar&quot;]'),
+    'entities and non-breaking spaces are normalised'
+);
+
+$saved = '<p class="c13052">[nl-now-next enable_links="false" exclude-calendars="<span class="c12361">Math Adventures"</span>]</p>'
+    . '<p><b>[In-person]</b> [not_a_real_tag a="<i>x</i>"]</p>';
+$t->equals(
+    '<p class="c13052">[nl-now-next enable_links="false" exclude-calendars="Math Adventures"]</p>'
+        . '<p><b>[In-person]</b> [not_a_real_tag a="<i>x</i>"]</p>',
+    Azure_Newsletter_Shortcodes::clean_tokens_in_html($saved),
+    'saving cleans registered shortcodes and leaves other bracketed text alone'
+);
 
 exit($t->finish() === 0 ? 0 : 1);

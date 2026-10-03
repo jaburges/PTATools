@@ -2287,6 +2287,13 @@ class Azure_Newsletter_Ajax {
 
         $html = self::preg_replace_keep('/href\s*=\s*["\']?\s*javascript:[^"\'>\s]*/i', 'href="#"', $html);
 
+        if (!class_exists('Azure_Newsletter_Shortcodes') && file_exists(AZURE_PLUGIN_PATH . 'includes/class-newsletter-shortcodes.php')) {
+            require_once AZURE_PLUGIN_PATH . 'includes/class-newsletter-shortcodes.php';
+        }
+        if (is_string($html) && class_exists('Azure_Newsletter_Shortcodes')) {
+            $html = Azure_Newsletter_Shortcodes::clean_tokens_in_html($html);
+        }
+
         return is_string($html) ? $html : '';
     }
     

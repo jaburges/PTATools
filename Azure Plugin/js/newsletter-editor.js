@@ -3524,8 +3524,19 @@
     }
 
     function parseNowNextAttrs(html) {
-        var parsed = { enable_links: 'false', exclude_calendars: '' };
-        var m = String(html || '').match(/\[nl-now-next([^\]]*)\]/i);
+        var parsed = { enable_links: 'false', exclude_calendars: '', had_markup: false };
+        var raw = String(html || '').match(/\[nl-now-next([^\]]*)\]/i);
+        if (raw && raw[0].indexOf('<') !== -1) {
+            // Rich-text styling can land inside the attributes, e.g. a <span> around a calendar name.
+            parsed.had_markup = true;
+        }
+        var text = String(html || '')
+            .replace(/<[^>]*>/g, '')
+            .replace(/&quot;/g, '"')
+            .replace(/&#0?39;|&apos;/g, "'")
+            .replace(/&nbsp;|\u00a0/g, ' ')
+            .replace(/&amp;/g, '&');
+        var m = text.match(/\[nl-now-next([^\]]*)\]/i);
         if (!m) {
             return parsed;
         }
@@ -3994,6 +4005,9 @@
                     this.set('enable_links', parsed.enable_links === 'true' || parsed.enable_links === true, { silent: true });
                     this.set('exclude_calendars', parsed.exclude_calendars, { silent: true });
                     this.on('change:enable_links change:exclude_calendars', this.updateNowNextShortcode);
+                    if (parsed.had_markup) {
+                        this.updateNowNextShortcode();
+                    }
                 },
                 updateNowNextShortcode: function() {
                     var links = this.get('enable_links');
