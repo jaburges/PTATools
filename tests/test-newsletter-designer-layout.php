@@ -156,6 +156,15 @@ $t->check(strpos($js, 'function hoistNowNext') !== false, 'Now and Next is hoist
 $t->check(strpos($js, 'hoistEscapedBlocksIntoCanvas()') !== false, 'export hoists escaped blocks before getHtml');
 $t->check(strpos($js, 'function getDeletableComponent') !== false, 'delete finds the selected text, columns, or section');
 $t->check(strpos($js, 'function deleteSelectedComponent') !== false, 'toolbar delete removes the selected block');
+$t->check(strpos($js, 'function clickedBlockInColumn') !== false && strpos($js, 'var clicked = clickedBlockInColumn(selected);') !== false, 'delete acts on the clicked piece, not the whole column row');
+$t->check(strpos($js, 'BUTTON_SEARCH_STOP_TYPES[pType]') !== false, 'button lookup stops at the column so a row with one CTA is not a button');
+$t->check(strpos($js, "el.querySelector('table, .nl-column, .nl-stack-col')") !== false, 'tables that hold other tables or columns are never buttons');
+$t->check(strpos($js, 'function removeBrokenButtonParts') !== false && strpos($js, "hoistEscapedBlocksIntoCanvas();\n        removeBrokenButtonParts();") !== false, 'empty links and link-less button shells are dropped before export');
+$t->check(strpos($js, 'function lockButtonParts') !== false, 'a button link cannot be dragged out of its cell');
+$t->check(strpos($js, 'function setupCanvasContextMenu') !== false && strpos($js, "addEventListener('contextmenu'") !== false, 'canvas right-click offers Duplicate and Delete');
+$t->check(strpos($js, 'setupCanvasContextMenu();') !== false, 'context menu is wired up at init');
+$css = file_get_contents(__DIR__ . '/../Azure Plugin/css/newsletter-admin.css');
+$t->check(strpos($css, '.pta-nl-context-menu') !== false, 'context menu is styled');
 $t->check(strpos($js, 'function isMobilePreview') !== false, 'mobile preview is detected');
 $t->check(strpos($js, "width: '375px'") !== false, 'mobile canvas is a phone-width iframe');
 $t->check(strpos($js, "widthMedia: '600px'") !== false, 'mobile preview uses the email 600px breakpoint');

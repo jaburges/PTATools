@@ -79,6 +79,7 @@
         
         applyAllImageLinks();
         hoistEscapedBlocksIntoCanvas();
+        removeBrokenButtonParts();
 
         // Get HTML and CSS separately from GrapesJS
         var html = editor.getHtml();
@@ -384,6 +385,7 @@
             setupToolbarButtons();
             setupSidebarTabs();
             setupComponentSelection();
+            setupCanvasContextMenu();
             
             // Register fallback command for CSS inlining (in case preset doesn't provide it)
             if (!editor.Commands.has('gjs-get-inlined-html')) {
@@ -2618,13 +2620,7 @@
         var deletable = getDeletableComponent(selected);
         var $del = $('#btn-delete-section');
         $del.prop('disabled', !deletable);
-        if (deletable && deletable.get && deletable.get('type') === 'nl-section') {
-            $del.attr('title', 'Delete section');
-        } else if (deletable && deletable.get && deletable.get('type') === 'nl-columns') {
-            $del.attr('title', 'Delete columns');
-        } else {
-            $del.attr('title', deletable ? 'Delete block' : 'Delete selected block');
-        }
+        $del.attr('title', deletable ? 'Delete ' + describeComponent(deletable) : 'Delete selected block');
     }
 
     function isProtectedCanvas(component) {
@@ -2639,9 +2635,99 @@
             || isSectionHandle(component) || isSectionBody(component);
     }
 
+    function isDescendantOf(child, ancestor) {
+        var p = child && child.parent ? child.parent() : null;
+        while (p) {
+            if (p === ancestor) {
+                return true;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        return false;
+    }
+
+    var CLICKED_BLOCK_TAGS = {
+        a: 1, table: 1, img: 1, p: 1, div: 1, ul: 1, ol: 1, blockquote: 1, hr: 1,
+        h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1
+    };
+
+    /**
+     * Text clicks are promoted to the column (or its row) so typography
+     * applies to it. Delete and Duplicate still act on the piece that was
+     * clicked.
+     */
+    function clickedBlockInColumn(selected) {
+        if (!selected || !selected.get) {
+            return null;
+        }
+        var selType = selected.get('type');
+        if (selType !== 'nl-column' && selType !== 'nl-columns') {
+            return null;
+        }
+        var origin = lastClickOrigin;
+        if (!origin || origin === selected || !isDescendantOf(origin, selected)) {
+            return null;
+        }
+        var column = findAncestorColumnCell(origin);
+        if (!column || column === origin || !isDescendantOf(origin, column)) {
+            return null;
+        }
+        var button = findAncestorButton(origin);
+        if (button) {
+            return button;
+        }
+        if (isImageComponent(origin)) {
+            return parentAnchor(origin) || origin;
+        }
+        var p = origin;
+        while (p && p !== column) {
+            var tag = String(p.get('tagName') || '').toLowerCase();
+            if (CLICKED_BLOCK_TAGS[tag]) {
+                break;
+            }
+            p = p.parent ? p.parent() : null;
+        }
+        var pick = p && p !== column ? p : origin;
+        if (pick.get('removable') === false || isProtectedCanvas(pick) || typeof pick.remove !== 'function') {
+            return null;
+        }
+        return pick;
+    }
+
+    function describeComponent(comp) {
+        if (!comp || !comp.get) {
+            return 'block';
+        }
+        var type = comp.get('type');
+        var tag = String(comp.get('tagName') || '').toLowerCase();
+        if (type === 'nl-section') {
+            return 'section';
+        }
+        if (type === 'nl-columns') {
+            return 'columns';
+        }
+        if (type === 'email-button') {
+            return 'button';
+        }
+        if (isImageComponent(comp) || findContainedImage(comp, 0)) {
+            return 'image';
+        }
+        if (tag === 'a') {
+            return 'link';
+        }
+        if (/^(p|span|b|strong|em|i|h[1-6])$/.test(tag) || type === 'text') {
+            return 'text';
+        }
+        return 'block';
+    }
+
     function getDeletableComponent(selected) {
         if (!selected || !selected.get) {
             return null;
+        }
+        var clicked = clickedBlockInColumn(selected);
+        if (clicked) {
+            return clicked;
         }
         var type = selected.get('type');
         if (type === 'nl-section') {
@@ -2708,15 +2794,170 @@
         return deleteSelectedComponent();
     }
 
-    function deleteSelectedComponent() {
-        var selected = editor && editor.getSelected && editor.getSelected();
-        var target = getDeletableComponent(selected);
+    function deleteComponent(target) {
         if (!target || typeof target.remove !== 'function') {
             return false;
+        }
+        flagCanvasTarget(target, false);
+        if (lastClickOrigin && (lastClickOrigin === target || isDescendantOf(lastClickOrigin, target))) {
+            lastClickOrigin = null;
         }
         target.remove();
         updateMoveButtons(null);
         return true;
+    }
+
+    function deleteSelectedComponent() {
+        var selected = editor && editor.getSelected && editor.getSelected();
+        return deleteComponent(getDeletableComponent(selected));
+    }
+
+    function duplicateComponent(target) {
+        var parent = target && target.parent && target.parent();
+        if (!parent || typeof target.clone !== 'function' || target.get('copyable') === false) {
+            return false;
+        }
+        var at = typeof target.index === 'function' ? target.index() + 1 : undefined;
+        var added = parent.components().add(target.clone(), { at: at });
+        var copy = Array.isArray(added) ? added[0] : added;
+        if (copy) {
+            editor.select(copy);
+            lastClickOrigin = copy;
+            updateMoveButtons(getMovableRow(editor.getSelected()));
+        }
+        return !!copy;
+    }
+
+    function flagCanvasTarget(target, on) {
+        var el = target && target.getEl && target.getEl();
+        if (!el || !el.style) {
+            return;
+        }
+        el.style.outline = on ? '2px dashed #d63638' : '';
+        el.style.outlineOffset = on ? '2px' : '';
+    }
+
+    function componentFromCanvasElement(el) {
+        while (el && !el.__gjsv) {
+            el = el.parentNode;
+        }
+        var view = el && el.__gjsv;
+        return view && view.model ? view.model : null;
+    }
+
+    function setupCanvasContextMenu() {
+        var $menu = $('<div class="pta-nl-context-menu" role="menu" hidden>'
+            + '<button type="button" role="menuitem" data-action="duplicate"></button>'
+            + '<button type="button" role="menuitem" data-action="delete"></button>'
+            + '</div>').appendTo(document.body);
+        var menuTarget = null;
+
+        function close() {
+            if (menuTarget) {
+                flagCanvasTarget(menuTarget, false);
+            }
+            menuTarget = null;
+            $menu.attr('hidden', true);
+        }
+
+        function open(target, x, y) {
+            var what = describeComponent(target);
+            menuTarget = target;
+            $menu.find('[data-action="duplicate"]').text('Duplicate ' + what)
+                .prop('disabled', target.get('copyable') === false);
+            $menu.find('[data-action="delete"]').text('Delete ' + what);
+            $menu.removeAttr('hidden').css({ left: x + 'px', top: y + 'px' });
+            var rect = $menu[0].getBoundingClientRect();
+            if (rect.right > window.innerWidth - 8) {
+                $menu.css('left', Math.max(8, x - rect.width) + 'px');
+            }
+            if (rect.bottom > window.innerHeight - 8) {
+                $menu.css('top', Math.max(8, y - rect.height) + 'px');
+            }
+        }
+
+        $menu.on('mousedown', 'button', function(e) {
+            e.preventDefault();
+        });
+        $menu.on('click', 'button', function() {
+            var target = menuTarget;
+            var action = $(this).data('action');
+            close();
+            if (action === 'delete') {
+                deleteComponent(target);
+            } else if (action === 'duplicate') {
+                duplicateComponent(target);
+            }
+        });
+        $menu.on('mouseenter', '[data-action="delete"]', function() {
+            flagCanvasTarget(menuTarget, true);
+        }).on('mouseleave', '[data-action="delete"]', function() {
+            flagCanvasTarget(menuTarget, false);
+        });
+        $(document).on('mousedown.ptaNlMenu', function(e) {
+            if (!$(e.target).closest('.pta-nl-context-menu').length) {
+                close();
+            }
+        }).on('keydown.ptaNlMenu', function(e) {
+            if (e.key === 'Escape') {
+                close();
+            }
+        });
+        $(window).on('resize.ptaNlMenu', close);
+
+        function bind(doc) {
+            if (!doc || doc._ptaNlMenuBound) {
+                return;
+            }
+            doc._ptaNlMenuBound = true;
+            doc.addEventListener('mousedown', close, true);
+            doc.addEventListener('scroll', close, true);
+            doc.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    close();
+                }
+            }, true);
+            doc.addEventListener('contextmenu', function(e) {
+                if (e.target && e.target.isContentEditable) {
+                    return;
+                }
+                var comp = componentFromCanvasElement(e.target);
+                if (!comp) {
+                    return;
+                }
+                var hitEl = e.target.getBoundingClientRect ? e.target : null;
+                var hitBefore = hitEl ? hitEl.getBoundingClientRect() : null;
+                var offX = hitBefore ? e.clientX - hitBefore.left : e.clientX;
+                var offY = hitBefore ? e.clientY - hitBefore.top : e.clientY;
+                if (editor.getSelected() !== comp) {
+                    editor.select(comp);
+                }
+                lastClickOrigin = comp;
+                var target = getDeletableComponent(editor.getSelected());
+                updateMoveButtons(getMovableRow(editor.getSelected()));
+                if (!target) {
+                    return;
+                }
+                e.preventDefault();
+                var frameEl = (e.view && e.view.frameElement)
+                    || (editor.Canvas.getFrameEl && editor.Canvas.getFrameEl());
+                var rect = frameEl ? frameEl.getBoundingClientRect() : { left: 0, top: 0 };
+                // Selecting can scroll the canvas or page; keep the menu at the
+                // clicked spot on the element rather than the stale pointer.
+                var hitAfter = hitEl && hitEl.isConnected ? hitEl.getBoundingClientRect() : null;
+                var x = hitAfter ? hitAfter.left + offX : e.clientX;
+                var y = hitAfter ? hitAfter.top + offY : e.clientY;
+                open(target, rect.left + x, rect.top + y);
+            });
+        }
+
+        bind(editor.Canvas && editor.Canvas.getDocument && editor.Canvas.getDocument());
+        editor.on('load', function() {
+            bind(editor.Canvas.getDocument());
+        });
+        editor.on('canvas:frame:load', function(arg) {
+            bind(arg && arg.window ? arg.window.document : editor.Canvas.getDocument());
+        });
     }
 
     function moveSelectedRow(direction) {
@@ -2931,6 +3172,7 @@
     var lastTextStyleHost = null;
     var lastSettingsHost = null;
     var lastPointerTarget = null;
+    var lastClickOrigin = null;
     var holdingSettingsSelection = false;
 
     var ptaUndoBusy = false;
@@ -3205,6 +3447,11 @@
         if (el.classList && el.classList.contains('nl-button')) {
             return true;
         }
+        // A column row or section holding exactly one CTA would otherwise
+        // match the heuristics below and be treated as a button.
+        if (el.querySelector && el.querySelector('table, .nl-column, .nl-stack-col')) {
+            return false;
+        }
         var links = el.querySelectorAll ? el.querySelectorAll('a') : [];
         if (links.length !== 1) {
             return false;
@@ -3394,6 +3641,63 @@
         });
     }
 
+    function isEmptyLink(comp) {
+        if (!comp || !comp.get || String(comp.get('tagName') || '').toLowerCase() !== 'a') {
+            return false;
+        }
+        var html = '';
+        try {
+            html = String(comp.toHTML ? comp.toHTML() : '');
+        } catch (e) {
+            return false;
+        }
+        if (/<(img|table|hr|video|iframe)\b/i.test(html)) {
+            return false;
+        }
+        var text = html.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;|\u00a0|\s/g, '');
+        return text === '';
+    }
+
+    /**
+     * A button whose <a> was emptied or dragged out leaves a padded blue
+     * box (the link) and a bare blue cell (the button table). Both are
+     * near-invisible in the canvas but render as blocks in email clients.
+     */
+    function removeBrokenButtonParts() {
+        if (!editor || !editor.getWrapper) {
+            return 0;
+        }
+        var wrapper = editor.getWrapper();
+        if (!wrapper || !wrapper.find) {
+            return 0;
+        }
+        var removed = 0;
+        withoutUndo(function() {
+            (wrapper.find('a') || []).forEach(function(link) {
+                if (isEmptyLink(link)) {
+                    link.remove();
+                    removed++;
+                }
+            });
+            (wrapper.findType ? wrapper.findType('email-button') || [] : []).forEach(function(btn) {
+                if (!firstButtonLink(btn)) {
+                    btn.remove();
+                    removed++;
+                }
+            });
+        });
+        return removed;
+    }
+
+    function lockButtonParts(button) {
+        if (!button || !button.find) {
+            return;
+        }
+        (button.find('*') || []).forEach(function(part) {
+            part.set({ draggable: false, droppable: false, copyable: false }, { silent: true });
+        });
+    }
+
     function syncAllEmailButtons() {
         if (!editor || !editor.getWrapper) {
             return;
@@ -3402,20 +3706,33 @@
         if (!wrapper || !wrapper.findType) {
             return;
         }
+        removeBrokenButtonParts();
         var buttons = wrapper.findType('email-button') || [];
         buttons.forEach(function(btn) {
             syncButtonFromLink(btn);
             ensureButtonLinkChrome(btn);
+            lockButtonParts(btn);
         });
     }
+
+    var BUTTON_SEARCH_STOP_TYPES = {
+        'nl-column': 1, 'nl-columns': 1, 'nl-section': 1, 'nl-section-body': 1, wrapper: 1
+    };
 
     function findAncestorButton(component) {
         var p = component;
         while (p) {
-            if (p.get && p.get('type') === 'email-button') {
+            var pType = p.get && p.get('type');
+            if (pType === 'email-button') {
                 return p;
             }
+            if (BUTTON_SEARCH_STOP_TYPES[pType]) {
+                return null;
+            }
             var cls = String((p.getAttributes && p.getAttributes() || {}).class || '');
+            if (/\bnl-(column|stack-col|stack-cols|section|section-body)\b/.test(cls)) {
+                return null;
+            }
             var tag = String(p.get && p.get('tagName') || '').toLowerCase();
             if (tag === 'table' && cls.indexOf('nl-button') !== -1) {
                 return p;
@@ -4323,8 +4640,10 @@
                     this.on('change:button_text change:button_url change:button_color change:text_color', this.updateButtonFromTraits);
                     this.on('change:components', function() {
                         syncButtonFromLink(self);
+                        lockButtonParts(self);
                     });
                     syncButtonFromLink(this);
+                    lockButtonParts(this);
                 },
                 updateButtonFromTraits: function() {
                     var link = firstButtonLink(this);
@@ -4901,6 +5220,10 @@
                 return;
             }
 
+            if (!ptaRedirectingSelection) {
+                lastClickOrigin = component;
+            }
+
             if (component.get('type') === 'nl-column') {
                 if (blockHasTypographicText(component)) {
                     lastTextStyleHost = component;
@@ -5312,6 +5635,10 @@
         });
         $('#btn-delete-section').on('click', function() {
             deleteSelectedComponent();
+        }).on('mouseenter focus', function() {
+            flagCanvasTarget(getDeletableComponent(editor && editor.getSelected()), true);
+        }).on('mouseleave blur', function() {
+            flagCanvasTarget(getDeletableComponent(editor && editor.getSelected()), false);
         });
         $('#btn-format-text').on('click', function() {
             formatTextToDefault();
