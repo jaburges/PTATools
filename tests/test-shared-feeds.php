@@ -172,10 +172,12 @@ WP_Shim::reset();
 WP_Shim::on_request('/feed/stories', 404, array('code' => 'rest_no_route'));
 WP_Shim::on_request('/wp/v2/categories', 200, array(array('id' => 12, 'slug' => 'advocacy')));
 WP_Shim::on_request('/wp/v2/posts', 200, array(array('id' => 9, 'title' => array('rendered' => 'Story'), 'link' => 'https://lwptsa.net/s/', 'date_gmt' => '2026-10-01T00:00:00', 'excerpt' => array('rendered' => ''))));
+WP_Shim::on_request('/wp-json/?_fields=name', 200, array('name' => 'Council &amp; Friends'));
 $r = $feeds->fetch_feed('stories', 'https://lwptsa.net', array('category' => 'advocacy', 'exclude_category' => '', 'limit' => 3));
 $t->equals(array('Story'), array_column($r['items'], 'title'), 'older source: stories read from /wp/v2/posts');
-$last = end(WP_Shim::$http_calls);
-$t->check(strpos($last['url'], 'categories=12') !== false && strpos($last['url'], 'per_page=3') !== false, 'category slug resolved to id and limit passed');
+$posts_call = current(array_filter(WP_Shim::$http_calls, function ($c) { return strpos($c['url'], '/wp/v2/posts') !== false; }));
+$t->check(strpos($posts_call['url'], 'categories=12') !== false && strpos($posts_call['url'], 'per_page=3') !== false, 'category slug resolved to id and limit passed');
+$t->equals('Council & Friends', $r['source']['name'], 'older source: site name read from the REST index');
 
 WP_Shim::reset();
 WP_Shim::on_request('/feed/stories', 404, array());

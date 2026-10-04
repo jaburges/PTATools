@@ -427,7 +427,7 @@ class Azure_Shared_Feeds {
                 return $ids;
             }
             if (!$ids && $att === 'category') {
-                return array('items' => array(), 'source' => self::clean_source(array(), $source));
+                return array('items' => array(), 'source' => self::clean_source($this->remote_site_info($source), $source));
             }
             if ($ids) {
                 $args[$param] = implode(',', $ids);
@@ -447,8 +447,17 @@ class Azure_Shared_Feeds {
         }
         return array(
             'items'  => array_map(array(__CLASS__, 'wp_post_to_story'), $posts),
-            'source' => self::clean_source(array(), $source),
+            'source' => self::clean_source($this->remote_site_info($source), $source),
         );
+    }
+
+    private function remote_site_info($source) {
+        $resp = self::http_get($source . '/wp-json/?_fields=name');
+        if (is_wp_error($resp) || (int) wp_remote_retrieve_response_code($resp) !== 200) {
+            return array();
+        }
+        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
+        return is_array($data) && isset($data['name']) && is_string($data['name']) ? array('name' => $data['name']) : array();
     }
 
     private function remote_category_ids($source, array $slugs) {
