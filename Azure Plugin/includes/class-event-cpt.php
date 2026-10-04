@@ -1753,7 +1753,7 @@ class Azure_Event_CPT {
         }
         $args = array('pta_ical_feed' => '1');
         $calendar_id = trim((string) $calendar_id);
-        if ($calendar_id !== '') {
+        if (self::is_outlook_calendar_id($calendar_id)) {
             $args['calendar_id'] = $calendar_id;
         }
         $base = add_query_arg($args, home_url('/'));
@@ -1762,6 +1762,19 @@ class Azure_Event_CPT {
             'ics'    => $base,
             'webcal' => $webcal,
         );
+    }
+
+    /**
+     * Graph calendar ids are long base64 strings. Embeds written before
+     * calendar scoping existed often carry a placeholder such as id="pta",
+     * which must keep showing every event rather than none.
+     *
+     * @param string $calendar_id
+     * @return bool
+     */
+    public static function is_outlook_calendar_id($calendar_id) {
+        $calendar_id = trim((string) $calendar_id);
+        return strlen($calendar_id) >= 40 && (bool) preg_match('#^[A-Za-z0-9+/_=-]+$#', $calendar_id);
     }
 
     /**
@@ -1774,7 +1787,7 @@ class Azure_Event_CPT {
      */
     public static function calendar_scope_clauses($calendar_id) {
         $calendar_id = trim((string) $calendar_id);
-        if ($calendar_id === '') {
+        if (!self::is_outlook_calendar_id($calendar_id)) {
             return array();
         }
         return array(

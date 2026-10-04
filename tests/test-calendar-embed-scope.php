@@ -26,8 +26,15 @@ $t->equals('=', $scoped[0]['compare'], 'clause is an exact match');
 $t->equals(array(), Azure_Event_CPT::calendar_scope_clauses(''), 'an embed with no id stays site-wide');
 $t->equals(array(), Azure_Event_CPT::calendar_scope_clauses('   '), 'whitespace-only id stays site-wide');
 
-$other = Azure_Event_CPT::calendar_scope_clauses('calendar-at-wilderptsa');
+$other_id = 'AAMkAGFhNjY3ZjQxLTk0MzEtNGQ0Ny1hYTAzLWE2Y2U2NzE5MDcxNgBGAAAAAACx3m7aPq9fQ6TtBPu1cDrOBwA=';
+$other = Azure_Event_CPT::calendar_scope_clauses($other_id);
 $t->check($other[0]['value'] !== $math_id, 'a different calendar id does not match the math calendar');
+
+$t->equals(array(), Azure_Event_CPT::calendar_scope_clauses('pta'), 'placeholder id="pta" from older embeds stays site-wide');
+$t->equals(array(), Azure_Event_CPT::calendar_scope_clauses('all'), 'a short word is not an Outlook calendar id');
+$t->equals(array(), Azure_Event_CPT::calendar_scope_clauses(str_repeat('a', 30) . ' ' . str_repeat('b', 30)), 'an id with spaces is not an Outlook calendar id');
+$t->check(Azure_Event_CPT::is_outlook_calendar_id($math_id), 'a Graph calendar id is recognised');
+$t->check(!Azure_Event_CPT::is_outlook_calendar_id('pta'), 'the placeholder is not recognised');
 
 $shortcode = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-calendar-shortcode.php');
 $t->check(strpos($shortcode, 'fetch_pta_events($start_date, $end_date, $calendar_id)') !== false, 'month embed passes the shortcode calendar id into the PTA query');
