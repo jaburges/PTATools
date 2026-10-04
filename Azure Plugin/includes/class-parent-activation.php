@@ -336,7 +336,7 @@ class Azure_Parent_Activation {
      * activation token here. The token stays valid for its full 14-day
      * TTL so a user can click the email link multiple times (refresh,
      * different browser, opened on a second device, came back later)
-     * and always land on My Account → Edit account, signed in. The
+     * and always land on the choose-a-password form, signed in. The
      * cleanup_expired_tokens() cron sweeps tokens once they pass their
      * natural TTL.
      *
@@ -354,21 +354,12 @@ class Azure_Parent_Activation {
      * @return string Password-reset URL, or '' if no reset key could be made.
      */
     public static function activate_registration(WP_User $user) {
-        $key = get_password_reset_key($user);
-        if (is_wp_error($key)) {
+        $url = Azure_Parent_Role::set_password_url($user);
+        if ($url === '') {
             return '';
         }
         delete_user_meta($user->ID, Azure_Parent_Role::META_LOGIN_DISABLED);
         delete_user_meta($user->ID, Azure_Parent_Role::META_FORCE_PW_RESET);
-
-        if (function_exists('wc_get_page_permalink') && function_exists('wc_get_endpoint_url')) {
-            $url = add_query_arg(array(
-                'key' => $key,
-                'id'  => $user->ID,
-            ), wc_get_endpoint_url('lost-password', '', wc_get_page_permalink('myaccount')));
-        } else {
-            $url = network_site_url('wp-login.php?action=rp&key=' . rawurlencode($key) . '&login=' . rawurlencode($user->user_login), 'login');
-        }
 
         if (class_exists('Azure_Logger')) {
             Azure_Logger::info(sprintf('Registered parent activated: user_id=%d', $user->ID), array('module' => 'ParentActivation'));
@@ -381,9 +372,8 @@ class Azure_Parent_Activation {
 
         // Force-password-change flag is intentionally NOT cleared here.
         // Azure_Parent_Role::maybe_force_password_change() will pick it up
-        // on the next request and redirect to edit-account; the existing
-        // clear_force_pw_on_password_change() hook then clears the flag
-        // when the user submits a new password.
+        // on the next request and send the user to the choose-a-password
+        // form; the reset hooks clear the flag once they submit it.
         if (!get_user_meta($user->ID, Azure_Parent_Role::META_FORCE_PW_RESET, true)) {
             update_user_meta($user->ID, Azure_Parent_Role::META_FORCE_PW_RESET, 1);
         }

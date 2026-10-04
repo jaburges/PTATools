@@ -49,6 +49,10 @@ class Azure_Parent_Role {
 
         // Allow the user to clear the flag from My Account → Account details.
         add_action('woocommerce_save_account_details', array($this, 'clear_force_pw_on_password_change'), 10, 1);
+        // A password set through any reset form (WooCommerce or wp-login) is
+        // the user's own, so the temporary-password flag no longer applies.
+        add_action('password_reset', array(__CLASS__, 'clear_force_pw_on_reset'), 10, 1);
+        add_action('woocommerce_customer_reset_password', array(__CLASS__, 'clear_force_pw_on_reset'), 10, 1);
 
         // Stamp last-login meta on every successful sign-in (SSO + native).
         // One user-meta write per actual login event — negligible cost,
@@ -329,9 +333,11 @@ class Azure_Parent_Role {
     }
 
     /**
-     * On first login (after the welcome-email tool grants access), redirect
-     * the user to My Account → Account details until they change their
-     * password. Skips admin and AJAX/REST requests.
+     * On first login (after the welcome-email tool grants access), send the
+     * user to WooCommerce's "choose a new password" form until they set one.
+     * That form needs no current password, which a parent who signed in by
+     * magic link or lost the welcome email does not have. Skips admin and
+     * AJAX/REST requests.
      */
     public function maybe_force_password_change() {
         if (is_admin() || wp_doing_ajax() || (defined('REST_REQUEST') && REST_REQUEST)) {
@@ -349,6 +355,20 @@ class Azure_Parent_Role {
         if (!function_exists('wc_get_account_endpoint_url')) {
             return;
         }
+        if (function_exists('is_wc_endpoint_url')
+            && (is_wc_endpoint_url('lost-password') || is_wc_endpoint_url('customer-logout'))) {
+            return;
+        }
+        $user = wp_get_current_user();
+        $set_password = $user && $user->exists() ? self::set_password_url($user) : '';
+        if ($set_password !== '') {
+            if (function_exists('wc_add_notice')) {
+                wc_add_notice(__('Choose a password to finish setting up your account.', 'azure-plugin'), 'notice');
+            }
+            wp_safe_redirect($set_password);
+            exit;
+        }
+
         $target = wc_get_account_endpoint_url('edit-account');
         $current = home_url(add_query_arg(array(), $_SERVER['REQUEST_URI']));
         if (strpos($current, $target) === 0) {
@@ -378,6 +398,36 @@ class Azure_Parent_Role {
         if (!empty($_POST['password_1'])) {
             delete_user_meta($user_id, self::META_FORCE_PW_RESET);
         }
+    }
+
+    /**
+     * @param WP_User|mixed $user
+     */
+    public static function clear_force_pw_on_reset($user) {
+        if (is_object($user) && !empty($user->ID)) {
+            delete_user_meta((int) $user->ID, self::META_FORCE_PW_RESET);
+        }
+    }
+
+    /**
+     * WooCommerce "choose a new password" link for $user (a fresh reset key;
+     * issuing one invalidates any earlier key). '' when no key can be made.
+     */
+    public static function set_password_url(WP_User $user) {
+        if (!function_exists('get_password_reset_key')) {
+            return '';
+        }
+        $key = get_password_reset_key($user);
+        if (is_wp_error($key) || !is_string($key) || $key === '') {
+            return '';
+        }
+        if (function_exists('wc_get_page_permalink') && function_exists('wc_get_endpoint_url')) {
+            return add_query_arg(array(
+                'key' => $key,
+                'id'  => $user->ID,
+            ), wc_get_endpoint_url('lost-password', '', wc_get_page_permalink('myaccount')));
+        }
+        return network_site_url('wp-login.php?action=rp&key=' . rawurlencode($key) . '&login=' . rawurlencode($user->user_login), 'login');
     }
 
 }
