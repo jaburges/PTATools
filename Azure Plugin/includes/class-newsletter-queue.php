@@ -465,10 +465,62 @@ class Azure_Newsletter_Queue {
 
     /**
      * Process a batch of queued emails
-     * 
+     *
+     * Rows are not claimed before sending, so cron, Send Now and Process
+     * Queue Now must not overlap or they send the same rows twice. A MySQL
+     * named lock is atomic and is released if the request dies.
+     *
      * @return array Result with sent/failed counts
      */
     public function process_batch() {
+        global $wpdb;
+
+        $lock = $this->table . '_send';
+        if ((string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $lock)) !== '1') {
+            return array('sent' => 0, 'failed' => 0, 'total' => 0, 'locked' => true);
+        }
+        try {
+            return $this->process_batch_locked();
+        } finally {
+            $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock));
+        }
+    }
+
+    /**
+     * Pending rows for one campaign: how many and when the first is due.
+     */
+    public function pending_summary($newsletter_id) {
+        global $wpdb;
+
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT COUNT(*) AS n, MIN(scheduled_at) AS first_at
+             FROM {$this->table}
+             WHERE newsletter_id = %d AND status = 'pending'",
+            $newsletter_id
+        ));
+
+        return array(
+            'count' => $row ? (int) $row->n : 0,
+            'scheduled_at' => $row && $row->first_at ? $row->first_at : null,
+        );
+    }
+
+    /**
+     * Drop a campaign's unsent rows so it can be queued again for a new
+     * time. Sent rows stay, and the (newsletter_id, email) unique key then
+     * stops anyone who already has it from getting it twice.
+     */
+    public function clear_pending($newsletter_id) {
+        global $wpdb;
+
+        return (int) $wpdb->delete(
+            $this->table,
+            array('newsletter_id' => $newsletter_id, 'status' => 'pending'),
+            array('%d', '%s')
+        );
+    }
+
+    private function process_batch_locked() {
         global $wpdb;
         
         $settings = Azure_Settings::get_all_settings();

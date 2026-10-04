@@ -945,7 +945,7 @@ jQuery(document).ready(function($) {
             
             if (response.success) {
                 var data = response.data;
-                statusSpan.html('<span style="color: #00a32a;">✓ ' + data.sent + ' sent</span>');
+                statusSpan.html('<span style="color: #00a32a;">✓ ' + $('<span>').text(data.locked ? data.message : data.sent + ' sent').html() + '</span>');
                 setTimeout(function() { location.reload(); }, 1500);
             } else {
                 statusSpan.html('<span style="color: #d63638;">✗ ' + response.data + '</span>');

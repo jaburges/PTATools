@@ -39,6 +39,17 @@ if ($newsletter_id > 0) {
     $newsletter = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $newsletter_id));
 }
 
+$pending_schedule = array('count' => 0, 'scheduled_at' => null);
+if ($newsletter) {
+    if (!class_exists('Azure_Newsletter_Queue')) {
+        require_once AZURE_PLUGIN_PATH . 'includes/class-newsletter-queue.php';
+    }
+    $pending_schedule = (new Azure_Newsletter_Queue())->pending_summary($newsletter_id);
+}
+$pending_schedule_label = $pending_schedule['scheduled_at']
+    ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($pending_schedule['scheduled_at']))
+    : '';
+
 // Load template if specified
 $template_id = isset($_GET['template']) ? intval($_GET['template']) : 0;
 $edit_template_id = isset($_GET['edit_template']) ? intval($_GET['edit_template']) : 0;
@@ -927,8 +938,38 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
     </div>
 </div>
 
+<div id="replace-schedule-modal" class="template-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="replace-schedule-title">
+    <div class="template-modal-content" style="max-width:460px;height:auto;">
+        <div class="template-modal-header">
+            <h2 id="replace-schedule-title"><?php esc_html_e('This newsletter is scheduled', 'azure-plugin'); ?></h2>
+            <button type="button" class="template-modal-close" aria-label="<?php esc_attr_e('Cancel', 'azure-plugin'); ?>">&times;</button>
+        </div>
+        <div class="template-modal-body" style="padding:18px 20px;">
+            <p style="margin-top:0;">
+                <?php
+                printf(
+                    /* translators: 1: date and time, 2: number of recipients */
+                    esc_html__('It is scheduled to send on %1$s to %2$s recipients.', 'azure-plugin'),
+                    '<strong>' . esc_html($pending_schedule_label) . '</strong>',
+                    '<strong>' . (int) $pending_schedule['count'] . '</strong>'
+                );
+                ?>
+            </p>
+            <p id="replace-schedule-message"></p>
+            <p style="text-align:right;margin-bottom:0;">
+                <button type="button" class="button" id="replace-schedule-cancel"><?php esc_html_e('Cancel', 'azure-plugin'); ?></button>
+                <button type="button" class="button button-primary" id="replace-schedule-continue"><?php esc_html_e('Continue', 'azure-plugin'); ?></button>
+            </p>
+        </div>
+    </div>
+</div>
+
 <script>
 var newsletterEditorConfig = {
+    pendingSchedule: {
+        count: <?php echo (int) $pending_schedule['count']; ?>,
+        label: <?php echo wp_json_encode($pending_schedule_label); ?>
+    },
     ajaxUrl: '<?php echo admin_url('admin-ajax.php'); ?>',
     nonce: '<?php echo wp_create_nonce('azure_newsletter_nonce'); ?>',
     pluginUrl: '<?php echo AZURE_PLUGIN_URL; ?>',

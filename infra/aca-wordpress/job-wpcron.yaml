@@ -8,9 +8,10 @@
 #
 # The pre-existing Logic App (wilderptsa-wpcron-scheduler) targets
 # https://wilderptsa.net/wp-cron.php, which still resolves to the old App
-# Service, and only fires once a day. This job drives the ACA host directly and
-# hourly. Once wilderptsa.net cuts over to ACA, either keep this job and disable
-# the Logic App, or point this job at the production domain.
+# Service, and only fires once a day. This job drives the ACA host directly
+# every 30 minutes, which is also how late a scheduled newsletter can start.
+# Once wilderptsa.net cuts over to ACA, either keep this job and disable the
+# Logic App, or point this job at the production domain.
 location: westus2
 properties:
   environmentId: /subscriptions/97f6936d-7300-4a49-a2ad-cbfee3b28e00/resourceGroups/PTSAWebsite/providers/Microsoft.App/managedEnvironments/wilderptsa-aca-env
@@ -20,7 +21,7 @@ properties:
     replicaTimeout: 600
     replicaRetryLimit: 1
     scheduleTriggerConfig:
-      cronExpression: "0 * * * *"
+      cronExpression: "*/30 * * * *"
       parallelism: 1
       replicaCompletionCount: 1
   template:
