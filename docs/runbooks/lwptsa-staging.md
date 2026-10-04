@@ -4,8 +4,8 @@
 
 On 2026-10-04 the lwptsa staging slot was rebuilt as a full copy of production
 so the redesign (new theme, AI module) can be built and reviewed without
-touching the live site. Staging runs PTA Tools 3.147.156 from the
-`lwptsa-redesign` branch. It cannot send email or post to outside services,
+touching the live site. Staging runs PTA Tools 3.147.157 from the
+`lwptsa-redesign` branch with the new `lwptsa-recap` theme active. It cannot send email or post to outside services,
 and search engines are told not to index it.
 
 Nothing in this runbook writes to production. Production was only read
@@ -79,6 +79,39 @@ Both slots run the App Service WordPress image
   `--clean`.
 - Commits for this work go on `lwptsa-redesign`. Pushing `main` or `dev`
   deploys Wilder.
+
+## New theme (lwptsa-recap)
+
+The block theme in `themes/lwptsa-recap/` (design: `docs/design/lwptsa/`,
+"H1 Clean Community" plus the story page) is active on staging. Catch Box
+stays installed for rollback.
+
+- **Deploy:** zip the `lwptsa-recap` folder and `PUT` it to
+  `/api/zip/site/wwwroot/wp-content/themes/`, then restart. Single files can
+  go through VFS. It is not part of the Wilder image build.
+- **Activated** with `switch_theme('lwptsa-recap')` from a temporary
+  token-gated script (SSO doesn't work on staging yet), since deleted.
+- **What it relies on:** PTA Tools' `/pta-tools/v1/feed/events` (called
+  in-process for "Coming up", "Next up" and the story sidebar), the
+  `featured` category for the homepage lead, and the existing page URLs in
+  the header and footer.
+- **Plugin templates** (event pages, calendar archive, `ptsa-*` page
+  templates) call `get_header()`/`get_footer()`; the theme's `header.php`,
+  `footer.php` and `sidebar.php` render the block header and footer for them.
+- **Checks:** the 105-URL crawl matches production status codes with the
+  theme active and no PHP errors.
+
+### Changes to replay at cut-over
+
+These are content or settings changes made on staging that production will
+need too:
+
+1. Activate `lwptsa-recap` (keep Catch Box installed).
+2. Calendar page (ID 121): page template `ptsa-full-width.php` → `page-wide`
+   so it gets a title and the full width.
+3. Plugin 3.147.157 or later. Earlier 3.147.15x builds show an empty month
+   grid on the calendar page because its shortcode carries `id="pta"`; .157
+   treats non-Outlook ids as "all events".
 
 ## Login
 
