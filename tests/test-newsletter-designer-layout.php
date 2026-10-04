@@ -132,6 +132,8 @@ $t->check(strpos($js, 'function undoManagerBusy') !== false, 'style/selection ho
 $t->check(strpos($js, 'function withoutUndo') !== false, 'silent designer helpers do not record undo steps');
 $t->check(strpos($js, 'function selectQuiet') !== false, 'promoting a text click to the block is not an undo step');
 $t->check(strpos($js, 'if (undoManagerBusy())') !== false, 'Settings style copy is skipped during undo');
+$t->check(strpos($js, 'if (undoManagerBusy() && !ptaRedirectingSelection)') !== false, 'promoting a click to its button/image/text block still refreshes Settings');
+$t->check(strpos($js, 'selectSettingsHost(button)') !== false && strpos($js, 'selectQuiet(button)') === false, 'button clicks open the button Settings, not the empty placeholder');
 $t->check(strpos($js, "runCommand('core:undo')") !== false, 'toolbar Undo uses the GrapesJS undo command');
 $t->check(strpos($js, "bm.add('now-next'") !== false, 'registers Now and Next block');
 $t->check(strpos($js, "addType('nl-now-next'") !== false, 'Now and Next is a selectable designer component');

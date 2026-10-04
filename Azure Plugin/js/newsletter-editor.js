@@ -2984,6 +2984,24 @@
         });
     }
 
+    var ptaRedirectingSelection = false;
+
+    /**
+     * Move the selection to the block that owns Settings (button, image,
+     * text cell, …). withoutUndo marks the editor busy; the flag tells
+     * component:selected this is not an undo/redo replay, so Settings
+     * still shows the block instead of the "Select a block" placeholder.
+     */
+    function selectSettingsHost(comp) {
+        var was = ptaRedirectingSelection;
+        ptaRedirectingSelection = true;
+        try {
+            selectQuiet(comp);
+        } finally {
+            ptaRedirectingSelection = was;
+        }
+    }
+
     function applyComponentStyle(comp, style, quiet) {
         if (!comp || !style) {
             return;
@@ -4875,7 +4893,7 @@
                 return;
             }
 
-            if (undoManagerBusy()) {
+            if (undoManagerBusy() && !ptaRedirectingSelection) {
                 rememberSettingsHost(component);
                 lastTextStyleHost = findTextStyleHost(component) || lastTextStyleHost;
                 updateElementIndicator(component);
@@ -4891,7 +4909,7 @@
                     var row = findAncestorColumns(component);
                     if (row && row !== component) {
                         rememberSettingsHost(row);
-                        selectQuiet(row);
+                        selectSettingsHost(row);
                         return;
                     }
                 }
@@ -4904,7 +4922,7 @@
                 });
                 rememberSettingsHost(button);
                 if (button !== component) {
-                    selectQuiet(button);
+                    selectSettingsHost(button);
                     return;
                 }
             }
@@ -4913,7 +4931,7 @@
             if (image) {
                 rememberSettingsHost(image);
                 if (image !== component) {
-                    selectQuiet(image);
+                    selectSettingsHost(image);
                     return;
                 }
             }
@@ -4922,7 +4940,7 @@
             if (nowNext) {
                 rememberSettingsHost(nowNext);
                 if (nowNext !== component) {
-                    selectQuiet(nowNext);
+                    selectSettingsHost(nowNext);
                     return;
                 }
             }
@@ -4933,7 +4951,7 @@
                     : findAncestorSection(component);
                 if (owningSection && owningSection !== component) {
                     rememberSettingsHost(owningSection);
-                    selectQuiet(owningSection);
+                    selectSettingsHost(owningSection);
                     return;
                 }
             }
@@ -4945,7 +4963,7 @@
                 styleRoot._ptaRteTarget = isEditableTextComponent(component)
                     ? component
                     : findTextEditTarget(component);
-                selectQuiet(styleRoot);
+                selectSettingsHost(styleRoot);
                 return;
             }
             if (styleRoot) {
