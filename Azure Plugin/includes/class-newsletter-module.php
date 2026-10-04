@@ -63,8 +63,14 @@ class Azure_Newsletter_Module {
     }
     
     private function __construct() {
-        // Initialize hooks
-        add_action('init', array($this, 'init'));
+        // The plugin creates this module from its own init callback, and a
+        // callback added to a hook while it runs at the same priority never
+        // fires — so on wp-cron the queue hook would run with no queue class.
+        if (did_action('init')) {
+            $this->init();
+        } else {
+            add_action('init', array($this, 'init'));
+        }
         
         // Register custom post status for published newsletters (WordPress pages)
         add_action('init', array($this, 'register_post_status'));
@@ -179,18 +185,49 @@ class Azure_Newsletter_Module {
      * Process the email queue
      */
     public function process_queue() {
-        if (class_exists('Azure_Newsletter_Queue')) {
-            $queue = new Azure_Newsletter_Queue();
-            $result = $queue->process_batch();
-            
-            if (!empty($result['sent'])) {
-                Azure_Logger::info('Newsletter queue: ' . $result['sent'] . '/' . $result['total'] . ' emails sent successfully');
-            }
-            
-            if (!empty($result['failed'])) {
-                Azure_Logger::warning('Newsletter queue: ' . $result['failed'] . ' emails failed');
-            }
+        $this->load_module_classes();
+        if (!class_exists('Azure_Newsletter_Queue')) {
+            return;
         }
+
+        // wp-cron is driven every 30 minutes, so one run keeps sending
+        // batches until the queue is drained or the budget is spent.
+        // Stops on a batch with no successes so failing rows are not
+        // retried in a tight loop.
+        $queue = new Azure_Newsletter_Queue();
+        $started = time();
+        $sent = 0;
+        $failed = 0;
+        $total = 0;
+        do {
+            $result = $queue->process_batch();
+            $sent += (int) ($result['sent'] ?? 0);
+            $failed += (int) ($result['failed'] ?? 0);
+            $total += (int) ($result['total'] ?? 0);
+        } while (
+            self::should_send_another_batch($result, time() - $started)
+        );
+
+        if ($sent > 0) {
+            Azure_Logger::info('Newsletter queue: ' . $sent . '/' . $total . ' emails sent successfully');
+        }
+
+        if ($failed > 0) {
+            Azure_Logger::warning('Newsletter queue: ' . $failed . ' emails failed');
+        }
+    }
+
+    /**
+     * Seconds of wall time one cron run may spend sending. Below the
+     * wpcron job's 600 s curl timeout and PHP's max_execution_time.
+     */
+    const CRON_SEND_BUDGET = 240;
+
+    public static function should_send_another_batch($result, $elapsed) {
+        return !empty($result['sent'])
+            && empty($result['rate_limited'])
+            && empty($result['locked'])
+            && (int) $elapsed < self::CRON_SEND_BUDGET;
     }
     
     /**

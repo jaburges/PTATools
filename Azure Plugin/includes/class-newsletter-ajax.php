@@ -592,6 +592,17 @@ class Azure_Newsletter_Ajax {
             $data['scheduled_at'] = current_time('mysql');
         } else {
             $data['status'] = 'draft';
+            // Saving edits to a scheduled campaign keeps its queued send;
+            // the queue reads the content at send time.
+            if ($newsletter_id > 0) {
+                if (!class_exists('Azure_Newsletter_Queue')) {
+                    require_once AZURE_PLUGIN_PATH . 'includes/class-newsletter-queue.php';
+                }
+                $pending = (new Azure_Newsletter_Queue())->pending_summary($newsletter_id);
+                if ($pending['count'] > 0) {
+                    $data['status'] = 'scheduled';
+                }
+            }
         }
         
         // Generate archive token if not exists
@@ -642,6 +653,8 @@ class Azure_Newsletter_Ajax {
             }
             
             $queue = new Azure_Newsletter_Queue();
+            // Send Now or a new date replaces any existing schedule.
+            $replaced = $newsletter_id > 0 ? $queue->clear_pending($newsletter_id) : 0;
             $total_queued = 0;
             $total_original = 0;
             $total_blocked = 0;
@@ -718,6 +731,7 @@ class Azure_Newsletter_Ajax {
                 'blocked' => $total_blocked,
                 'bounced' => $total_bounced,
                 'skipped' => $total_skipped,
+                'replaced' => $replaced,
                 'filtered_total' => $total_blocked + $total_bounced,
                 'errors' => $queue_errors,
                 'sent_immediately' => $process_result,
@@ -1488,12 +1502,15 @@ class Azure_Newsletter_Ajax {
                 'failed' => $result['failed'] ?? 0,
                 'total' => $result['total'] ?? 0,
                 'rate_limited' => $result['rate_limited'] ?? false,
-                'message' => sprintf(
-                    __('Processed %d emails: %d sent, %d failed', 'azure-plugin'),
-                    $result['total'] ?? 0,
-                    $result['sent'] ?? 0,
-                    $result['failed'] ?? 0
-                )
+                'locked' => $result['locked'] ?? false,
+                'message' => !empty($result['locked'])
+                    ? __('A send is already running. Try again in a few minutes.', 'azure-plugin')
+                    : sprintf(
+                        __('Processed %d emails: %d sent, %d failed', 'azure-plugin'),
+                        $result['total'] ?? 0,
+                        $result['sent'] ?? 0,
+                        $result['failed'] ?? 0
+                    )
             ));
         } catch (Exception $e) {
             wp_send_json_error($e->getMessage());

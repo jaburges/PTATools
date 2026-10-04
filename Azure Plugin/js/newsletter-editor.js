@@ -6636,7 +6636,14 @@
             return;
         }
         
-        // Confirm
+        var pending = (newsletterEditorConfig.pendingSchedule || {}).count || 0;
+        if (pending > 0 && (sendOption === 'now' || sendOption === 'schedule')) {
+            confirmReplaceSchedule(sendOption, function() {
+                submitNewsletter(btn, sendOption, selectedLists);
+            });
+            return;
+        }
+
         var confirmMsg = sendOption === 'now' 
             ? 'Are you sure you want to send this newsletter now?' 
             : 'Are you sure you want to schedule this newsletter?';
@@ -6644,7 +6651,33 @@
         if (!confirm(confirmMsg)) {
             return;
         }
-        
+
+        submitNewsletter(btn, sendOption, selectedLists);
+    }
+
+    function confirmReplaceSchedule(sendOption, onContinue) {
+        var modal = $('#replace-schedule-modal');
+        $('#replace-schedule-message').text(sendOption === 'now'
+            ? 'Sending now will replace the schedule.'
+            : 'Scheduling it again will replace the current schedule.');
+        modal.off('.replaceSchedule');
+        modal.on('click.replaceSchedule', '#replace-schedule-continue', function() {
+            modal.fadeOut(150);
+            onContinue();
+        });
+        modal.on('click.replaceSchedule', '#replace-schedule-cancel, .template-modal-close', function() {
+            modal.fadeOut(150);
+        });
+        modal.on('click.replaceSchedule', function(e) {
+            if (e.target === this) {
+                modal.fadeOut(150);
+            }
+        });
+        modal.css('display', 'flex').hide().fadeIn(150);
+        $('#replace-schedule-continue').trigger('focus');
+    }
+
+    function submitNewsletter(btn, sendOption, selectedLists) {
         btn.prop('disabled', true);
         var originalHtml = btn.html();
         btn.html('<span class="dashicons dashicons-update-alt spin"></span> ' + (sendOption === 'now' ? 'Sending...' : 'Scheduling...'));
@@ -6702,6 +6735,9 @@
                 // Build detailed recipient summary
                 msg += '\n\n📊 Recipient Summary:';
                 msg += '\n• ' + queuedCount + ' email(s) will be sent';
+                if (data.replaced > 0) {
+                    msg += '\n• The earlier schedule was replaced';
+                }
                 
                 // Show filtering details if any were filtered
                 if (filteredTotal > 0) {

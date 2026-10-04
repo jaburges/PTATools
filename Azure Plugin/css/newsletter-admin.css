@@ -2451,7 +2451,8 @@ div.gjs-block[style] {
     border-top: 1px solid #dcdcde;
 }
 
-#save-template-modal.template-modal {
+#save-template-modal.template-modal,
+#replace-schedule-modal.template-modal {
     position: fixed;
     inset: 0;
     width: 100%;
@@ -2462,7 +2463,8 @@ div.gjs-block[style] {
     justify-content: center;
 }
 
-#save-template-modal .template-modal-content {
+#save-template-modal .template-modal-content,
+#replace-schedule-modal .template-modal-content {
     background: #fff;
     width: 90%;
     border-radius: 8px;
@@ -2470,7 +2472,8 @@ div.gjs-block[style] {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
-#save-template-modal .template-modal-header {
+#save-template-modal .template-modal-header,
+#replace-schedule-modal .template-modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2479,12 +2482,14 @@ div.gjs-block[style] {
     background: #f6f7f7;
 }
 
-#save-template-modal .template-modal-header h2 {
+#save-template-modal .template-modal-header h2,
+#replace-schedule-modal .template-modal-header h2 {
     margin: 0;
     font-size: 16px;
 }
 
-#save-template-modal .template-modal-close {
+#save-template-modal .template-modal-close,
+#replace-schedule-modal .template-modal-close {
     background: none;
     border: none;
     font-size: 24px;

@@ -924,11 +924,11 @@ jQuery(document).ready(function($) {
             
             if (response.success) {
                 var data = response.data;
-                var msg = data.sent + ' sent, ' + data.failed + ' failed';
+                var msg = data.locked ? data.message : data.sent + ' sent, ' + data.failed + ' failed';
                 if (data.rate_limited) {
                     msg += ' (rate limited)';
                 }
-                statusSpan.html('<span style="color: #00a32a;"><span class="dashicons dashicons-yes"></span> ' + msg + '</span>');
+                statusSpan.html('<span style="color: #00a32a;"><span class="dashicons dashicons-yes"></span> ' + $('<span>').text(msg).html() + '</span>');
                 
                 // Reload page after 1.5 seconds
                 setTimeout(function() { location.reload(); }, 1500);
