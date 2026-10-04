@@ -1,0 +1,105 @@
+# lwptsa.net staging slot
+
+## Summary
+
+On 2026-10-04 the lwptsa staging slot was rebuilt as a full copy of production
+so the redesign (new theme, AI module) can be built and reviewed without
+touching the live site. Staging runs PTA Tools 3.147.156 from the
+`lwptsa-redesign` branch. It cannot send email or post to outside services,
+and search engines are told not to index it.
+
+Nothing in this runbook writes to production. Production was only read
+(file downloads through Kudu, `SELECT`s, public page fetches).
+
+## Where things are
+
+| | Production | Staging |
+|---|---|---|
+| Subscription | `6ac44d89-b110-4c79-b3a8-6f4a2ba115bc` (lwptsa, not Wilder) | same |
+| App Service | `lwptsa` in `PTSAWebsite` | `lwptsa`, slot `staging` |
+| Public URL | https://lwptsa.net | https://lwptsa-staging-endpoint-bgggctbhb4gnc3ds.z02.azurefd.net (WordPress home) |
+| Direct host | `lwptsa.azurewebsites.net` | `lwptsa-staging.azurewebsites.net` |
+| Kudu | `lwptsa.scm.azurewebsites.net` | `lwptsa-staging.scm.azurewebsites.net` |
+| Database | `lwptsa_database` | `lwptsa_database_staging` |
+| DB server | `lwptsa-wpdbserver.mysql.database.azure.com`, Entra user `lwptsa-wpidentity` | same server and identity |
+| Media blob container | `bloblwptsa` (empty; uploads are local files) | `bloblwptsastaging` |
+
+Both slots run the App Service WordPress image
+(`mcr.microsoft.com/appsvc/wordpress-debian-php:8.3`) with nginx, so
+`.htaccess` files are ignored.
+
+## How staging was built
+
+1. **Files.** Downloaded production's `wwwroot` through Kudu
+   (`GET /api/zip/site/wwwroot/<dir>/`) one directory at a time and uploaded
+   to staging with `PUT /api/zip/site/wwwroot/<dir>/` (extracts in place,
+   never cleans). Backup folders (`wp-content/updraft`,
+   `Azure Plugin/backups`) were left out.
+2. **Database.** A temporary token-gated PHP tool on staging copied every
+   table from `lwptsa_database` into `lwptsa_database_staging`, then rewrote
+   `https://lwptsa.net` to the staging address with a serialization-aware
+   replace (paged with `OFFSET` so composite-key tables can't loop). The tool
+   was deleted afterwards.
+3. **Config.** `wp-config.php` is production's env-driven file with new salts
+   and one addition:
+   `if (preg_match('/_staging$/', getenv('DATABASE_NAME'))) define('WP_ENVIRONMENT_TYPE', 'staging');`
+4. **Guard.** `wp-content/mu-plugins/pta-staging-guard.php` (staging only, not
+   in the repo) does nothing unless `DATABASE_NAME` ends in `_staging`. When
+   active it:
+   - drops all mail (`pre_wp_mail`);
+   - blocks outbound HTTP other than GET/HEAD, except to the site itself and
+     `login.microsoftonline.com/.../oauth2/`;
+   - forces `blog_public` to 0;
+   - shows a red STAGING node in the admin bar.
+
+   When the AI module goes on, add the Foundry endpoint host to the guard's
+   allowlist.
+5. **Plugin.** Deployed 3.147.156 and restarted; the database upgrade ran on
+   the first admin/cron request.
+6. **Checks.** 105 production URLs (pages, posts, events, archives) returned the same status
+   codes on staging, with no PHP errors in the HTML. `/wp-json/pta-tools/v1/feed/events`
+   and `/feed/stories` return data, and the `[pta-shared-events]` /
+   `[pta-shared-stories]` shortcodes render both from staging's own feed and
+   from production (through the `.ics` and `/wp/v2/posts` fallback, since
+   production is on an older plugin).
+
+## Deploying to staging
+
+- Upload with Kudu `PUT /api/zip/site/wwwroot/<path>/`. The gateway gives up
+  at about 230 s and extraction stops part-way **without an error you can
+  trust**, so send at most ~1,500 files per zip and compare file counts
+  afterwards. A single file can go through `PUT /api/vfs/site/wwwroot/<path>`
+  with `If-Match: *`.
+- **Restart the staging slot after every deploy**
+  (`az webapp restart -g PTSAWebsite -n lwptsa --slot staging --subscription 6ac44d89-b110-4c79-b3a8-6f4a2ba115bc`).
+  `WORDPRESS_LOCAL_STORAGE_CACHE_ENABLED=true` means PHP serves a local copy,
+  so new or changed files aren't seen until a restart. Restarting also
+  interrupts Kudu, so only restart between uploads.
+- Never pass `--slot` values or Kudu hosts for production, and never use
+  `--clean`.
+- Commits for this work go on `lwptsa-redesign`. Pushing `main` or `dev`
+  deploys Wilder.
+
+## Login
+
+Production is SSO-only (default role `azuread`). Entra SSO on staging needs
+the staging address added as a redirect URI on the lwptsa app registration
+before it works; until then use a password login for a staging admin.
+
+## Findings from the copy (production, not fixed)
+
+- **Backups are publicly downloadable.** `wp-content/updraft/` holds a daily
+  Updraft database dump (Sept 2 to the present) plus two full site sets, and
+  `wp-content/plugins/Azure Plugin/backups/` holds a partial Sept 2 backup.
+  nginx ignores the `.htaccess` that is meant to protect them; a direct URL
+  returns 200. Directory listing is off, but the Updraft `log.*.txt` files are
+  also downloadable.
+- **May 2026 media is gone.** 16 attachments dated 2026-05 have database rows
+  but no files, including the Council Standing Rules PDF, the Reflections
+  winners PDFs and several homepage slider images. They are not in the
+  `bloblwptsa` container or the `wordpress-backups` container. The Updraft
+  set from 2026-05-17 15:16 can hold at most the 8 uploaded before then; the
+  other 8 need re-uploading from their authors.
+- **Duplicate events.** 7 past events (April and May 2026) were each created
+  twice by an Outlook sync on 2026-04-29. No upcoming events are duplicated.
+- Many posts have no featured image, so the new theme needs placeholders.
