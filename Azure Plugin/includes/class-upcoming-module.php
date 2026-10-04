@@ -345,9 +345,13 @@ class Azure_Upcoming_Module {
         if (is_array($atts) && isset($atts['enable-links']) && !isset($atts['enable_links'])) {
             $atts['enable_links'] = $atts['enable-links'];
         }
+        if (is_array($atts) && isset($atts['send_date']) && !isset($atts['send-date'])) {
+            $atts['send-date'] = $atts['send_date'];
+        }
 
         $atts = shortcode_atts(array(
             'week-start'         => 'sunday',
+            'send-date'          => '',
             'exclude-categories' => '',
             'exclude-calendars'  => '',
             'this-week-title'    => __('This Week', 'azure-plugin'),
@@ -363,8 +367,10 @@ class Azure_Upcoming_Module {
         $this_week = array();
         $next_week = array();
         if (class_exists('Azure_Event_CPT')) {
-            list($this_start, $this_end) = $this->week_boundaries($atts['week-start'], 0);
-            list($next_start, $next_end) = $this->week_boundaries($atts['week-start'], 1);
+            $today = new DateTime('today', wp_timezone());
+            $as_of = self::now_next_reference_date($atts['send-date'], $today);
+            list($this_start, $this_end) = self::compute_week_boundaries($atts['week-start'], 0, $as_of);
+            list($next_start, $next_end) = self::compute_week_boundaries($atts['week-start'], 1, $as_of);
             $this_week = $this->get_events_in_range($this_start, $this_end, $resolved['categories'], false, $resolved['calendar_ids']);
             $next_week = $this->get_events_in_range($next_start, $next_end, $resolved['categories'], false, $resolved['calendar_ids']);
         }
@@ -376,6 +382,57 @@ class Azure_Upcoming_Module {
             'limit'            => $limit,
             'enable_links'     => Azure_Newsletter_Now_Next::parse_enable_links($atts['enable_links']),
         ));
+    }
+
+    /**
+     * The day [nl-now-next] treats as "today".
+     *
+     * send-date lets a Saturday test show the weeks a Sunday send will show.
+     * It only ever moves forward: once the real date reaches or passes it
+     * (the actual send, a late send, or a copy reused next week) today wins,
+     * so leaving the attribute in place never shows stale weeks.
+     *
+     * @param string            $send_date e.g. 10/4/26, 10/4/2026, 2026-10-04
+     * @param DateTimeInterface $today     Site-local today
+     * @return DateTime
+     */
+    public static function now_next_reference_date($send_date, DateTimeInterface $today) {
+        $tz = $today->getTimezone();
+        $base = new DateTime($today->format('Y-m-d'), $tz);
+        $parsed = self::parse_send_date($send_date, $tz);
+        if ($parsed && $parsed > $base) {
+            return $parsed;
+        }
+        return $base;
+    }
+
+    /**
+     * @param string       $value
+     * @param DateTimeZone $tz
+     * @return DateTime|null Midnight on that date, or null if unreadable.
+     */
+    public static function parse_send_date($value, DateTimeZone $tz) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/', $value, $m)) {
+            $year = (int) $m[3];
+            if ($year < 100) {
+                $year += 2000;
+            }
+            if (!checkdate((int) $m[1], (int) $m[2], $year)) {
+                return null;
+            }
+            return new DateTime(sprintf('%04d-%02d-%02d', $year, (int) $m[1], (int) $m[2]), $tz);
+        }
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $value, $m)) {
+            if (!checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+                return null;
+            }
+            return new DateTime(sprintf('%04d-%02d-%02d', (int) $m[1], (int) $m[2], (int) $m[3]), $tz);
+        }
+        return null;
     }
 
     /**

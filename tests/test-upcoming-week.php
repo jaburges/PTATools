@@ -113,4 +113,35 @@ $renamed[1]->display_name = 'Math Calendar';
 $by_display = Azure_Upcoming_Module::resolve_excludes('Math Calendar', '', $renamed);
 $t->equals(array('cal-math'), $by_display['calendar_ids'], 'a custom mapping name is usable in exclude-calendars');
 
+function pta_as_of($send_date, $today_ymd, $tz) {
+    $today = new DateTime($today_ymd . ' 15:30:00', $tz);
+    return Azure_Upcoming_Module::now_next_reference_date($send_date, $today)->format('Y-m-d');
+}
+
+$t->equals('2026-10-04', pta_as_of('10/4/26', '2026-10-03', $tz), 'Saturday test with send-date 10/4/26 renders as Sunday 10/4');
+$t->equals('2026-10-04', pta_as_of('10/4/2026', '2026-10-03', $tz), 'four-digit year works');
+$t->equals('2026-10-04', pta_as_of('2026-10-04', '2026-10-03', $tz), 'ISO date works');
+$t->equals('2026-10-04', pta_as_of(' 10/04/26 ', '2026-10-03', $tz), 'padded and zero-filled dates work');
+$t->equals('2026-10-04', pta_as_of('10/4/26', '2026-10-04', $tz), 'on the send day itself today is used');
+$t->equals('2026-10-05', pta_as_of('10/4/26', '2026-10-05', $tz), 'a late send uses the real date');
+$t->equals('2026-10-11', pta_as_of('10/4/26', '2026-10-11', $tz), 'a copy reused next week ignores the stale send-date');
+$t->equals('2026-10-03', pta_as_of('', '2026-10-03', $tz), 'no send-date means today');
+$t->equals('2026-10-03', pta_as_of('next sunday', '2026-10-03', $tz), 'unreadable send-date falls back to today');
+$t->equals('2026-10-03', pta_as_of('2/30/26', '2026-10-03', $tz), 'impossible date falls back to today');
+
+$as_of = Azure_Upcoming_Module::now_next_reference_date('10/4/26', new DateTime('2026-10-03 15:30:00', $tz));
+list($s0, $e0) = Azure_Upcoming_Module::compute_week_boundaries('sunday', 0, $as_of);
+list($s1, $e1) = Azure_Upcoming_Module::compute_week_boundaries('sunday', 1, $as_of);
+$t->equals(array('2026-10-04', '2026-10-10'), array($s0->format('Y-m-d'), $e0->format('Y-m-d')), 'Saturday test: This Week is the Sunday send week 10/4–10/10');
+$t->equals(array('2026-10-11', '2026-10-17'), array($s1->format('Y-m-d'), $e1->format('Y-m-d')), 'Saturday test: Next Week is 10/11–10/17');
+
+$t->check(strpos($src, "'send-date'          => ''") !== false, '[nl-now-next] accepts send-date');
+$t->check(strpos($src, "isset(\$atts['send_date'])") !== false, '[nl-now-next] accepts send_date as an alias');
+$t->check(strpos($src, "now_next_reference_date(\$atts['send-date']") !== false, '[nl-now-next] uses send-date for its weeks');
+
+$editor_js = file_get_contents(dirname(__DIR__) . '/Azure Plugin/js/newsletter-editor.js');
+$t->check(strpos($editor_js, "name: 'send_date'") !== false, 'Now and Next block has a Send date setting');
+$t->check(strpos($editor_js, "sc += ' send-date=\"' + sendDate + '\"'") !== false, 'changing a setting keeps send-date in the shortcode');
+$t->check(strpos($editor_js, "attr('send-date') || attr('send_date')") !== false, 'a typed send-date is read back into the setting');
+
 exit($t->finish());

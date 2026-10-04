@@ -3859,7 +3859,7 @@
     }
 
     function parseNowNextAttrs(html) {
-        var parsed = { enable_links: 'false', exclude_calendars: '', had_markup: false };
+        var parsed = { enable_links: 'false', exclude_calendars: '', send_date: '', had_markup: false };
         var raw = String(html || '').match(/\[nl-now-next([^\]]*)\]/i);
         if (raw && raw[0].indexOf('<') !== -1) {
             // Rich-text styling can land inside the attributes, e.g. a <span> around a calendar name.
@@ -3894,6 +3894,7 @@
             }
         });
         parsed.exclude_calendars = names.join(', ');
+        parsed.send_date = (attr('send-date') || attr('send_date')).replace(/^\s+|\s+$/g, '');
         return parsed;
     }
 
@@ -4324,10 +4325,19 @@
                             label: 'Exclude calendars',
                             name: 'exclude_calendars',
                             changeProp: 1
+                        },
+                        {
+                            type: 'text',
+                            label: 'Send date',
+                            name: 'send_date',
+                            placeholder: 'e.g. 10/4/26',
+                            changeProp: 1,
+                            attributes: { title: 'Show the weeks as of this date in tests and previews. Ignored once the real date reaches it.' }
                         }
                     ],
                     enable_links: false,
-                    exclude_calendars: ''
+                    exclude_calendars: '',
+                    send_date: ''
                 },
                 init: function() {
                     var html = '';
@@ -4339,7 +4349,8 @@
                     var parsed = parseNowNextAttrs(html);
                     this.set('enable_links', parsed.enable_links === 'true' || parsed.enable_links === true, { silent: true });
                     this.set('exclude_calendars', parsed.exclude_calendars, { silent: true });
-                    this.on('change:enable_links change:exclude_calendars', this.updateNowNextShortcode);
+                    this.set('send_date', parsed.send_date, { silent: true });
+                    this.on('change:enable_links change:exclude_calendars change:send_date', this.updateNowNextShortcode);
                     if (parsed.had_markup) {
                         this.updateNowNextShortcode();
                     }
@@ -4350,6 +4361,10 @@
                     var sc = '[nl-now-next enable_links="' + (links === true || links === 'true' ? 'true' : 'false') + '"';
                     if (excl) {
                         sc += ' exclude-calendars="' + excl + '"';
+                    }
+                    var sendDate = String(this.get('send_date') || '').replace(/["\]\[]/g, '').replace(/^\s+|\s+$/g, '');
+                    if (sendDate) {
+                        sc += ' send-date="' + sendDate + '"';
                     }
                     sc += ']';
                     var host = findNowNextTextHost(this);
