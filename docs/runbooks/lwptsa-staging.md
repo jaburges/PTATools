@@ -4,8 +4,9 @@
 
 On 2026-10-04 the lwptsa staging slot was rebuilt as a full copy of production
 so the redesign (new theme, AI module) can be built and reviewed without
-touching the live site. Staging runs PTA Tools 3.147.157 from the
-`lwptsa-redesign` branch with the new `lwptsa-recap` theme active. It cannot send email or post to outside services,
+touching the live site. Staging runs PTA Tools 3.147.160 from the
+`lwptsa-redesign` branch with the new `lwptsa-recap` theme active and the AI
+module on. It cannot send email or post to outside services,
 and search engines are told not to index it.
 
 Nothing in this runbook writes to production. Production was only read
@@ -52,8 +53,8 @@ Both slots run the App Service WordPress image
    - forces `blog_public` to 0;
    - shows a red STAGING node in the admin bar.
 
-   When the AI module goes on, add the Foundry endpoint host to the guard's
-   allowlist.
+   - allows POSTs to the Foundry endpoint (`lwptsa-ai.cognitiveservices.azure.com`)
+     for the AI module.
 5. **Plugin.** Deployed 3.147.156 and restarted; the database upgrade ran on
    the first admin/cron request.
 6. **Checks.** 105 production URLs (pages, posts, events, archives) returned the same status
@@ -75,6 +76,10 @@ Both slots run the App Service WordPress image
   `WORDPRESS_LOCAL_STORAGE_CACHE_ENABLED=true` means PHP serves a local copy,
   so new or changed files aren't seen until a restart. Restarting also
   interrupts Kudu, so only restart between uploads.
+- **Deleting a file is not reliably seen after one restart.** A deleted
+  temporary helper kept running from the local copy on 2026-10-04. To remove a
+  file: overwrite it with an inert stub that sends a marker header, restart,
+  confirm the header, then delete it, restart, and confirm the header is gone.
 - Never pass `--slot` values or Kudu hosts for production, and never use
   `--clean`.
 - Commits for this work go on `lwptsa-redesign`. Pushing `main` or `dev`
@@ -112,6 +117,42 @@ need too:
 3. Plugin 3.147.157 or later. Earlier 3.147.15x builds show an empty month
    grid on the calendar page because its shortcode carries `id="pta"`; .157
    treats non-Outlook ids as "all events".
+
+## AI module (Azure AI Foundry)
+
+PTA Tools 3.147.160 adds an AI module (PTA Tools → AI), on for staging only.
+
+- **Resource:** `lwptsa-ai` (Azure AI Services, S0, westus3) in `PTSAWebsite`,
+  endpoint `https://lwptsa-ai.cognitiveservices.azure.com/`. Deployments:
+  `chat` = gpt-5.4-mini and `embed` = text-embedding-3-small, both DataZoneStandard
+  (US data zone). Key: `az cognitiveservices account keys list -n lwptsa-ai -g PTSAWebsite`.
+- **Settings on staging:** summaries, related stories and translation on;
+  languages es, zh-Hans, ru, ko, vi, hi; budget $10/month; 40 new
+  translations/day.
+- **What it does:**
+  - Key points: each published post gets a summary and 3–5 points, shown in
+    the `pta-tools/ai-summary` block above the story. Editors can correct or
+    hide them in the "Key points (AI)" box under the post editor.
+  - Related stories and Up Next: picked from 512-dimension embeddings (the
+    theme asks through `pta_related_posts` / `pta_up_next_post` and keeps its
+    category fallback). Stories reposted under the same title are listed once.
+  - Translation: `?pta_lang=xx` on a post. The first request queues a wp-cron
+    job and shows "Translation in progress"; later requests serve the cached
+    translation with a machine-translation notice, `lang`/`dir`, canonical
+    and hreflang. Editing the post or its key points retranslates on the next
+    request. Crawlers never queue translations, switcher links are `nofollow`,
+    and only current translations are advertised in hreflang.
+- **Work happens in wp-cron:** hourly backlog (`pta_ai_process`), a single
+  event 30 s after a post is published or updated, and one event per
+  requested translation. The settings page has "Process now" and "Test
+  connection".
+- **Only published posts are sent.** No member, family or order data.
+- **Backfill (2026-10-04):** all 445 published posts embedded and 443
+  summarised (two are too short), in about 25 minutes for $0.57. A
+  translation costs under a cent per post per language.
+- **Settings without a login:** SSO doesn't work on staging yet, so the
+  settings were written and the backfill driven by a temporary token-gated
+  mu-plugin, deleted afterwards. With a login, use PTA Tools → AI.
 
 ## Login
 

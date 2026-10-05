@@ -8,6 +8,11 @@
 	--lw-navy: var(--wp--preset--color--navy);
 	--lw-sun: var(--wp--preset--color--sun);
 	--lw-r: 14px;
+	/* PTA Tools AI blocks (key points, translation notice, language menu). */
+	--pta-ai-accent: var(--lw-navy);
+	--pta-ai-radius: var(--lw-r);
+	--pta-ai-font: var(--wp--preset--font-family--inter);
+	--pta-ai-wide: var(--wp--style--global--wide-size, 1240px);
 }
 
 body {
@@ -1096,4 +1101,18 @@ mark.lw-found {
 	border-radius: 10px;
 	background: #fff8e6;
 	font-size: 15px;
+}
+
+@media (max-width: 600px) {
+	.lw-header__actions .pta-ai-lang > summary {
+		padding: 7px 10px;
+		font-size: 13px;
+	}
+}
+
+@media (max-width: 600px) {
+	.lw-header__actions .pta-ai-lang > summary {
+		padding: 7px 10px;
+		font-size: 13px;
+	}
 }

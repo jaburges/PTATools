@@ -265,9 +265,9 @@ function lwptsa_render_byline($a, $block) {
 }
 
 /**
- * Related stories. A plugin can supply its own list (for example from
- * embeddings) through the lwptsa_related_posts filter as
- * array( array( 'id' => int, 'reason' => string ), ... ).
+ * Related stories. A plugin can supply its own list (PTA Tools AI does,
+ * from embeddings, via pta_related_posts) through the lwptsa_related_posts
+ * filter as array( array( 'id' => int, 'reason' => string ), ... ).
  */
 function lwptsa_render_related_stories($a, $block) {
     $post = lwptsa_block_post($block);
@@ -275,7 +275,7 @@ function lwptsa_render_related_stories($a, $block) {
         return '';
     }
     $count = max(1, min(8, (int) $a['count']));
-    $items = apply_filters('lwptsa_related_posts', null, $post->ID, $count);
+    $items = apply_filters('lwptsa_related_posts', apply_filters('pta_related_posts', null, $post->ID, $count), $post->ID, $count);
 
     if (!is_array($items)) {
         $items = array();
@@ -314,7 +314,7 @@ function lwptsa_render_up_next($a, $block) {
     if (!$post) {
         return '';
     }
-    $next = apply_filters('lwptsa_up_next_post', null, $post->ID);
+    $next = apply_filters('lwptsa_up_next_post', apply_filters('pta_up_next_post', null, $post->ID), $post->ID);
     if (!$next) {
         $term = lwptsa_primary_category($post);
         $args = array(

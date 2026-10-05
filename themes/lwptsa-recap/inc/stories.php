@@ -15,6 +15,15 @@ function lwptsa_placement_category_slugs() {
     return (array) apply_filters('lwptsa_placement_category_slugs', array('general-news', 'featured', 'homepage', 'uncategorized'));
 }
 
+// PTA Tools AI: label related stories by subject, never by placement, and
+// translate the theme's own labels around a machine-translated story.
+add_filter('pta_ai_ignored_category_slugs', function ($slugs) {
+    return array_values(array_unique(array_merge((array) $slugs, lwptsa_placement_category_slugs())));
+});
+add_filter('pta_ai_ui_strings', function ($strings) {
+    return array_merge((array) $strings, array('Related stories', 'Up next', 'Read'));
+});
+
 /**
  * @return WP_Term|null
  */

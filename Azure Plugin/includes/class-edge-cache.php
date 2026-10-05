@@ -155,7 +155,9 @@ class Azure_Edge_Cache {
             }
         }
 
-        return true;
+        // For responses that are about to change on their own, such as a
+        // "translation in progress" page.
+        return (bool) apply_filters('pta_edge_cache_shareable', true);
     }
 
     /**

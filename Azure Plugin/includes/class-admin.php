@@ -207,6 +207,14 @@ class Azure_Admin {
             'azure-plugin-notifications',
             array($this, 'admin_page_notifications')
         );
+        add_submenu_page(
+            'azure-plugin',
+            'PTA Tools - AI',
+            __('AI', 'azure-plugin'),
+            'manage_options',
+            'azure-plugin-ai',
+            array($this, 'admin_page_ai')
+        );
         
         add_submenu_page(
             'azure-plugin-pta',
@@ -392,6 +400,10 @@ class Azure_Admin {
             return;
         }
         Azure_Home_Screen::get_instance()->render_admin_page('notifications');
+    }
+
+    public function admin_page_ai() {
+        include AZURE_PLUGIN_PATH . 'admin/ai-page.php';
     }
 
     public function admin_page_mobile() {
@@ -1274,7 +1286,7 @@ class Azure_Admin {
         $enabled = $_POST['enabled'] === 'true';
         
         // Validate module name
-        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'tec_integration', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer', 'forms', 'home_screen', 'no_comments', 'block_registration', 'anti_spam_filter');
+        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'tec_integration', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer', 'forms', 'home_screen', 'no_comments', 'block_registration', 'anti_spam_filter', 'ai');
         if (!in_array($module, $valid_modules)) {
             wp_send_json_error('Invalid module name: ' . $module);
         }

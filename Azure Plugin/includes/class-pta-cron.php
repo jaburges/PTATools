@@ -194,6 +194,11 @@ class Azure_PTA_Cron {
                 self::ensure('azure_forms_purge_entries', 'daily', time() + HOUR_IN_SECONDS);
             }
 
+            // ── AI (summary / embedding backlog) ──────────────────────────
+            if (!empty($settings['enable_ai'])) {
+                self::ensure('pta_ai_process', 'hourly', time() + 300);
+            }
+
             // ── Auction (orphan sweep) ────────────────────────────────────
             // Per-auction finalize is a one-shot event scheduled at the
             // bidding-end timestamp by Azure_Auction_Product_Type. This daily
@@ -283,6 +288,11 @@ class Azure_PTA_Cron {
             ),
             'enable_forms' => array(
                 'azure_forms_purge_entries',
+            ),
+            'enable_ai' => array(
+                'pta_ai_process',
+                'pta_ai_process_post',
+                'pta_ai_translate',
             ),
         );
 

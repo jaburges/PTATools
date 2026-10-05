@@ -190,6 +190,22 @@ if (!defined('ABSPATH')) {
                     </div>
                 </div>
 
+                <div class="module-card <?php echo ($settings['enable_ai'] ?? false) ? 'enabled' : 'disabled'; ?>">
+                    <div class="module-header">
+                        <h3><span class="dashicons dashicons-lightbulb"></span> AI</h3>
+                        <div class="module-controls">
+                            <label class="switch">
+                                <input type="checkbox" class="module-toggle" data-module="ai" <?php checked($settings['enable_ai'] ?? false); ?> />
+                                <span class="slider"></span>
+                            </label>
+                            <a href="<?php echo admin_url('admin.php?page=azure-plugin-ai'); ?>" class="button button-configure">Configure</a>
+                        </div>
+                    </div>
+                    <div class="module-description">
+                        <p>Key-point summaries, related stories and on-demand translation of posts, using your Azure AI Foundry resource.</p>
+                    </div>
+                </div>
+
                 <div class="module-card <?php echo ($settings['enable_tickets'] ?? false) ? 'enabled' : 'disabled'; ?>">
                     <div class="module-header">
                         <h3><span class="dashicons dashicons-tickets-alt"></span> Event Tickets</h3>
