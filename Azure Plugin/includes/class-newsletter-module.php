@@ -798,36 +798,75 @@ class Azure_Newsletter_Module {
      * Handle unsubscribe
      */
     public function handle_unsubscribe($request) {
-        $token = $request->get_param('token');
-        
-        if (class_exists('Azure_Newsletter_Lists')) {
-            $lists = new Azure_Newsletter_Lists();
-            $result = $lists->process_unsubscribe($token);
-            
-            if ($result['success']) {
-                // Show unsubscribe confirmation page
-                $html = '<!DOCTYPE html>
-                <html>
-                <head>
-                    <title>' . esc_html__('Unsubscribed', 'azure-plugin') . '</title>
-                    <style>
-                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-                               max-width: 600px; margin: 100px auto; text-align: center; padding: 20px; }
-                        h1 { color: #1d2327; }
-                        p { color: #646970; }
-                    </style>
-                </head>
-                <body>
-                    <h1>' . esc_html__('You have been unsubscribed', 'azure-plugin') . '</h1>
-                    <p>' . esc_html__('You will no longer receive newsletters from us.', 'azure-plugin') . '</p>
-                </body>
-                </html>';
-                
-                return new WP_REST_Response($html, 200, array('Content-Type' => 'text/html'));
-            }
+        $token = (string) $request->get_param('token');
+        $lists = new Azure_Newsletter_Lists();
+        $result = $lists->handle_unsubscribe_request($token, $request->get_method(), (string) $request->get_param('email'));
+
+        // A WP_REST_Response body is JSON-encoded, so the page is sent directly.
+        status_header($result['state'] === 'invalid_email' ? 400 : 200);
+        nocache_headers();
+        header('Content-Type: text/html; charset=utf-8');
+        header('X-Robots-Tag: noindex, nofollow');
+        echo self::unsubscribe_page_html(
+            $result['state'],
+            $result['email'],
+            rest_url('azure-plugin/v1/newsletter/unsubscribe/' . rawurlencode($token))
+        );
+        exit;
+    }
+
+    /**
+     * @param string $state confirm|ask|done|invalid_email
+     */
+    public static function unsubscribe_page_html($state, $email, $action_url) {
+        $site = get_bloginfo('name');
+
+        $email_field = '<p><label for="pta-unsub-email">' . esc_html__('Email address', 'azure-plugin') . '</label><br>'
+            . '<input type="email" id="pta-unsub-email" name="email" required autocomplete="email"></p>';
+        $form = function ($fields, $label) use ($action_url) {
+            return '<form method="post" action="' . esc_url($action_url) . '">' . $fields
+                . '<p><button type="submit">' . esc_html($label) . '</button></p></form>';
+        };
+
+        switch ($state) {
+            case 'done':
+                $title = __('You have been unsubscribed', 'azure-plugin');
+                $body = '<p>' . sprintf(
+                    /* translators: 1: email address, 2: site name */
+                    esc_html__('%1$s will no longer receive newsletters from %2$s.', 'azure-plugin'),
+                    '<strong>' . esc_html($email) . '</strong>',
+                    esc_html($site)
+                ) . '</p>';
+                break;
+            case 'confirm':
+                $title = __('Unsubscribe from newsletters', 'azure-plugin');
+                $body = '<p>' . sprintf(
+                    /* translators: 1: email address, 2: site name */
+                    esc_html__('Stop sending %2$s newsletters to %1$s?', 'azure-plugin'),
+                    '<strong>' . esc_html($email) . '</strong>',
+                    esc_html($site)
+                ) . '</p>' . $form('', __('Unsubscribe', 'azure-plugin'));
+                break;
+            case 'invalid_email':
+                $title = __('Unsubscribe from newsletters', 'azure-plugin');
+                $body = '<p class="err">' . esc_html__('Please enter a valid email address.', 'azure-plugin') . '</p>'
+                    . $form($email_field, __('Unsubscribe', 'azure-plugin'));
+                break;
+            default:
+                $title = __('Unsubscribe from newsletters', 'azure-plugin');
+                $body = '<p>' . esc_html__('Enter the email address you receive our newsletters at.', 'azure-plugin') . '</p>'
+                    . $form($email_field, __('Unsubscribe', 'azure-plugin'));
         }
-        
-        return new WP_REST_Response('Invalid unsubscribe link', 400);
+
+        return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<meta name="robots" content="noindex, nofollow">'
+            . '<title>' . esc_html($title . ' - ' . $site) . '</title>'
+            . '<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:560px;margin:80px auto;padding:20px;text-align:center;color:#1d2327}'
+            . 'p{color:#50575e;line-height:1.5}input{width:100%;max-width:340px;padding:10px;font-size:16px;border:1px solid #8c8f94;border-radius:4px;box-sizing:border-box}'
+            . 'button{padding:10px 24px;font-size:16px;border:0;border-radius:4px;background:#1d2327;color:#fff;cursor:pointer}.err{color:#b32d2e}a{color:#2271b1}</style>'
+            . '</head><body><h1>' . esc_html($title) . '</h1>' . $body
+            . '<p><a href="' . esc_url(home_url('/')) . '">' . esc_html($site) . '</a></p></body></html>';
     }
     
     /**

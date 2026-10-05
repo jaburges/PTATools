@@ -103,6 +103,7 @@ class Azure_Newsletter_Sender {
         );
         
         $args = wp_parse_args($args, $defaults);
+        $args['unsubscribe_url'] = self::unsubscribe_url($args['to'], $args['newsletter_id']);
         
         // Footer merge tokens (view in browser / unsubscribe) must be
         // replaced on every send, including Review & Test emails that
@@ -111,11 +112,7 @@ class Azure_Newsletter_Sender {
             if (!empty($args['newsletter_id'])) {
                 $args['html'] = $this->add_tracking($args['html'], $args['newsletter_id'], $args['to']);
             } else {
-                $args['html'] = self::replace_footer_tokens(
-                    $args['html'],
-                    home_url('/'),
-                    rest_url('azure-plugin/v1/newsletter/unsubscribe/' . $this->generate_tracking_token(0, $args['to']))
-                );
+                $args['html'] = self::replace_footer_tokens($args['html'], home_url('/'), $args['unsubscribe_url']);
             }
         }
         
@@ -190,6 +187,12 @@ class Azure_Newsletter_Sender {
         
         if (!empty($args['reply_to'])) {
             $data['h:Reply-To'] = $args['reply_to'];
+        }
+
+        // RFC 8058 one-click unsubscribe; Gmail and Yahoo require it of bulk senders.
+        if (!empty($args['unsubscribe_url'])) {
+            $data['h:List-Unsubscribe'] = '<' . $args['unsubscribe_url'] . '>';
+            $data['h:List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
         }
         
         // Add custom tracking variables
@@ -537,8 +540,11 @@ class Azure_Newsletter_Sender {
         );
         
         $view_url = rest_url('azure-plugin/v1/newsletter/view/' . $this->get_newsletter_archive_token($newsletter_id));
-        $unsubscribe_url = rest_url('azure-plugin/v1/newsletter/unsubscribe/' . $token);
-        return self::replace_footer_tokens($html, $view_url, $unsubscribe_url);
+        return self::replace_footer_tokens($html, $view_url, self::unsubscribe_url($email, $newsletter_id));
+    }
+
+    public static function unsubscribe_url($email, $newsletter_id = 0) {
+        return rest_url('azure-plugin/v1/newsletter/unsubscribe/' . Azure_Newsletter_Lists::unsubscribe_token($email, $newsletter_id));
     }
 
     /**

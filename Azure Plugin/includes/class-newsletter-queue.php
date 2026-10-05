@@ -161,9 +161,10 @@ class Azure_Newsletter_Queue {
         $recipients = $filter_result['recipients'];
         $blocked_count = $filter_result['blocked'];
         $bounced_count = $filter_result['bounced'];
+        $unsubscribed_count = $filter_result['unsubscribed'];
         
-        if (class_exists('Azure_Logger') && ($blocked_count > 0 || $bounced_count > 0)) {
-            Azure_Logger::info("Queue: Filtered out {$blocked_count} blocked and {$bounced_count} bounced recipients");
+        if (class_exists('Azure_Logger') && ($blocked_count > 0 || $bounced_count > 0 || $unsubscribed_count > 0)) {
+            Azure_Logger::info("Queue: Filtered out {$blocked_count} blocked, {$bounced_count} bounced and {$unsubscribed_count} unsubscribed recipients");
         }
         
         // Queue each recipient
@@ -412,29 +413,32 @@ class Azure_Newsletter_Queue {
         
         $bounces_table = $wpdb->prefix . 'azure_newsletter_bounces';
         
-        // Check if bounces table exists
-        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$bounces_table}'") === $bounces_table;
-        
-        if (!$table_exists) {
-            return array(
-                'recipients' => $recipients,
-                'blocked' => 0,
-                'bounced' => 0
-            );
+        $blocked_emails = array();
+        $bounced_emails = array();
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$bounces_table}'") === $bounces_table) {
+            // Get blocked emails (manually blocked)
+            $blocked_emails = $wpdb->get_col("SELECT LOWER(email) FROM {$bounces_table} WHERE is_blocked = 1");
+            
+            // Get hard bounced emails (not manually blocked but bounced)
+            $bounced_emails = $wpdb->get_col("SELECT LOWER(email) FROM {$bounces_table} WHERE bounce_type = 'hard' AND is_blocked = 0");
         }
         
-        // Get blocked emails (manually blocked)
-        $blocked_emails = $wpdb->get_col("SELECT LOWER(email) FROM {$bounces_table} WHERE is_blocked = 1");
-        
-        // Get hard bounced emails (not manually blocked but bounced)
-        $bounced_emails = $wpdb->get_col("SELECT LOWER(email) FROM {$bounces_table} WHERE bounce_type = 'hard' AND is_blocked = 0");
+        // Role and all-user lists come from wp_users, so per-list
+        // unsubscribed_at never applies to them; the site-wide opt-out does.
+        $opted_out = array_flip(Azure_Newsletter_Lists::opted_out_emails());
         
         $blocked_count = 0;
         $bounced_count = 0;
+        $unsubscribed_count = 0;
         
         // Filter out blocked and bounced
-        $filtered = array_filter($recipients, function($r) use ($blocked_emails, $bounced_emails, &$blocked_count, &$bounced_count) {
+        $filtered = array_filter($recipients, function($r) use ($blocked_emails, $bounced_emails, $opted_out, &$blocked_count, &$bounced_count, &$unsubscribed_count) {
             $email_lower = strtolower($r['email']);
+            
+            if (isset($opted_out[$email_lower])) {
+                $unsubscribed_count++;
+                return false;
+            }
             
             if (in_array($email_lower, $blocked_emails)) {
                 $blocked_count++;
@@ -452,7 +456,8 @@ class Azure_Newsletter_Queue {
         return array(
             'recipients' => array_values($filtered), // Re-index array
             'blocked' => $blocked_count,
-            'bounced' => $bounced_count
+            'bounced' => $bounced_count,
+            'unsubscribed' => $unsubscribed_count
         );
     }
     

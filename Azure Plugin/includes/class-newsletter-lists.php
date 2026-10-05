@@ -23,68 +23,154 @@ class Azure_Newsletter_Lists {
     }
     
     /**
-     * Process an unsubscribe request
+     * Member rows with this list_id are site-wide opt-outs. Role and
+     * all-user lists are built from wp_users and have no member rows, so
+     * this is the only record they can be filtered against. No real list
+     * has id 0 (AUTO_INCREMENT starts at 1).
      */
-    public function process_unsubscribe($token) {
-        $data = $this->decode_unsubscribe_token($token);
-        
-        if (!$data || empty($data['email'])) {
-            return array('success' => false, 'error' => 'Invalid token');
-        }
-        
-        global $wpdb;
-        
-        // Mark as unsubscribed in all lists
-        $wpdb->update(
-            $this->members_table,
-            array('unsubscribed_at' => current_time('mysql')),
-            array('email' => $data['email'])
-        );
-        
-        // Record the unsubscribe event
-        $stats_table = $wpdb->prefix . 'azure_newsletter_stats';
-        $wpdb->insert($stats_table, array(
-            'newsletter_id' => $data['newsletter_id'] ?? null,
-            'email' => $data['email'],
-            'event_type' => 'unsubscribed',
-            'created_at' => current_time('mysql')
-        ));
-        
-        Azure_Logger::info("Newsletter: Email unsubscribed: {$data['email']}");
-        
-        return array('success' => true, 'email' => $data['email']);
-    }
-    
+    const OPT_OUT_LIST_ID = 0;
+
+    /** Length of the base64url HMAC suffix on an unsubscribe token (16 bytes). */
+    const TOKEN_SIG_LENGTH = 22;
+
     /**
-     * Decode unsubscribe token
+     * Signed, self-contained unsubscribe token: base64url("id|email") + sig.
+     *
+     * The key must survive container restarts. wp_salt() does not on the
+     * container site (wp-config.php is regenerated on every start), which
+     * is why links built from it could never be verified later.
      */
-    private function decode_unsubscribe_token($token) {
-        // Token format: base64(email|newsletter_id|hmac)
-        // For simplicity, we'll use a reversible encoding
-        
-        $decoded = base64_decode($token);
-        if (!$decoded) {
+    public static function unsubscribe_token($email, $newsletter_id = 0) {
+        $payload = (int) $newsletter_id . '|' . strtolower(trim((string) $email));
+        return self::base64url($payload) . self::token_signature($payload);
+    }
+
+    /**
+     * @return array{email:string,newsletter_id:int}|null
+     */
+    public static function verify_unsubscribe_token($token) {
+        $token = (string) $token;
+        if (strlen($token) <= self::TOKEN_SIG_LENGTH || !preg_match('/^[A-Za-z0-9_-]+$/', $token)) {
             return null;
         }
-        
-        // Try to extract email
-        $parts = explode('|', $decoded);
-        if (count($parts) >= 2) {
-            return array(
-                'email' => $parts[0],
-                'newsletter_id' => $parts[1] ?? null
-            );
+
+        $payload = base64_decode(strtr(substr($token, 0, -self::TOKEN_SIG_LENGTH), '-_', '+/'), true);
+        if ($payload === false || !hash_equals(self::token_signature($payload), substr($token, -self::TOKEN_SIG_LENGTH))) {
+            return null;
         }
-        
-        return null;
+
+        $parts = explode('|', $payload, 2);
+        if (count($parts) !== 2 || !is_email($parts[1])) {
+            return null;
+        }
+
+        return array('email' => $parts[1], 'newsletter_id' => (int) $parts[0]);
     }
-    
+
+    private static function token_signature($payload) {
+        $key = hash_hmac('sha256', 'newsletter-unsubscribe', Azure_Newsletter_Module::click_signing_key());
+        return self::base64url(substr(hash_hmac('sha256', $payload, $key, true), 0, 16));
+    }
+
+    private static function base64url($data) {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
     /**
-     * Generate unsubscribe token
+     * Decide what the unsubscribe page does for one request.
+     *
+     * GET never unsubscribes: mail security scanners (Safe Links and the
+     * like) fetch every link in a message, which would opt staff out
+     * without them clicking. GET shows a one-button confirm page; POST
+     * (that button, or an RFC 8058 one-click from the mail client) acts.
+     *
+     * Links sent before signed tokens existed cannot be decoded, so they
+     * get a form asking for the address instead of an error.
+     *
+     * @return array{state:string,email:string}  state: confirm|ask|done|invalid_email
      */
-    public function generate_unsubscribe_token($email, $newsletter_id = null) {
-        $data = $email . '|' . ($newsletter_id ?? '0') . '|' . wp_hash($email . $newsletter_id);
-        return base64_encode($data);
+    public function handle_unsubscribe_request($token, $method, $posted_email = '') {
+        $data = self::verify_unsubscribe_token($token);
+
+        if (strtoupper((string) $method) !== 'POST') {
+            return $data
+                ? array('state' => 'confirm', 'email' => $data['email'])
+                : array('state' => 'ask', 'email' => '');
+        }
+
+        $email = $data ? $data['email'] : strtolower(trim((string) $posted_email));
+        if (!is_email($email)) {
+            return array('state' => 'invalid_email', 'email' => '');
+        }
+
+        $this->unsubscribe_email($email, $data ? $data['newsletter_id'] : null);
+        return array('state' => 'done', 'email' => $email);
+    }
+
+    /**
+     * Opt an address out of every newsletter list, current and future.
+     */
+    public function unsubscribe_email($email, $newsletter_id = null, $record_stat = true) {
+        global $wpdb;
+
+        $email = strtolower(trim((string) $email));
+        if (!is_email($email)) {
+            return false;
+        }
+
+        $now = current_time('mysql');
+        $user = get_user_by('email', $email);
+        $user_id = $user ? (int) $user->ID : 0;
+
+        // Member rows can hold the address, or only a user_id whose
+        // wp_users email the queue joins in at send time.
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$this->members_table} SET unsubscribed_at = %s
+             WHERE unsubscribed_at IS NULL AND (LOWER(email) = %s OR (user_id = %d AND user_id > 0))",
+            $now, $email, $user_id
+        ));
+
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$this->members_table} (list_id, user_id, email, subscribed_at, unsubscribed_at)
+             VALUES (%d, NULLIF(%d, 0), %s, %s, %s)
+             ON DUPLICATE KEY UPDATE unsubscribed_at = COALESCE(unsubscribed_at, VALUES(unsubscribed_at))",
+            self::OPT_OUT_LIST_ID, $user_id, $email, $now, $now
+        ));
+
+        // Already-queued sends (a scheduled campaign) must not go out either.
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->prefix}azure_newsletter_queue WHERE status = 'pending' AND LOWER(email) = %s",
+            $email
+        ));
+
+        if ($record_stat) {
+            $wpdb->insert($wpdb->prefix . 'azure_newsletter_stats', array(
+                'newsletter_id' => (int) $newsletter_id,
+                'email' => $email,
+                'user_id' => $user_id ?: null,
+                'event_type' => 'unsubscribed',
+                'created_at' => $now
+            ));
+        }
+
+        if (class_exists('Azure_Logger')) {
+            Azure_Logger::info("Newsletter: Email unsubscribed: {$email}");
+        }
+
+        return true;
+    }
+
+    /**
+     * Lower-cased addresses that have opted out site-wide.
+     */
+    public static function opted_out_emails() {
+        global $wpdb;
+
+        return array_map('strtolower', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT email FROM {$wpdb->prefix}azure_newsletter_list_members
+             WHERE list_id = %d AND unsubscribed_at IS NOT NULL",
+            self::OPT_OUT_LIST_ID
+        )));
     }
     
     /**

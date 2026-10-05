@@ -283,6 +283,12 @@ class Azure_Newsletter_Tracking {
         if ($normalized_type === 'complained') {
             $this->record_bounce($email, 'complaint');
         }
+        
+        // The provider's own unsubscribe (e.g. a mail client's header
+        // button routed through Mailgun) must stop our sends too.
+        if ($normalized_type === 'unsubscribed' && class_exists('Azure_Newsletter_Lists')) {
+            (new Azure_Newsletter_Lists())->unsubscribe_email($email, $newsletter_id, false);
+        }
     }
     
     /**
