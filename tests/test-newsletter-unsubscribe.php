@@ -58,6 +58,7 @@ require_once dirname(__DIR__) . '/Azure Plugin/includes/class-newsletter-sender.
 require_once dirname(__DIR__) . '/Azure Plugin/includes/class-newsletter-tracking.php';
 
 class Unsub_WPDB extends Fake_WPDB {
+    public $users = 'wp_users';
     public $queries = array();
     public $opted_out = array();
     public function prepare($sql, ...$args) {
@@ -71,7 +72,11 @@ class Unsub_WPDB extends Fake_WPDB {
         $sql = is_array($q) ? $q['sql'] : $q;
         return strpos($sql, 'list_id = %d AND unsubscribed_at IS NOT NULL') !== false ? $this->opted_out : array();
     }
-    public function get_var($q) { return null; }
+    public $var_result = null;
+    public $result_rows = array();
+    public $reads = array();
+    public function get_var($q) { $this->reads[] = $q; return $this->var_result; }
+    public function get_results($q, $output = null) { $this->reads[] = $q; return $this->result_rows; }
     public function sql_like($needle) {
         return array_values(array_filter($this->queries, function ($q) use ($needle) {
             return strpos($q['sql'], $needle) !== false;
@@ -203,5 +208,44 @@ $t->equals('List-Unsubscribe=One-Click', $body['h:List-Unsubscribe-Post'] ?? nul
 $db = fresh_db();
 call_private(new Azure_Newsletter_Tracking(), 'process_event', array('unsubscribed', 'hooked@example.com', 27, array()));
 $t->check(!empty($db->sql_like('INSERT INTO wp_azure_newsletter_list_members')), 'Mailgun unsubscribed webhook opts the address out');
+
+// --- admin Unsubscribed tab ------------------------------------------------
+$db = fresh_db();
+$db->var_result = '2026-10-04 20:24:15';
+$t->check($lists->resubscribe_email(' Danish@Example.com '), 'resubscribe succeeds for an opted-out address');
+$restore = $db->sql_like('SET unsubscribed_at = NULL');
+$t->check(
+    !empty($restore) && $restore[0]['args'][1] === '2026-10-04 20:24:15' && $restore[0]['args'][3] === 1191,
+    'resubscribe restores only list rows marked by that same unsubscribe'
+);
+$del = array_values(array_filter($db->writes, function ($w) { return $w['op'] === 'delete'; }));
+$t->equals(array('list_id' => 0, 'email' => 'danish@example.com'), $del[0]['where'] ?? null, 'resubscribe removes the site-wide opt-out row');
+
+$db = fresh_db();
+$t->check(!$lists->resubscribe_email('never@example.com'), 'resubscribe is a no-op for an address that never opted out');
+$t->check(empty($db->queries) && empty($db->writes), 'no-op resubscribe writes nothing');
+
+$db = fresh_db();
+$db->var_result = 3;
+$db->result_rows = array((object) array('email' => 'a@example.com'));
+$page = $lists->get_opt_outs('50%_off', 50, 100);
+$t->equals(3, $page['total'], 'opt-out listing reports the total');
+$t->equals(array(0, '%50\\%\\_off%', '%50\\%\\_off%', 50, 100), $db->reads[0]['args'] ?? null, 'search is LIKE-escaped and bound with paging in one prepare');
+$t->check(strpos($db->reads[0]['sql'], 'm.list_id = %d AND m.unsubscribed_at IS NOT NULL') !== false, 'listing reads only site-wide opt-outs');
+
+$page_src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/newsletter-page.php');
+$t->check(
+    preg_match("/'lists',\s*'unsubscribed'/", $page_src) === 1 && strpos($page_src, "admin/newsletter-unsubscribed.php") !== false,
+    'Unsubscribed tab is registered after Lists and renders its template'
+);
+$t->check(
+    preg_match('/tab=lists.*?<\/a>\s*<a href="[^"]*tab=unsubscribed/s', $page_src) === 1,
+    'Unsubscribed tab link sits right after Lists'
+);
+$tab_src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/newsletter-unsubscribed.php');
+$t->check(
+    strpos($tab_src, "check_admin_referer('pta_unsub_add')") !== false && strpos($tab_src, "check_admin_referer('pta_unsub_resubscribe')") !== false,
+    'tab actions are nonce-checked'
+);
 
 exit($t->finish() === 0 ? 0 : 1);

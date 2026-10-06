@@ -161,6 +161,79 @@ class Azure_Newsletter_Lists {
     }
 
     /**
+     * Site-wide opt-outs for the admin Unsubscribed tab, newest first.
+     *
+     * @return array{rows:array,total:int}
+     */
+    public function get_opt_outs($search = '', $limit = 50, $offset = 0) {
+        global $wpdb;
+
+        $where = 'm.list_id = %d AND m.unsubscribed_at IS NOT NULL';
+        $args = array(self::OPT_OUT_LIST_ID);
+        $search = trim((string) $search);
+        if ($search !== '') {
+            $where .= ' AND (m.email LIKE %s OR u.display_name LIKE %s)';
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            array_push($args, $like, $like);
+        }
+
+        $from = "FROM {$this->members_table} m LEFT JOIN {$wpdb->users} u ON u.ID = m.user_id WHERE {$where}";
+        $stats = $wpdb->prefix . 'azure_newsletter_stats';
+        $newsletters = $wpdb->prefix . 'azure_newsletters';
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT m.email, m.user_id, m.unsubscribed_at, u.display_name,
+                    (SELECT n.subject FROM {$stats} s JOIN {$newsletters} n ON n.id = s.newsletter_id
+                     WHERE s.email = m.email AND s.event_type = 'unsubscribed' AND s.newsletter_id > 0
+                     ORDER BY s.created_at DESC LIMIT 1) AS campaign
+             {$from}
+             ORDER BY m.unsubscribed_at DESC
+             LIMIT %d OFFSET %d",
+            array_merge($args, array(max(1, (int) $limit), max(0, (int) $offset)))
+        ));
+
+        return array(
+            'rows' => (array) $rows,
+            'total' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) {$from}", $args)),
+        );
+    }
+
+    /**
+     * Undo a site-wide opt-out. Only for when the person asks to be added
+     * back; an opt-out must not be reversed by a list sync or import.
+     *
+     * List rows marked by the same unsubscribe carry its exact timestamp,
+     * so rows an admin removed separately stay removed.
+     */
+    public function resubscribe_email($email) {
+        global $wpdb;
+
+        $email = strtolower(trim((string) $email));
+        $opted_out_at = $wpdb->get_var($wpdb->prepare(
+            "SELECT unsubscribed_at FROM {$this->members_table} WHERE list_id = %d AND email = %s",
+            self::OPT_OUT_LIST_ID, $email
+        ));
+        if (!$opted_out_at) {
+            return false;
+        }
+
+        $user = get_user_by('email', $email);
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$this->members_table} SET unsubscribed_at = NULL
+             WHERE list_id <> %d AND unsubscribed_at = %s AND (LOWER(email) = %s OR (user_id = %d AND user_id > 0))",
+            self::OPT_OUT_LIST_ID, $opted_out_at, $email, $user ? (int) $user->ID : 0
+        ));
+        $wpdb->delete($this->members_table, array('list_id' => self::OPT_OUT_LIST_ID, 'email' => $email), array('%d', '%s'));
+
+        if (class_exists('Azure_Logger')) {
+            $by = function_exists('wp_get_current_user') ? wp_get_current_user()->user_login : '';
+            Azure_Logger::info("Newsletter: Email resubscribed by {$by}: {$email}");
+        }
+
+        return true;
+    }
+
+    /**
      * Lower-cased addresses that have opted out site-wide.
      */
     public static function opted_out_emails() {
