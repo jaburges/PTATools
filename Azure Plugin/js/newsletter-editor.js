@@ -2975,15 +2975,142 @@
         }
         var selected = editor && editor.getSelected && editor.getSelected();
         var colRow = target.get && target.get('type') === 'nl-column' ? findAncestorColumns(target) : null;
+        var parent = target.parent && target.parent();
         target.remove();
         if (colRow) {
             rebalanceColumnWidths(colRow);
         }
+        pruneEmptyShells(parent);
         if (selected && selected !== target && containsDescendant(target, selected)) {
             editor.select(null);
         }
         updateMoveButtons(null);
         return true;
+    }
+
+    var SHELL_STOP_TYPES = { wrapper: 1, 'nl-column': 1, 'nl-columns': 1, 'nl-section': 1, 'nl-section-body': 1 };
+
+    function isShellBoundary(c) {
+        return !c || !c.get || !c.parent || !c.parent() || SHELL_STOP_TYPES[c.get('type')]
+            || isEmailCanvasTable(c) || isProtectedCanvas(c);
+    }
+
+    // Spacers and divider rules are a sized cell holding only &nbsp;, so
+    // &nbsp; counts as content and so does any explicit height or fill.
+    function hasRealChildren(c) {
+        if (/[^ \t\r\n]/.test(String(c.get('content') || ''))) {
+            return true;
+        }
+        var attrs = (c.getAttributes && c.getAttributes()) || {};
+        if (attrs.height || attrs.bgcolor) {
+            return true;
+        }
+        var css = editor && (editor.Css || editor.CssComposer);
+        var styles = [(c.getStyle && c.getStyle()) || {}];
+        if (css && typeof css.getRule === 'function' && c.getClasses) {
+            c.getClasses().forEach(function(name) {
+                var rule = css.getRule('.' + name);
+                if (rule && rule.getStyle) {
+                    styles.push(rule.getStyle() || {});
+                }
+            });
+        }
+        if (styles.some(function(st) {
+            return st.height || st['min-height'] || st.background || st['background-color'] || st['background-image'];
+        })) {
+            return true;
+        }
+        return wrapperChildList(c).some(function(ch) {
+            if (ch.get('type') === 'textnode') {
+                return /[^ \t\r\n]/.test(String(ch.get('content') || ''));
+            }
+            return true;
+        });
+    }
+
+    /**
+     * Table plumbing with nothing left to hold: a row without cells, a
+     * body without rows, a table without cells, or a lone cell with no
+     * content. These have no height, so nobody can click them to delete.
+     */
+    function isEmptyShell(c) {
+        var tag = componentTag(c);
+        if (tag === 'tr') {
+            return !wrapperChildList(c).some(function(ch) {
+                var t = componentTag(ch);
+                return t === 'td' || t === 'th';
+            });
+        }
+        if (tag === 'tbody' || tag === 'thead' || tag === 'tfoot') {
+            return !hasRealChildren(c);
+        }
+        if (tag === 'table') {
+            return c.find('td, th').length === 0 && !c.find('img, a, p, h1, h2, h3, h4, h5, h6, div').length;
+        }
+        if (tag === 'td' || tag === 'th') {
+            var row = c.parent && c.parent();
+            return !hasRealChildren(c) && !!row && wrapperChildList(row).length === 1;
+        }
+        return false;
+    }
+
+    /**
+     * An empty paragraph or line (<p><br></p>). Selecting it must stay on
+     * the line itself so it can be deleted, not jump to the column.
+     */
+    function isBlankLine(c) {
+        var tag = componentTag(c);
+        if (tag !== 'p' && tag !== 'div') {
+            return false;
+        }
+        var el = c.getEl && c.getEl();
+        if (!el || el.querySelector('img, table, a, hr, iframe')) {
+            return false;
+        }
+        return String(el.textContent || '').replace(/\u00a0/g, ' ').trim() === '';
+    }
+
+    function pruneEmptyShells(start) {
+        var p = start;
+        while (p && !isShellBoundary(p) && isEmptyShell(p)) {
+            var up = p.parent();
+            p.remove();
+            p = up;
+        }
+    }
+
+    /**
+     * Older campaigns carry shells left by deletes that only removed the
+     * inner cell, plus empty paragraphs a browser splits off when a <div>
+     * is pasted into a <p>. Clear them on load.
+     */
+    function removeEmptyShells() {
+        var doomed = [];
+        function walk(c) {
+            wrapperChildList(c).forEach(function(ch) {
+                var tag = componentTag(ch);
+                if (!isShellBoundary(ch) && isEmptyShell(ch)) {
+                    doomed.push(ch);
+                    return;
+                }
+                if (tag === 'tr' && isEmptyShell(ch) && wrapperChildList(c).length > 1) {
+                    doomed.push(ch);
+                    return;
+                }
+                if ((tag === 'p' || tag === 'div' || tag === 'span') && !hasRealChildren(ch)
+                    && !ch.getClasses().some(function(k) { return k.indexOf('nl-') === 0; })) {
+                    doomed.push(ch);
+                    return;
+                }
+                walk(ch);
+            });
+        }
+        walk(editor && editor.getWrapper && editor.getWrapper());
+        doomed.forEach(function(c) {
+            var up = c.parent && c.parent();
+            c.remove();
+            pruneEmptyShells(up);
+        });
     }
 
     function deleteSelectedComponent() {
@@ -3199,6 +3326,7 @@
                 });
                 hoistEscapedBlocksIntoCanvas();
                 withoutUndo(wrapAllNowNextInSections);
+                withoutUndo(removeEmptyShells);
                 syncSectionHandles();
                 syncRowGaps();
             }, 0);
@@ -3308,6 +3436,29 @@
         } catch (e3) { hasDeleteSectionCmd = false; }
         if (editor.Commands && !hasDeleteSectionCmd) {
             editor.Commands.add('pta-delete-section', {
+                run: function() { deleteSelectedComponent(); }
+            });
+        }
+        // GrapesJS's own delete (Delete/Backspace key, stock toolbar trash)
+        // removes only the selected node, so deleting a Text block's cell
+        // left its empty table behind. Route both through ours.
+        if (editor.Commands) {
+            editor.Commands.add('core:component-delete', {
+                run: function(ed, sender, opts) {
+                    if (ed.getEditing && ed.getEditing()) {
+                        return;
+                    }
+                    var given = opts && opts.component;
+                    if (given && given !== ed.getSelected()) {
+                        (Array.isArray(given) ? given : [given]).forEach(function(c) {
+                            deleteComponent(getDeletableComponent(c) || c);
+                        });
+                        return;
+                    }
+                    deleteSelectedComponent();
+                }
+            });
+            editor.Commands.add('tlb-delete', {
                 run: function() { deleteSelectedComponent(); }
             });
         }
@@ -5484,7 +5635,7 @@
 
             // Upcoming dates owns its Settings; promoting it to the text style
             // root would select the canvas cell, which cannot be deleted.
-            var styleRoot = nowNext ? null : (findTextStyleHost(component) || findTextBlockStyleRoot(component));
+            var styleRoot = (nowNext || isBlankLine(component)) ? null : (findTextStyleHost(component) || findTextBlockStyleRoot(component));
             if (styleRoot && styleRoot !== component && !findSettingsImage(component) && !findAncestorButton(component)) {
                 lastTextStyleHost = styleRoot;
                 rememberSettingsHost(styleRoot);
