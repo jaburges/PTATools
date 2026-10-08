@@ -75,4 +75,8 @@ $t->equals(array(12, 34), Azure_Event_CPT::normalize_attachment_ids(array('12', 
 $t->equals(array(5, 9), Azure_Event_CPT::normalize_attachment_ids('5, 9'), 'attachment ids from csv');
 $t->equals(array(), Azure_Event_CPT::normalize_attachment_ids(''), 'empty attachment ids');
 
+$t->equals(array(36630), Azure_Event_CPT::removed_attachment_ids(array(36630), array()), 'removing the only file detaches it');
+$t->equals(array(7), Azure_Event_CPT::removed_attachment_ids(array(5, 7, 9), array('9', '5', '11')), 'only the dropped file, not added ones');
+$t->equals(array(), Azure_Event_CPT::removed_attachment_ids(array(), array(3)), 'adding a file removes nothing');
+
 exit($t->finish() === 0 ? 0 : 1);

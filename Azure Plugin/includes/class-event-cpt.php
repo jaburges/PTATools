@@ -644,7 +644,7 @@ class Azure_Event_CPT {
         $url      = get_post_meta($post->ID, '_EventURL', true);
         $cost     = get_post_meta($post->ID, '_EventCost', true);
         $hide_up  = get_post_meta($post->ID, '_EventHideFromUpcoming', true) === 'yes';
-        $att_ids  = self::normalize_attachment_ids(get_post_meta($post->ID, '_pta_event_attachment_ids', true));
+        $att_ids  = self::listed_attachment_ids($post->ID);
         $can_upload = current_user_can('upload_files');
 
         // datetime-local wants 'Y-m-d\TH:i'; tolerate empty.
@@ -810,6 +810,7 @@ class Azure_Event_CPT {
             }
         }
 
+        $listed_before = self::listed_attachment_ids($post_id);
         $att_ids = self::normalize_attachment_ids(
             isset($_POST['pta_event_attachment_ids']) ? wp_unslash($_POST['pta_event_attachment_ids']) : array()
         );
@@ -828,6 +829,17 @@ class Azure_Event_CPT {
                     wp_update_post(array(
                         'ID'          => $att_id,
                         'post_parent' => $post_id,
+                    ));
+                }
+            }
+            // The event page also lists the event's child media, so a removed
+            // file keeps showing until it is detached from the event.
+            foreach (self::removed_attachment_ids($listed_before, $att_ids) as $att_id) {
+                $att = get_post($att_id);
+                if ($att && $att->post_type === 'attachment' && (int) $att->post_parent === (int) $post_id) {
+                    wp_update_post(array(
+                        'ID'          => $att_id,
+                        'post_parent' => 0,
                     ));
                 }
             }
@@ -1879,6 +1891,50 @@ class Azure_Event_CPT {
             }
         }
         return array_values($ids);
+    }
+
+    /**
+     * Media-library files the event page lists: the curated IDs, then the
+     * event's child attachments, minus the featured image. Same set as
+     * Azure_PTSA_Meetings::get_event_attachments() so the editor can see and
+     * remove everything the page shows.
+     *
+     * @param int $post_id
+     * @return int[]
+     */
+    public static function listed_attachment_ids($post_id) {
+        $post_id  = (int) $post_id;
+        $featured = (int) get_post_thumbnail_id($post_id);
+        $ids      = self::normalize_attachment_ids(get_post_meta($post_id, '_pta_event_attachment_ids', true));
+        $children = get_children(array(
+            'post_parent' => $post_id,
+            'post_type'   => 'attachment',
+            'post_status' => 'inherit',
+            'numberposts' => 50,
+            'orderby'     => 'menu_order title',
+            'order'       => 'ASC',
+            'fields'      => 'ids',
+        ));
+        if (is_array($children)) {
+            $ids = self::normalize_attachment_ids(array_merge($ids, array_map('intval', $children)));
+        }
+        return array_values(array_filter($ids, function ($id) use ($featured) {
+            return $id !== $featured;
+        }));
+    }
+
+    /**
+     * IDs that were listed before the save but not submitted with it.
+     *
+     * @param int[] $before
+     * @param int[] $submitted
+     * @return int[]
+     */
+    public static function removed_attachment_ids($before, $submitted) {
+        return array_values(array_diff(
+            self::normalize_attachment_ids($before),
+            self::normalize_attachment_ids($submitted)
+        ));
     }
 
     /**
