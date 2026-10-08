@@ -14,7 +14,7 @@ if (isset($_POST['save_newsletter_settings']) && wp_verify_nonce($_POST['_wpnonc
         'newsletter_batch_size' => intval($_POST['newsletter_batch_size'] ?? 100),
         'newsletter_rate_limit_per_hour' => intval($_POST['newsletter_rate_limit_per_hour'] ?? 1000),
         'newsletter_default_category' => sanitize_text_field($_POST['newsletter_default_category'] ?? 'newsletter'),
-        'newsletter_default_page_title' => sanitize_text_field($_POST['newsletter_default_page_title'] ?? '{subject}'),
+        'newsletter_default_page_title' => sanitize_text_field(wp_unslash($_POST['newsletter_default_page_title'] ?? '{subject}')),
         'newsletter_default_parent_page' => intval($_POST['newsletter_default_parent_page'] ?? 0),
         'newsletter_reply_to' => sanitize_email($_POST['newsletter_reply_to'] ?? ''),
         'newsletter_bounce_enabled' => isset($_POST['newsletter_bounce_enabled']),
@@ -46,7 +46,7 @@ if (isset($_POST['save_newsletter_settings']) && wp_verify_nonce($_POST['_wpnonc
     $from_addresses = array();
     if (!empty($_POST['from_email']) && !empty($_POST['from_name'])) {
         $emails = array_map('sanitize_email', (array)$_POST['from_email']);
-        $names = array_map('sanitize_text_field', (array)$_POST['from_name']);
+        $names = array_map('sanitize_text_field', (array) wp_unslash($_POST['from_name']));
         for ($i = 0; $i < count($emails); $i++) {
             if (!empty($emails[$i]) && !empty($names[$i])) {
                 $from_addresses[] = array(

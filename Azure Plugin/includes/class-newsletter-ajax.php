@@ -543,7 +543,7 @@ class Azure_Newsletter_Ajax {
         $send_option = sanitize_key($_POST['send_option'] ?? 'draft');
         
         // Parse from field
-        $from_parts = explode('|', sanitize_text_field($_POST['newsletter_from'] ?? ''));
+        $from_parts = explode('|', sanitize_text_field(wp_unslash($_POST['newsletter_from'] ?? '')));
         $from_email = $from_parts[0] ?? '';
         $from_name = $from_parts[1] ?? '';
         
@@ -561,8 +561,8 @@ class Azure_Newsletter_Ajax {
         }
         
         $data = array(
-            'name' => sanitize_text_field($_POST['newsletter_name'] ?? ''),
-            'subject' => sanitize_text_field($_POST['newsletter_subject'] ?? ''),
+            'name' => sanitize_text_field(wp_unslash($_POST['newsletter_name'] ?? '')),
+            'subject' => sanitize_text_field(wp_unslash($_POST['newsletter_subject'] ?? '')),
             'from_email' => $from_email,
             'from_name' => $from_name,
             'content_html' => $this->sanitize_email_html($_POST['newsletter_content_html'] ?? ''),
@@ -764,11 +764,11 @@ class Azure_Newsletter_Ajax {
         
         $email = sanitize_email($_POST['email'] ?? '');
         $html = $this->sanitize_email_html($_POST['html'] ?? '');
-        $subject = sanitize_text_field($_POST['subject'] ?? 'Test Newsletter');
+        $subject = sanitize_text_field(wp_unslash($_POST['subject'] ?? 'Test Newsletter'));
         $newsletter_id = intval($_POST['newsletter_id'] ?? 0);
         
         // Parse from field
-        $from_parts = explode('|', sanitize_text_field($_POST['from'] ?? ''));
+        $from_parts = explode('|', sanitize_text_field(wp_unslash($_POST['from'] ?? '')));
         $from_email = $from_parts[0] ?? get_option('admin_email');
         $from_name = $from_parts[1] ?? get_bloginfo('name');
         
@@ -930,7 +930,7 @@ class Azure_Newsletter_Ajax {
         }
         
         $html = $this->sanitize_email_html($_POST['html'] ?? '');
-        $subject = sanitize_text_field($_POST['subject'] ?? '');
+        $subject = sanitize_text_field(wp_unslash($_POST['subject'] ?? ''));
         $from_email = sanitize_email($_POST['from_email'] ?? 'test@example.com');
         $use_external = isset($_POST['use_external']) && $_POST['use_external'] === 'true';
         
@@ -1779,7 +1779,7 @@ class Azure_Newsletter_Ajax {
         $table = $wpdb->prefix . 'azure_newsletters';
         
         $category = sanitize_text_field($_POST['page_category'] ?? 'newsletter');
-        $title_template = sanitize_text_field($_POST['page_title'] ?? '{subject}');
+        $title_template = sanitize_text_field(wp_unslash($_POST['page_title'] ?? '{subject}'));
         if ($title_template === '') {
             $title_template = '{subject}';
         }

@@ -22,8 +22,8 @@ if (!$table_exists) {
 
 // Handle list creation
 if (isset($_POST['create_list']) && wp_verify_nonce($_POST['_wpnonce'], 'create_newsletter_list')) {
-    $name = sanitize_text_field($_POST['list_name']);
-    $description = sanitize_textarea_field($_POST['list_description']);
+    $name = sanitize_text_field(wp_unslash($_POST['list_name']));
+    $description = sanitize_textarea_field(wp_unslash($_POST['list_description']));
     $type = sanitize_key($_POST['list_type']);
     $criteria = array();
     
