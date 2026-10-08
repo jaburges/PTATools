@@ -91,6 +91,88 @@ class Azure_PTSA_Meetings {
     }
 
     /**
+     * True for a General (membership) meeting rather than a Board meeting.
+     */
+    public static function is_general_title($title) {
+        return (bool) preg_match('/\bgeneral (meeting|membership)\b/', self::normalize_title($title));
+    }
+
+    /**
+     * First calendar year of the school year a 'Y-m-d H:i:s' date falls in.
+     */
+    public static function school_year_of($datetime, $start_month = 7) {
+        $year  = (int) substr((string) $datetime, 0, 4);
+        $month = (int) substr((string) $datetime, 5, 2);
+        return $month >= (int) $start_month ? $year : $year - 1;
+    }
+
+    /**
+     * "2025–26" for the school year starting in 2025.
+     */
+    public static function school_year_label($first_year) {
+        return sprintf('%d–%02d', (int) $first_year, ((int) $first_year + 1) % 100);
+    }
+
+    /**
+     * Split meetings into the page sections.
+     *
+     * The most recent past General meeting gets its own section, because its
+     * minutes are approved at the next one, and is not repeated elsewhere.
+     * Other past meetings are this school year's or are archived by year.
+     *
+     * @param array<int, array{id:int,title:string,start:string}> $events
+     * @param string $now         Site-local 'Y-m-d H:i:s'.
+     * @param int    $start_month First month of the school year.
+     * @return array{upcoming:array, past:array, previous_general:array|null, archive:array<string,array>}
+     */
+    public static function group_meetings(array $events, $now, $start_month = 7) {
+        usort($events, function ($a, $b) {
+            return strcmp((string) $a['start'], (string) $b['start']);
+        });
+
+        $upcoming = array();
+        $past     = array();
+        foreach ($events as $event) {
+            if ($event['start'] !== '' && $event['start'] < $now) {
+                $past[] = $event;
+            } else {
+                $upcoming[] = $event;
+            }
+        }
+        $past = array_reverse($past);
+
+        $previous = null;
+        foreach ($past as $event) {
+            if (self::is_general_title($event['title'])) {
+                $previous = $event;
+                break;
+            }
+        }
+
+        $current   = self::school_year_of($now, $start_month);
+        $this_year = array();
+        $archive   = array();
+        foreach ($past as $event) {
+            if ($previous !== null && $event['id'] === $previous['id']) {
+                continue;
+            }
+            $year = self::school_year_of($event['start'], $start_month);
+            if ($year >= $current) {
+                $this_year[] = $event;
+            } else {
+                $archive[self::school_year_label($year)][] = $event;
+            }
+        }
+
+        return array(
+            'upcoming'         => $upcoming,
+            'past'             => $this_year,
+            'previous_general' => $previous,
+            'archive'          => $archive,
+        );
+    }
+
+    /**
      * True when a URL looks like a downloadable file, not a page or join link.
      */
     public static function looks_like_file_url($url) {
@@ -364,10 +446,16 @@ class Azure_PTSA_Meetings {
     /**
      * [ptsa-meetings] — list every event tagged PTSA Meeting.
      *
+     * With no upcoming/limit the page shows Upcoming, Past (this school
+     * year), Previous General Meeting, then a collapsed archive per prior
+     * school year.
+     *
      * Attributes:
      *   upcoming          true = hide past meetings
-     *   limit             max events (-1 = all)
+     *   limit             max events (-1 = all); upcoming first, then past, no archive
      *   order             ASC | DESC by start date (used when upcoming=true)
+     *   archive           true/false — the prior school years section
+     *   school_year_start first month of the school year (1-12, default 7)
      *   show_attachments  true/false
      *   show_location     true/false
      *   show_join         true/false
@@ -376,14 +464,16 @@ class Azure_PTSA_Meetings {
      */
     public function render_shortcode($atts) {
         $atts = shortcode_atts(array(
-            'upcoming'         => 'false',
-            'limit'            => '-1',
-            'order'            => 'ASC',
-            'show_attachments' => 'true',
-            'show_location'    => 'true',
-            'show_join'        => 'true',
-            'show_time'        => 'true',
-            'empty'            => '',
+            'upcoming'          => 'false',
+            'limit'             => '-1',
+            'order'             => 'ASC',
+            'archive'           => 'true',
+            'school_year_start' => '7',
+            'show_attachments'  => 'true',
+            'show_location'     => 'true',
+            'show_join'         => 'true',
+            'show_time'         => 'true',
+            'empty'             => '',
         ), $atts, 'ptsa-meetings');
 
         if (!taxonomy_exists(self::taxonomy())) {
@@ -420,6 +510,62 @@ class Azure_PTSA_Meetings {
         $upcoming = array();
         $past     = array();
 
+        if (!$upcoming_only && $limit <= 0) {
+            $start_month = max(1, min(12, (int) $atts['school_year_start']));
+            $by_id  = array();
+            $events = array();
+            foreach ($query->posts as $event) {
+                $by_id[(int) $event->ID] = $event;
+                $events[] = array(
+                    'id'    => (int) $event->ID,
+                    'title' => get_the_title($event->ID),
+                    'start' => (string) get_post_meta($event->ID, '_EventStartDate', true),
+                );
+            }
+            $groups = self::group_meetings($events, $now, $start_month);
+            if (!filter_var($atts['archive'], FILTER_VALIDATE_BOOLEAN)) {
+                $groups['archive'] = array();
+            }
+            $posts = function ($rows) use ($by_id) {
+                return array_map(function ($row) use ($by_id) {
+                    return $by_id[$row['id']];
+                }, $rows);
+            };
+            $opts = array($show_attachments, $show_time, $show_location, $show_join);
+
+            $sections = array();
+            if (!empty($groups['upcoming'])) {
+                $sections[] = $this->render_section('upcoming', __('Upcoming meetings', 'azure-plugin'), $posts($groups['upcoming']), $opts);
+            }
+            if (!empty($groups['past'])) {
+                $sections[] = $this->render_section('past', __('Past meetings', 'azure-plugin'), $posts($groups['past']), $opts);
+            }
+            if ($groups['previous_general'] !== null) {
+                $sections[] = $this->render_section('previous-general', __('Previous General Meeting', 'azure-plugin'), $posts(array($groups['previous_general'])), $opts);
+            }
+            if (!empty($groups['archive'])) {
+                $html = '<section class="ptsa-meetings-section ptsa-meetings-archive">';
+                $html .= '<h3 class="ptsa-meetings-heading">' . esc_html__('Archive', 'azure-plugin') . '</h3>';
+                foreach ($groups['archive'] as $label => $rows) {
+                    $count = count($rows);
+                    $html .= '<details class="ptsa-meetings-year"><summary>'
+                        . esc_html(sprintf(__('%s school year', 'azure-plugin'), $label))
+                        . ' <span class="ptsa-meetings-count">'
+                        . esc_html(sprintf(_n('%d meeting', '%d meetings', $count, 'azure-plugin'), $count))
+                        . '</span></summary>';
+                    $html .= $this->render_list($posts($rows), ...$opts);
+                    $html .= '</details>';
+                }
+                $html .= '</section>';
+                $sections[] = $html;
+            }
+
+            if (empty($sections)) {
+                return $this->render_empty($atts['empty']);
+            }
+            return '<div class="ptsa-meetings">' . implode('', $sections) . '</div>';
+        }
+
         foreach ($query->posts as $event) {
             $start = (string) get_post_meta($event->ID, '_EventStartDate', true);
             if ($start !== '' && $start < $now) {
@@ -445,11 +591,7 @@ class Azure_PTSA_Meetings {
         }
 
         if (empty($upcoming) && empty($past)) {
-            $empty = trim((string) $atts['empty']);
-            if ($empty === '') {
-                $empty = __('No PTSA meetings found.', 'azure-plugin');
-            }
-            return '<div class="ptsa-meetings ptsa-meetings-empty"><p>' . esc_html($empty) . '</p></div>';
+            return $this->render_empty($atts['empty']);
         }
 
         $html  = '<div class="ptsa-meetings">';
@@ -468,6 +610,25 @@ class Azure_PTSA_Meetings {
         $html .= '</div>';
 
         return $html;
+    }
+
+    private function render_empty($text) {
+        $text = trim((string) $text);
+        if ($text === '') {
+            $text = __('No PTSA meetings found.', 'azure-plugin');
+        }
+        return '<div class="ptsa-meetings ptsa-meetings-empty"><p>' . esc_html($text) . '</p></div>';
+    }
+
+    /**
+     * @param WP_Post[] $events
+     * @param array     $opts show_attachments, show_time, show_location, show_join
+     */
+    private function render_section($slug, $heading, $events, array $opts) {
+        return '<section class="ptsa-meetings-section ptsa-meetings-' . esc_attr($slug) . '">'
+            . '<h3 class="ptsa-meetings-heading">' . esc_html($heading) . '</h3>'
+            . $this->render_list($events, ...$opts)
+            . '</section>';
     }
 
     /**
@@ -514,7 +675,7 @@ class Azure_PTSA_Meetings {
                 $html .= '<p class="ptsa-meetings-join"><span class="ptsa-meetings-label">'
                     . esc_html__('Teams meeting', 'azure-plugin') . '</span> '
                     . '<a href="' . esc_url($join) . '" target="_blank" rel="noopener">'
-                    . esc_html($join) . '</a></p>';
+                    . esc_html__('Join Online Meeting', 'azure-plugin') . '</a></p>';
             }
         }
 

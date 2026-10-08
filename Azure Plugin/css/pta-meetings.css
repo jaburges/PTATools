@@ -102,6 +102,54 @@
     content: "📎 ";
 }
 
+.ptsa-meetings-year {
+    border: 1px solid #e2e4e7;
+    border-radius: 4px;
+    margin: 0 0 0.5rem;
+}
+
+.ptsa-meetings-year > summary {
+    cursor: pointer;
+    padding: 0.55rem 0.75rem;
+    font-weight: 600;
+    color: #222;
+    list-style: none;
+}
+
+.ptsa-meetings-year > summary::-webkit-details-marker {
+    display: none;
+}
+
+.ptsa-meetings-year > summary::before {
+    content: "\25B8";
+    display: inline-block;
+    width: 1em;
+    font-size: 1.15em;
+    line-height: 1;
+    color: #0073aa;
+    transition: transform 0.15s ease;
+}
+
+.ptsa-meetings-year[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+.ptsa-meetings-year > summary:hover,
+.ptsa-meetings-year > summary:focus-visible {
+    background: #f6f7f7;
+}
+
+.ptsa-meetings-count {
+    font-weight: 400;
+    color: #555;
+    margin-left: 0.35rem;
+}
+
+.ptsa-meetings-year > .ptsa-meetings-list {
+    padding: 0 0.75rem 0 1.75rem;
+    border-top: 1px solid #e2e4e7;
+}
+
 @media (max-width: 640px) {
     .ptsa-meetings-main {
         flex-direction: column;

@@ -71,6 +71,44 @@ $t->equals('Board minutes', $titles['https://example.org/wp-content/uploads/2026
 
 $t->equals(array('PTSA Meeting'), Azure_PTSA_Meetings::preserved_category_names(array('PTA Events', 'PTSA Meeting', 'Art')), 'sync keeps only the meeting tag');
 
+$t->check(Azure_PTSA_Meetings::is_general_title('PTSA General Meeting/Family Game Night'), 'general: with game night');
+$t->check(Azure_PTSA_Meetings::is_general_title('General Membership Meeting'), 'general: membership');
+$t->check(!Azure_PTSA_Meetings::is_general_title('PTSA Board Meeting'), 'board is not general');
+
+$t->equals(2025, Azure_PTSA_Meetings::school_year_of('2026-06-11 19:00:00'), 'June belongs to the school year that started the previous fall');
+$t->equals(2026, Azure_PTSA_Meetings::school_year_of('2026-07-01 00:00:00'), 'July 1 starts the new school year');
+$t->equals('2025–26', Azure_PTSA_Meetings::school_year_label(2025), 'school year label');
+$t->equals('1999–00', Azure_PTSA_Meetings::school_year_label(1999), 'label wraps the century');
+
+$meetings = array(
+    array('id' => 1, 'title' => 'PTSA General Meeting', 'start' => '2025-09-11 19:00:00'),
+    array('id' => 2, 'title' => 'PTSA Board Meeting',   'start' => '2025-10-09 09:45:00'),
+    array('id' => 3, 'title' => 'PTSA Board Meeting',   'start' => '2026-02-19 08:45:00'),
+    array('id' => 4, 'title' => 'PTSA General Meeting', 'start' => '2026-06-11 19:00:00'),
+    array('id' => 5, 'title' => 'PTSA Board Meeting',   'start' => '2026-09-10 08:45:00'),
+    array('id' => 6, 'title' => 'PTSA General Meeting', 'start' => '2026-10-08 19:00:00'),
+    array('id' => 7, 'title' => 'PTSA Board Meeting',   'start' => '2026-11-12 08:45:00'),
+    array('id' => 8, 'title' => 'PTSA Board Meeting',   'start' => '2024-05-02 08:45:00'),
+);
+$ids = function ($rows) {
+    return array_map(function ($r) { return $r['id']; }, $rows);
+};
+
+$g = Azure_PTSA_Meetings::group_meetings($meetings, '2026-10-07 20:30:00');
+$t->equals(array(6, 7), $ids($g['upcoming']), 'upcoming in date order');
+$t->equals(array(5), $ids($g['past']), 'past is this school year only');
+$t->equals(4, $g['previous_general']['id'] ?? null, 'June General Meeting is the previous General Meeting');
+$t->equals(array('2025–26', '2023–24'), array_keys($g['archive']), 'archive by school year, newest first');
+$t->equals(array(3, 2, 1), $ids($g['archive']['2025–26']), 'archive leaves out the previous General Meeting, newest first');
+
+$g = Azure_PTSA_Meetings::group_meetings($meetings, '2026-10-08 21:30:00');
+$t->equals(6, $g['previous_general']['id'] ?? null, 'once October has happened it becomes the previous General Meeting');
+$t->equals(array(5), $ids($g['past']), 'and is not repeated under past meetings');
+$t->equals(array(4, 3, 2, 1), $ids($g['archive']['2025–26']), 'June moves into the archive');
+
+$g = Azure_PTSA_Meetings::group_meetings(array($meetings[4]), '2026-10-07 20:30:00');
+$t->equals(null, $g['previous_general'], 'no previous General Meeting when there has not been one');
+
 $t->equals(array(12, 34), Azure_Event_CPT::normalize_attachment_ids(array('12', '34', '0', '12')), 'attachment ids unique and positive');
 $t->equals(array(5, 9), Azure_Event_CPT::normalize_attachment_ids('5, 9'), 'attachment ids from csv');
 $t->equals(array(), Azure_Event_CPT::normalize_attachment_ids(''), 'empty attachment ids');
