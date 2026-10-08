@@ -2,12 +2,13 @@
 /**
  * Regression checks for the wp_azure_onedrive_files mapping table.
  *
- * The mapping row is what ties a WordPress attachment to its OneDrive copy.
- * If it is never linked to an attachment ID, deleting media in WordPress
- * silently leaves the OneDrive file behind and the attachment edit screen
- * shows no OneDrive status. The row is also written on every sync pass, so it
- * has to tolerate being stored twice for the same OneDrive file — the column
- * carries a UNIQUE key, and a plain INSERT just fails.
+ * The mapping row is what ties a WordPress attachment to its OneDrive backup.
+ * Backups run from a queue after the attachment exists, so the row is written
+ * already linked; an attachment that has a row is not queued again. Deleting
+ * the attachment keeps the OneDrive copy unless delete propagation is on. The
+ * row is also written on every sync pass, so it has to tolerate being stored
+ * twice for the same OneDrive file — the column carries a UNIQUE key, and a
+ * plain INSERT just fails.
  *
  * Run:  php tests/test-onedrive-media-mapping.php
  */
@@ -17,7 +18,15 @@ require __DIR__ . '/../Azure Plugin/includes/class-onedrive-media-manager.php';
 
 $t = new TestRunner('OneDrive Media mapping table');
 
-const MAP_TABLE = 'wp_azure_onedrive_files';
+const MAP_TABLE   = 'wp_azure_onedrive_files';
+const QUEUE_TABLE = 'wp_azure_onedrive_sync_queue';
+
+if (!function_exists('get_attached_file')) {
+    function get_attached_file($attachment_id) {
+        $file = get_post_meta($attachment_id, '_wp_attached_file', true);
+        return $file ? '/tmp/wp-uploads/' . $file : false;
+    }
+}
 
 /** Records what the manager asks Graph to do, without any network. */
 class Stub_Graph_API {
@@ -29,14 +38,27 @@ class Stub_Graph_API {
     }
 }
 
+/** Fake_WPDB plus the raw query() the backup queue's upsert uses. */
+class Queue_WPDB extends Fake_WPDB {
+    public $queued = array();
+    public function query($sql) {
+        if (strpos($sql, QUEUE_TABLE) !== false && stripos($sql, 'INSERT') !== false) {
+            $this->queued[] = (int) $this->prepare_args[0];
+        }
+        $this->prepare_args = array();
+        return 1;
+    }
+}
+
 function make_manager() {
     global $wpdb;
     WP_Shim::reset();
     // Disabled so the constructor returns before touching cron or Graph auth;
     // the collaborator is injected directly instead.
     WP_Shim::$settings['enable_onedrive_media'] = false;
-    $wpdb = new Fake_WPDB();
+    $wpdb = new Queue_WPDB();
     $wpdb->tables[MAP_TABLE] = array();
+    $wpdb->tables[QUEUE_TABLE] = array();
     return new Azure_OneDrive_Media_Manager();
 }
 
@@ -61,41 +83,62 @@ function od_file($overrides = array()) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. An upload stores a mapping row, and the attachment links to it afterwards
+// 1. A backup stores a mapping row linked to its attachment
 // ---------------------------------------------------------------------------
 
 $mgr = make_manager();
+write_private($mgr, 'graph_api', new Stub_Graph_API());
 
-// This is what handle_upload_to_onedrive() does: the wp_handle_upload filter
-// fires before wp_insert_attachment, so there is no attachment ID yet.
-call_private($mgr, 'store_file_mapping', array(null, od_file(), '/tmp/wp-uploads/2026/07/photo.png'));
+// backup_attachment() runs from the queue, after the attachment exists.
+call_private($mgr, 'store_file_mapping', array(4321, od_file(), '/tmp/wp-uploads/2026/07/photo.png'));
 
 $rows = map_rows();
-$t->equals(1, count($rows), 'the upload writes exactly one mapping row');
+$t->equals(1, count($rows), 'the backup writes exactly one mapping row');
+$t->equals(4321, (int) $rows[0]['attachment_id'], 'the mapping row is linked to the attachment');
 $t->equals('01ONEDRIVEID', $rows[0]['onedrive_id'], 'the OneDrive file id is recorded');
 $t->equals('https://contoso.sharepoint.com/photo.png', $rows[0]['public_url'], 'the OneDrive web URL is recorded so the edit screen can link to it');
 $t->equals('2026', $rows[0]['folder_year'], 'the folder year comes from the OneDrive path, not today');
 
-// Now WordPress creates the attachment post and fires add_attachment.
+// add_attachment queues new uploads, but not one that is already backed up.
 update_post_meta(4321, '_wp_attached_file', '2026/07/photo.png');
-$mgr->link_pending_file_mapping(4321);
-
-$t->equals(4321, (int) map_rows()[0]['attachment_id'], 'the mapping row is linked to the new attachment');
+update_post_meta(4322, '_wp_attached_file', '2026/07/flyer.pdf');
+update_post_meta(4323, '_wp_attached_file', '2026/07/photo-300x200.png');
+$mgr->queue_attachment_backup(4321);
+$mgr->queue_attachment_backup(4322);
+$mgr->queue_attachment_backup(4323);
+global $wpdb;
+$t->equals(array(4322), $wpdb->queued, 'only the new, non-thumbnail upload is queued for backup');
 
 // ---------------------------------------------------------------------------
-// 2. Deleting the attachment now propagates to OneDrive
+// 2. Deleting the attachment keeps the OneDrive backup by default
 // ---------------------------------------------------------------------------
 
 $graph = new Stub_Graph_API();
 write_private($mgr, 'graph_api', $graph);
+$wpdb->tables[QUEUE_TABLE][] = array('id' => 1, 'operation' => 'backup', 'attachment_id' => 4321, 'status' => 'pending');
 
 $mgr->handle_delete_attachment(4321);
 
-$t->equals(array('01ONEDRIVEID'), $graph->deleted, 'deleting the attachment deletes the OneDrive file');
+$rows = map_rows();
+$t->equals(array(), $graph->deleted, 'the OneDrive copy is not deleted');
+$t->equals(1, count($rows), 'the mapping row is kept so the backup can still be found');
+$t->equals('orphaned', $rows[0]['sync_status'], 'the mapping row is marked orphaned');
+$t->equals(null, $rows[0]['attachment_id'], 'the mapping row is unlinked from the deleted attachment');
+$t->equals(0, count($wpdb->tables[QUEUE_TABLE]), 'a pending backup for the deleted attachment is dropped');
+
+// With delete propagation on, the OneDrive copy goes too.
+$mgr = make_manager();
+WP_Shim::$settings['onedrive_media_delete_propagation'] = true;
+$graph = new Stub_Graph_API();
+write_private($mgr, 'graph_api', $graph);
+call_private($mgr, 'store_file_mapping', array(98, od_file()));
+$mgr->handle_delete_attachment(98);
+$t->equals(array('01ONEDRIVEID'), $graph->deleted, 'with propagation on, deleting the attachment deletes the OneDrive file');
 $t->equals(0, count(map_rows()), 'the mapping row is removed once OneDrive confirms the delete');
 
 // If OneDrive refuses, the mapping row must survive so it can be retried.
 $mgr = make_manager();
+WP_Shim::$settings['onedrive_media_delete_propagation'] = true;
 $graph = new Stub_Graph_API();
 $graph->delete_result = false;
 write_private($mgr, 'graph_api', $graph);
@@ -137,12 +180,5 @@ $row = map_rows()[0];
 $t->equals('', $row['onedrive_path'], 'a missing parent path stores as an empty string');
 $t->equals(0, $row['file_size'], 'a missing size stores as zero');
 $t->equals('', $row['download_url'], 'a missing download URL stores as an empty string');
-
-// link_pending_file_mapping must not hijack a row that is already linked.
-$mgr = make_manager();
-call_private($mgr, 'store_file_mapping', array(500, od_file()));
-update_post_meta(600, '_wp_attached_file', '2026/07/photo.png');
-$mgr->link_pending_file_mapping(600);
-$t->equals(500, (int) map_rows()[0]['attachment_id'], 'an already-linked row is not stolen by a later upload of the same name');
 
 exit($t->finish() > 0 ? 1 : 0);
