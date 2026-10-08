@@ -1154,15 +1154,12 @@
             label: 'Now and Next',
             category: 'WordPress',
             media: icons.calendar,
-            content: `
-                <table class="nl-now-next" width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <tr>
-                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">
-                            <p style="margin: 0;">[nl-now-next enable_links="false"]</p>
-                        </td>
-                    </tr>
-                </table>
-            `
+            content: nowNextSectionHtml(
+                '<table class="nl-now-next" width="100%" cellpadding="0" cellspacing="0" border="0">'
+                + '<tr><td style="padding: 10px 20px; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">'
+                + '<p style="margin: 0;">[nl-now-next enable_links="false"]</p>'
+                + '</td></tr></table>'
+            )
         });
 
         bm.add('shortcode-block', {
@@ -1821,17 +1818,49 @@
         }
     }
 
+    /**
+     * The shortcode placeholder look (pale blue box, dashed border, blue
+     * monospace text) can also arrive as a class rule. Drop those classes
+     * and report what they carried.
+     */
+    function dropPlaceholderClasses(comp) {
+        var out = { bg: '', border: '', family: '', color: '' };
+        var css = editor && (editor.Css || editor.CssComposer);
+        if (!css || typeof css.getRule !== 'function' || !comp.getClasses) {
+            return out;
+        }
+        comp.getClasses().slice().forEach(function(name) {
+            var rule = css.getRule('.' + name);
+            var st = rule && rule.getStyle ? (rule.getStyle() || {}) : {};
+            var bg = String(st.background || st['background-color'] || '');
+            var border = String(st.border || '');
+            var family = String(st['font-family'] || '');
+            var color = String(st.color || '');
+            if (bg.indexOf('f0f6fc') === -1 && border.indexOf('dashed') === -1
+                && family.indexOf('monospace') === -1 && color.indexOf('2271b1') === -1) {
+                return;
+            }
+            out.bg += bg;
+            out.border += border;
+            out.family += family;
+            out.color += color;
+            comp.removeClass(name);
+        });
+        return out;
+    }
+
     function walkNowNextChrome(comp) {
         if (!comp || !comp.get) {
             return;
         }
         var tag = String(comp.get('tagName') || '').toLowerCase();
         var style = (comp.getStyle && comp.getStyle()) || {};
-        var bg = String(style.background || style['background-color'] || '');
-        var border = String(style.border || '');
+        var ruled = dropPlaceholderClasses(comp);
+        var bg = String(style.background || style['background-color'] || '') + ruled.bg;
+        var border = String(style.border || '') + ruled.border;
         if (tag === 'td' && (bg.indexOf('f0f6fc') !== -1 || border.indexOf('dashed') !== -1)) {
             var next = {
-                padding: '0',
+                padding: '10px 20px',
                 background: 'transparent',
                 'background-color': 'transparent',
                 border: '0',
@@ -1853,8 +1882,8 @@
         }
         if (tag === 'p') {
             var pStyle = style;
-            var family = String(pStyle['font-family'] || '');
-            var color = String(pStyle.color || '');
+            var family = String(pStyle['font-family'] || '') + ruled.family;
+            var color = String(pStyle.color || '') + ruled.color;
             if (family.indexOf('monospace') !== -1 || color.indexOf('2271b1') !== -1) {
                 var pNext = {
                     margin: '0',
@@ -1876,6 +1905,82 @@
         if (kids && kids.each) {
             kids.each(walkNowNextChrome);
         }
+    }
+
+    function isNowNextTable(component) {
+        if (!component || !component.get || componentTag(component) !== 'table'
+            || (component.getClasses && component.getClasses().indexOf('nl-section') !== -1)) {
+            return false;
+        }
+        if (component.get('type') === 'nl-now-next') {
+            return true;
+        }
+        var cls = String((component.getAttributes && component.getAttributes() || {}).class || '');
+        return cls.indexOf('nl-now-next') !== -1;
+    }
+
+    function nowNextSectionHtml(inner) {
+        return '<table class="nl-section" width="100%" cellpadding="0" cellspacing="0" border="0">'
+            + '<tr><td class="nl-section-body" valign="top" style="padding: 16px 20px;">'
+            + '<div class="nl-section-handle" title="Select section"></div>'
+            + (inner || '')
+            + '</td></tr></table>';
+    }
+
+    /**
+     * Upcoming dates is a section of its own. One left loose in the canvas
+     * (older campaigns and templates) is wrapped so it gets a handle and
+     * moves and deletes like any other section.
+     */
+    function wrapNowNextInSection(component) {
+        if (!isNowNextTable(component) || findAncestorSection(component) || findAncestorColumns(component)) {
+            return;
+        }
+        var parent = component.parent && component.parent();
+        if (!parent || !parent.components || typeof component.index !== 'function') {
+            return;
+        }
+        var added = parent.components().add(nowNextSectionHtml(), { at: component.index() });
+        var section = Array.isArray(added) ? added[0] : added;
+        var body = section && findSectionBodyChild(section);
+        if (!body) {
+            if (section) {
+                section.remove();
+            }
+            return;
+        }
+        hoistTo(component, body, wrapperChildList(body).length);
+    }
+
+    function wrapAllNowNextInSections() {
+        var found = [];
+        function walk(c) {
+            if (!c) {
+                return;
+            }
+            if (isNowNextTable(c)) {
+                found.push(c);
+                return;
+            }
+            wrapperChildList(c).forEach(walk);
+        }
+        walk(editor && editor.getWrapper && editor.getWrapper());
+        found.forEach(wrapNowNextInSection);
+    }
+
+    /**
+     * The section a block sits in, when that block is all the section holds.
+     */
+    function soleSectionOf(block) {
+        var section = findAncestorSection(block);
+        var body = section && findSectionBodyChild(section);
+        if (!body) {
+            return null;
+        }
+        var real = wrapperChildList(body).filter(function(c) {
+            return !isSectionHandle(c) && !isSectionHint(c) && !isRowGap(c);
+        });
+        return real.length === 1 && containsDescendant(real[0], block) ? section : null;
     }
 
     function hoistNowNext(component) {
@@ -2725,6 +2830,10 @@
         if (!selected || !selected.get) {
             return null;
         }
+        var nowNextHost = findAncestorNowNext(selected);
+        if (nowNextHost) {
+            return soleSectionOf(nowNextHost) || nowNextHost;
+        }
         var clicked = clickedBlockInColumn(selected);
         if (clicked) {
             return clicked;
@@ -2802,7 +2911,11 @@
         if (lastClickOrigin && (lastClickOrigin === target || isDescendantOf(lastClickOrigin, target))) {
             lastClickOrigin = null;
         }
+        var selected = editor && editor.getSelected && editor.getSelected();
         target.remove();
+        if (selected && selected !== target && containsDescendant(target, selected)) {
+            editor.select(null);
+        }
         updateMoveButtons(null);
         return true;
     }
@@ -3015,8 +3128,11 @@
         editor.on('load', function() {
             window.setTimeout(function() {
                 var wrapper = editor.getWrapper && editor.getWrapper();
-                stripNowNextDesignerChrome(wrapper);
+                withoutUndo(function() {
+                    stripNowNextDesignerChrome(wrapper);
+                });
                 hoistEscapedBlocksIntoCanvas();
+                withoutUndo(wrapAllNowNextInSections);
                 syncSectionHandles();
                 syncRowGaps();
             }, 0);
@@ -3056,6 +3172,7 @@
             window.setTimeout(function() {
                 hoistNowNext(component);
                 hoistEscapedBlocksIntoCanvas();
+                wrapNowNextInSection(component);
             }, 0);
             clearSectionHint(component);
             constrainColumnImage(component);
@@ -3091,6 +3208,7 @@
             setCanvasDragging(false);
             hoistNowNext(component);
             hoistEscapedBlocksIntoCanvas();
+            wrapNowNextInSection(component && component.target ? component.target : component);
             emptyGapsIntoWrapper();
             window.setTimeout(syncRowGaps, 0);
         });
@@ -4302,7 +4420,11 @@
                 if (el.classList && el.classList.contains('nl-now-next')) {
                     return { type: 'nl-now-next' };
                 }
-                if (el.innerHTML && el.innerHTML.indexOf('[nl-now-next') !== -1) {
+                // Only the innermost table: a section or canvas around the
+                // shortcode contains it too.
+                if (el.innerHTML && el.innerHTML.indexOf('[nl-now-next') !== -1
+                    && !(el.classList && el.classList.contains('nl-section'))
+                    && !(el.querySelector && el.querySelector('table'))) {
                     return { type: 'nl-now-next' };
                 }
                 return false;
@@ -5294,7 +5416,9 @@
                 }
             }
 
-            var styleRoot = findTextStyleHost(component) || findTextBlockStyleRoot(component);
+            // Upcoming dates owns its Settings; promoting it to the text style
+            // root would select the canvas cell, which cannot be deleted.
+            var styleRoot = nowNext ? null : (findTextStyleHost(component) || findTextBlockStyleRoot(component));
             if (styleRoot && styleRoot !== component && !findSettingsImage(component) && !findAncestorButton(component)) {
                 lastTextStyleHost = styleRoot;
                 rememberSettingsHost(styleRoot);
