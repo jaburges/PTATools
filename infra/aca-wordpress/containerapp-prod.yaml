@@ -119,9 +119,16 @@ properties:
                  the site's URLs, which is a password-reset-poisoning primitive.
                  The FDID header is stamped by the edge and cannot be forged by
                  a client reaching the container directly, and the result is
-                 still checked against a fixed list rather than used as given. */
+                 still checked against a fixed list rather than used as given.
+
+                 Requests that do not come through Front Door also get the
+                 public domain, never their own Host. The only ones Apache lets
+                 through are wp-cron.php (the wilderptsa-wpcron job calls the
+                 ACA hostname) and healthz.php, and cron is where newsletters
+                 are sent: deriving from Host there put the ACA hostname into
+                 every tracked, unsubscribe and view-in-browser link. */
               $wp_public_hosts = array( 'wilderptsa.net', 'www.wilderptsa.net' );
-              $wp_host = ! empty( $_SERVER['HTTP_HOST'] ) ? $_SERVER['HTTP_HOST'] : '';
+              $wp_host = $wp_public_hosts[0];
 
               if ( ! empty( $_SERVER['HTTP_X_AZURE_FDID'] )
                    && hash_equals( '863cc6c3-7117-4e08-9159-c86b5feb4911', $_SERVER['HTTP_X_AZURE_FDID'] ) ) {
@@ -180,6 +187,7 @@ properties:
               define( 'WP_REDIS_DATABASE', 0 );
               define( 'WP_REDIS_TIMEOUT', 2 );
               define( 'WP_REDIS_READ_TIMEOUT', 2 );
+              define( 'WP_REDIS_GRACEFUL', true );
 
               /* Namespaces the keys so a second site on this cache, or a restore
                  from a different database, cannot read stale entries. */
