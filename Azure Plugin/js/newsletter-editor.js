@@ -168,6 +168,10 @@
                 width: 'auto',
                 storageManager: false,
                 avoidInlineStyle: false,
+
+                // Native drag on every element turns a text selection into a
+                // block move. Blocks move with the toolbar's move handle.
+                domComponents: { draggableComponents: false },
                 
                 // Panels configuration
                 panels: { defaults: [] },
@@ -688,15 +692,7 @@
             label: 'Text',
             category: 'Content',
             media: icons.text,
-            content: `
-                <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <tr>
-                        <td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">
-                            <p style="margin: 0;">Add your text content here. You can style this text in Settings.</p>
-                        </td>
-                    </tr>
-                </table>
-            `
+            content: textBlockHtml('Add your text content here. You can style this text in Settings.')
         });
 
         bm.add('heading', {
@@ -1406,6 +1402,17 @@
             + '</td></tr></table>';
     }
 
+    /**
+     * The Text block. Columns start with one too, so their text edits and
+     * styles exactly like a Text block dropped in later.
+     */
+    function textBlockHtml(text) {
+        return '<table width="100%" cellpadding="0" cellspacing="0" border="0">'
+            + '<tr><td style="padding: 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 22px; color: #333333;">'
+            + '<p style="margin: 0;">' + text + '</p>'
+            + '</td></tr></table>';
+    }
+
     function columnRowHtml(count) {
         var n = count === 3 ? 3 : (count === 2 ? 2 : 1);
         var widths = n === 3 ? [33, 34, 33] : n === 2 ? [50, 50] : [100];
@@ -1413,7 +1420,7 @@
         var cells = '';
         for (var i = 0; i < n; i++) {
             cells += '<td class="nl-stack-col nl-column" width="' + widths[i] + '%" valign="top" style="padding: 10px; width: ' + widths[i] + '%;">'
-                + '<p>' + labels[i] + '</p></td>';
+                + textBlockHtml(labels[i]) + '</td>';
         }
         return '<table class="nl-stack-cols" width="100%" cellpadding="0" cellspacing="0" border="0">'
             + '<tr>' + cells + '</tr></table>';
@@ -1627,6 +1634,25 @@
             }
             cols[i].setStyle(style);
         });
+    }
+
+    /**
+     * After a column is removed, scale the rest back up to 100% keeping
+     * their proportions.
+     */
+    function rebalanceColumnWidths(rowComp) {
+        var cols = findColumnCells(rowComp);
+        if (!cols.length) {
+            return;
+        }
+        var widths = cols.map(function(col) {
+            var w = parseFloat((col.getAttributes() || {}).width) || parseFloat((col.getStyle() || {}).width);
+            return w > 0 ? w : 100 / cols.length;
+        });
+        var total = widths.reduce(function(a, b) { return a + b; }, 0);
+        var next = widths.map(function(w) { return Math.round(w * 100 / total); });
+        next[next.length - 1] += 100 - next.reduce(function(a, b) { return a + b; }, 0);
+        applyColumnWidths(rowComp, next);
     }
 
     function componentIsInColumn(component) {
@@ -2811,6 +2837,9 @@
         if (type === 'nl-columns') {
             return 'columns';
         }
+        if (type === 'nl-column') {
+            return 'column';
+        }
         if (type === 'email-button') {
             return 'button';
         }
@@ -2856,7 +2885,8 @@
             return selected;
         }
         if (type === 'nl-column') {
-            return findAncestorColumns(selected);
+            var colRow = findAncestorColumns(selected);
+            return colRow && findColumnCells(colRow).length > 1 ? selected : colRow;
         }
         if (isProtectedCanvas(selected)) {
             return null;
@@ -2899,6 +2929,38 @@
         return null;
     }
 
+    /**
+     * GrapesJS only offers a toolbar trash icon on components that are
+     * removable themselves, so columns and text cells got just the
+     * select-parent arrow. Give every selection the trash icon whenever the
+     * Delete button would remove something, and route it through the same
+     * logic so both always delete the same thing.
+     */
+    function syncToolbarDelete(component) {
+        if (!component || !component.get || typeof component.set !== 'function') {
+            return;
+        }
+        var current = component.get('toolbar');
+        var items = Array.isArray(current) ? current.slice() : [];
+        var target = getDeletableComponent(component);
+        var others = items.filter(function(item) {
+            return !item || (item.command !== 'tlb-delete' && item.command !== 'pta-delete-section');
+        });
+        if (target) {
+            others.push({
+                attributes: { class: 'fa fa-trash-o', title: 'Delete ' + describeComponent(target) },
+                command: 'pta-delete-section'
+            });
+        }
+        var same = others.length === items.length && others.every(function(item, i) {
+            return item === items[i] || (item && items[i] && item.command === items[i].command
+                && (item.attributes || {}).title === (items[i].attributes || {}).title);
+        });
+        if (!same) {
+            component.set('toolbar', others);
+        }
+    }
+
     function deleteSelectedSection() {
         return deleteSelectedComponent();
     }
@@ -2912,7 +2974,11 @@
             lastClickOrigin = null;
         }
         var selected = editor && editor.getSelected && editor.getSelected();
+        var colRow = target.get && target.get('type') === 'nl-column' ? findAncestorColumns(target) : null;
         target.remove();
+        if (colRow) {
+            rebalanceColumnWidths(colRow);
+        }
         if (selected && selected !== target && containsDescendant(target, selected)) {
             editor.select(null);
         }
@@ -5461,6 +5527,17 @@
                     syncSettingsTextFromCanvas(component);
                 }, 0);
             }
+        });
+
+        editor.on('component:selected', syncToolbarDelete);
+
+        // Stepping out with the select-parent arrow picks the parent on
+        // purpose; Delete should not fall back to the block clicked earlier.
+        editor.on('run:core:component-exit', function() {
+            var sel = editor.getSelected();
+            lastClickOrigin = sel || null;
+            syncToolbarDelete(sel);
+            updateMoveButtons(getMovableRow(sel));
         });
 
         editor.on('rte:enable', function() {
