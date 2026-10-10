@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.168
+ * Version: 3.147.169
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.168');
+define('AZURE_PLUGIN_VERSION', '3.147.169');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -442,6 +442,8 @@ class AzurePlugin {
             // Register hooks
             add_action('plugins_loaded', array($this, 'load_dependencies'), 5);
             add_action('init', array($this, 'init'), 10);
+            // widgets_init runs on init priority 1, before init() loads modules.
+            add_action('widgets_init', array($this, 'register_widgets'));
 
             // AcyMailing's `acym_load_installed_integrations` action
             // can fire as early as AcyMailing's own plugin bootstrap
@@ -1807,6 +1809,16 @@ class AzurePlugin {
         } catch (\Throwable $e) {
             Azure_Logger::error('Product Fields init failed: ' . $e->getMessage(), array('module' => 'ProductFields', 'file' => $e->getFile(), 'line' => $e->getLine()));
             error_log('Azure Plugin: Product Fields init error - ' . $e->getMessage());
+        }
+    }
+
+    public function register_widgets() {
+        if (!class_exists('Azure_Settings') || !Azure_Settings::get_setting('enable_donations')) {
+            return;
+        }
+        $this->require_module_files(array('class-donation-progress-widget.php'));
+        if (class_exists('Azure_Donation_Progress_Widget')) {
+            register_widget('Azure_Donation_Progress_Widget');
         }
     }
 

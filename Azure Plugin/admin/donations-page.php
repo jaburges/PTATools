@@ -254,7 +254,7 @@ $class_competitions = class_exists('Azure_Class_Competitions') ? Azure_Class_Com
                     <code>[giving-levels]</code>
                     <p class="description">Suggested giving levels from Donation Items above. Includes the campaign thermometer when Display progress bar is checked. Hidden when Donation Items is disabled. The older name <code>[WAG]</code> still works.</p>
                     <code>[Donation-progress campaign="giving-levels"]</code>
-                    <p class="description">Standalone thermometer if you need it on a different page. Optional once the bar is shown inside <code>[giving-levels]</code>.</p>
+                    <p class="description">Standalone progress meter for any campaign. <code>campaign</code> takes <code>giving-levels</code>, a campaign name or its ID. Optional <code>style</code>: <code>bar</code> (default), <code>bulb</code> (a bulb that grows into a tulip), <code>tree</code> (an acorn that grows into an oak), <code>garden</code> (a flower bed that blooms left to right) or <code>thermometer</code>. Example: <code>[Donation-progress campaign="Bulb Planting" style="bulb"]</code>. The <strong>Donation Progress</strong> widget offers the same choices from Appearance → Widgets.</p>
                     <code>[class-competition]</code>
                     <p class="description">Class donation board (line items, not dollars). Optional: <code>id="1"</code> for a specific competition, <code>enable_link="https://example.org/giving/"</code> to make the whole board clickable.</p>
                 </td>

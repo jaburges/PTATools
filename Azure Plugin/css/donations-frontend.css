@@ -552,6 +552,84 @@ a.pta-wag-level:focus-visible .pta-wag-suffix {
     font-size: clamp(0.72rem, 3.1cqi, 0.9rem);
 }
 
+/* Illustrated meters: style="bulb|tree|garden|thermometer" */
+.pta-donation-progress-art {
+    color: var(--wag-bg);
+    line-height: 0;
+}
+
+.pta-donation-progress-art .pta-art-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.pta-donation-progress--vertical {
+    text-align: center;
+}
+
+.pta-donation-progress--vertical .pta-donation-progress-art {
+    width: min(100%, 240px);
+    margin: 0 auto;
+}
+
+.pta-donation-progress--thermometer .pta-donation-progress-art {
+    width: min(100%, 170px);
+}
+
+.pta-donation-progress--vertical .pta-donation-progress-pct {
+    display: block;
+    margin: 0.15em 0 0;
+    font-size: 1.35em;
+    opacity: 1;
+}
+
+.pta-art-sway {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: pta-art-sway 6s ease-in-out infinite;
+}
+
+.pta-donation-progress--tree .pta-art-sway {
+    animation-duration: 9s;
+}
+
+.pta-art-twinkle {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pta-art-twinkle 2.4s ease-in-out infinite;
+}
+
+.pta-art-flutter {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pta-art-flutter 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes pta-art-sway {
+    0%, 100% { transform: rotate(-1.2deg); }
+    50% { transform: rotate(1.2deg); }
+}
+
+@keyframes pta-art-twinkle {
+    0%, 100% { opacity: 0.25; transform: scale(0.6); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pta-art-flutter {
+    from { transform: scaleX(1); }
+    to { transform: scaleX(0.55); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pta-art-sway,
+    .pta-art-twinkle,
+    .pta-art-flutter {
+        animation: none;
+    }
+}
+
 /* ─── WAG Custom typed amount on the product page ──────────── */
 .pta-custom-donation-amount {
     margin: 0 0 1rem;

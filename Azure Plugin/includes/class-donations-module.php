@@ -12,6 +12,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once __DIR__ . '/class-donation-progress-art.php';
+
 class Azure_Donations_Module {
 
     const WAG_DEFAULT_BG = '#0B2545';
@@ -1714,11 +1716,13 @@ class Azure_Donations_Module {
     }
 
     /**
-     * Horizontal campaign thermometer. campaign="giving-levels" uses the Donation Items mapping.
+     * Campaign progress meter. campaign="giving-levels" uses the Donation Items mapping.
+     * style="bar|bulb|tree|garden|thermometer" picks the artwork (default bar).
      */
     public function shortcode_donation_progress($atts = array()) {
         $atts = shortcode_atts(array(
             'campaign' => 'giving-levels',
+            'style'    => 'bar',
         ), $atts, 'donation-progress');
 
         $campaign = self::resolve_progress_campaign($atts['campaign']);
@@ -1726,17 +1730,22 @@ class Azure_Donations_Module {
             return '';
         }
 
-        $this->enqueue_wag_styles();
-        return self::render_progress_html($campaign, array('show_heading' => true, 'embedded' => false));
+        self::enqueue_wag_styles();
+        return self::render_progress_html($campaign, array(
+            'show_heading' => true,
+            'embedded'     => false,
+            'style'        => $atts['style'],
+        ));
     }
 
     /**
      * @param object $campaign Campaign row.
-     * @param array  $args     {show_heading:bool, embedded:bool}
+     * @param array  $args     {show_heading:bool, embedded:bool, style:string}
      */
     public static function render_progress_html($campaign, $args = array()) {
         $show_heading = !isset($args['show_heading']) || !empty($args['show_heading']);
         $embedded = !empty($args['embedded']);
+        $style = Azure_Donation_Progress_Art::normalize_style(isset($args['style']) ? $args['style'] : 'bar');
         $goal = isset($campaign->goal_amount) ? (float) $campaign->goal_amount : 0;
         $totals = self::format_progress_totals(self::get_campaign_raised($campaign), $goal);
         $bg = self::get_wag_bg();
@@ -1749,6 +1758,16 @@ class Azure_Donations_Module {
         if ($embedded) {
             $class .= ' pta-donation-progress--embedded';
         }
+        if ($style !== 'bar') {
+            $class .= ' pta-donation-progress--art pta-donation-progress--' . $style;
+            if (Azure_Donation_Progress_Art::is_vertical($style)) {
+                $class .= ' pta-donation-progress--vertical';
+            }
+        }
+        $aria = ' role="progressbar" aria-valuemin="0"'
+            . ' aria-valuemax="' . ($totals['goal'] > 0 ? (int) $totals['goal'] : 100) . '"'
+            . ' aria-valuenow="' . (int) round($totals['raised']) . '"'
+            . ' aria-label="' . esc_attr($name !== '' ? $name : __('Donation progress', 'azure-plugin')) . '"';
 
         ob_start();
         ?>
@@ -1756,16 +1775,18 @@ class Azure_Donations_Module {
             <?php if ($show_heading && $name !== ''): ?>
                 <p class="pta-donation-progress-heading"><?php echo esc_html($name); ?></p>
             <?php endif; ?>
+            <?php if ($style !== 'bar'): ?>
+            <div class="pta-donation-progress-art"<?php echo $aria; ?>>
+                <?php echo Azure_Donation_Progress_Art::render_svg($style, $totals['pct'], $totals['goal']); ?>
+            </div>
+            <?php else: ?>
             <div class="pta-donation-progress-meter">
                 <span class="pta-donation-progress-bulb" aria-hidden="true"></span>
-                <div class="pta-donation-progress-track" role="progressbar"
-                     aria-valuemin="0"
-                     aria-valuemax="<?php echo $totals['goal'] > 0 ? (int) $totals['goal'] : 100; ?>"
-                     aria-valuenow="<?php echo (int) round($totals['raised']); ?>"
-                     aria-label="<?php echo esc_attr($name !== '' ? $name : __('Donation progress', 'azure-plugin')); ?>">
+                <div class="pta-donation-progress-track"<?php echo $aria; ?>>
                     <div class="pta-donation-progress-fill" style="width: <?php echo (int) $totals['pct']; ?>%;"></div>
                 </div>
             </div>
+            <?php endif; ?>
             <p class="pta-donation-progress-total">
                 <strong><?php echo esc_html($raised_label); ?></strong>
                 <?php if ($totals['goal'] > 0): ?>
@@ -2019,7 +2040,7 @@ class Azure_Donations_Module {
         }
     }
 
-    private function enqueue_wag_styles() {
+    public static function enqueue_wag_styles() {
         wp_enqueue_style('dashicons');
         wp_enqueue_style(
             'pta-donations-frontend',
