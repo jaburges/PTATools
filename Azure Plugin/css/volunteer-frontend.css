@@ -298,6 +298,32 @@
     font-size: 13px;
 }
 
+.azure-vs-party-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.azure-vs-party-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 6px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.azure-vs-party-wrap .azure-vs-party-label {
+    margin-right: 0;
+}
+
+.azure-vs-party {
+    width: 4.2em;
+    padding: 4px 6px;
+}
+
 .azure-vs-modal-overlay {
     position: fixed;
     inset: 0;
@@ -440,6 +466,38 @@
 .pta-vol-line .button {
     justify-self: end;
     margin: 0;
+}
+
+.pta-vol-name-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pta-vol-party {
+    color: #1a4d8f;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.pta-vol-action {
+    display: inline-flex;
+    align-items: center;
+    justify-self: end;
+    gap: 8px;
+}
+
+.pta-vol-party-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.85rem;
+}
+
+.pta-vol-people {
+    width: 3.6em;
+    padding: 2px 4px;
 }
 
 .pta-vol-bulk {

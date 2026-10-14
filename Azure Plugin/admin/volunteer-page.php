@@ -461,6 +461,16 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                         </select>
                     </td>
                 </tr>
+                <tr>
+                    <th><?php _e('Group Signups', 'azure-plugin'); ?></th>
+                    <td>
+                        <label for="azure-vs-allow-group">
+                            <input type="checkbox" id="azure-vs-allow-group" value="1" />
+                            <?php _e('Enable Group Signups', 'azure-plugin'); ?>
+                        </label>
+                        <p class="description"><?php _e('Lets one person sign up several people (family and friends) for a role. They show as "Jamie × 4" and take four spaces.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
             </table>
 
             <h3><?php _e('Activities / Roles', 'azure-plugin'); ?></h3>
@@ -565,6 +575,7 @@ jQuery(function($) {
         $('#azure-vs-event-date').val('');
         $('#azure-vs-event-location').val('');
         $('#azure-vs-status').val('open');
+        $('#azure-vs-allow-group').prop('checked', false);
         setRecurringMode(!!recurring);
         var newTitle = recurring
             ? '<?php echo esc_js(__('New Recurring Sign-Up Sheet', 'azure-plugin')); ?>'
@@ -601,6 +612,7 @@ jQuery(function($) {
                 }
                 $('#azure-vs-event-location').val(s.event_location || '');
                 $('#azure-vs-status').val(s.status);
+                $('#azure-vs-allow-group').prop('checked', parseInt(s.allow_group, 10) === 1);
                 setRecurringMode(!!res.data.is_template);
                 var seriesFound = false;
                 if (res.data.is_template && s.series_key) {
@@ -736,6 +748,7 @@ jQuery(function($) {
             event_date: eventDate,
             event_location: $('#azure-vs-event-location').val(),
             status: $('#azure-vs-status').val(),
+            allow_group: $('#azure-vs-allow-group').is(':checked') ? 1 : 0,
             is_recurring: $('#azure-vs-is-recurring').val() === '1' ? 1 : 0,
             apply_to_series: $('#azure-vs-apply-series').val() === '1' ? 1 : 0,
             activities: JSON.stringify(activities)

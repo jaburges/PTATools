@@ -85,7 +85,10 @@ $activity_name = function ($sheet, $activity, $group = '') use ($event_url, $eve
     return '<a class="pta-vol-name" href="' . esc_url($url) . '" title="' . esc_attr($full) . '">' . $inner . '</a>';
 };
 
-$render_signup_list = function ($rows) use ($shift_date, $activity_name) {
+$me = function_exists('wp_get_current_user') ? wp_get_current_user() : null;
+$my_name = ($me && !empty($me->display_name)) ? (string) $me->display_name : __('You', 'azure-plugin');
+
+$render_signup_list = function ($rows) use ($shift_date, $activity_name, $my_name) {
     if (!$rows) {
         return;
     }
@@ -93,9 +96,15 @@ $render_signup_list = function ($rows) use ($shift_date, $activity_name) {
     foreach ($rows as $row) {
         $sheet = $row['sheet'];
         $activity = $row['activity'];
+        $party = max(1, (int) ($row['party_size'] ?? 1));
         echo '<div class="pta-vol-line">';
         echo '<span></span>';
-        echo $activity_name($sheet, $activity);
+        if ($party > 1) {
+            echo '<span class="pta-vol-name-cell">' . $activity_name($sheet, $activity)
+                . '<span class="pta-vol-party">' . esc_html(Azure_Volunteer_Signup::signup_label($my_name, $party)) . '</span></span>';
+        } else {
+            echo $activity_name($sheet, $activity);
+        }
         echo '<span class="pta-vol-date">' . esc_html($shift_date($sheet, $activity)) . '</span>';
         echo '<span class="pta-vol-time">' . esc_html(Azure_Volunteer_Signup::slot_time_label($sheet, $activity)) . '</span>';
         echo '<span></span>';
@@ -160,7 +169,15 @@ $render_groups = function ($groups) use ($shift_date, $activity_name) {
                 echo '<span class="pta-vol-time">' . esc_html(Azure_Volunteer_Signup::slot_time_label($sheet, $activity)) . '</span>';
                 echo '<span class="pta-vol-slots ' . esc_attr($state) . '">' . esc_html($filled . '/' . $needed) . '</span>';
                 if ($open > 0) {
-                    echo '<button type="button" class="button pta-vol-signup" data-activity="' . esc_attr((string) $activity->id) . '">' . esc_html__('Sign up', 'azure-plugin') . '</button>';
+                    $button = '<button type="button" class="button pta-vol-signup" data-activity="' . esc_attr((string) $activity->id) . '">' . esc_html__('Sign up', 'azure-plugin') . '</button>';
+                    if ($open > 1 && Azure_Volunteer_Signup::sheet_allows_group($sheet)) {
+                        echo '<span class="pta-vol-action">'
+                            . '<label class="pta-vol-party-pick">' . esc_html__('People', 'azure-plugin')
+                            . ' <input type="number" class="pta-vol-people" data-activity="' . esc_attr((string) $activity->id) . '" min="1" max="' . (int) $open . '" value="1" inputmode="numeric" /></label>'
+                            . $button . '</span>';
+                    } else {
+                        echo $button;
+                    }
                 } else {
                     echo '<span></span>';
                 }
@@ -268,12 +285,20 @@ $render_groups = function ($groups) use ($shift_date, $activity_name) {
                 : ids.length + ' <?php echo esc_js(__('selected', 'azure-plugin')); ?>';
         }
     }
+    function peopleFor(id) {
+        var input = root.querySelector('.pta-vol-people[data-activity="' + id + '"]');
+        if (!input) return 1;
+        var size = parseInt(input.value, 10) || 1;
+        var max = parseInt(input.getAttribute('max'), 10) || 1;
+        return Math.max(1, Math.min(size, max));
+    }
     function signupIds(ids, button) {
         if (!ids.length) return;
         if (button) button.disabled = true;
         var body = 'action=azure_volunteer_signup&nonce=' + encodeURIComponent(nonce);
         ids.forEach(function (id) {
             body += '&activity_ids[]=' + encodeURIComponent(id);
+            body += '&party_sizes[' + encodeURIComponent(id) + ']=' + peopleFor(id);
         });
         post(body).then(function (res) {
             if (res && res.success) window.location.reload();

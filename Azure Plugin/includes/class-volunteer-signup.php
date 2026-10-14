@@ -39,6 +39,7 @@ class Azure_Volunteer_Signup {
         self::ensure_slot_columns();
         self::ensure_recurring_columns();
         self::ensure_audience_columns();
+        self::ensure_group_columns();
         self::register_account_endpoint();
 
         add_action('template_redirect', array($this, 'maybe_serve_calendar'), 0);
@@ -205,13 +206,56 @@ class Azure_Volunteer_Signup {
         )) : array();
     }
 
+    /**
+     * Spaces taken, not rows: a group signup of 4 fills 4 spaces.
+     */
     public static function count_signups($activity_id) {
         global $wpdb;
         $t = Azure_Database::get_table_name('volunteer_signups');
         return $t ? (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$t} WHERE activity_id = %d",
+            "SELECT COALESCE(SUM(GREATEST(party_size, 1)), 0) FROM {$t} WHERE activity_id = %d",
             $activity_id
         )) : 0;
+    }
+
+    public static function party_size_of($signup) {
+        return max(1, (int) (is_object($signup) ? ($signup->party_size ?? 1) : 1));
+    }
+
+    public static function sheet_allows_group($sheet) {
+        return is_object($sheet) && !empty($sheet->allow_group);
+    }
+
+    /** "Jamie" for one person, "Jamie × 4" for a group. */
+    public static function signup_label($name, $party_size) {
+        $party_size = max(1, (int) $party_size);
+        return $party_size > 1 ? $name . ' × ' . $party_size : (string) $name;
+    }
+
+    /**
+     * People one person may bring to a slot: everything still open plus
+     * the spaces their own signup already holds.
+     */
+    public static function max_party_size($spots_needed, $filled, $own = 0) {
+        return max(0, (int) $spots_needed - (int) $filled + max(0, (int) $own));
+    }
+
+    /**
+     * @return int People to book, or 0 when the request does not fit.
+     */
+    public static function resolve_party_size($requested, $allow_group, $room) {
+        $room = (int) $room;
+        if ($room < 1) {
+            return 0;
+        }
+        if (!$allow_group) {
+            return 1;
+        }
+        $requested = (int) $requested;
+        if ($requested < 1) {
+            $requested = 1;
+        }
+        return $requested <= $room ? $requested : 0;
     }
 
     /**
@@ -291,7 +335,7 @@ class Azure_Volunteer_Signup {
                 $signed = 0;
                 foreach (self::get_signups_for_activity($activity_id) as $signup) {
                     if (is_object($signup) && (int) ($signup->activity_id ?? 0) === $activity_id) {
-                        $signed++;
+                        $signed += self::party_size_of($signup);
                     }
                 }
                 $fills[] = self::activity_fill((int) ($activity->spots_needed ?? 1), $signed);
@@ -361,17 +405,21 @@ class Azure_Volunteer_Signup {
         $fills = array();
         foreach (self::get_activities((int) $sheet->id) as $activity) {
             $signups = array();
+            $taken = 0;
             foreach (self::get_signups_for_activity((int) $activity->id) as $signup) {
                 $user = function_exists('get_userdata') ? get_userdata((int) $signup->user_id) : null;
+                $party = self::party_size_of($signup);
+                $taken += $party;
                 $signups[] = array(
                     'id'           => (int) $signup->id,
                     'user_id'      => (int) $signup->user_id,
                     'display_name' => $user ? (string) $user->display_name : ('User #' . (int) $signup->user_id),
                     'email'        => $user ? (string) $user->user_email : '',
+                    'party_size'   => $party,
                     'signed_up_at' => (string) ($signup->signed_up_at ?? ''),
                 );
             }
-            $fill = self::activity_fill((int) ($activity->spots_needed ?? 1), count($signups));
+            $fill = self::activity_fill((int) ($activity->spots_needed ?? 1), $taken);
             $fills[] = $fill;
             $activities_out[] = array(
                 'id'            => (int) $activity->id,
@@ -394,6 +442,7 @@ class Azure_Volunteer_Signup {
             'event_date'     => (string) ($sheet->event_date ?? ''),
             'event_location' => (string) ($sheet->event_location ?? ''),
             'status'         => (string) ($sheet->status ?? 'open'),
+            'allow_group'    => self::sheet_allows_group($sheet),
             'spots_needed'   => $totals['spots_needed'],
             'spots_filled'   => $totals['spots_filled'],
             'spots_open'     => $totals['spots_open'],
@@ -488,6 +537,38 @@ class Azure_Volunteer_Signup {
             return;
         }
         $wpdb->query("ALTER TABLE {$t} ADD COLUMN reminders_sent varchar(191) DEFAULT ''");
+    }
+
+    /**
+     * Group signups: sheets.allow_group and signups.party_size. Visitors
+     * reach count_signups() before any admin request runs dbDelta, so the
+     * columns are added here; the option skips SHOW COLUMNS once they exist.
+     */
+    public static function ensure_group_columns() {
+        global $wpdb;
+        if (function_exists('get_option') && get_option('azure_volunteer_group_columns') === '1') {
+            return;
+        }
+        $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
+        $signups_t = Azure_Database::get_table_name('volunteer_signups');
+        if (!$sheets_t || !$signups_t || !isset($wpdb) || !method_exists($wpdb, 'get_col')) {
+            return;
+        }
+        $sheet_cols = $wpdb->get_col("SHOW COLUMNS FROM {$sheets_t}", 0);
+        $signup_cols = $wpdb->get_col("SHOW COLUMNS FROM {$signups_t}", 0);
+        if (!is_array($sheet_cols) || !is_array($signup_cols) || !$sheet_cols || !$signup_cols) {
+            return;
+        }
+        $ok = true;
+        if (!in_array('allow_group', $sheet_cols, true)) {
+            $ok = $wpdb->query("ALTER TABLE {$sheets_t} ADD COLUMN allow_group tinyint(1) NOT NULL DEFAULT 0") !== false && $ok;
+        }
+        if (!in_array('party_size', $signup_cols, true)) {
+            $ok = $wpdb->query("ALTER TABLE {$signups_t} ADD COLUMN party_size smallint(5) UNSIGNED NOT NULL DEFAULT 1 AFTER user_id") !== false && $ok;
+        }
+        if ($ok && function_exists('update_option')) {
+            update_option('azure_volunteer_group_columns', '1', true);
+        }
     }
 
     /**
@@ -781,6 +862,7 @@ class Azure_Volunteer_Signup {
             'grade'               => (string) ($template->grade ?? ''),
             'teacher'             => (string) ($template->teacher ?? ''),
             'status'              => ($template->status ?? 'open') === 'closed' ? 'closed' : 'open',
+            'allow_group'         => self::sheet_allows_group($template) ? 1 : 0,
             'is_template'         => 0,
             'template_id'         => $template_id,
             'series_key'          => (string) ($template->series_key ?? ''),
@@ -1001,6 +1083,7 @@ class Azure_Volunteer_Signup {
                 'grade'          => (string) ($source->grade ?? ''),
                 'teacher'        => (string) ($source->teacher ?? ''),
                 'status'         => ($source->status ?? 'open') === 'closed' ? 'closed' : 'open',
+                'allow_group'    => self::sheet_allows_group($source) ? 1 : 0,
             ), array('id' => (int) $row->id));
             self::sync_activities_onto_sheet($source_acts, $row);
             $count++;
@@ -2186,6 +2269,7 @@ class Azure_Volunteer_Signup {
         $activities_t = Azure_Database::get_table_name('volunteer_activities');
         self::ensure_recurring_columns();
         self::ensure_audience_columns();
+        self::ensure_group_columns();
 
         $sheet_id    = absint($_POST['sheet_id'] ?? 0);
         $title       = sanitize_text_field($_POST['title'] ?? '');
@@ -2264,6 +2348,7 @@ class Azure_Volunteer_Signup {
             'grade'          => $grade,
             'teacher'        => $teacher,
             'status'         => $status,
+            'allow_group'    => empty($_POST['allow_group']) ? 0 : 1,
         );
         if ($make_template) {
             $series_key = self::series_key_for_event($event_id);
@@ -2605,31 +2690,64 @@ class Azure_Volunteer_Signup {
 
         $signups_t    = Azure_Database::get_table_name('volunteer_signups');
         $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        $requested_sizes = isset($_POST['party_sizes']) && is_array($_POST['party_sizes'])
+            ? array_map('absint', wp_unslash($_POST['party_sizes']))
+            : array();
         $added = array();
         $added_acts = array();
+        $too_many = '';
 
         foreach ($activity_ids as $aid) {
-            if (self::user_signed_up($aid, $user_id)) {
-                continue;
-            }
             $act = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$activities_t} WHERE id = %d", $aid));
             if (!$act) {
                 continue;
             }
-            $filled = self::count_signups($aid);
-            if ($filled >= (int) $act->spots_needed) {
+            $sheet = self::get_sheet((int) $act->sheet_id);
+            if (!$sheet || in_array((string) ($sheet->status ?? ''), array('closed', 'trashed'), true)) {
                 continue;
             }
-            $wpdb->insert($signups_t, array(
-                'activity_id' => $aid,
-                'user_id'     => $user_id,
+            $allow_group = self::sheet_allows_group($sheet);
+            $existing = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$signups_t} WHERE activity_id = %d AND user_id = %d",
+                $aid,
+                $user_id
             ));
-            $added[] = $act->name;
+            $own = $existing ? self::party_size_of($existing) : 0;
+            if ($existing && (!$allow_group || !isset($requested_sizes[$aid]) || (int) $requested_sizes[$aid] === $own)) {
+                continue;
+            }
+            $room = self::max_party_size((int) $act->spots_needed, self::count_signups($aid), $own);
+            $size = self::resolve_party_size($requested_sizes[$aid] ?? 1, $allow_group, $room);
+            if ($size < 1) {
+                if ($room > 0) {
+                    $too_many = sprintf(
+                        /* translators: 1: activity name, 2: spaces left */
+                        _n('%1$s only has %2$d space left.', '%1$s only has %2$d spaces left.', $room, 'azure-plugin'),
+                        $act->name,
+                        $room
+                    );
+                }
+                continue;
+            }
+            if ($existing) {
+                $saved = $wpdb->update($signups_t, array('party_size' => $size), array('id' => (int) $existing->id));
+            } else {
+                $saved = $wpdb->insert($signups_t, array(
+                    'activity_id' => $aid,
+                    'user_id'     => $user_id,
+                    'party_size'  => $size,
+                ));
+            }
+            if ($saved === false) {
+                continue;
+            }
+            $act->party_size = $size;
+            $added[] = self::signup_label($act->name, $size);
             $added_acts[] = $act;
         }
 
         if (empty($added)) {
-            wp_send_json_error(array('message' => __('Could not sign up — spots may already be full.', 'azure-plugin')));
+            wp_send_json_error(array('message' => $too_many !== '' ? $too_many : __('Could not sign up — spots may already be full.', 'azure-plugin')));
         }
 
         $sheet_id = (int) $added_acts[0]->sheet_id;
@@ -2690,13 +2808,41 @@ class Azure_Volunteer_Signup {
             'volunteer_confirmation',
             $user->display_name,
             $sheet,
-            $activities,
+            self::with_party_in_names($activities),
             $event_title,
             $event_url,
             (int) $user->ID
         );
 
         wp_mail($user->user_email, $subject, $message, array('Content-Type: text/html; charset=UTF-8'));
+    }
+
+    /**
+     * Copies of the activities with "(4 people)" after the name of any
+     * group signup, for confirmation and reminder emails.
+     *
+     * @param object[] $activities Each may carry party_size.
+     * @return object[]
+     */
+    public static function with_party_in_names($activities) {
+        $out = array();
+        foreach ((array) $activities as $act) {
+            if (!is_object($act)) {
+                continue;
+            }
+            $copy = clone $act;
+            $size = self::party_size_of($act);
+            if ($size > 1) {
+                $copy->name = sprintf(
+                    /* translators: 1: activity name, 2: number of people */
+                    __('%1$s (%2$d people)', 'azure-plugin'),
+                    (string) ($act->name ?? ''),
+                    $size
+                );
+            }
+            $out[] = $copy;
+        }
+        return $out;
     }
 
     /**
@@ -2774,11 +2920,13 @@ class Azure_Volunteer_Signup {
                         continue;
                     }
 
+                    $reminded = clone $act;
+                    $reminded->party_size = self::party_size_of($signup);
                     list($subject, $body) = self::compose_volunteer_message(
                         'volunteer_reminder',
                         $user->display_name,
                         $sheet,
-                        array($act),
+                        self::with_party_in_names(array($reminded)),
                         $event_title,
                         $event_url,
                         (int) $user->ID
@@ -2918,12 +3066,21 @@ class Azure_Volunteer_Signup {
                         </tr>
                     </thead>
                     <tbody>
-                    <?php foreach ($activities as $act):
+                    <?php
+                    $allow_group = self::sheet_allows_group($sheet);
+                    foreach ($activities as $act):
                         $filled = self::count_signups($act->id);
                         $total  = (int) $act->spots_needed;
                         $full   = ($filled >= $total);
-                        $signed = $user_id ? self::user_signed_up($act->id, $user_id) : false;
                         $signups = self::get_signups_for_activity($act->id);
+                        $own = 0;
+                        foreach ($signups as $s) {
+                            if ($user_id && (int) $s->user_id === (int) $user_id) {
+                                $own = self::party_size_of($s);
+                            }
+                        }
+                        $signed = $own > 0;
+                        $max_party = self::max_party_size($total, $filled, $own);
                         $time_label = self::slot_time_label($sheet, $act);
                     ?>
                         <tr class="azure-vs-activity <?php echo $full ? 'full' : ''; ?> <?php echo $signed ? 'signed-up' : ''; ?>"
@@ -2943,7 +3100,7 @@ class Azure_Volunteer_Signup {
                                             $name = $vol ? $vol->display_name : __('Unknown', 'azure-plugin');
                                         ?>
                                             <span class="azure-vs-volunteer <?php echo ($user_id && (int) $s->user_id === (int) $user_id) ? 'is-me' : ''; ?>">
-                                                <?php echo esc_html($name); ?>
+                                                <?php echo esc_html(self::signup_label($name, self::party_size_of($s))); ?>
                                                 <?php if ($user_id && (int) $s->user_id === (int) $user_id): ?>
                                                     <button type="button" class="azure-vs-withdraw" data-activity-id="<?php echo esc_attr($act->id); ?>" title="<?php esc_attr_e('Withdraw', 'azure-plugin'); ?>">&times;</button>
                                                 <?php endif; ?>
@@ -2956,10 +3113,27 @@ class Azure_Volunteer_Signup {
                             <td><?php echo esc_html(sprintf(__('%1$d of %2$d filled', 'azure-plugin'), $filled, $total)); ?></td>
                             <td class="azure-vs-act-action">
                                 <?php if ($signed): ?>
-                                    <span class="azure-vs-signed-badge"><?php esc_html_e('Signed up', 'azure-plugin'); ?></span>
+                                    <span class="azure-vs-signed-badge"><?php echo esc_html($own > 1
+                                        ? sprintf(__('Signed up × %d', 'azure-plugin'), $own)
+                                        : __('Signed up', 'azure-plugin')); ?></span>
+                                    <?php if ($allow_group && $max_party > 1): ?>
+                                        <span class="azure-vs-party-wrap">
+                                            <label class="azure-vs-party-label">
+                                                <?php esc_html_e('People', 'azure-plugin'); ?>
+                                                <input type="number" class="azure-vs-party" min="1" max="<?php echo (int) $max_party; ?>" value="<?php echo (int) $own; ?>" inputmode="numeric" />
+                                            </label>
+                                            <button type="button" class="button azure-vs-update-btn"><?php esc_html_e('Update', 'azure-plugin'); ?></button>
+                                        </span>
+                                    <?php endif; ?>
                                 <?php elseif ($full): ?>
                                     <span class="azure-vs-full-badge"><?php esc_html_e('Full', 'azure-plugin'); ?></span>
                                 <?php elseif ($user_id): ?>
+                                    <?php if ($allow_group && $max_party > 1): ?>
+                                        <label class="azure-vs-party-label">
+                                            <?php esc_html_e('People', 'azure-plugin'); ?>
+                                            <input type="number" class="azure-vs-party" min="1" max="<?php echo (int) $max_party; ?>" value="1" inputmode="numeric" />
+                                        </label>
+                                    <?php endif; ?>
                                     <button type="button" class="button azure-vs-signup-btn">
                                         <?php esc_html_e('Sign Up', 'azure-plugin'); ?>
                                     </button>
@@ -3194,11 +3368,11 @@ class Azure_Volunteer_Signup {
             return array();
         }
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT su.id AS signup_id, su.activity_id,
+            "SELECT su.id AS signup_id, su.activity_id, su.party_size,
                     a.name AS activity_name, a.description AS activity_description,
                     a.spots_needed, a.slot_start, a.slot_end, a.sheet_id,
                     sh.title, sh.event_date, sh.event_location, sh.grade, sh.teacher,
-                    sh.pta_event_id, sh.status
+                    sh.pta_event_id, sh.status, sh.allow_group
              FROM {$signups_t} su
              INNER JOIN {$activities_t} a ON a.id = su.activity_id
              INNER JOIN {$sheets_t} sh ON sh.id = a.sheet_id
@@ -3335,6 +3509,7 @@ class Azure_Volunteer_Signup {
             'teacher'        => (string) ($row->teacher ?? ''),
             'pta_event_id'   => (int) ($row->pta_event_id ?? 0),
             'status'         => (string) ($row->status ?? ''),
+            'allow_group'    => (int) ($row->allow_group ?? 0),
         );
         $activity = (object) array(
             'id'           => (int) ($row->activity_id ?? 0),
@@ -3346,9 +3521,10 @@ class Azure_Volunteer_Signup {
             'slot_end'     => (string) ($row->slot_end ?? ''),
         );
         return array(
-            'sheet'     => $sheet,
-            'activity'  => $activity,
-            'signup_id' => (int) ($row->signup_id ?? 0),
+            'sheet'      => $sheet,
+            'activity'   => $activity,
+            'signup_id'  => (int) ($row->signup_id ?? 0),
+            'party_size' => self::party_size_of($row),
         );
     }
 
@@ -3402,6 +3578,10 @@ class Azure_Volunteer_Signup {
                 'confirm_btn' => __('Confirm sign-up', 'azure-plugin'),
                 'cancel' => __('Cancel', 'azure-plugin'),
                 'confirm_withdraw' => __('Withdraw from this activity?', 'azure-plugin'),
+                /* translators: %d: number of people */
+                'party_people' => __('For %d people', 'azure-plugin'),
+                /* translators: %d: spaces left */
+                'party_max' => __('Only %d spaces are left.', 'azure-plugin'),
             ),
         ));
     }
