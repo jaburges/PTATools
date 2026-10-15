@@ -173,7 +173,7 @@ $render_groups = function ($groups) use ($shift_date, $activity_name) {
                     if ($open > 1 && Azure_Volunteer_Signup::sheet_allows_group($sheet)) {
                         echo '<span class="pta-vol-action">'
                             . '<label class="pta-vol-party-pick">' . esc_html__('People', 'azure-plugin')
-                            . ' <input type="number" class="pta-vol-people" data-activity="' . esc_attr((string) $activity->id) . '" min="1" max="' . (int) $open . '" value="1" inputmode="numeric" /></label>'
+                            . ' <input type="number" class="pta-vol-people" data-activity="' . esc_attr((string) $activity->id) . '" min="1" step="1" max="' . (int) $open . '" value="1" inputmode="numeric" /></label>'
                             . $button . '</span>';
                     } else {
                         echo $button;
@@ -285,20 +285,37 @@ $render_groups = function ($groups) use ($shift_date, $activity_name) {
                 : ids.length + ' <?php echo esc_js(__('selected', 'azure-plugin')); ?>';
         }
     }
+    // 0 after an alert when the entry is not a whole number from 1 to max.
     function peopleFor(id) {
         var input = root.querySelector('.pta-vol-people[data-activity="' + id + '"]');
         if (!input) return 1;
-        var size = parseInt(input.value, 10) || 1;
+        var raw = String(input.value).trim();
         var max = parseInt(input.getAttribute('max'), 10) || 1;
-        return Math.max(1, Math.min(size, max));
+        if (!/^\d+$/.test(raw) || parseInt(raw, 10) < 1) {
+            window.alert('<?php echo esc_js(__('Enter a whole number of people, 1 or more.', 'azure-plugin')); ?>');
+            input.focus();
+            return 0;
+        }
+        var size = parseInt(raw, 10);
+        if (size > max) {
+            window.alert('<?php echo esc_js(__('Only %d spaces are left.', 'azure-plugin')); ?>'.replace('%d', max));
+            input.focus();
+            return 0;
+        }
+        return size;
     }
     function signupIds(ids, button) {
         if (!ids.length) return;
+        var sizes = {};
+        for (var i = 0; i < ids.length; i++) {
+            sizes[ids[i]] = peopleFor(ids[i]);
+            if (!sizes[ids[i]]) return;
+        }
         if (button) button.disabled = true;
         var body = 'action=azure_volunteer_signup&nonce=' + encodeURIComponent(nonce);
         ids.forEach(function (id) {
             body += '&activity_ids[]=' + encodeURIComponent(id);
-            body += '&party_sizes[' + encodeURIComponent(id) + ']=' + peopleFor(id);
+            body += '&party_sizes[' + encodeURIComponent(id) + ']=' + sizes[id];
         });
         post(body).then(function (res) {
             if (res && res.success) window.location.reload();

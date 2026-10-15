@@ -242,6 +242,27 @@ class Azure_Volunteer_Signup {
     }
 
     /**
+     * A typed party size: a whole number of at least 1, or 0 when it is
+     * anything else ("abc", "2.5", "-1", "").
+     *
+     * @param mixed $raw
+     * @return int
+     */
+    public static function parse_party_size($raw) {
+        if (is_int($raw)) {
+            return $raw >= 1 ? $raw : 0;
+        }
+        if (!is_scalar($raw)) {
+            return 0;
+        }
+        $raw = trim((string) $raw);
+        if (!preg_match('/^\d{1,5}$/', $raw)) {
+            return 0;
+        }
+        return max(0, (int) $raw);
+    }
+
+    /**
      * @return int People to book, or 0 when the request does not fit.
      */
     public static function resolve_party_size($requested, $allow_group, $room) {
@@ -2727,12 +2748,20 @@ class Azure_Volunteer_Signup {
 
         $signups_t    = Azure_Database::get_table_name('volunteer_signups');
         $activities_t = Azure_Database::get_table_name('volunteer_activities');
-        $requested_sizes = isset($_POST['party_sizes']) && is_array($_POST['party_sizes'])
-            ? array_map('absint', wp_unslash($_POST['party_sizes']))
-            : array();
+        $requested_sizes = array();
+        if (isset($_POST['party_sizes']) && is_array($_POST['party_sizes'])) {
+            foreach (wp_unslash($_POST['party_sizes']) as $aid => $raw) {
+                $size = self::parse_party_size($raw);
+                if ($size < 1) {
+                    wp_send_json_error(array('message' => __('Enter a whole number of people, 1 or more.', 'azure-plugin')));
+                }
+                $requested_sizes[absint($aid)] = $size;
+            }
+        }
         $added = array();
         $added_acts = array();
         $too_many = '';
+        $unchanged = false;
 
         foreach ($activity_ids as $aid) {
             $act = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$activities_t} WHERE id = %d", $aid));
@@ -2751,6 +2780,7 @@ class Azure_Volunteer_Signup {
             ));
             $own = $existing ? self::party_size_of($existing) : 0;
             if ($existing && (!$allow_group || !isset($requested_sizes[$aid]) || (int) $requested_sizes[$aid] === $own)) {
+                $unchanged = true;
                 continue;
             }
             $room = self::max_party_size((int) $act->spots_needed, self::count_signups($aid), $own);
@@ -2784,7 +2814,14 @@ class Azure_Volunteer_Signup {
         }
 
         if (empty($added)) {
-            wp_send_json_error(array('message' => $too_many !== '' ? $too_many : __('Could not sign up — spots may already be full.', 'azure-plugin')));
+            if ($too_many !== '') {
+                $message = $too_many;
+            } elseif ($unchanged) {
+                $message = __('You are already signed up for that number of people.', 'azure-plugin');
+            } else {
+                $message = __('Could not sign up — spots may already be full.', 'azure-plugin');
+            }
+            wp_send_json_error(array('message' => $message));
         }
 
         $sheet_id = (int) $added_acts[0]->sheet_id;
@@ -3157,7 +3194,7 @@ class Azure_Volunteer_Signup {
                                         <span class="azure-vs-party-wrap">
                                             <label class="azure-vs-party-label">
                                                 <?php esc_html_e('People', 'azure-plugin'); ?>
-                                                <input type="number" class="azure-vs-party" min="1" max="<?php echo (int) $max_party; ?>" value="<?php echo (int) $own; ?>" inputmode="numeric" />
+                                                <input type="number" class="azure-vs-party" min="1" step="1" max="<?php echo (int) $max_party; ?>" value="<?php echo (int) $own; ?>" inputmode="numeric" />
                                             </label>
                                             <button type="button" class="button azure-vs-update-btn"><?php esc_html_e('Update', 'azure-plugin'); ?></button>
                                         </span>
@@ -3168,7 +3205,7 @@ class Azure_Volunteer_Signup {
                                     <?php if ($allow_group && $max_party > 1): ?>
                                         <label class="azure-vs-party-label">
                                             <?php esc_html_e('People', 'azure-plugin'); ?>
-                                            <input type="number" class="azure-vs-party" min="1" max="<?php echo (int) $max_party; ?>" value="1" inputmode="numeric" />
+                                            <input type="number" class="azure-vs-party" min="1" step="1" max="<?php echo (int) $max_party; ?>" value="1" inputmode="numeric" />
                                         </label>
                                     <?php endif; ?>
                                     <button type="button" class="button azure-vs-signup-btn">
@@ -3695,6 +3732,9 @@ class Azure_Volunteer_Signup {
                 'party_people' => __('For %d people', 'azure-plugin'),
                 /* translators: %d: spaces left */
                 'party_max' => __('Only %d spaces are left.', 'azure-plugin'),
+                'party_whole' => __('Enter a whole number of people, 1 or more.', 'azure-plugin'),
+                /* translators: %d: number of people already booked */
+                'party_same' => __('You are already signed up for %d. Change the number, then press Update.', 'azure-plugin'),
             ),
         ));
     }
