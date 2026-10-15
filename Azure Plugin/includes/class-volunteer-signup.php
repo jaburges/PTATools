@@ -43,6 +43,7 @@ class Azure_Volunteer_Signup {
         self::register_account_endpoint();
 
         add_action('template_redirect', array($this, 'maybe_serve_calendar'), 0);
+        add_action('template_redirect', array($this, 'maybe_serve_subscribe_page'), 0);
         add_filter('woocommerce_account_menu_items', array(__CLASS__, 'insert_account_menu_item'), 20);
         add_action('woocommerce_account_volunteered_endpoint', array($this, 'render_account_page'));
 
@@ -1700,7 +1701,46 @@ class Azure_Volunteer_Signup {
     }
 
     /**
-     * webcal subscribe link for this person's private shift feed.
+     * @param string $param
+     * @param string $token
+     * @return string
+     */
+    private static function token_url($param, $token) {
+        return function_exists('add_query_arg')
+            ? (string) add_query_arg($param, $token, home_url('/'))
+            : (string) home_url('/?' . $param . '=' . rawurlencode($token));
+    }
+
+    /**
+     * https URL of this person's private shift feed.
+     *
+     * @param int $user_id
+     * @return string
+     */
+    public static function calendar_feed_url($user_id) {
+        $user_id = (int) $user_id;
+        if ($user_id <= 0 || !function_exists('home_url')) {
+            return '';
+        }
+        $token = self::calendar_token_for_user($user_id);
+        if ($token === '') {
+            return '';
+        }
+        return self::token_url('pta_volunteer_ics', $token);
+    }
+
+    /**
+     * @param string $feed_url
+     * @return string
+     */
+    public static function webcal_url($feed_url) {
+        return (string) preg_replace('#^https?://#', 'webcal://', (string) $feed_url);
+    }
+
+    /**
+     * Link for the email Subscribe button: an https page that offers the
+     * private feed to each calendar app. Gmail, Outlook on the web and most
+     * phone mail apps drop a webcal:// href, which leaves a dead button.
      *
      * @param int $user_id
      * @return string
@@ -1714,10 +1754,7 @@ class Azure_Volunteer_Signup {
         if ($token === '') {
             return '';
         }
-        $feed = function_exists('add_query_arg')
-            ? add_query_arg('pta_volunteer_ics', $token, home_url('/'))
-            : home_url('/?pta_volunteer_ics=' . rawurlencode($token));
-        return preg_replace('#^https?://#', 'webcal://', (string) $feed);
+        return self::token_url('pta_volunteer_subscribe', $token);
     }
 
     /**
@@ -3269,12 +3306,8 @@ class Azure_Volunteer_Signup {
         if (!$user_id) {
             return;
         }
-        $token = self::calendar_token_for_user($user_id);
-        $feed_url = function_exists('add_query_arg')
-            ? add_query_arg('pta_volunteer_ics', $token, home_url('/'))
-            : home_url('/?pta_volunteer_ics=' . rawurlencode($token));
-        $webcal_url = preg_replace('#^https://#', 'webcal://', $feed_url);
-        $webcal_url = preg_replace('#^http://#', 'webcal://', $webcal_url);
+        $feed_url = self::calendar_feed_url($user_id);
+        $webcal_url = self::webcal_url($feed_url);
         $signups = self::signups_for_user($user_id);
         $opportunities = self::opportunities_for_user($user_id, $signups);
         $nonce = function_exists('wp_create_nonce') ? wp_create_nonce('azure_volunteer_front') : '';
@@ -3351,6 +3384,86 @@ class Azure_Volunteer_Signup {
         header('Content-Type: text/calendar; charset=utf-8');
         header('Cache-Control: private, max-age=300');
         echo $ics;
+        exit;
+    }
+
+    /**
+     * Calendar app choices for one private feed.
+     *
+     * @param string $feed_url https feed URL
+     * @param string $name     calendar name shown in Outlook
+     * @return array<int,array{label:string,hint:string,url:string}>
+     */
+    public static function subscribe_options($feed_url, $name) {
+        $feed_url = (string) $feed_url;
+        if ($feed_url === '') {
+            return array();
+        }
+        $webcal = self::webcal_url($feed_url);
+        $add_from_web = 'calendar/0/addfromweb?url=' . rawurlencode($feed_url) . '&name=' . rawurlencode((string) $name);
+        return array(
+            array('label' => 'Apple Calendar or Outlook app', 'hint' => 'iPhone, iPad, Mac, Outlook for Windows', 'url' => $webcal),
+            array('label' => 'Google Calendar', 'hint' => 'Gmail and Android', 'url' => 'https://calendar.google.com/calendar/render?cid=' . rawurlencode($webcal)),
+            array('label' => 'Outlook.com', 'hint' => 'Hotmail, Live and Outlook.com accounts', 'url' => 'https://outlook.live.com/' . $add_from_web),
+            array('label' => 'Microsoft 365', 'hint' => 'Work or school Outlook on the web', 'url' => 'https://outlook.office.com/' . $add_from_web),
+        );
+    }
+
+    /**
+     * @param string $feed_url
+     * @param string $site_name
+     * @return string
+     */
+    public static function subscribe_page_html($feed_url, $site_name) {
+        $name = trim((string) $site_name) !== '' ? trim((string) $site_name) . ' volunteering' : 'Volunteering';
+        $e = function ($v) {
+            return self::email_text($v);
+        };
+        $buttons = '';
+        foreach (self::subscribe_options($feed_url, $name) as $opt) {
+            $buttons .= '<a class="opt" href="' . $e($opt['url']) . '"><strong>' . $e($opt['label']) . '</strong><span>' . $e($opt['hint']) . '</span></a>';
+        }
+        return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+            . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            . '<meta name="robots" content="noindex,nofollow">'
+            . '<title>' . $e('Subscribe to your shifts — ' . $name) . '</title>'
+            . '<style>body{margin:0;background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#1d2327}'
+            . '.card{max-width:520px;margin:32px auto;background:#fff;border-radius:8px;padding:28px;box-shadow:0 1px 3px rgba(0,0,0,.05)}'
+            . 'h1{font-size:22px;margin:0 0 8px}p{font-size:15px;line-height:1.5;color:#3c434a;margin:0 0 16px}'
+            . '.opt{display:block;padding:14px 16px;margin:0 0 10px;border:1px solid #dcdcde;border-radius:6px;text-decoration:none;color:#1d2327}'
+            . '.opt:first-of-type{background:#0078d4;border-color:#0078d4;color:#fff}.opt span{display:block;font-size:13px;opacity:.8;margin-top:2px}'
+            . 'input{width:100%;box-sizing:border-box;padding:8px;font-size:13px;border:1px solid #dcdcde;border-radius:4px}</style></head><body>'
+            . '<div class="card"><p style="font-size:13px;color:#646970;margin:0 0 8px">' . $e($site_name) . '</p>'
+            . '<h1>Subscribe to your volunteer shifts</h1>'
+            . '<p>Pick your calendar. It checks this private link and adds or drops shifts when you sign up or cancel.</p>'
+            . $buttons
+            . '<p style="margin-top:20px">Another app? Paste this link where it asks for a calendar URL:</p>'
+            . '<input type="text" readonly value="' . $e($feed_url) . '" onfocus="this.select()">'
+            . '<p style="font-size:13px;color:#646970;margin-top:12px">Keep this link private. Anyone with it can see your shifts.</p>'
+            . '</div></body></html>';
+    }
+
+    public function maybe_serve_subscribe_page() {
+        if (empty($_GET['pta_volunteer_subscribe'])) {
+            return;
+        }
+        $token = function_exists('sanitize_text_field')
+            ? sanitize_text_field(wp_unslash($_GET['pta_volunteer_subscribe']))
+            : (string) $_GET['pta_volunteer_subscribe'];
+        $user_id = self::user_id_for_calendar_token($token);
+        if (function_exists('nocache_headers')) {
+            nocache_headers();
+        }
+        if (!$user_id) {
+            if (function_exists('status_header')) {
+                status_header(404);
+            }
+            exit;
+        }
+        header('Content-Type: text/html; charset=utf-8');
+        header('X-Robots-Tag: noindex, nofollow');
+        header('Referrer-Policy: no-referrer');
+        echo self::subscribe_page_html(self::calendar_feed_url($user_id), self::site_name());
         exit;
     }
 
