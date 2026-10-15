@@ -10,9 +10,8 @@ This rule exists because we recently shipped from two parallel sources without r
 
 ### Allowed deploy paths
 
-1. **GitHub Actions CI** — staging auto-deploys; production is manual:
-   - **Push to `dev` or `main`** (path-filtered) → `deploy-staging.yml` deploys the plugin to the staging slot.
-   - **Push tag `v*-beta*` or `v*-rc*`** → `release-beta.yml` creates a GitHub **pre-release** + staging deploy.
+1. **GitHub Actions CI** — releases only; nothing deploys automatically:
+   - **Push tag `v*-beta*` or `v*-rc*`** → `release-beta.yml` creates a GitHub **pre-release**.
    - **Production GitHub release** → run `release-production.yml` manually only (use `/promote-prod` Cursor skill — see `docs/skills/promote-prod/SKILL.md`). Requires typing `PROMOTE` to confirm. Agents must never run this without explicit user request.
    - **wilderptsa.net production plugin deploy** → after production release, plugin-only `az webapp deploy` to prod (see promote-prod skill).
    - **Slot swap** → `promote-prod.yml` manual only, for full-stack changes (WP upgrade, theme), not routine plugin fixes.
@@ -94,7 +93,7 @@ The May 2026 incident's full artifacts are in `salvage/v3.95.1-2026-05-22/` and 
 
 ## Quick references
 
-- Deploy workflows: `.github/workflows/deploy-staging.yml`, `promote-prod.yml`, `release-beta.yml`, `release-production.yml`
+- Deploy workflows: `.github/workflows/promote-prod.yml`, `release-beta.yml`, `release-production.yml`
 - Resource Group: `PTSAWebsite` in Azure subscription `97f6936d-7300-4a49-a2ad-cbfee3b28e00` (Microsoft Grant)
 - Active plugin folder: `/home/site/wwwroot/wp-content/plugins/Azure Plugin` (NOTE the space; it is NOT `azure-plugin` lowercase — there's a separate folder by that name on prod that WordPress doesn't load)
 - Plugin slug in `active_plugins`: `Azure Plugin/azure-plugin.php`

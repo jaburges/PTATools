@@ -20,10 +20,9 @@ name: Promote staging to production
 # If you re-enable this, add the federated credential first or it'll
 # fail at the `azure/login` step.
 #
-# Manual-only. Pushes to main deploy to staging via deploy-staging.yml but do
-# NOT auto-promote here. Production is updated via Kudu zip deploy after
-# validating on staging (default), or by re-enabling this workflow for the
-# full-stack edge cases noted above.
+# Manual-only. Nothing deploys to staging automatically any more. Production
+# is updated via Kudu zip deploy (default), or by re-enabling this workflow
+# for the full-stack edge cases noted above.
 
 on:
   workflow_dispatch:

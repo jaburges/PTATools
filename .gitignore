@@ -7,7 +7,7 @@ wiki-temp/
 .DS_Store
 **/.DS_Store
 
-# Build artifacts (produced by deploy-staging.yml and manual Kudu pushes)
+# Build artifacts (produced by manual Kudu pushes)
 /build/
 /azure-plugin.zip
 /azure-plugin-flat.zip

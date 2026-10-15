@@ -96,7 +96,7 @@ az webapp deploy \
 
 ## Beta releases (reminder)
 
-- Tag `v*-beta*` or `v*-rc*` → `release-beta.yml` → GitHub **pre-release** → `deploy-staging.yml` deploys to staging.
+- Tag `v*-beta*` or `v*-rc*` → `release-beta.yml` → GitHub **pre-release**. Nothing deploys to staging.
 - Auto-updater skips pre-releases and `-beta`/`-rc` semver tags.
 
 ## Optional — refresh staging DB from prod
