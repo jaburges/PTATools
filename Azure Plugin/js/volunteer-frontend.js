@@ -22,23 +22,31 @@
         $('#azure-vs-confirm-modal').remove();
     }
 
+    function rowMessage($row, text, type) {
+        showMessage($row.closest('.azure-volunteer-sheet').find('.azure-vs-message'), text, type);
+    }
+
     /**
      * People requested on a group sheet row; 1 when the row has no picker.
-     * Returns 0 when the number is above what is left.
+     * Returns 0, after telling the person why, when the entry is not a whole
+     * number of at least 1 or is above what is left.
      */
     function partySize($row) {
         var $input = $row.find('.azure-vs-party');
         if (!$input.length) {
             return 1;
         }
-        var size = parseInt($input.val(), 10);
-        var max = parseInt($input.attr('max'), 10);
-        if (!size || size < 1) {
-            size = 1;
+        var raw = $.trim(String($input.val()));
+        if (!/^\d+$/.test(raw) || parseInt(raw, 10) < 1) {
+            rowMessage($row, i18n.party_whole || 'Enter a whole number of people, 1 or more.', 'error');
+            $input.trigger('focus');
+            return 0;
         }
+        var size = parseInt(raw, 10);
+        var max = parseInt($input.attr('max'), 10);
         if (max && size > max) {
-            showMessage($row.closest('.azure-volunteer-sheet').find('.azure-vs-message'),
-                (i18n.party_max || 'Only %d spaces are left.').replace('%d', max), 'error');
+            rowMessage($row, (i18n.party_max || 'Only %d spaces are left.').replace('%d', max), 'error');
+            $input.trigger('focus');
             return 0;
         }
         return size;
@@ -117,10 +125,15 @@
         e.preventDefault();
         var $row = $(this).closest('tr');
         var size = partySize($row);
-        var current = parseInt($row.find('.azure-vs-party').attr('value'), 10) || 1;
-        if (size && size !== current) {
-            signup($row.data('activity-id'), $row.closest('.azure-volunteer-sheet'), size);
+        if (!size) {
+            return;
         }
+        var current = parseInt($row.find('.azure-vs-party').attr('value'), 10) || 1;
+        if (size === current) {
+            rowMessage($row, (i18n.party_same || 'You are already signed up for %d. Change the number, then press Update.').replace('%d', current), 'error');
+            return;
+        }
+        signup($row.data('activity-id'), $row.closest('.azure-volunteer-sheet'), size);
     });
 
     $(document).on('click', '.azure-vs-confirm-no, #azure-vs-confirm-modal', function(e) {

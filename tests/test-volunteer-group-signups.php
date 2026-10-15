@@ -48,6 +48,20 @@ $t->equals(1, $vs::resolve_party_size(0, true, 7), 'a zero request becomes 1');
 $t->equals(0, $vs::resolve_party_size(1, true, 0), 'nothing fits in a full role');
 $t->equals(0, $vs::resolve_party_size(1, false, 0), 'a single signup does not fit in a full role either');
 
+// Typed party sizes: whole numbers only, never silently changed
+$t->equals(4, $vs::parse_party_size('4'), 'a typed 4 is 4');
+$t->equals(4, $vs::parse_party_size(' 4 '), 'surrounding spaces are ignored');
+$t->equals(3, $vs::parse_party_size(3), 'an integer passes through');
+$t->equals(0, $vs::parse_party_size('abc'), 'text is refused, not turned into 1');
+$t->equals(0, $vs::parse_party_size(''), 'an empty entry is refused');
+$t->equals(0, $vs::parse_party_size('2.5'), 'a decimal is refused, not truncated to 2');
+$t->equals(0, $vs::parse_party_size('2.0'), 'a decimal point is refused even when whole');
+$t->equals(0, $vs::parse_party_size('1e2'), 'exponent notation is refused');
+$t->equals(0, $vs::parse_party_size('-3'), 'a negative number is refused');
+$t->equals(0, $vs::parse_party_size('0'), 'zero is refused');
+$t->equals(0, $vs::parse_party_size(0), 'integer zero is refused');
+$t->equals(0, $vs::parse_party_size(array(2)), 'an array is refused');
+
 // Emails
 $acts = $vs::with_party_in_names(array(
     (object) array('id' => 1, 'name' => 'Setup', 'party_size' => 4),
@@ -68,6 +82,11 @@ $src = file_get_contents(AZURE_PLUGIN_PATH . 'includes/class-volunteer-signup.ph
 $t->check(strpos($src, 'SUM(GREATEST(party_size, 1))') !== false, 'spaces filled sums party sizes');
 $t->check(strpos($src, "'allow_group'    => empty(\$_POST['allow_group']) ? 0 : 1") !== false, 'saving a sheet stores the checkbox');
 $t->check(strpos($src, "\$_POST['party_sizes']") !== false, 'signup reads the requested party sizes');
+$t->check(strpos($src, "array_map('absint', wp_unslash(\$_POST['party_sizes']))") === false, 'party sizes are not coerced with absint');
+$t->check(strpos($src, '$size = self::parse_party_size($raw);') !== false, 'signup validates each typed party size');
+$t->check(strpos($src, 'You are already signed up for that number of people.') !== false, 'an unchanged resize says so instead of "spots may be full"');
+$t->check(strpos($src, "'party_whole' =>") !== false && strpos($src, "'party_same' =>") !== false, 'the sheet script gets the new messages');
+$t->check(substr_count($src, 'class="azure-vs-party" min="1" step="1"') === 2, 'sheet pickers only step in whole numbers');
 
 $admin = file_get_contents(AZURE_PLUGIN_PATH . 'admin/volunteer-page.php');
 $t->check(strpos($admin, 'Enable Group Signups') !== false, 'the sheet editor has the Enable Group Signups checkbox');
@@ -77,9 +96,14 @@ $t->check(strpos($admin, "parseInt(s.allow_group, 10) === 1") !== false, 'editin
 $account = file_get_contents(AZURE_PLUGIN_PATH . 'templates/my-account-volunteered.php');
 $t->check(strpos($account, 'signup_label($my_name, $party)') !== false, 'the signups page shows Name × N');
 $t->check(strpos($account, "party_sizes[") !== false, 'account signups send party sizes');
+$t->check(strpos($account, 'Math.min(size, max)') === false, 'the account picker does not silently clamp to the spaces left');
+$t->check(strpos($account, 'if (!sizes[ids[i]]) return;') !== false, 'an invalid account entry stops the signup');
+$t->check(strpos($account, 'class="pta-vol-people"') !== false && strpos($account, 'min="1" step="1"') !== false, 'the account picker only steps in whole numbers');
 
 $js = file_get_contents(AZURE_PLUGIN_PATH . 'js/volunteer-frontend.js');
 $t->check(strpos($js, "'party_sizes[' + activityId + ']'") !== false, 'sheet signups send the party size');
 $t->check(strpos($js, '.azure-vs-update-btn') !== false, 'signed-up groups can change their size');
+$t->check(strpos($js, '/^\d+$/.test(raw)') !== false, 'the sheet script only accepts whole numbers');
+$t->check(strpos($js, 'i18n.party_same') !== false, 'an unchanged Update tells the person');
 
 exit($t->finish());
