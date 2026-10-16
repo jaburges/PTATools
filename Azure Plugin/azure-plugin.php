@@ -1348,6 +1348,7 @@ class AzurePlugin {
                 'class-pta-shortcode.php',
                 'class-local-avatars.php',
                 'class-ptsa-page-templates.php',
+                'class-pta-video-gallery.php',
             ));
 
             if (class_exists('Azure_PTA_Database')) {
@@ -1364,6 +1365,9 @@ class AzurePlugin {
             }
             if (class_exists('Azure_PTSA_Page_Templates')) {
                 Azure_PTSA_Page_Templates::init();
+            }
+            if (class_exists('Azure_PTA_Video_Gallery')) {
+                Azure_PTA_Video_Gallery::get_instance();
             }
 
             // Admin/cron only
