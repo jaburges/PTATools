@@ -1,0 +1,37 @@
+.pta-event-rsvp {
+    margin: 0 0 24px;
+}
+
+.pta-event-rsvp .pta-rsvp-summary {
+    margin: 0 0 8px;
+    color: #50575e;
+    font-size: 14px;
+}
+
+.pta-event-rsvp .pta-rsvp-status {
+    margin: 0 0 12px;
+    font-weight: 600;
+}
+
+.pta-event-rsvp .pta-rsvp-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.pta-event-rsvp .pta-rsvp-guests select {
+    margin-left: 6px;
+    min-width: 64px;
+}
+
+.pta-event-rsvp .pta-rsvp-message {
+    margin: 10px 0 0;
+    min-height: 1.4em;
+    font-size: 14px;
+    color: #00a32a;
+}
+
+.pta-event-rsvp .pta-rsvp-message.is-error {
+    color: #b32d2e;
+}

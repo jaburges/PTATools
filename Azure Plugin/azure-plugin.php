@@ -1051,6 +1051,11 @@ class AzurePlugin {
                 $this->init_volunteer_components($ctx);
             }
 
+            if (!empty($settings['enable_rsvp'])) {
+                PTA_Trace::module('rsvp');
+                $this->init_rsvp_components($ctx);
+            }
+
             if (!empty($settings['enable_forms'])) {
                 PTA_Trace::module('forms');
                 $this->init_forms_components($ctx);
@@ -1849,6 +1854,22 @@ class AzurePlugin {
         } catch (\Throwable $e) {
             Azure_Logger::error('Volunteer init failed: ' . $e->getMessage(), array('module' => 'Volunteer', 'file' => $e->getFile(), 'line' => $e->getLine()));
             error_log('Azure Plugin: Volunteer init error - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * RSVP (Scheduling & Events): event editor box, event-page button,
+     * admin list. Feeds the Volunteer module's per-person calendar link.
+     */
+    private function init_rsvp_components($ctx) {
+        try {
+            $this->require_module_files(array('class-volunteer-signup.php', 'class-event-rsvp.php'));
+            if (class_exists('Azure_Event_Rsvp')) {
+                Azure_Event_Rsvp::get_instance();
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('RSVP init failed: ' . $e->getMessage(), array('module' => 'RSVP', 'file' => $e->getFile(), 'line' => $e->getLine()));
+            error_log('Azure Plugin: RSVP init error - ' . $e->getMessage());
         }
     }
     

@@ -167,6 +167,14 @@ class Azure_Admin {
         );
         add_submenu_page(
             'azure-plugin',
+            'PTA Tools - RSVP',
+            __('RSVP', 'azure-plugin'),
+            $pta_cap,
+            'azure-plugin-rsvp',
+            array($this, 'admin_page_rsvp')
+        );
+        add_submenu_page(
+            'azure-plugin',
             'PTA Tools - Tickets',
             __('Tickets', 'azure-plugin'),
             $pta_cap,
@@ -375,6 +383,14 @@ class Azure_Admin {
             include AZURE_PLUGIN_PATH . 'admin/volunteer-page.php';
         } catch (Exception $e) {
             $this->render_error_page('Volunteer Sign up', $e);
+        }
+    }
+
+    public function admin_page_rsvp() {
+        try {
+            include AZURE_PLUGIN_PATH . 'admin/rsvp-page.php';
+        } catch (Exception $e) {
+            $this->render_error_page('RSVP', $e);
         }
     }
 
@@ -1274,7 +1290,7 @@ class Azure_Admin {
         $enabled = $_POST['enabled'] === 'true';
         
         // Validate module name
-        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'tec_integration', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer', 'forms', 'home_screen', 'no_comments', 'block_registration', 'anti_spam_filter');
+        $valid_modules = array('sso', 'backup', 'calendar', 'email', 'pta', 'tec_integration', 'onedrive_media', 'classes', 'newsletter', 'tickets', 'auction', 'product_fields', 'donations', 'volunteer', 'rsvp', 'forms', 'home_screen', 'no_comments', 'block_registration', 'anti_spam_filter');
         if (!in_array($module, $valid_modules)) {
             wp_send_json_error('Invalid module name: ' . $module);
         }

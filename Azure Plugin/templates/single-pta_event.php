@@ -237,6 +237,14 @@ while (have_posts()) :
         <?php endif; ?>
 
         <?php
+        if (class_exists('Azure_Event_Rsvp')) {
+            $rsvp_html = Azure_Event_Rsvp::render_for_event($post_id);
+            if ($rsvp_html !== '') {
+                echo '<hr class="pta-event-rule" />';
+                echo $rsvp_html; // built with escaped output
+            }
+        }
+
         if (class_exists('Azure_Volunteer_Signup')) {
             $volunteer_html = Azure_Volunteer_Signup::render_for_event($post_id);
             if ($volunteer_html !== '') {

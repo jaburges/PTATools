@@ -81,7 +81,7 @@ if (!defined('ABSPATH')) {
                         </div>
                     </div>
                     <div class="module-description">
-                        <p>Calendar embed, native PTA event calendar (pta_event), upcoming events, and volunteer sign-ups.</p>
+                        <p>Calendar embed, native PTA event calendar (pta_event), upcoming events, volunteer sign-ups, and event RSVPs.</p>
                         <div class="sub-modules">
                             <label class="sub-module-item">
                                 <label class="switch-mini">
@@ -89,6 +89,13 @@ if (!defined('ABSPATH')) {
                                     <span class="slider"></span>
                                 </label>
                                 Volunteer Sign Up
+                            </label>
+                            <label class="sub-module-item">
+                                <label class="switch-mini">
+                                    <input type="checkbox" class="module-toggle" data-module="rsvp" <?php checked($settings['enable_rsvp'] ?? false); ?> />
+                                    <span class="slider"></span>
+                                </label>
+                                RSVP
                             </label>
                         </div>
                     </div>
@@ -375,6 +382,7 @@ if (!defined('ABSPATH')) {
                 <input type="hidden" name="enable_auction" id="hidden_enable_auction" value="<?php echo ($settings['enable_auction'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_product_fields" id="hidden_enable_product_fields" value="<?php echo ($settings['enable_product_fields'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_volunteer" id="hidden_enable_volunteer" value="<?php echo ($settings['enable_volunteer'] ?? false) ? '1' : '0'; ?>" />
+                <input type="hidden" name="enable_rsvp" id="hidden_enable_rsvp" value="<?php echo ($settings['enable_rsvp'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_donations" id="hidden_enable_donations" value="<?php echo ($settings['enable_donations'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_forms" id="hidden_enable_forms" value="<?php echo ($settings['enable_forms'] ?? false) ? '1' : '0'; ?>" />
                 

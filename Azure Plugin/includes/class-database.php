@@ -496,6 +496,8 @@ class Azure_Database {
             KEY reminder_sent (reminder_sent)
         ) $charset_collate;";
 
+        $sql_event_rsvps = self::event_rsvps_table_sql();
+
         // Donation Records table
         $table_donation_records = $wpdb->prefix . 'azure_donation_records';
         $sql_donation_records = "CREATE TABLE $table_donation_records (
@@ -632,6 +634,7 @@ class Azure_Database {
         dbDelta($sql_volunteer_sheets);
         dbDelta($sql_volunteer_activities);
         dbDelta($sql_volunteer_signups);
+        dbDelta($sql_event_rsvps);
         dbDelta($sql_donation_campaigns);
         dbDelta($sql_donation_records);
         dbDelta($sql_order_rules);
@@ -1343,6 +1346,33 @@ class Azure_Database {
         update_option('azure_pf_field_key_backfill_done', 'yes', false);
     }
 
+    /**
+     * RSVPs on pta_event posts. One row per event and person; a cancelled
+     * RSVP keeps its row (status = cancelled) and is reused if they RSVP again.
+     * Timestamps are site time.
+     */
+    public static function event_rsvps_table_sql() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'azure_event_rsvps';
+        $charset_collate = $wpdb->get_charset_collate();
+        return "CREATE TABLE $table (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            event_id bigint(20) UNSIGNED NOT NULL,
+            user_id bigint(20) UNSIGNED NOT NULL,
+            guests smallint(5) UNSIGNED NOT NULL DEFAULT 0,
+            status varchar(20) NOT NULL DEFAULT 'going',
+            user_name varchar(250) NOT NULL DEFAULT '',
+            user_email varchar(190) NOT NULL DEFAULT '',
+            created_at datetime DEFAULT NULL,
+            updated_at datetime DEFAULT NULL,
+            cancelled_at datetime DEFAULT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY event_user (event_id, user_id),
+            KEY event_status (event_id, status),
+            KEY user_status (user_id, status)
+        ) $charset_collate;";
+    }
+
     public static function get_table_name($table) {
         global $wpdb;
         
@@ -1379,6 +1409,7 @@ class Azure_Database {
             'volunteer_sheets' => $wpdb->prefix . 'azure_volunteer_sheets',
             'volunteer_activities' => $wpdb->prefix . 'azure_volunteer_activities',
             'volunteer_signups' => $wpdb->prefix . 'azure_volunteer_signups',
+            'event_rsvps' => $wpdb->prefix . 'azure_event_rsvps',
             'donation_campaigns' => $wpdb->prefix . 'azure_donation_campaigns',
             'donation_records' => $wpdb->prefix . 'azure_donation_records',
             'order_rules' => $wpdb->prefix . 'azure_order_rules',

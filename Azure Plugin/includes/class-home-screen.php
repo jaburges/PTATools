@@ -57,12 +57,12 @@ class Azure_Home_Screen {
      * @param string $module
      * @param string $blurb
      */
-    public static function render_module_switch($module, $blurb) {
+    public static function render_module_switch($module, $blurb, $label = '') {
         if (!class_exists('Azure_Settings')) {
             return;
         }
         $enabled = Azure_Settings::is_module_enabled($module);
-        $name = ucwords(str_replace('_', ' ', $module));
+        $name = $label !== '' ? $label : ucwords(str_replace('_', ' ', $module));
         ?>
         <div class="module-toggle-card pta-module-switch" style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin:12px 0 16px;padding:14px 16px;background:#fff;border:1px solid #c3c4c7;">
             <div class="module-info">
