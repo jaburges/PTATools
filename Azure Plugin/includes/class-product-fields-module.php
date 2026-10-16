@@ -555,13 +555,9 @@ class Azure_Product_Fields_Module {
         if ($product_id < 1 || get_post_type($product_id) !== 'product') {
             return $hide;
         }
-        $type = class_exists('Azure_Membership_Module')
-            ? Azure_Membership_Module::classify_membership_product($product_id)
-            : '';
         return Azure_Express_Checkout::hide_stripe_product_page_wallet(
             (bool) $hide,
-            self::product_has_required_fields($product_id),
-            $type
+            self::product_has_required_fields($product_id)
         );
     }
 
@@ -569,7 +565,7 @@ class Azure_Product_Fields_Module {
         if (!self::current_product_has_required_fields()) {
             return;
         }
-        echo '<p class="azure-pf-express-pay-note" style="margin-top:0.75em;font-size:0.92em;">'
+        echo '<p class="azure-pf-express-pay-note" style="clear:both;margin-top:0.75em;padding-top:0.75em;font-size:0.92em;">'
             . esc_html__('Apple Pay, Google Pay, and Amazon Pay are on the cart after you add this item. We need the name fields first.', 'azure-plugin')
             . '</p>';
     }

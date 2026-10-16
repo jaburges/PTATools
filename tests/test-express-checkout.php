@@ -18,11 +18,19 @@ $t = new TestRunner('Express checkout wallets');
 $t->equals(true, Azure_Express_Checkout::hide_product_page_wallets(true), 'required fields hide product-page Apple/Google/Amazon Pay');
 $t->equals(false, Azure_Express_Checkout::hide_product_page_wallets(false), 'products without required fields keep product-page wallets');
 
-$t->equals(true, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, true, 'staff'), 'Stripe 10.9 hook hides wallets on the Staff Membership page');
-$t->equals(false, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, false, 'staff'), 'staff product without required fields keeps wallets');
-$t->equals(false, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, true, 'family'), 'family not in the staged rollout yet');
-$t->equals(false, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, true, ''), 'non-membership products not in the staged rollout yet');
-$t->equals(true, Azure_Express_Checkout::hide_stripe_product_page_wallet(true, false, ''), 'an existing hide decision from Stripe settings is kept');
+$t->equals(true, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, true), 'Stripe 10.9 hook hides wallets on any product with required fields (Art Club, memberships)');
+$t->equals(false, Azure_Express_Checkout::hide_stripe_product_page_wallet(false, false), 'products without required fields keep product-page wallets');
+$t->equals(true, Azure_Express_Checkout::hide_stripe_product_page_wallet(true, false), 'an existing hide decision from Stripe settings is kept');
+
+$fields_src = file_get_contents(AZURE_PLUGIN_PATH . 'includes/class-product-fields-module.php');
+$t->check(
+    strpos($fields_src, "add_filter('wc_stripe_hide_payment_request_on_product_page', array(\$this, 'hide_stripe_product_page_wallet'), 20, 2)") !== false,
+    'the product fields module answers the Stripe 10.9 product-page hook'
+);
+$t->check(
+    strpos($fields_src, 'class="azure-pf-express-pay-note" style="clear:both;') !== false,
+    'the wallets note clears the floated quantity and Add to cart button'
+);
 
 $t->equals(true, Azure_Express_Checkout::keep_zero_fulfillment_for_types(array('staff')), 'staff membership keeps Free shipping for any wallet address');
 $t->equals(true, Azure_Express_Checkout::keep_zero_fulfillment_for_types(array('family')), 'family membership keeps Free shipping');
