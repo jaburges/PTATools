@@ -2,6 +2,25 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.175 — Product fields are always collected before add-to-cart
+
+### Fixed
+
+- **"Add to cart" in grids and blocks for products with product fields.** Previously these buttons added the item in the background, so the fields were never shown and the add was refused. This hit the yearbook in the *Recommended products* block on the order page. These buttons now say **Select options** and open the product page. This covers:
+  - Product Collection and All Products blocks
+  - legacy product grid blocks
+  - `[products]` shortcodes
+  - related products and shop archives
+  - the Store API.
+
+  Products without fields still add from the grid as before.
+- **Refused adds go to the product page.** If an add-to-cart is ever refused because the fields are missing, for example an old `?add-to-cart=` link, the shopper goes to the product page with "“…” needs a few details first. Fill them in below, then add it to your cart." The notice now survives that redirect for guests with an empty cart. A Store API add gets the same message, pointing at the product page.
+
+### Changed
+
+- **Field groups can be assigned to product tags** as well as categories (Selling → Product Fields). A product shows a group's fields when any of its categories or tags is ticked.
+- **Express checkout is unchanged:** Apple Pay, Google Pay and Amazon Pay stay hidden on product pages for products with required fields, now including products mapped by tag. They appear on the cart and checkout.
+
 ## 3.147.174 — Event RSVPs
 
 ### Before you upgrade
