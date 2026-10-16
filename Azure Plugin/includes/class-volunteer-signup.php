@@ -1964,6 +1964,22 @@ class Azure_Volunteer_Signup {
     }
 
     /**
+     * Everything behind one person's private feed link: their shifts plus,
+     * when the RSVP module is on, the events they RSVP'd to.
+     *
+     * @param int         $user_id
+     * @param object|null $user
+     * @return string
+     */
+    public static function feed_ics_for_user($user_id, $user = null) {
+        $events = self::shift_vevents(self::signups_for_user($user_id), $user);
+        if (class_exists('Azure_Event_Rsvp')) {
+            $events = array_merge($events, Azure_Event_Rsvp::feed_vevents_for_user((int) $user_id));
+        }
+        return self::wrap_calendar($events, 'Volunteering');
+    }
+
+    /**
      * Personal feed of the shifts this person is still signed up for.
      *
      * @param array<int,array{sheet:object,activity:object}> $rows
@@ -1971,6 +1987,15 @@ class Azure_Volunteer_Signup {
      * @return string
      */
     public static function build_feed_ics(array $rows, $user = null) {
+        return self::wrap_calendar(self::shift_vevents($rows, $user), 'Volunteering');
+    }
+
+    /**
+     * @param array<int,array{sheet:object,activity:object}> $rows
+     * @param object|null $user
+     * @return string[] VEVENT blocks for shifts that have not ended.
+     */
+    public static function shift_vevents(array $rows, $user = null) {
         $events = array();
         foreach ($rows as $row) {
             $sheet = isset($row['sheet']) ? $row['sheet'] : null;
@@ -1986,7 +2011,7 @@ class Azure_Volunteer_Signup {
                 $events[] = $event;
             }
         }
-        return self::wrap_calendar($events, 'Volunteering');
+        return $events;
     }
 
     /**
@@ -3399,7 +3424,11 @@ class Azure_Volunteer_Signup {
         return (int) (is_object($first) ? $first->ID : $first);
     }
 
-    public function maybe_serve_calendar() {
+    /**
+     * Static so the RSVP module can serve the same feed when the
+     * Volunteer module is off.
+     */
+    public static function maybe_serve_calendar() {
         if (empty($_GET['pta_volunteer_ics'])) {
             return;
         }
@@ -3414,7 +3443,7 @@ class Azure_Volunteer_Signup {
             exit;
         }
         $user = function_exists('get_userdata') ? get_userdata($user_id) : (object) array('ID' => $user_id);
-        $ics = self::build_feed_ics(self::signups_for_user($user_id), $user);
+        $ics = self::feed_ics_for_user($user_id, $user);
         if (function_exists('nocache_headers')) {
             nocache_headers();
         }
@@ -3456,6 +3485,11 @@ class Azure_Volunteer_Signup {
         $e = function ($v) {
             return self::email_text($v);
         };
+        $with_rsvp = class_exists('Azure_Event_Rsvp');
+        $heading = $with_rsvp ? 'Subscribe to your volunteer shifts and RSVPs' : 'Subscribe to your volunteer shifts';
+        $blurb = $with_rsvp
+            ? 'Pick your calendar. It checks this private link and adds or drops shifts and events when you sign up, RSVP or cancel.'
+            : 'Pick your calendar. It checks this private link and adds or drops shifts when you sign up or cancel.';
         $buttons = '';
         foreach (self::subscribe_options($feed_url, $name) as $opt) {
             $buttons .= '<a class="opt" href="' . $e($opt['url']) . '"><strong>' . $e($opt['label']) . '</strong><span>' . $e($opt['hint']) . '</span></a>';
@@ -3471,16 +3505,16 @@ class Azure_Volunteer_Signup {
             . '.opt:first-of-type{background:#0078d4;border-color:#0078d4;color:#fff}.opt span{display:block;font-size:13px;opacity:.8;margin-top:2px}'
             . 'input{width:100%;box-sizing:border-box;padding:8px;font-size:13px;border:1px solid #dcdcde;border-radius:4px}</style></head><body>'
             . '<div class="card"><p style="font-size:13px;color:#646970;margin:0 0 8px">' . $e($site_name) . '</p>'
-            . '<h1>Subscribe to your volunteer shifts</h1>'
-            . '<p>Pick your calendar. It checks this private link and adds or drops shifts when you sign up or cancel.</p>'
+            . '<h1>' . $e($heading) . '</h1>'
+            . '<p>' . $e($blurb) . '</p>'
             . $buttons
             . '<p style="margin-top:20px">Another app? Paste this link where it asks for a calendar URL:</p>'
             . '<input type="text" readonly value="' . $e($feed_url) . '" onfocus="this.select()">'
-            . '<p style="font-size:13px;color:#646970;margin-top:12px">Keep this link private. Anyone with it can see your shifts.</p>'
+            . '<p style="font-size:13px;color:#646970;margin-top:12px">Keep this link private. Anyone with it can see your ' . ($with_rsvp ? 'shifts and RSVPs' : 'shifts') . '.</p>'
             . '</div></body></html>';
     }
 
-    public function maybe_serve_subscribe_page() {
+    public static function maybe_serve_subscribe_page() {
         if (empty($_GET['pta_volunteer_subscribe'])) {
             return;
         }
