@@ -347,14 +347,21 @@ class Azure_Email_Router {
                 );
             }
 
-            if (!$ok) {
+            // A queued send returns true but was not delivered: log it as a
+            // failure with the provider's error. The return value below
+            // stays true so the retry queue, not a fallback, handles it.
+            $queued = $ok && !empty($mailer->last_send_queued);
+            if (!$ok || $queued) {
                 $err = self::extract_recent_email_error($log_mark_before);
                 if ($err === '') {
                     $err = 'send_email_' . $provider . ' returned false (no error captured)';
                 }
+                if ($queued) {
+                    $err .= ' (queued for retry)';
+                }
             }
 
-            self::log_routed($atts, $match, $ok ? 'sent' : 'failed', $err);
+            self::log_routed($atts, $match, $ok && !$queued ? 'sent' : 'failed', $err);
 
             // Decision on failure:
             //  - strict mode: return true (short-circuit; no fallback,

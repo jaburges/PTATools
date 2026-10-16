@@ -11,6 +11,13 @@ class Azure_Email_Mailer {
     
     private $settings;
     private $auth;
+
+    /**
+     * True when the last send_email_* call could not deliver and put the
+     * message in the retry queue instead. Those calls still return true,
+     * so callers that log outcomes must check this.
+     */
+    public $last_send_queued = false;
     
     public function __construct() {
         $this->settings = Azure_Settings::get_all_settings();
@@ -66,6 +73,7 @@ class Azure_Email_Mailer {
      * @return bool
      */
     public function send_email_graph($to, $subject, $message, $headers = array(), $attachments = array(), $user_email = null) {
+        $this->last_send_queued = false;
         Azure_Logger::info('Email: Starting Graph API email send');
 
         if (!$this->auth) {
@@ -158,6 +166,7 @@ class Azure_Email_Mailer {
      * Send email via HVE (High Volume Email)
      */
     public function send_email_hve($to, $subject, $message, $headers = array(), $attachments = array()) {
+        $this->last_send_queued = false;
         Azure_Logger::info('Email: Starting HVE SMTP email send');
         
         $smtp_config = array(
@@ -212,6 +221,7 @@ class Azure_Email_Mailer {
      * @return bool
      */
     public function send_email_acs($to, $subject, $message, $headers = array(), $attachments = array(), $from_email_override = null) {
+        $this->last_send_queued = false;
         Azure_Logger::info('Email: Starting ACS email send');
 
         $acs_config = array(
@@ -513,6 +523,7 @@ class Azure_Email_Mailer {
         
         if ($result) {
             Azure_Logger::info('Email: Queued email for later processing');
+            $this->last_send_queued = true;
             return true;
         } else {
             Azure_Logger::error('Email: Failed to queue email');
