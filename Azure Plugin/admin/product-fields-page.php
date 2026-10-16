@@ -37,6 +37,14 @@ $product_categories = get_terms(array(
 if (is_wp_error($product_categories)) {
     $product_categories = array();
 }
+$product_tags = get_terms(array(
+    'taxonomy'   => 'product_tag',
+    'hide_empty' => false,
+    'orderby'    => 'name',
+));
+if (is_wp_error($product_tags)) {
+    $product_tags = array();
+}
 ?>
 
 <?php if (empty($GLOBALS['azure_tab_mode'])): ?>
@@ -92,12 +100,14 @@ if (is_wp_error($product_categories)) {
                                             <?php
                                             $cat_names = array();
                                             foreach ($g->categories as $tid) {
-                                                $term = get_term($tid, 'product_cat');
+                                                $term = get_term((int) $tid);
                                                 if ($term && !is_wp_error($term)) {
-                                                    $cat_names[] = $term->name;
+                                                    $cat_names[] = $term->taxonomy === 'product_tag'
+                                                        ? sprintf(__('%s (tag)', 'azure-plugin'), $term->name)
+                                                        : $term->name;
                                                 }
                                             }
-                                            echo $cat_names ? esc_html(implode(', ', $cat_names)) : '<em>No categories</em>';
+                                            echo $cat_names ? esc_html(implode(', ', $cat_names)) : '<em>No categories or tags</em>';
                                             ?>
                                         </div>
                                     </td>
@@ -139,9 +149,10 @@ if (is_wp_error($product_categories)) {
                                     <td><textarea id="azure-pf-group-desc" name="description" class="large-text" rows="2"></textarea></td>
                                 </tr>
                                 <tr>
-                                    <th><label>Product Categories</label></th>
+                                    <th><label>Product Categories and Tags</label></th>
                                     <td>
-                                        <div id="azure-pf-cat-list" style="max-height:200px;overflow-y:auto;border:1px solid #ddd;padding:8px;border-radius:4px;">
+                                        <div id="azure-pf-cat-list" style="max-height:260px;overflow-y:auto;border:1px solid #ddd;padding:8px;border-radius:4px;">
+                                            <p style="margin:0 0 6px;font-weight:600;"><?php esc_html_e('Categories', 'azure-plugin'); ?></p>
                                             <?php foreach ($product_categories as $cat): ?>
                                                 <label style="display:block;margin-bottom:4px;">
                                                     <input type="checkbox" name="categories[]" value="<?php echo esc_attr($cat->term_id); ?>" />
@@ -152,6 +163,17 @@ if (is_wp_error($product_categories)) {
                                             <?php if (empty($product_categories)): ?>
                                                 <p style="color:#999;">No product categories found. Create categories in WooCommerce first.</p>
                                             <?php endif; ?>
+                                            <?php if (!empty($product_tags)): ?>
+                                                <p style="margin:10px 0 6px;font-weight:600;"><?php esc_html_e('Tags', 'azure-plugin'); ?></p>
+                                                <?php foreach ($product_tags as $tag): ?>
+                                                    <label style="display:block;margin-bottom:4px;">
+                                                        <input type="checkbox" name="categories[]" value="<?php echo esc_attr($tag->term_id); ?>" />
+                                                        <?php echo esc_html($tag->name); ?>
+                                                        <span style="color:#999;">(<?php echo (int) $tag->count; ?>)</span>
+                                                    </label>
+                                                <?php endforeach; ?>
+                                            <?php endif; ?>
+                                            <p class="description" style="margin:8px 0 0;"><?php esc_html_e('Products in any ticked category or with any ticked tag show these fields. Their Add to cart buttons in grids and blocks open the product page.', 'azure-plugin'); ?></p>
                                         </div>
                                     </td>
                                 </tr>

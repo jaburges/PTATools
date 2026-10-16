@@ -83,6 +83,22 @@ class Azure_Product_Fields_Module {
         add_filter('should_show_express_checkout_button', array($this, 'hide_product_page_express_pay'), 20);
         add_filter('wc_stripe_hide_payment_request_on_product_page', array($this, 'hide_stripe_product_page_wallet'), 20, 2);
         add_action('woocommerce_after_add_to_cart_button', array($this, 'render_express_pay_after_fields_note'));
+
+        // Grid, block, shortcode and related "Add to cart" buttons never
+        // see the fields, so products that have them open their page.
+        add_filter('woocommerce_product_supports', array($this, 'filter_product_supports'), 20, 3);
+        add_filter('woocommerce_product_add_to_cart_url', array($this, 'filter_add_to_cart_url'), 20, 2);
+        add_filter('woocommerce_product_add_to_cart_text', array($this, 'filter_add_to_cart_text'), 20, 2);
+        add_filter('woocommerce_product_add_to_cart_description', array($this, 'filter_add_to_cart_description'), 20, 2);
+        add_filter('woocommerce_loop_add_to_cart_link', array($this, 'filter_loop_add_to_cart_link'), 20, 3);
+        add_filter('woocommerce_blocks_product_grid_item_html', array($this, 'filter_grid_item_html'), 20, 3);
+        add_filter('woocommerce_product_has_options', array($this, 'filter_has_options'), 20, 2);
+        add_filter('rest_request_before_callbacks', array($this, 'store_api_request_started'), 10, 3);
+        add_filter('rest_request_after_callbacks', array($this, 'store_api_request_finished'), 10, 3);
+
+        // A refused add from anywhere but the product form → product page.
+        add_filter('woocommerce_cart_redirect_after_error', array($this, 'redirect_after_error'), 20, 2);
+        add_action('wp_loaded', array($this, 'maybe_redirect_failed_add'), 21);
     }
 
     /**
@@ -116,12 +132,59 @@ class Azure_Product_Fields_Module {
 
     // ─── Helpers ───────────────────────────────────────────────────────
 
+    /** @var array<int, array> product id => groups, for this request. */
+    private static $groups_cache = array();
+
+    /** @var array<int, bool> product id => needs the product page. */
+    private static $needs_page_cache = array();
+
+    /** Store API responses are being built (JS product blocks read them). */
+    private static $in_store_api = false;
+
+    /** Product whose background add was refused; sent to its page. */
+    private static $redirect_product_id = 0;
+
+    public static function flush_cache() {
+        self::$groups_cache = array();
+        self::$needs_page_cache = array();
+    }
+
     /**
-     * Get all active field groups assigned to the product's categories,
-     * each with its fields preloaded.
+     * Category and tag term ids for a product. Variations have no terms of
+     * their own, so their parent's are used.
+     *
+     * @return int[]
+     */
+    public static function product_term_ids($product_id) {
+        $product_id = (int) $product_id;
+        if ($product_id < 1) {
+            return array();
+        }
+        if (function_exists('get_post_type') && get_post_type($product_id) === 'product_variation') {
+            $parent = function_exists('wp_get_post_parent_id') ? (int) wp_get_post_parent_id($product_id) : 0;
+            if ($parent > 0) {
+                $product_id = $parent;
+            }
+        }
+        $terms = array_merge(
+            (array) wc_get_product_term_ids($product_id, 'product_cat'),
+            (array) wc_get_product_term_ids($product_id, 'product_tag')
+        );
+        return array_values(array_unique(array_filter(array_map('intval', $terms))));
+    }
+
+    /**
+     * Get all active field groups assigned to the product's categories or
+     * tags, each with its fields preloaded. Term ids are unique across
+     * taxonomies, so both live in the same mapping table.
      */
     public static function get_groups_for_product($product_id) {
         global $wpdb;
+
+        $product_id = (int) $product_id;
+        if (isset(self::$groups_cache[$product_id])) {
+            return self::$groups_cache[$product_id];
+        }
 
         $cat_table = Azure_Database::get_table_name('product_field_categories');
         $grp_table = Azure_Database::get_table_name('product_field_groups');
@@ -131,9 +194,9 @@ class Azure_Product_Fields_Module {
             return array();
         }
 
-        $terms = wc_get_product_term_ids($product_id, 'product_cat');
+        $terms = self::product_term_ids($product_id);
         if (empty($terms)) {
-            return array();
+            return self::$groups_cache[$product_id] = array();
         }
 
         $placeholders = implode(',', array_fill(0, count($terms), '%d'));
@@ -146,14 +209,232 @@ class Azure_Product_Fields_Module {
             ...$terms
         ));
 
+        $groups = is_array($groups) ? $groups : array();
         foreach ($groups as &$group) {
             $group->fields = $wpdb->get_results($wpdb->prepare(
                 "SELECT * FROM {$fld_table} WHERE group_id = %d ORDER BY sort_order ASC",
                 $group->id
             ));
         }
+        unset($group);
 
-        return $groups;
+        return self::$groups_cache[$product_id] = $groups;
+    }
+
+    /**
+     * True when the product's fields (or a family child roster) have to be
+     * filled in on its product page before it can go in the cart.
+     */
+    public static function product_needs_product_page($product_id) {
+        $product_id = (int) $product_id;
+        if ($product_id < 1) {
+            return false;
+        }
+        if (isset(self::$needs_page_cache[$product_id])) {
+            return self::$needs_page_cache[$product_id];
+        }
+        $needs = self::is_family_membership_product($product_id);
+        if (!$needs) {
+            foreach (self::get_groups_for_product($product_id) as $group) {
+                if (!empty($group->fields)) {
+                    $needs = true;
+                    break;
+                }
+            }
+        }
+        return self::$needs_page_cache[$product_id] = $needs;
+    }
+
+    /**
+     * Loop, block and shortcode buttons that should open the product page
+     * instead of adding in the background. External and grouped products
+     * already link out.
+     */
+    public static function loop_button_opens_product_page($product) {
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return false;
+        }
+        if (method_exists($product, 'is_type') && ($product->is_type('external') || $product->is_type('grouped'))) {
+            return false;
+        }
+        if (method_exists($product, 'is_purchasable') && !$product->is_purchasable()) {
+            return false;
+        }
+        if (method_exists($product, 'is_in_stock') && !$product->is_in_stock()) {
+            return false;
+        }
+        return self::product_needs_product_page((int) $product->get_id());
+    }
+
+    // ─── Loop / block / Store API add-to-cart ──────────────────────────
+
+    public function filter_product_supports($supports, $feature, $product) {
+        if ($feature === 'ajax_add_to_cart' && $supports && self::loop_button_opens_product_page($product)) {
+            return false;
+        }
+        return $supports;
+    }
+
+    public function filter_add_to_cart_url($url, $product) {
+        if (self::loop_button_opens_product_page($product)) {
+            return $product->get_permalink();
+        }
+        return $url;
+    }
+
+    public function filter_add_to_cart_text($text, $product) {
+        if (self::loop_button_opens_product_page($product)) {
+            return __('Select options', 'azure-plugin');
+        }
+        return $text;
+    }
+
+    public function filter_add_to_cart_description($text, $product) {
+        if (self::loop_button_opens_product_page($product)) {
+            /* translators: %s: product name */
+            return sprintf(__('Select options for &ldquo;%s&rdquo;', 'azure-plugin'), $product->get_name());
+        }
+        return $text;
+    }
+
+    /**
+     * The JS product blocks add in the background unless the Store API says
+     * the product has options. Only answer inside Store API requests: on a
+     * rendered product page WooCommerce's add-to-cart-with-options block
+     * treats has_options as "form not valid" and would block the real add.
+     */
+    public function filter_has_options($has_options, $product) {
+        if (!$has_options && self::$in_store_api && self::loop_button_opens_product_page($product)) {
+            return true;
+        }
+        return $has_options;
+    }
+
+    public function store_api_request_started($response, $handler, $request) {
+        if (is_object($request) && method_exists($request, 'get_route')) {
+            self::$in_store_api = self::is_store_api_route((string) $request->get_route());
+        }
+        return $response;
+    }
+
+    public function store_api_request_finished($response, $handler, $request) {
+        self::$in_store_api = false;
+        return $response;
+    }
+
+    public static function is_store_api_route($route) {
+        return strpos((string) $route, '/wc/store/') === 0;
+    }
+
+    public static function set_in_store_api($on) {
+        self::$in_store_api = (bool) $on;
+    }
+
+    /**
+     * Last line for loop buttons another plugin rebuilt: no ajax class and
+     * no ?add-to-cart= link for products that need their page.
+     */
+    public function filter_loop_add_to_cart_link($html, $product, $args = array()) {
+        if (!self::loop_button_opens_product_page($product)) {
+            return $html;
+        }
+        return self::loop_link_html((string) $html, (string) $product->get_permalink());
+    }
+
+    public function filter_grid_item_html($html, $data, $product) {
+        if (!self::loop_button_opens_product_page($product)) {
+            return $html;
+        }
+        return self::loop_link_html((string) $html, (string) $product->get_permalink());
+    }
+
+    public static function loop_link_html($html, $permalink) {
+        $html = preg_replace_callback('/\bclass=(["\'])(.*?)\1/s', function ($m) {
+            $classes = preg_split('/\s+/', trim($m[2]));
+            $classes = array_values(array_diff($classes, array('ajax_add_to_cart')));
+            return 'class=' . $m[1] . implode(' ', $classes) . $m[1];
+        }, $html);
+        $safe = htmlspecialchars($permalink, ENT_QUOTES, 'UTF-8');
+        $html = preg_replace('/\bhref=(["\'])[^"\']*[?&](?:amp;|#038;)?add-to-cart=\d+[^"\']*\1/', 'href="' . $safe . '"', $html);
+        return preg_replace('/\sdata-wp-on--click=(["\'])actions\.addCartItem\1/', '', $html);
+    }
+
+    // ─── Refused background adds ───────────────────────────────────────
+
+    /**
+     * True when the add came from this module's product-page form.
+     */
+    public static function request_has_field_form(array $post) {
+        if (!empty($post['azure_pf_form'])) {
+            return true;
+        }
+        foreach (array_keys($post) as $key) {
+            if (strpos((string) $key, 'azure_pf_') === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function is_rest_request() {
+        if (function_exists('wp_is_serving_rest_request')) {
+            return (bool) wp_is_serving_rest_request();
+        }
+        return defined('REST_REQUEST') && REST_REQUEST;
+    }
+
+    /**
+     * A guest with an empty cart has no session cookie yet, so the notice
+     * would be lost on the way to the product page.
+     */
+    private static function keep_notices_across_redirect() {
+        if (self::is_rest_request() || !function_exists('WC')) {
+            return;
+        }
+        $session = WC()->session;
+        if ($session && method_exists($session, 'has_session') && !$session->has_session() && method_exists($session, 'set_customer_session_cookie')) {
+            $session->set_customer_session_cookie(true);
+        }
+    }
+
+    public static function redirect_product_id() {
+        return self::$redirect_product_id;
+    }
+
+    public static function reset_redirect() {
+        self::$redirect_product_id = 0;
+    }
+
+    /**
+     * wc-ajax add_to_cart sends a refused add to this URL itself.
+     */
+    public function redirect_after_error($url, $product_id) {
+        if (self::product_needs_product_page((int) $product_id)) {
+            $link = get_permalink((int) $product_id);
+            if (is_string($link) && $link !== '') {
+                return $link;
+            }
+        }
+        return $url;
+    }
+
+    /**
+     * ?add-to-cart= links and non-AJAX posts are handled on wp_loaded (20).
+     * A refused add from anywhere but the product form goes to the product
+     * page, where the notice and the fields are shown.
+     */
+    public function maybe_redirect_failed_add() {
+        $product_id = self::$redirect_product_id;
+        self::$redirect_product_id = 0;
+        if ($product_id < 1 || (function_exists('wp_doing_ajax') && wp_doing_ajax()) || self::is_rest_request()) {
+            return;
+        }
+        $link = get_permalink($product_id);
+        if (!is_string($link) || $link === '') {
+            return;
+        }
+        wp_safe_redirect($link);
+        exit;
     }
 
     /**
@@ -683,6 +964,7 @@ class Azure_Product_Fields_Module {
         $child_data      = $this->build_children_data($children);
 
         echo '<div class="azure-product-fields">';
+        echo '<input type="hidden" name="azure_pf_form" value="1" />';
 
         if ($this->family_children_mode) {
             $this->child_selector_rendered = true;
@@ -1152,6 +1434,22 @@ class Azure_Product_Fields_Module {
     public function validate_fields($passed, $product_id, $quantity) {
         if (!empty($_POST['pta_donated_product'])) {
             return $passed;
+        }
+
+        // Grid/block buttons, ?add-to-cart= links and the Store API never
+        // carry the fields. Refuse once, clearly, and send them to the page.
+        if (empty($_GET['order_again']) && !self::request_has_field_form($_POST) && self::product_needs_product_page($product_id)) {
+            $product = function_exists('wc_get_product') ? wc_get_product($product_id) : null;
+            $name = $product ? wp_strip_all_tags($product->get_name()) : '';
+            $message = self::is_rest_request()
+                /* translators: %s: product name */
+                ? sprintf(__('“%s” needs a few details first. Open its product page to fill them in.', 'azure-plugin'), $name)
+                /* translators: %s: product name */
+                : sprintf(__('“%s” needs a few details first. Fill them in below, then add it to your cart.', 'azure-plugin'), $name);
+            wc_add_notice($message, 'error');
+            self::$redirect_product_id = (int) $product_id;
+            self::keep_notices_across_redirect();
+            return false;
         }
 
         $groups = self::get_groups_for_product($product_id);
