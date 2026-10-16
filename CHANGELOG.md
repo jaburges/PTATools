@@ -2,6 +2,27 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.176 — Product fields on Product Collection cards
+
+### Changed
+
+- **Product Collection cards show the product's fields.** On a card for a product whose category or tag maps to product fields, the Add to cart button is replaced by those fields (for example Child Name, Grade and Teacher) and an **Add to cart** button. This is how the yearbook appears in *Recommended products* on the order page. Logged-in parents pick a saved child, and that child's details fill in.
+- **The card add uses the same checks and cart data as the product page.**
+  - With JavaScript, it posts to `?wc-ajax=azure_pf_add_to_cart`, which runs WooCommerce's add-to-cart validation and the plugin's cart-item fields.
+  - Missing fields are listed under the card and nothing is added.
+  - On success the item and its values appear in the cart, the mini-cart and the header cart count.
+  - Without JavaScript the card posts as a normal form. Errors show under the card, and a successful add returns to the card.
+- **Built for phones.** Inputs on the card are full width, 44px tall and 16px text, so iPhones don't zoom into them.
+- **Unchanged from 3.147.175:**
+  - Family membership and variable products keep the *Select options* link to their product page.
+  - Classic loops, shortcodes and the JS product blocks keep linking to the product page.
+  - A background add without the fields is still refused.
+  - Express checkout stays hidden on product pages and appears on the cart and checkout.
+
+### Upgrade note
+
+- **3.147.175 never reached the live site.** The release was published, but the site kept running 3.147.174, so its yearbook button still added in the background and was refused. After releasing this version, install it on the site, then purge the Front Door cache for the order page, which is cached for 5 minutes.
+
 ## 3.147.175 — Product fields are always collected before add-to-cart
 
 ### Fixed
