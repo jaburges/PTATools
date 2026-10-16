@@ -99,6 +99,12 @@ class Azure_Product_Fields_Module {
         // A refused add from anywhere but the product form → product page.
         add_filter('woocommerce_cart_redirect_after_error', array($this, 'redirect_after_error'), 20, 2);
         add_action('wp_loaded', array($this, 'maybe_redirect_failed_add'), 21);
+
+        // Product Collection (and other block) cards: the fields and the
+        // add button render inline under each card that needs them.
+        add_filter('render_block_woocommerce/product-button', array($this, 'render_inline_product_button'), 20, 3);
+        add_action('wc_ajax_azure_pf_add_to_cart', array($this, 'ajax_inline_add_to_cart'));
+        add_filter('woocommerce_add_to_cart_redirect', array($this, 'inline_add_redirect'), 20, 2);
     }
 
     /**
@@ -129,6 +135,9 @@ class Azure_Product_Fields_Module {
      * @var object|null
      */
     private $family_teacher_field = null;
+
+    /** @var array<int,string> field id => value to show (inline card re-render after a post). */
+    private $value_overrides = array();
 
     // ─── Helpers ───────────────────────────────────────────────────────
 
@@ -357,6 +366,273 @@ class Azure_Product_Fields_Module {
         $safe = htmlspecialchars($permalink, ENT_QUOTES, 'UTF-8');
         $html = preg_replace('/\bhref=(["\'])[^"\']*[?&](?:amp;|#038;)?add-to-cart=\d+[^"\']*\1/', 'href="' . $safe . '"', $html);
         return preg_replace('/\sdata-wp-on--click=(["\'])actions\.addCartItem\1/', '', $html);
+    }
+
+    // ─── Inline fields on block product cards ──────────────────────────
+
+    /**
+     * Cards that can collect their fields in place: simple, purchasable,
+     * in-stock products with mapped fields. Family membership (child
+     * roster) and variable products keep the Select options link.
+     */
+    public static function product_supports_inline_fields($product) {
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return false;
+        }
+        if (!method_exists($product, 'is_type') || !$product->is_type('simple')) {
+            return false;
+        }
+        if (!$product->is_purchasable() || !$product->is_in_stock()) {
+            return false;
+        }
+        $product_id = (int) $product->get_id();
+        if (self::is_family_membership_product($product_id)) {
+            return false;
+        }
+        return self::product_needs_product_page($product_id);
+    }
+
+    /**
+     * Replace a block card's Add to cart button with the product's fields
+     * and a real form. The single-product add-to-cart block keeps its own.
+     */
+    public function render_inline_product_button($block_content, $parsed_block = array(), $instance = null) {
+        $context = (is_object($instance) && isset($instance->context) && is_array($instance->context)) ? $instance->context : array();
+        if (!empty($context['woocommerce/isDescendantOfAddToCartWithOptions'])) {
+            return $block_content;
+        }
+        $product_id = isset($context['postId']) ? (int) $context['postId'] : 0;
+        if ($product_id < 1 && function_exists('get_the_ID')) {
+            $product_id = (int) get_the_ID();
+        }
+        $product = $product_id > 0 && function_exists('wc_get_product') ? wc_get_product($product_id) : null;
+        if (!self::product_supports_inline_fields($product)) {
+            return $block_content;
+        }
+        $html = $this->inline_form_html($product);
+        return $html !== '' ? $html : $block_content;
+    }
+
+    public static function inline_dom_id($product_id, $field_html) {
+        return preg_replace('/\b(id|for)="azure_pf_(\d+)"/', '$1="azure_pf_p' . (int) $product_id . '_$2"', (string) $field_html);
+    }
+
+    /**
+     * Notices for this card after a no-JS post, removed from the session so
+     * they are not shown a second time elsewhere.
+     *
+     * @return array{errors:string[],added:bool}
+     */
+    private static function take_inline_post_state($product_id) {
+        $state = array('errors' => array(), 'added' => false);
+        $posted_here = !empty($_POST['azure_pf_inline']) && (int) $_POST['azure_pf_inline'] === (int) $product_id;
+        $added_here = !empty($_GET['azure_pf_added']) && (int) $_GET['azure_pf_added'] === (int) $product_id;
+        if (!$posted_here && !$added_here) {
+            return $state;
+        }
+        if (function_exists('wc_get_notices')) {
+            foreach ((array) wc_get_notices('error') as $notice) {
+                $state['errors'][] = wp_strip_all_tags(is_array($notice) ? (string) ($notice['notice'] ?? '') : (string) $notice);
+            }
+            if (function_exists('wc_clear_notices')) {
+                wc_clear_notices();
+            }
+        }
+        $state['added'] = $added_here && !$state['errors'];
+        return $state;
+    }
+
+    public function inline_form_html($product) {
+        $product_id = (int) $product->get_id();
+        $groups = self::get_groups_for_product($product_id);
+        if (empty($groups)) {
+            return '';
+        }
+
+        $saved = array(
+            $this->child_selector_rendered,
+            $this->family_children_mode,
+            $this->value_overrides,
+        );
+        $this->child_selector_rendered = false;
+        $this->family_children_mode = false;
+        $this->value_overrides = array();
+
+        $state = self::take_inline_post_state($product_id);
+        if ($state['errors']) {
+            foreach ($groups as $group) {
+                foreach ((array) $group->fields as $field) {
+                    $key = 'azure_pf_' . $field->id;
+                    if (isset($_POST[$key])) {
+                        $this->value_overrides[(int) $field->id] = sanitize_text_field(wp_unslash($_POST[$key]));
+                    }
+                }
+            }
+        }
+
+        $user_id = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
+        $children = ($user_id && class_exists('Azure_User_Children')) ? (array) Azure_User_Children::get_children_for_user($user_id) : array();
+        $parent_defaults = $this->build_parent_defaults($user_id, $groups);
+        $family = ($user_id && class_exists('Azure_User_Children')) ? Azure_User_Children::get_family_for_user($user_id) : null;
+        $family_defaults = $this->build_family_defaults($family, $groups);
+        $use_child_picker = $user_id && $children && self::groups_need_child_selector($groups);
+        $child_data = $use_child_picker ? $this->build_children_data($children) : array();
+
+        $return = function_exists('wp_unslash') && isset($_SERVER['REQUEST_URI']) ? remove_query_arg('azure_pf_added', wp_unslash($_SERVER['REQUEST_URI'])) : '';
+        $card_id = 'azure-pf-card-' . $product_id;
+
+        ob_start();
+        echo '<div class="wp-block-button wc-block-components-product-button azure-pf-inline" id="' . esc_attr($card_id) . '">';
+        echo '<form class="cart azure-pf-inline-form" method="post" action="' . esc_url($return !== '' ? $return : $product->get_permalink()) . '#' . esc_attr($card_id) . '" enctype="multipart/form-data" novalidate'
+            . ' data-product-id="' . esc_attr((string) $product_id) . '"'
+            . ($child_data ? ' data-children="' . esc_attr(wp_json_encode($child_data)) . '"' : '')
+            . '>';
+        echo '<div class="azure-product-fields azure-pf-inline-fields">';
+        echo '<input type="hidden" name="azure_pf_form" value="1" />';
+        echo '<input type="hidden" name="azure_pf_inline" value="' . esc_attr((string) $product_id) . '" />';
+
+        if ($use_child_picker) {
+            $this->child_selector_rendered = true;
+            $select_id = 'azure-pf-p' . $product_id . '-child';
+            $chosen = isset($_POST['azure_pf_child_id']) && $state['errors'] ? (int) $_POST['azure_pf_child_id'] : 0;
+            echo '<p class="form-row azure-pf-field azure-pf-child-selector">';
+            echo '<label for="' . esc_attr($select_id) . '">' . esc_html__("Child's Name", 'azure-plugin') . ' <span class="required">*</span></label>';
+            echo '<select id="' . esc_attr($select_id) . '" name="azure_pf_child_id" class="azure-pf-inline-child" required>';
+            echo '<option value="">' . esc_html__('-- Select child --', 'azure-plugin') . '</option>';
+            foreach ($children as $child) {
+                echo '<option value="' . esc_attr((string) $child->id) . '"' . selected($chosen, (int) $child->id, false) . '>' . esc_html($child->child_name) . '</option>';
+            }
+            echo '</select></p>';
+        }
+
+        foreach ($groups as $group) {
+            foreach ((array) $group->fields as $field) {
+                ob_start();
+                $this->render_single_field($field, $parent_defaults, $family_defaults);
+                echo self::inline_dom_id($product_id, ob_get_clean()); // phpcs:ignore WordPress.Security.EscapeOutput -- built with esc_* above
+            }
+        }
+        echo '</div>';
+        echo '<input type="hidden" name="quantity" value="1" />';
+        echo '<button type="submit" name="add-to-cart" value="' . esc_attr((string) $product_id) . '" class="wp-block-button__link wp-element-button wc-block-components-product-button__button add_to_cart_button azure-pf-inline-submit">'
+            . esc_html__('Add to cart', 'azure-plugin') . '</button>';
+
+        echo '<div class="azure-pf-inline-errors" role="alert"' . ($state['errors'] ? '' : ' hidden') . '>';
+        if ($state['errors']) {
+            echo '<ul>';
+            foreach ($state['errors'] as $msg) {
+                echo '<li>' . esc_html($msg) . '</li>';
+            }
+            echo '</ul>';
+        }
+        echo '</div>';
+        $cart_url = function_exists('wc_get_cart_url') ? wc_get_cart_url() : '';
+        echo '<div class="azure-pf-inline-success" role="status"' . ($state['added'] ? '' : ' hidden') . '>';
+        if ($state['added']) {
+            echo esc_html__('Added to your cart.', 'azure-plugin') . ' <a href="' . esc_url($cart_url) . '">' . esc_html__('View cart', 'azure-plugin') . '</a>';
+        }
+        echo '</div>';
+        echo '</form></div>';
+        $html = ob_get_clean();
+
+        list($this->child_selector_rendered, $this->family_children_mode, $this->value_overrides) = $saved;
+        $this->enqueue_inline_assets();
+        return $html;
+    }
+
+    private function enqueue_inline_assets() {
+        if (!function_exists('wp_enqueue_script')) {
+            return;
+        }
+        $ver = defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1';
+        wp_enqueue_style('azure-product-fields-inline', AZURE_PLUGIN_URL . 'css/product-fields-inline.css', array(), $ver);
+        wp_enqueue_script('azure-product-fields-inline', AZURE_PLUGIN_URL . 'js/product-fields-inline.js', array('jquery'), $ver, true);
+        wp_localize_script('azure-product-fields-inline', 'azurePfInline', array(
+            'ajax_url' => class_exists('WC_AJAX') ? WC_AJAX::get_endpoint('azure_pf_add_to_cart') : '',
+            'cart_url' => function_exists('wc_get_cart_url') ? wc_get_cart_url() : '',
+            'i18n'     => array(
+                'adding'    => __('Adding…', 'azure-plugin'),
+                'add'       => __('Add to cart', 'azure-plugin'),
+                'added'     => __('Added to your cart.', 'azure-plugin'),
+                'view_cart' => __('View cart', 'azure-plugin'),
+                'error'     => __('Could not add this to your cart. Please try again.', 'azure-plugin'),
+            ),
+        ));
+    }
+
+    /**
+     * No-JS card post: come back to the same card instead of staying on a
+     * POST response that a refresh would resubmit.
+     */
+    public function inline_add_redirect($url, $adding_to_cart = null) {
+        if (empty($_POST['azure_pf_inline']) || (function_exists('wp_doing_ajax') && wp_doing_ajax())) {
+            return $url;
+        }
+        if ($url || get_option('woocommerce_cart_redirect_after_add') === 'yes') {
+            return $url;
+        }
+        $product_id = (int) $_POST['azure_pf_inline'];
+        // The card posts to its own page, which wp_get_referer() ignores.
+        $back = function_exists('wp_get_raw_referer') ? (string) wp_get_raw_referer() : '';
+        $back = $back !== '' && function_exists('wp_validate_redirect') ? (string) wp_validate_redirect($back, '') : '';
+        if ($back === '') {
+            return $url;
+        }
+        return add_query_arg('azure_pf_added', $product_id, remove_query_arg('azure_pf_added', $back)) . '#azure-pf-card-' . $product_id;
+    }
+
+    /**
+     * wc-ajax=azure_pf_add_to_cart: the card form's fields go through the
+     * same validation and cart-item-data filters as the product page.
+     */
+    public function ajax_inline_add_to_cart() {
+        $product_id = isset($_POST['azure_pf_product_id']) ? absint($_POST['azure_pf_product_id']) : 0;
+        $quantity = isset($_POST['quantity']) ? (int) wc_stock_amount(wp_unslash($_POST['quantity'])) : 1;
+        $quantity = max(1, $quantity);
+        $product = $product_id ? wc_get_product($product_id) : null;
+
+        if (!self::product_supports_inline_fields($product)) {
+            wp_send_json_error(array(
+                'errors'      => array(__('This item has to be added from its product page.', 'azure-plugin')),
+                'product_url' => $product ? $product->get_permalink() : '',
+            ));
+        }
+
+        $passed = apply_filters('woocommerce_add_to_cart_validation', true, $product_id, $quantity);
+        $key = false;
+        if ($passed) {
+            $key = WC()->cart->add_to_cart($product_id, $quantity);
+        }
+
+        $errors = array();
+        foreach ((array) wc_get_notices('error') as $notice) {
+            $errors[] = wp_strip_all_tags(is_array($notice) ? (string) ($notice['notice'] ?? '') : (string) $notice);
+        }
+        wc_clear_notices();
+
+        if (!$key) {
+            wp_send_json_error(array(
+                'errors' => $errors ? $errors : array(__('Could not add this to your cart. Please try again.', 'azure-plugin')),
+            ));
+        }
+
+        do_action('woocommerce_ajax_added_to_cart', $product_id);
+
+        ob_start();
+        woocommerce_mini_cart();
+        $mini_cart = ob_get_clean();
+        $fragments = apply_filters('woocommerce_add_to_cart_fragments', array(
+            'div.widget_shopping_cart_content' => '<div class="widget_shopping_cart_content">' . $mini_cart . '</div>',
+        ));
+
+        wp_send_json_success(array(
+            'message'    => __('Added to your cart.', 'azure-plugin'),
+            'cart_url'   => wc_get_cart_url(),
+            'cart_count' => (int) WC()->cart->get_cart_contents_count(),
+            'fragments'  => $fragments,
+            'cart_hash'  => WC()->cart->get_cart_hash(),
+            'redirect'   => get_option('woocommerce_cart_redirect_after_add') === 'yes' ? wc_get_cart_url() : '',
+        ));
     }
 
     // ─── Refused background adds ───────────────────────────────────────
@@ -1242,6 +1518,9 @@ class Azure_Product_Fields_Module {
             $value = (string) $parent_defaults[$field->field_key];
         } elseif ($scope === 'family' && !empty($field->field_key) && isset($family_defaults[$field->field_key])) {
             $value = (string) $family_defaults[$field->field_key];
+        }
+        if (array_key_exists((int) $field->id, $this->value_overrides)) {
+            $value = (string) $this->value_overrides[(int) $field->id];
         }
 
         $name = 'azure_pf_' . $field->id;

@@ -1,0 +1,89 @@
+.azure-pf-inline {
+    display: block;
+    width: 100%;
+    text-align: left;
+}
+
+.azure-pf-inline-form {
+    margin: 0;
+}
+
+.azure-pf-inline-fields .azure-pf-field {
+    margin: 0 0 10px;
+    padding: 0;
+}
+
+.azure-pf-inline-fields label {
+    display: block;
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.azure-pf-inline-fields input[type="text"],
+.azure-pf-inline-fields input[type="email"],
+.azure-pf-inline-fields input[type="tel"],
+.azure-pf-inline-fields input[type="number"],
+.azure-pf-inline-fields select,
+.azure-pf-inline-fields textarea {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 8px 10px;
+    /* 16px stops iOS Safari zooming into the field. */
+    font-size: 16px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.azure-pf-inline-fields [aria-invalid="true"] {
+    border-color: #b32d2e;
+    box-shadow: 0 0 0 1px #b32d2e;
+}
+
+.azure-pf-inline .azure-pf-inline-submit {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 4px;
+    cursor: pointer;
+}
+
+.azure-pf-inline .azure-pf-inline-submit[disabled] {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.azure-pf-inline-errors,
+.azure-pf-inline-success {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.azure-pf-inline-errors {
+    background: #fcf0f1;
+    border: 1px solid #b32d2e;
+    color: #8a2424;
+}
+
+.azure-pf-inline-errors ul {
+    margin: 0;
+    padding: 0 0 0 18px;
+}
+
+.azure-pf-inline-success {
+    background: #edfaef;
+    border: 1px solid #00a32a;
+    color: #135e2a;
+}
+
+.azure-pf-inline [hidden] {
+    display: none !important;
+}
