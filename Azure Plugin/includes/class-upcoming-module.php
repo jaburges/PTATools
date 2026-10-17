@@ -174,7 +174,7 @@ class Azure_Upcoming_Module {
         if ($use_cache) {
             $cached = get_transient($cache_key);
             if (is_string($cached)) {
-                return $cached;
+                return self::with_rsvp($cached);
             }
         }
         
@@ -319,7 +319,15 @@ class Azure_Upcoming_Module {
             set_transient($cache_key, $output, $this->get_cache_ttl($current_week_end));
         }
 
-        return $output;
+        return self::with_rsvp($output);
+    }
+
+    /**
+     * The cached HTML carries a neutral RSVP marker per event; the
+     * current person's RSVP control is filled in on every request.
+     */
+    private static function with_rsvp($html) {
+        return class_exists('Azure_Event_Rsvp') ? Azure_Event_Rsvp::fill_summary_placeholders($html) : $html;
     }
 
     /**
@@ -999,6 +1007,10 @@ class Azure_Upcoming_Module {
                 }
             }
 
+            $rsvp_html = ($show_join_meeting && !empty($event['id']) && class_exists('Azure_Event_Rsvp'))
+                ? Azure_Event_Rsvp::summary_placeholder((int) $event['id'], 'compact')
+                : '';
+
             $corner = '';
             if ($compact) {
                 // Place goes on the meta line under the title; Join stays at the right.
@@ -1102,8 +1114,8 @@ class Azure_Upcoming_Module {
             }
             $output .= '</div>'; // .upcoming-body-copy
 
-            if ($join_html !== '') {
-                $output .= '<div class="upcoming-join-meeting">' . $join_html . '</div>';
+            if ($join_html !== '' || $rsvp_html !== '') {
+                $output .= '<div class="upcoming-join-meeting">' . $join_html . $rsvp_html . '</div>';
             }
 
             $output .= '</div>'; // .upcoming-body-main

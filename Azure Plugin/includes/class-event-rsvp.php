@@ -798,7 +798,7 @@ class Azure_Event_Rsvp {
         $h = function ($v) {
             return self::h($v);
         };
-        $out = '<section class="pta-event-rsvp" data-event-id="' . $event_id . '">';
+        $out = '<section class="pta-event-rsvp" id="rsvp" data-event-id="' . $event_id . '">';
         $out .= '<h2 class="pta-event-section">' . $h(__('RSVP', 'azure-plugin')) . '</h2>';
         if ($summary) {
             $out .= '<p class="pta-rsvp-summary">' . $h(implode(' · ', $summary)) . '</p>';
@@ -853,6 +853,133 @@ class Azure_Event_Rsvp {
         return $out;
     }
 
+    // ──────────────────────────────────────────────
+    // RSVP next to "Join meeting" on event lists
+    // ──────────────────────────────────────────────
+
+    const SUMMARY_VARIANTS = array('inline', 'compact');
+
+    /**
+     * A per-user-neutral marker for cached list HTML ([up-next] caches its
+     * output for everyone). fill_summary_placeholders() swaps it for the
+     * current person's RSVP control on each request.
+     */
+    public static function summary_placeholder($event_id, $variant = 'inline') {
+        $variant = in_array($variant, self::SUMMARY_VARIANTS, true) ? $variant : 'inline';
+        return '<!--pta-rsvp:' . (int) $event_id . ':' . $variant . '-->';
+    }
+
+    /**
+     * @param string $html
+     * @return string
+     */
+    public static function fill_summary_placeholders($html, $user_id = null, $now = null) {
+        if (!is_string($html) || strpos($html, '<!--pta-rsvp:') === false) {
+            return $html;
+        }
+        $email = class_exists('Azure_Newsletter_Shortcodes') && method_exists('Azure_Newsletter_Shortcodes', 'is_expanding')
+            && Azure_Newsletter_Shortcodes::is_expanding();
+        $filled = preg_replace_callback('/<!--pta-rsvp:(\d+):(inline|compact)-->/', function ($m) use ($user_id, $now, $email) {
+            return $email
+                ? self::render_summary_email_link((int) $m[1])
+                : self::render_summary_action((int) $m[1], $m[2], $user_id, $now);
+        }, $html);
+        return is_string($filled) ? $filled : $html;
+    }
+
+    /**
+     * The RSVP control for one event in a list: RSVP, Going ✓ + Cancel,
+     * Log in to RSVP, Full or RSVPs closed. Empty when RSVP is off or the
+     * event is not published.
+     *
+     * @param int         $event_id
+     * @param string      $variant    'inline' (event cards) or 'compact' ([up-next])
+     * @param int|null    $user_id    Defaults to the signed-in user.
+     * @param mixed       $now
+     * @param string|null $return_url Where Log in returns to; defaults to this page.
+     * @return string
+     */
+    public static function render_summary_action($event_id, $variant = 'inline', $user_id = null, $now = null, $return_url = null) {
+        $event_id = (int) $event_id;
+        $post = self::event_post($event_id);
+        if (!$post || $post->post_status !== 'publish') {
+            return '';
+        }
+        $settings = self::event_settings($event_id);
+        if (!$settings['enabled']) {
+            return '';
+        }
+        $variant = in_array($variant, self::SUMMARY_VARIANTS, true) ? $variant : 'inline';
+        if ($user_id === null) {
+            $user_id = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
+        }
+        $user_id = (int) $user_id;
+        $h = function ($v) {
+            return self::h($v);
+        };
+        $btn = 'pta-join-meeting pta-rsvp-action' . ($variant === 'compact' ? ' pta-join-meeting--compact' : '');
+        $title = (string) $post->post_title;
+
+        $rsvp = $user_id > 0 ? self::get_rsvp($event_id, $user_id) : null;
+        $going = $rsvp && $rsvp->status === self::STATUS_GOING;
+        $left = self::spaces_left($event_id);
+
+        if ($going) {
+            /* translators: %s: event title */
+            $inner = '<span class="' . $btn . ' is-going" aria-label="' . $h(sprintf(__('You are going to %s', 'azure-plugin'), $title)) . '">' . $h(__('Going ✓', 'azure-plugin')) . '</span>'
+                . '<button type="button" class="pta-rsvp-inline-cancel">' . $h(__('Cancel', 'azure-plugin')) . '</button>';
+        } elseif (self::is_closed($event_id, $now)) {
+            $inner = '<span class="' . $btn . ' is-closed">' . $h(__('RSVPs closed', 'azure-plugin')) . '</span>';
+        } elseif ($left === 0) {
+            $inner = '<span class="' . $btn . ' is-full">' . $h(__('Full', 'azure-plugin')) . '</span>';
+        } elseif ($user_id <= 0) {
+            if ($return_url === null) {
+                $return_url = self::current_url();
+            }
+            $login = function_exists('wp_login_url') ? (string) wp_login_url((string) $return_url) : '';
+            /* translators: %s: event title */
+            $inner = '<a class="' . $btn . ' pta-rsvp-inline-login" href="' . $h($login) . '" aria-label="' . $h(sprintf(__('Log in to RSVP to %s', 'azure-plugin'), $title)) . '">' . $h(__('Log in to RSVP', 'azure-plugin')) . '</a>';
+        } else {
+            /* translators: %s: event title */
+            $inner = '<button type="button" class="' . $btn . ' pta-rsvp-inline-go" aria-label="' . $h(sprintf(__('RSVP to %s', 'azure-plugin'), $title)) . '">' . $h(__('RSVP', 'azure-plugin')) . '</button>';
+        }
+
+        self::enqueue_frontend_assets();
+        return '<span class="pta-rsvp-inline pta-rsvp-inline--' . $variant . '" data-event-id="' . $event_id . '" data-variant="' . $variant . '">'
+            . $inner
+            . '<span class="pta-rsvp-inline-msg" role="status" aria-live="polite"></span>'
+            . '</span>';
+    }
+
+    /**
+     * Newsletters have no RSVP script, so in an email the slot is a plain
+     * link to the event page's RSVP box.
+     */
+    public static function render_summary_email_link($event_id) {
+        $event_id = (int) $event_id;
+        $post = self::event_post($event_id);
+        if (!$post || $post->post_status !== 'publish' || !self::event_settings($event_id)['enabled'] || self::is_closed($event_id)) {
+            return '';
+        }
+        $url = function_exists('get_permalink') ? (string) get_permalink($event_id) : '';
+        if ($url === '') {
+            return '';
+        }
+        return '<a href="' . self::h($url . '#rsvp') . '" style="display:inline-block;padding:3px 10px;border:1px solid #4338ca;border-radius:4px;color:#4338ca;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;">'
+            . self::h(__('RSVP', 'azure-plugin')) . '</a>';
+    }
+
+    /**
+     * This front-end page, for Log in to RSVP to come back to.
+     */
+    private static function current_url() {
+        global $wp;
+        $path = (isset($wp) && is_object($wp) && isset($wp->request)) ? '/' . ltrim((string) $wp->request, '/') : '/';
+        $query = isset($_SERVER['QUERY_STRING']) ? (string) $_SERVER['QUERY_STRING'] : '';
+        $url = function_exists('home_url') ? home_url($path === '/' ? '/' : (function_exists('user_trailingslashit') ? user_trailingslashit($path) : $path)) : $path;
+        return $query !== '' ? $url . '?' . $query : $url;
+    }
+
     public static function user_can_edit_event($user_id, $event_id) {
         if ((int) $user_id <= 0 || !function_exists('user_can')) {
             return false;
@@ -883,6 +1010,21 @@ class Azure_Event_Rsvp {
         }
         $shortcode = $post && function_exists('has_shortcode') && has_shortcode((string) $post->post_content, 'event_rsvp');
         if (!$shortcode && ($event_id <= 0 || !self::event_settings($event_id)['enabled'])) {
+            return;
+        }
+        self::enqueue_frontend_assets();
+    }
+
+    /**
+     * Also called while a list shortcode renders an RSVP control, which is
+     * after wp_head; the script goes in the footer and WordPress prints a
+     * late style there too.
+     */
+    public static function enqueue_frontend_assets() {
+        if (!function_exists('wp_enqueue_script') || (function_exists('is_admin') && is_admin() && !(defined('DOING_AJAX') && DOING_AJAX))) {
+            return;
+        }
+        if (function_exists('wp_script_is') && wp_script_is('azure-event-rsvp', 'enqueued')) {
             return;
         }
         $ver = defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1.0';
@@ -917,10 +1059,18 @@ class Azure_Event_Rsvp {
     }
 
     private function ajax_reply(array $result, $event_id, $user_id) {
+        $variant = isset($_POST['variant']) ? sanitize_key(wp_unslash($_POST['variant'])) : '';
+        if (in_array($variant, self::SUMMARY_VARIANTS, true)) {
+            $return = isset($_POST['return']) ? esc_url_raw(wp_unslash($_POST['return'])) : '';
+            $return = $return !== '' && function_exists('wp_validate_redirect') ? (string) wp_validate_redirect($return, '') : '';
+            $html = self::render_summary_action($event_id, $variant, $user_id, null, $return !== '' ? $return : (string) get_permalink($event_id));
+        } else {
+            $html = self::render_for_event($event_id, $user_id);
+        }
         $payload = array(
             'message' => $result['message'],
             'code'    => $result['code'],
-            'html'    => self::render_for_event($event_id, $user_id),
+            'html'    => $html,
         );
         if ($result['ok']) {
             wp_send_json_success($payload);

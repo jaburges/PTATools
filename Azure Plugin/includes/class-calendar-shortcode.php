@@ -437,6 +437,9 @@ class Azure_Calendar_Shortcode {
             $join    = $show_join
                 ? Azure_Event_CPT::render_join_meeting_button($eid, 'inline')
                 : '';
+            if ($show_join && class_exists('Azure_Event_Rsvp')) {
+                $join .= Azure_Event_Rsvp::render_summary_action($eid, 'inline');
+            }
             $venue   = '';
             if ($show_loc) {
                 $vid = (int) get_post_meta($eid, '_EventVenueID', true);
