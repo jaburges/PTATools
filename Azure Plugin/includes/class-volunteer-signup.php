@@ -3600,6 +3600,7 @@ class Azure_Volunteer_Signup {
         }
         $feed_url = self::calendar_feed_url($user_id);
         $webcal_url = self::webcal_url($feed_url);
+        $subscribe_url = self::calendar_subscribe_url($user_id);
         $signups = self::signups_for_user($user_id);
         $opportunities = self::opportunities_for_user($user_id, $signups);
         $nonce = function_exists('wp_create_nonce') ? wp_create_nonce('azure_volunteer_front') : '';
