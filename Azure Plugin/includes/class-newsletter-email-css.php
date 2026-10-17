@@ -21,6 +21,7 @@ class Azure_Newsletter_Email_Css {
     const OUTLOOK_LH_MARKER = '/* pta-nl-outlook-lh */';
     const BUTTON_MARKER = '/* pta-nl-button */';
     const FLUID_MARKER = '/* pta-nl-fluid */';
+    const LIST_MARKER = '/* pta-nl-lists */';
     const COLUMN_GAP_PX = 10;
     const BUTTON_LINK_STYLE = 'display: inline-block; padding: 14px 30px; font-weight: bold; color: #ffffff; text-decoration: none;';
 
@@ -85,12 +86,19 @@ class Azure_Newsletter_Email_Css {
         if (!is_string($html) || $html === '') {
             return $original;
         }
+        $html = self::ensure_list_styles($html);
+        if (!is_string($html) || $html === '') {
+            return $original;
+        }
+        $html = str_replace(' p, h1, h2, h3, h4, h5, h6, li { display: block; }', ' p, h1, h2, h3, h4, h5, h6 { display: block; }', $html);
         $html = self::outlook_safe_line_heights($html);
         if (!is_string($html) || $html === '') {
             return $original;
         }
         if (strpos($html, self::OUTLOOK_LH_MARKER) === false) {
             $html = self::append_style($html, self::outlook_block_css());
+        } elseif (strpos($html, self::LIST_MARKER) === false) {
+            $html = self::append_style($html, self::list_css());
         }
         if (!is_string($html) || $html === '') {
             return $original;
@@ -238,11 +246,104 @@ class Azure_Newsletter_Email_Css {
      * Outlook iOS/Android honour <style> and treat <div> as inline.
      * Keep text wrappers in the block flow so a collapsed line box
      * cannot paint every child at the same Y.
+     *
+     * <li> must stay display: list-item. As display: block it loses its
+     * bullet or number in every client that reads <style>, Gmail included.
      */
     public static function outlook_block_css() {
         return self::OUTLOOK_LH_MARKER
-            . ' p, h1, h2, h3, h4, h5, h6, li { display: block; }'
-            . ' div { display: block; }';
+            . ' p, h1, h2, h3, h4, h5, h6 { display: block; }'
+            . ' div { display: block; }'
+            . ' ' . self::list_css();
+    }
+
+    public static function list_css() {
+        return self::LIST_MARKER
+            . ' ul, ol { display: block; margin: 0 0 16px 0; padding: 0 0 0 24px; }'
+            . ' ul { list-style-type: disc; } ol { list-style-type: decimal; }'
+            . ' li { display: list-item; margin: 0 0 4px 0; }';
+    }
+
+    /**
+     * Write list markers and indent onto <ul>/<ol>/<li> so bullets survive
+     * clients that strip <style> and email resets that zero list padding.
+     * Values the designer set are kept, except display: block on <li>,
+     * a padding-left of 0 on a list, and list-style none, which all hide
+     * the marker.
+     */
+    public static function ensure_list_styles($html) {
+        if ($html === '' || $html === null || !preg_match('/<(?:ul|ol|li)(?=[\s>\/])/i', $html)) {
+            return $html;
+        }
+        $rewritten = preg_replace_callback(
+            '/<(ul|ol|li)(?=[\s>\/])([^>]*)>/i',
+            array(__CLASS__, 'ensure_one_list_tag'),
+            $html
+        );
+        return is_string($rewritten) ? $rewritten : $html;
+    }
+
+    private static function ensure_one_list_tag($match) {
+        $tag = strtolower($match[1]);
+        $attrs = $match[2];
+        $style = '';
+        if (preg_match('/\bstyle\s*=\s*(["\'])(.*?)\1/is', $attrs, $sm)) {
+            $style = $sm[2];
+        }
+        $map = self::parse_declaration_map($style);
+        if ($tag === 'li') {
+            if (isset($map['display']) && stripos($map['display'], 'list-item') === false) {
+                unset($map['display']);
+            }
+            $defaults = array('display' => 'list-item');
+        } else {
+            foreach (array('list-style', 'list-style-type') as $key) {
+                if (isset($map[$key]) && preg_match('/^none\b/i', trim($map[$key]))) {
+                    unset($map[$key]);
+                }
+            }
+            if (isset($map['padding']) && preg_match('/^0(px)?(\s*!important)?$/i', trim($map['padding']))) {
+                unset($map['padding']);
+            }
+            if (isset($map['padding-left']) && preg_match('/^0(px)?(\s*!important)?$/i', trim($map['padding-left']))) {
+                unset($map['padding-left']);
+            }
+            $defaults = array(
+                'list-style-type' => $tag === 'ol' ? 'decimal' : 'disc',
+                'margin-top'      => '0',
+                'margin-bottom'   => '16px',
+            );
+            $has_left_pad = isset($map['padding-left']) || isset($map['padding']);
+            if (!$has_left_pad) {
+                $defaults['padding-left'] = '24px';
+            }
+            if (isset($map['list-style'])) {
+                unset($defaults['list-style-type']);
+            }
+            if (isset($map['margin'])) {
+                unset($defaults['margin-top'], $defaults['margin-bottom']);
+            }
+        }
+        foreach ($defaults as $prop => $val) {
+            if (!isset($map[$prop])) {
+                $map[$prop] = $val;
+            }
+        }
+        $out = array();
+        foreach ($map as $prop => $val) {
+            $out[] = $prop . ': ' . $val;
+        }
+        $new_style = implode('; ', $out);
+        if ($new_style === $style) {
+            return $match[0];
+        }
+        $quoted = 'style="' . str_replace('"', '&quot;', $new_style) . '"';
+        if ($style !== '' || preg_match('/\bstyle\s*=/i', $attrs)) {
+            $attrs = preg_replace('/\bstyle\s*=\s*(["\'])(.*?)\1/is', $quoted, $attrs, 1);
+        } else {
+            $attrs = rtrim($attrs) . ' ' . $quoted;
+        }
+        return '<' . $match[1] . $attrs . '>';
     }
 
     /**
@@ -641,9 +742,6 @@ class Azure_Newsletter_Email_Css {
         }
         if (preg_match('/^\*?\.([\w-]+)$/', $selector, $m)) {
             return "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$m[1]} ')]";
-        }
-        if (preg_match('/^[\w]+/', $selector, $m)) {
-            return "//{$m[0]}";
         }
         return '';
     }

@@ -140,7 +140,7 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                 <th><?php _e('Activities', 'azure-plugin'); ?></th>
                 <th><?php _e('Status', 'azure-plugin'); ?></th>
                 <th><?php _e('Shortcode', 'azure-plugin'); ?></th>
-                <th style="width:120px;"><?php _e('Actions', 'azure-plugin'); ?></th>
+                <th style="width:150px;"><?php _e('Actions', 'azure-plugin'); ?></th>
             </tr>
         </thead>
         <tbody>
@@ -312,6 +312,9 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                     <button type="button" class="button button-small azure-vs-edit-sheet" data-id="<?php echo esc_attr($s->id); ?>">
                         <span class="dashicons dashicons-edit" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
                     </button>
+                    <a class="button button-small" href="<?php echo esc_url(Azure_Volunteer_Signup::export_url($s->id)); ?>" title="<?php esc_attr_e('Download sign-ups (CSV)', 'azure-plugin'); ?>">
+                        <span class="dashicons dashicons-download" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
+                    </a>
                     <button type="button" class="button button-small button-link-delete azure-vs-delete-sheet" data-id="<?php echo esc_attr($s->id); ?>">
                         <span class="dashicons dashicons-trash" style="font-size:14px;width:14px;height:14px;line-height:14px;vertical-align:middle;"></span>
                     </button>
@@ -471,6 +474,22 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                         <p class="description"><?php _e('Lets one person sign up several people (family and friends) for a role. They show as "Jamie × 4" and take four spaces.', 'azure-plugin'); ?></p>
                     </td>
                 </tr>
+                <tr>
+                    <th><label for="azure-vs-donate-url"><?php _e('Donate after sign-up', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <input type="url" id="azure-vs-donate-url" class="regular-text" placeholder="https://" />
+                        <p class="description"><?php _e('Donation page link, for example a page with [pta-donate]. Tick "Ask to donate" on the activities that should show a donate button straight after someone signs up.', 'azure-plugin'); ?></p>
+                        <p>
+                            <label for="azure-vs-donate-label"><?php _e('Button text', 'azure-plugin'); ?></label>
+                            <input type="text" id="azure-vs-donate-label" class="regular-text" placeholder="<?php esc_attr_e('Donate to bulbs', 'azure-plugin'); ?>" />
+                        </p>
+                        <p>
+                            <label for="azure-vs-donate-amounts"><?php _e('Amounts ($)', 'azure-plugin'); ?></label>
+                            <input type="text" id="azure-vs-donate-amounts" class="regular-text" placeholder="<?php echo esc_attr(Azure_Volunteer_Signup::DEFAULT_DONATE_AMOUNTS); ?>" />
+                            <span class="description"><?php printf(esc_html__('Whole dollars from $%1$d to $%2$d, separated by commas.', 'azure-plugin'), Azure_Volunteer_Signup::DONATE_MIN, Azure_Volunteer_Signup::DONATE_MAX); ?></span>
+                        </p>
+                    </td>
+                </tr>
             </table>
 
             <h3><?php _e('Activities / Roles', 'azure-plugin'); ?></h3>
@@ -481,6 +500,7 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                 <span><?php esc_html_e('End', 'azure-plugin'); ?></span>
                 <span><?php esc_html_e('Spots', 'azure-plugin'); ?></span>
                 <span><?php esc_html_e('Description', 'azure-plugin'); ?></span>
+                <span><?php esc_html_e('Ask to donate', 'azure-plugin'); ?></span>
             </div>
             <div id="azure-vs-activities-list"></div>
             <button type="button" class="button" id="azure-vs-add-activity">
@@ -519,6 +539,7 @@ jQuery(function($) {
             '<input type="time" class="act-end" value="' + end + '" title="<?php esc_attr_e('End (Pacific)', 'azure-plugin'); ?>" />' +
             '<input type="number" class="act-spots" min="1" value="' + spots + '" title="<?php esc_attr_e('Spots needed', 'azure-plugin'); ?>" />' +
             '<input type="text" class="act-desc" placeholder="<?php esc_attr_e('Description (optional)', 'azure-plugin'); ?>" value="' + $('<div>').text(desc).html() + '" />' +
+            '<label class="act-donate-wrap" title="<?php esc_attr_e('Show the donate button after someone signs up for this', 'azure-plugin'); ?>"><input type="checkbox" class="act-donate" value="1"' + (parseInt(data.donate_prompt, 10) === 1 ? ' checked' : '') + ' /> <span class="screen-reader-text"><?php esc_html_e('Ask to donate', 'azure-plugin'); ?></span></label>' +
             '<button type="button" class="button button-link-delete azure-vs-remove-activity" title="<?php esc_attr_e('Remove', 'azure-plugin'); ?>">&times;</button>' +
             '</div>';
         $('#azure-vs-activities-list').append(html);
@@ -576,6 +597,7 @@ jQuery(function($) {
         $('#azure-vs-event-location').val('');
         $('#azure-vs-status').val('open');
         $('#azure-vs-allow-group').prop('checked', false);
+        $('#azure-vs-donate-url, #azure-vs-donate-label, #azure-vs-donate-amounts').val('');
         setRecurringMode(!!recurring);
         var newTitle = recurring
             ? '<?php echo esc_js(__('New Recurring Sign-Up Sheet', 'azure-plugin')); ?>'
@@ -613,6 +635,9 @@ jQuery(function($) {
                 $('#azure-vs-event-location').val(s.event_location || '');
                 $('#azure-vs-status').val(s.status);
                 $('#azure-vs-allow-group').prop('checked', parseInt(s.allow_group, 10) === 1);
+                $('#azure-vs-donate-url').val(s.donate_url || '');
+                $('#azure-vs-donate-label').val(s.donate_label || '');
+                $('#azure-vs-donate-amounts').val(s.donate_amounts || '');
                 setRecurringMode(!!res.data.is_template);
                 var seriesFound = false;
                 if (res.data.is_template && s.series_key) {
@@ -666,7 +691,8 @@ jQuery(function($) {
                 description: $(this).find('.act-desc').val(),
                 spots_needed: $(this).find('.act-spots').val() || 1,
                 slot_start: $(this).find('.act-start').val() || '',
-                slot_end: $(this).find('.act-end').val() || ''
+                slot_end: $(this).find('.act-end').val() || '',
+                donate_prompt: $(this).find('.act-donate').is(':checked') ? 1 : 0
             });
         });
 
@@ -749,6 +775,9 @@ jQuery(function($) {
             event_location: $('#azure-vs-event-location').val(),
             status: $('#azure-vs-status').val(),
             allow_group: $('#azure-vs-allow-group').is(':checked') ? 1 : 0,
+            donate_url: $('#azure-vs-donate-url').val(),
+            donate_label: $('#azure-vs-donate-label').val(),
+            donate_amounts: $('#azure-vs-donate-amounts').val(),
             is_recurring: $('#azure-vs-is-recurring').val() === '1' ? 1 : 0,
             apply_to_series: $('#azure-vs-apply-series').val() === '1' ? 1 : 0,
             activities: JSON.stringify(activities)
@@ -872,6 +901,8 @@ tr.azure-vs-series-child[hidden] { display: none !important; }
 .azure-vs-activity-headings span:nth-child(3) { width: 110px; }
 .azure-vs-activity-headings span:nth-child(4) { width: 60px; }
 .azure-vs-activity-headings span:nth-child(5) { width: 22%; min-width: 120px; }
+.azure-vs-activity-headings span:nth-child(6) { width: 90px; }
+.azure-vs-activity-row .act-donate-wrap { width: 90px; text-align: center; }
 .azure-vs-activity-row {
     display: flex; gap: 6px; align-items: center;
     margin-bottom: 6px; padding: 6px 0; flex-wrap: wrap;

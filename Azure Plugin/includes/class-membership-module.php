@@ -352,19 +352,25 @@ class Azure_Membership_Module {
         return __('PTSA Member', 'azure-plugin');
     }
 
+    public static function member_star_label() {
+        return __('PTSA member', 'azure-plugin');
+    }
+
     /**
-     * @param string $variant pill|avatar
+     * @param string $variant pill (text, for profiles and lists) or avatar
+     *                        (a small blue star in a circle on the avatar's corner)
      */
     public static function render_member_badge($variant = 'pill') {
-        $label = self::member_badge_label();
-        $class = $variant === 'avatar' ? 'pta-member-badge pta-member-badge--mark' : 'pta-member-badge pta-member-badge--pill';
-        $html = '<span class="' . esc_attr($class) . '"';
         if ($variant === 'avatar') {
-            $html .= ' title="' . esc_attr($label) . '" aria-label="' . esc_attr($label) . '"';
+            $label = self::member_star_label();
+            return '<span class="pta-member-badge pta-member-badge--star" role="img" title="' . esc_attr($label) . '" aria-label="' . esc_attr($label) . '">'
+                . '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">'
+                . '<circle cx="8" cy="8" r="8" fill="#1d4ed8"/>'
+                . '<path fill="#ffffff" d="M8 3.1l1.47 2.98 3.29.48-2.38 2.32.56 3.27L8 10.6l-2.94 1.55.56-3.27-2.38-2.32 3.29-.48z"/>'
+                . '</svg></span>';
         }
-        $visible = $variant === 'avatar' ? __('PTSA', 'azure-plugin') : $label;
-        $html .= '>' . esc_html($visible) . '</span>';
-        return $html;
+        $label = self::member_badge_label();
+        return '<span class="pta-member-badge pta-member-badge--pill">' . esc_html($label) . '</span>';
     }
 
     public static function member_badge_html($user_id, $variant = 'pill') {

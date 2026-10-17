@@ -252,6 +252,9 @@ get_header();
                         ? get_the_post_thumbnail_url($eid, 'medium')
                         : '';
                     $join_btn  = Azure_Event_CPT::render_join_meeting_button($eid, 'inline');
+                    if (class_exists('Azure_Event_Rsvp')) {
+                        $join_btn .= Azure_Event_Rsvp::render_summary_action($eid, 'inline');
+                    }
                     ?>
                     <li class="pta-events-list-item">
                         <div class="pta-events-list-card<?php echo $thumb_url ? ' has-thumb' : ''; ?><?php echo $join_btn ? ' has-join' : ''; ?>">

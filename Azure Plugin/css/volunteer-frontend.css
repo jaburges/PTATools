@@ -603,3 +603,55 @@
 .pta-volunteered-group .pta-volunteered-list {
     margin-top: 0;
 }
+
+.azure-vs-donate {
+    margin: 12px 0;
+    padding: 16px;
+    border: 1px solid #c3e6cb;
+    border-radius: 8px;
+    background: #f6fbf7;
+    text-align: center;
+}
+
+.azure-vs-donate-intro {
+    margin: 0 0 12px;
+    font-size: 15px;
+}
+
+.azure-vs-donate-main {
+    display: inline-block;
+    min-height: 44px;
+    padding: 12px 24px;
+    border-radius: 6px;
+    background: #1e7e34;
+    color: #fff !important;
+    font-weight: 600;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+
+.azure-vs-donate-amounts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.azure-vs-donate-amount {
+    min-width: 64px;
+    min-height: 44px;
+    padding: 10px 14px;
+    border: 1px solid #1e7e34;
+    border-radius: 6px;
+    color: #1e7e34 !important;
+    font-weight: 600;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+
+.azure-vs-donate-amount:hover,
+.azure-vs-donate-amount:focus {
+    background: #1e7e34;
+    color: #fff !important;
+}

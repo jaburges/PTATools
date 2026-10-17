@@ -329,6 +329,7 @@ if ($form_ref !== '') :
                     <td><input type="text" class="large-text" id="azure-forms-notify" autocomplete="off" placeholder="webmaster@example.org">
                         <p class="description"><?php esc_html_e('Each response is emailed to these addresses. Separate several with commas. Add {submitter_email} to also send a copy to the person who filled it in. Leave empty to send nothing.', 'azure-plugin'); ?></p>
                         <p class="description azure-forms-notify-readonly" hidden><?php esc_html_e('Only people who can manage rules can change this.', 'azure-plugin'); ?></p>
+                        <p class="azure-forms-notify-no-copy" style="color:#996800;" hidden><?php esc_html_e('People who fill this in see the success message but get no confirmation email. Add {submitter_email} to send them a copy.', 'azure-plugin'); ?></p>
                         <p class="azure-forms-notify-paused" style="color:#b32d2e;" hidden></p>
                         <p class="azure-forms-notify-links" hidden></p>
                         <div class="azure-forms-notify-others" hidden></div></td>

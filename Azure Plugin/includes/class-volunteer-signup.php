@@ -40,6 +40,7 @@ class Azure_Volunteer_Signup {
         self::ensure_recurring_columns();
         self::ensure_audience_columns();
         self::ensure_group_columns();
+        self::ensure_donate_columns();
         self::register_account_endpoint();
 
         add_action('template_redirect', array($this, 'maybe_serve_calendar'), 0);
@@ -52,6 +53,7 @@ class Azure_Volunteer_Signup {
         add_action('wp_ajax_azure_volunteer_delete_sheet', array($this, 'ajax_delete_sheet'));
         add_action('wp_ajax_azure_volunteer_get_sheet', array($this, 'ajax_get_sheet'));
         add_action('wp_ajax_azure_volunteer_series_preview', array($this, 'ajax_series_preview'));
+        add_action('admin_post_azure_volunteer_export', array($this, 'handle_export_csv'));
 
         add_action('wp_trash_post', array($this, 'on_event_trashed'));
         add_action('before_delete_post', array($this, 'on_event_trashed'));
@@ -594,6 +596,140 @@ class Azure_Volunteer_Signup {
     }
 
     /**
+     * Donate-after-signup: sheets.donate_url/label/amounts and
+     * activities.donate_prompt.
+     */
+    public static function ensure_donate_columns() {
+        global $wpdb;
+        if (function_exists('get_option') && get_option('azure_volunteer_donate_columns') === '1') {
+            return;
+        }
+        $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
+        $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        if (!$sheets_t || !$activities_t || !isset($wpdb) || !method_exists($wpdb, 'get_col')) {
+            return;
+        }
+        $sheet_cols = $wpdb->get_col("SHOW COLUMNS FROM {$sheets_t}", 0);
+        $act_cols = $wpdb->get_col("SHOW COLUMNS FROM {$activities_t}", 0);
+        if (!is_array($sheet_cols) || !is_array($act_cols) || !$sheet_cols || !$act_cols) {
+            return;
+        }
+        $ok = true;
+        $sheet_adds = array(
+            'donate_url'     => "varchar(500) DEFAULT ''",
+            'donate_label'   => "varchar(191) DEFAULT ''",
+            'donate_amounts' => "varchar(191) DEFAULT ''",
+        );
+        foreach ($sheet_adds as $col => $def) {
+            if (!in_array($col, $sheet_cols, true)) {
+                $ok = $wpdb->query("ALTER TABLE {$sheets_t} ADD COLUMN {$col} {$def}") !== false && $ok;
+            }
+        }
+        if (!in_array('donate_prompt', $act_cols, true)) {
+            $ok = $wpdb->query("ALTER TABLE {$activities_t} ADD COLUMN donate_prompt tinyint(1) NOT NULL DEFAULT 0") !== false && $ok;
+        }
+        if ($ok && function_exists('update_option')) {
+            update_option('azure_volunteer_donate_columns', '1', true);
+        }
+    }
+
+    const DEFAULT_DONATE_AMOUNTS = '5,10,25,50,100';
+    const DONATE_MIN = 5;
+    const DONATE_MAX = 100;
+
+    /**
+     * Whole-dollar presets between DONATE_MIN and DONATE_MAX, ascending.
+     * An empty or unusable list falls back to DEFAULT_DONATE_AMOUNTS.
+     *
+     * @param string $raw e.g. "5, 10, $25"
+     * @return int[]
+     */
+    public static function parse_donate_amounts($raw) {
+        $out = array();
+        foreach (preg_split('/[\s,;]+/', (string) $raw) as $part) {
+            $part = ltrim(trim($part), '$');
+            if ($part === '' || !preg_match('/^\d+$/', $part)) {
+                continue;
+            }
+            $n = (int) $part;
+            if ($n >= self::DONATE_MIN && $n <= self::DONATE_MAX) {
+                $out[$n] = $n;
+            }
+        }
+        if (!$out) {
+            return $raw === self::DEFAULT_DONATE_AMOUNTS ? array() : self::parse_donate_amounts(self::DEFAULT_DONATE_AMOUNTS);
+        }
+        sort($out);
+        return array_slice(array_values($out), 0, 8);
+    }
+
+    /**
+     * http(s) URLs only; anything else is dropped.
+     */
+    public static function sanitize_donate_url($raw) {
+        $url = trim((string) $raw);
+        if ($url === '' || !preg_match('#^https?://#i', $url)) {
+            return '';
+        }
+        $clean = function_exists('esc_url_raw') ? esc_url_raw($url, array('http', 'https')) : $url;
+        return substr((string) $clean, 0, 500);
+    }
+
+    /**
+     * @param string $url
+     * @param int    $amount
+     * @return string Donation link with ?donate_amount= for [pta-donate].
+     */
+    public static function donate_amount_url($url, $amount) {
+        $url = (string) $url;
+        if (function_exists('add_query_arg')) {
+            return (string) add_query_arg('donate_amount', (int) $amount, $url);
+        }
+        return $url . (strpos($url, '?') === false ? '?' : '&') . 'donate_amount=' . (int) $amount;
+    }
+
+    /**
+     * The donate prompt to show after a signup, or null when the sheet has
+     * no donation link or none of the chosen activities asks for one.
+     *
+     * @param object   $sheet
+     * @param object[] $activities Activities just signed up for.
+     * @return array{url:string,label:string,activities:string[],amounts:array<int,array{amount:int,label:string,url:string}>}|null
+     */
+    public static function donate_offer($sheet, $activities) {
+        if (!is_object($sheet)) {
+            return null;
+        }
+        $url = self::sanitize_donate_url($sheet->donate_url ?? '');
+        if ($url === '') {
+            return null;
+        }
+        $names = array();
+        foreach ((array) $activities as $act) {
+            if (is_object($act) && !empty($act->donate_prompt)) {
+                $names[] = (string) ($act->name ?? '');
+            }
+        }
+        if (!$names) {
+            return null;
+        }
+        $label = trim((string) ($sheet->donate_label ?? ''));
+        if ($label === '') {
+            $label = __('Donate', 'azure-plugin');
+        }
+        $amounts = array();
+        foreach (self::parse_donate_amounts((string) ($sheet->donate_amounts ?? '')) as $n) {
+            $amounts[] = array('amount' => $n, 'label' => '$' . $n, 'url' => self::donate_amount_url($url, $n));
+        }
+        return array(
+            'url'        => $url,
+            'label'      => $label,
+            'activities' => $names,
+            'amounts'    => $amounts,
+        );
+    }
+
+    /**
      * Prefer Outlook seriesMasterId; fall back to calendar + title.
      *
      * @param string $calendar_id
@@ -885,6 +1021,9 @@ class Azure_Volunteer_Signup {
             'teacher'             => (string) ($template->teacher ?? ''),
             'status'              => ($template->status ?? 'open') === 'closed' ? 'closed' : 'open',
             'allow_group'         => self::sheet_allows_group($template) ? 1 : 0,
+            'donate_url'          => (string) ($template->donate_url ?? ''),
+            'donate_label'        => (string) ($template->donate_label ?? ''),
+            'donate_amounts'      => (string) ($template->donate_amounts ?? ''),
             'is_template'         => 0,
             'template_id'         => $template_id,
             'series_key'          => (string) ($template->series_key ?? ''),
@@ -947,6 +1086,7 @@ class Azure_Volunteer_Signup {
                 'spots_needed' => (int) $row->spots_needed,
                 'slot_start'   => $slot_start !== '' ? $slot_start : null,
                 'slot_end'     => $slot_end !== '' ? $slot_end : null,
+                'donate_prompt'=> empty($row->donate_prompt) ? 0 : 1,
                 'sort_order'   => (int) ($row->sort_order ?? 0),
             ));
         }
@@ -1106,6 +1246,9 @@ class Azure_Volunteer_Signup {
                 'teacher'        => (string) ($source->teacher ?? ''),
                 'status'         => ($source->status ?? 'open') === 'closed' ? 'closed' : 'open',
                 'allow_group'    => self::sheet_allows_group($source) ? 1 : 0,
+                'donate_url'     => (string) ($source->donate_url ?? ''),
+                'donate_label'   => (string) ($source->donate_label ?? ''),
+                'donate_amounts' => (string) ($source->donate_amounts ?? ''),
             ), array('id' => (int) $row->id));
             self::sync_activities_onto_sheet($source_acts, $row);
             $count++;
@@ -1153,6 +1296,7 @@ class Azure_Volunteer_Signup {
                 'spots_needed' => max(1, (int) ($src->spots_needed ?? 1)),
                 'slot_start'   => $slot_start !== '' ? $slot_start : null,
                 'slot_end'     => $slot_end !== '' ? $slot_end : null,
+                'donate_prompt'=> empty($src->donate_prompt) ? 0 : 1,
                 'sort_order'   => $i,
             );
             if ($match) {
@@ -2353,6 +2497,7 @@ class Azure_Volunteer_Signup {
         self::ensure_recurring_columns();
         self::ensure_audience_columns();
         self::ensure_group_columns();
+        self::ensure_donate_columns();
 
         $sheet_id    = absint($_POST['sheet_id'] ?? 0);
         $title       = sanitize_text_field($_POST['title'] ?? '');
@@ -2432,6 +2577,9 @@ class Azure_Volunteer_Signup {
             'teacher'        => $teacher,
             'status'         => $status,
             'allow_group'    => empty($_POST['allow_group']) ? 0 : 1,
+            'donate_url'     => self::sanitize_donate_url(wp_unslash($_POST['donate_url'] ?? '')),
+            'donate_label'   => sanitize_text_field(wp_unslash($_POST['donate_label'] ?? '')),
+            'donate_amounts' => implode(',', self::parse_donate_amounts(sanitize_text_field(wp_unslash($_POST['donate_amounts'] ?? '')))),
         );
         if ($make_template) {
             $series_key = self::series_key_for_event($event_id);
@@ -2499,6 +2647,7 @@ class Azure_Volunteer_Signup {
                 'spots_needed' => $act_spots,
                 'slot_start'   => $slot_start !== '' ? $slot_start : null,
                 'slot_end'     => $slot_end !== '' ? $slot_end : null,
+                'donate_prompt'=> empty($act['donate_prompt']) ? 0 : 1,
                 'sort_order'   => $i,
             );
 
@@ -2605,6 +2754,85 @@ class Azure_Volunteer_Signup {
         wp_send_json_success();
     }
 
+    /**
+     * @param int $sheet_id
+     * @return string admin-post URL for this sheet's CSV.
+     */
+    public static function export_url($sheet_id) {
+        $sheet_id = (int) $sheet_id;
+        $url = admin_url('admin-post.php?action=azure_volunteer_export&sheet_id=' . $sheet_id);
+        return function_exists('wp_nonce_url') ? wp_nonce_url($url, 'azure_volunteer_export_' . $sheet_id) : $url;
+    }
+
+    /**
+     * One row per person per activity, so someone who picked three options
+     * appears three times, each with their own party size.
+     *
+     * @param object   $sheet
+     * @param object[] $activities
+     * @param object[] $signups  activity_id, user_id, party_size, signed_up_at
+     * @return array<int,string[]> Header row first.
+     */
+    public static function export_rows($sheet, $activities, $signups) {
+        $rows = array(array('Activity', 'Time', 'Name', 'Email', 'People', 'Signed up'));
+        $by_activity = array();
+        foreach ((array) $signups as $s) {
+            $by_activity[(int) $s->activity_id][] = $s;
+        }
+        foreach ((array) $activities as $act) {
+            foreach ($by_activity[(int) $act->id] ?? array() as $s) {
+                $user = function_exists('get_userdata') ? get_userdata((int) $s->user_id) : null;
+                $rows[] = array(
+                    (string) $act->name,
+                    self::slot_time_label($sheet, $act),
+                    $user ? (string) $user->display_name : '',
+                    $user ? (string) $user->user_email : '',
+                    (string) self::party_size_of($s),
+                    (string) ($s->signed_up_at ?? ''),
+                );
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * A leading =, +, - or @ makes spreadsheets run the cell as a formula.
+     */
+    public static function csv_cell($value) {
+        $value = (string) $value;
+        return preg_match('/^[=+\-@\t\r]/', $value) ? "'" . $value : $value;
+    }
+
+    public function handle_export_csv() {
+        $sheet_id = absint($_GET['sheet_id'] ?? 0);
+        if (!self::user_can_manage_sheets()) {
+            wp_die(esc_html__('You do not have permission to export sign-ups.', 'azure-plugin'), 403);
+        }
+        check_admin_referer('azure_volunteer_export_' . $sheet_id);
+        $sheet = self::get_sheet($sheet_id);
+        if (!$sheet) {
+            wp_die(esc_html__('Sheet not found.', 'azure-plugin'), 404);
+        }
+        global $wpdb;
+        $activities = self::get_activities($sheet_id);
+        $signups = array();
+        $signups_t = Azure_Database::get_table_name('volunteer_signups');
+        $ids = array_map('intval', wp_list_pluck($activities, 'id'));
+        if ($signups_t && $ids) {
+            $signups = $wpdb->get_results("SELECT * FROM {$signups_t} WHERE activity_id IN (" . implode(',', $ids) . ") ORDER BY signed_up_at ASC, id ASC");
+        }
+        $name = sanitize_title($sheet->title) ?: 'signups';
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $name . '-signups.csv"');
+        $out = fopen('php://output', 'w');
+        foreach (self::export_rows($sheet, $activities, $signups) as $row) {
+            fputcsv($out, array_map(array(__CLASS__, 'csv_cell'), $row));
+        }
+        fclose($out);
+        exit;
+    }
+
     public function ajax_get_sheet() {
         check_ajax_referer('azure_plugin_nonce', 'nonce');
 
@@ -2629,6 +2857,7 @@ class Azure_Volunteer_Signup {
                 'spots_needed' => (int) $a->spots_needed,
                 'slot_start'   => isset($a->slot_start) ? (string) $a->slot_start : '',
                 'slot_end'     => isset($a->slot_end) ? (string) $a->slot_end : '',
+                'donate_prompt'=> empty($a->donate_prompt) ? 0 : 1,
             );
         }
         $event_id = (int) ($sheet->pta_event_id ?? 0);
@@ -2856,6 +3085,7 @@ class Azure_Volunteer_Signup {
         wp_send_json_success(array(
             'message'    => sprintf(__('You signed up for: %s', 'azure-plugin'), implode(', ', $added)),
             'activities' => $added,
+            'donate'     => self::donate_offer(self::get_sheet($sheet_id), $added_acts),
         ));
     }
 
@@ -3370,6 +3600,7 @@ class Azure_Volunteer_Signup {
         }
         $feed_url = self::calendar_feed_url($user_id);
         $webcal_url = self::webcal_url($feed_url);
+        $subscribe_url = self::calendar_subscribe_url($user_id);
         $signups = self::signups_for_user($user_id);
         $opportunities = self::opportunities_for_user($user_id, $signups);
         $nonce = function_exists('wp_create_nonce') ? wp_create_nonce('azure_volunteer_front') : '';
@@ -3769,6 +4000,8 @@ class Azure_Volunteer_Signup {
                 'party_whole' => __('Enter a whole number of people, 1 or more.', 'azure-plugin'),
                 /* translators: %d: number of people already booked */
                 'party_same' => __('You are already signed up for %d. Change the number, then press Update.', 'azure-plugin'),
+                'donate_intro' => __('Thanks for signing up! You chose to donate. Pick an amount:', 'azure-plugin'),
+                'donate_done' => __('Done', 'azure-plugin'),
             ),
         ));
     }

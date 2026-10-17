@@ -60,6 +60,7 @@ class Azure_Event_Rsvp {
         add_action('wp_ajax_nopriv_azure_rsvp_cancel', array($this, 'ajax_login_required'));
 
         add_action('admin_post_azure_rsvp_export', array($this, 'export_csv'));
+        add_action('wp_dashboard_setup', array($this, 'register_dashboard_widget'));
         add_action('before_delete_post', array($this, 'on_event_deleted'));
         add_action('wp_enqueue_scripts', array($this, 'maybe_enqueue_frontend'));
 
@@ -797,7 +798,7 @@ class Azure_Event_Rsvp {
         $h = function ($v) {
             return self::h($v);
         };
-        $out = '<section class="pta-event-rsvp" data-event-id="' . $event_id . '">';
+        $out = '<section class="pta-event-rsvp" id="rsvp" data-event-id="' . $event_id . '">';
         $out .= '<h2 class="pta-event-section">' . $h(__('RSVP', 'azure-plugin')) . '</h2>';
         if ($summary) {
             $out .= '<p class="pta-rsvp-summary">' . $h(implode(' · ', $summary)) . '</p>';
@@ -852,6 +853,133 @@ class Azure_Event_Rsvp {
         return $out;
     }
 
+    // ──────────────────────────────────────────────
+    // RSVP next to "Join meeting" on event lists
+    // ──────────────────────────────────────────────
+
+    const SUMMARY_VARIANTS = array('inline', 'compact');
+
+    /**
+     * A per-user-neutral marker for cached list HTML ([up-next] caches its
+     * output for everyone). fill_summary_placeholders() swaps it for the
+     * current person's RSVP control on each request.
+     */
+    public static function summary_placeholder($event_id, $variant = 'inline') {
+        $variant = in_array($variant, self::SUMMARY_VARIANTS, true) ? $variant : 'inline';
+        return '<!--pta-rsvp:' . (int) $event_id . ':' . $variant . '-->';
+    }
+
+    /**
+     * @param string $html
+     * @return string
+     */
+    public static function fill_summary_placeholders($html, $user_id = null, $now = null) {
+        if (!is_string($html) || strpos($html, '<!--pta-rsvp:') === false) {
+            return $html;
+        }
+        $email = class_exists('Azure_Newsletter_Shortcodes') && method_exists('Azure_Newsletter_Shortcodes', 'is_expanding')
+            && Azure_Newsletter_Shortcodes::is_expanding();
+        $filled = preg_replace_callback('/<!--pta-rsvp:(\d+):(inline|compact)-->/', function ($m) use ($user_id, $now, $email) {
+            return $email
+                ? self::render_summary_email_link((int) $m[1])
+                : self::render_summary_action((int) $m[1], $m[2], $user_id, $now);
+        }, $html);
+        return is_string($filled) ? $filled : $html;
+    }
+
+    /**
+     * The RSVP control for one event in a list: RSVP, Going ✓ + Cancel,
+     * Log in to RSVP, Full or RSVPs closed. Empty when RSVP is off or the
+     * event is not published.
+     *
+     * @param int         $event_id
+     * @param string      $variant    'inline' (event cards) or 'compact' ([up-next])
+     * @param int|null    $user_id    Defaults to the signed-in user.
+     * @param mixed       $now
+     * @param string|null $return_url Where Log in returns to; defaults to this page.
+     * @return string
+     */
+    public static function render_summary_action($event_id, $variant = 'inline', $user_id = null, $now = null, $return_url = null) {
+        $event_id = (int) $event_id;
+        $post = self::event_post($event_id);
+        if (!$post || $post->post_status !== 'publish') {
+            return '';
+        }
+        $settings = self::event_settings($event_id);
+        if (!$settings['enabled']) {
+            return '';
+        }
+        $variant = in_array($variant, self::SUMMARY_VARIANTS, true) ? $variant : 'inline';
+        if ($user_id === null) {
+            $user_id = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
+        }
+        $user_id = (int) $user_id;
+        $h = function ($v) {
+            return self::h($v);
+        };
+        $btn = 'pta-join-meeting pta-rsvp-action' . ($variant === 'compact' ? ' pta-join-meeting--compact' : '');
+        $title = (string) $post->post_title;
+
+        $rsvp = $user_id > 0 ? self::get_rsvp($event_id, $user_id) : null;
+        $going = $rsvp && $rsvp->status === self::STATUS_GOING;
+        $left = self::spaces_left($event_id);
+
+        if ($going) {
+            /* translators: %s: event title */
+            $inner = '<span class="' . $btn . ' is-going" aria-label="' . $h(sprintf(__('You are going to %s', 'azure-plugin'), $title)) . '">' . $h(__('Going ✓', 'azure-plugin')) . '</span>'
+                . '<button type="button" class="pta-rsvp-inline-cancel">' . $h(__('Cancel', 'azure-plugin')) . '</button>';
+        } elseif (self::is_closed($event_id, $now)) {
+            $inner = '<span class="' . $btn . ' is-closed">' . $h(__('RSVPs closed', 'azure-plugin')) . '</span>';
+        } elseif ($left === 0) {
+            $inner = '<span class="' . $btn . ' is-full">' . $h(__('Full', 'azure-plugin')) . '</span>';
+        } elseif ($user_id <= 0) {
+            if ($return_url === null) {
+                $return_url = self::current_url();
+            }
+            $login = function_exists('wp_login_url') ? (string) wp_login_url((string) $return_url) : '';
+            /* translators: %s: event title */
+            $inner = '<a class="' . $btn . ' pta-rsvp-inline-login" href="' . $h($login) . '" aria-label="' . $h(sprintf(__('Log in to RSVP to %s', 'azure-plugin'), $title)) . '">' . $h(__('Log in to RSVP', 'azure-plugin')) . '</a>';
+        } else {
+            /* translators: %s: event title */
+            $inner = '<button type="button" class="' . $btn . ' pta-rsvp-inline-go" aria-label="' . $h(sprintf(__('RSVP to %s', 'azure-plugin'), $title)) . '">' . $h(__('RSVP', 'azure-plugin')) . '</button>';
+        }
+
+        self::enqueue_frontend_assets();
+        return '<span class="pta-rsvp-inline pta-rsvp-inline--' . $variant . '" data-event-id="' . $event_id . '" data-variant="' . $variant . '">'
+            . $inner
+            . '<span class="pta-rsvp-inline-msg" role="status" aria-live="polite"></span>'
+            . '</span>';
+    }
+
+    /**
+     * Newsletters have no RSVP script, so in an email the slot is a plain
+     * link to the event page's RSVP box.
+     */
+    public static function render_summary_email_link($event_id) {
+        $event_id = (int) $event_id;
+        $post = self::event_post($event_id);
+        if (!$post || $post->post_status !== 'publish' || !self::event_settings($event_id)['enabled'] || self::is_closed($event_id)) {
+            return '';
+        }
+        $url = function_exists('get_permalink') ? (string) get_permalink($event_id) : '';
+        if ($url === '') {
+            return '';
+        }
+        return '<a href="' . self::h($url . '#rsvp') . '" style="display:inline-block;padding:3px 10px;border:1px solid #4338ca;border-radius:4px;color:#4338ca;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap;">'
+            . self::h(__('RSVP', 'azure-plugin')) . '</a>';
+    }
+
+    /**
+     * This front-end page, for Log in to RSVP to come back to.
+     */
+    private static function current_url() {
+        global $wp;
+        $path = (isset($wp) && is_object($wp) && isset($wp->request)) ? '/' . ltrim((string) $wp->request, '/') : '/';
+        $query = isset($_SERVER['QUERY_STRING']) ? (string) $_SERVER['QUERY_STRING'] : '';
+        $url = function_exists('home_url') ? home_url($path === '/' ? '/' : (function_exists('user_trailingslashit') ? user_trailingslashit($path) : $path)) : $path;
+        return $query !== '' ? $url . '?' . $query : $url;
+    }
+
     public static function user_can_edit_event($user_id, $event_id) {
         if ((int) $user_id <= 0 || !function_exists('user_can')) {
             return false;
@@ -884,8 +1012,24 @@ class Azure_Event_Rsvp {
         if (!$shortcode && ($event_id <= 0 || !self::event_settings($event_id)['enabled'])) {
             return;
         }
+        self::enqueue_frontend_assets();
+    }
+
+    /**
+     * Also called while a list shortcode renders an RSVP control, which is
+     * after wp_head; the script goes in the footer and WordPress prints a
+     * late style there too.
+     */
+    public static function enqueue_frontend_assets() {
+        if (!function_exists('wp_enqueue_script') || (function_exists('is_admin') && is_admin() && !(defined('DOING_AJAX') && DOING_AJAX))) {
+            return;
+        }
+        if (function_exists('wp_script_is') && wp_script_is('azure-event-rsvp', 'enqueued')) {
+            return;
+        }
         $ver = defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1.0';
-        wp_enqueue_style('azure-event-rsvp', AZURE_PLUGIN_URL . 'css/event-rsvp.css', array(), $ver);
+        wp_enqueue_style('pta-event-shared', AZURE_PLUGIN_URL . 'css/pta-event-shared.css', array(), $ver);
+        wp_enqueue_style('azure-event-rsvp', AZURE_PLUGIN_URL . 'css/event-rsvp.css', array('pta-event-shared'), $ver);
         wp_enqueue_script('azure-event-rsvp', AZURE_PLUGIN_URL . 'js/event-rsvp.js', array('jquery'), $ver, true);
         wp_localize_script('azure-event-rsvp', 'azureRsvp', array(
             'ajaxurl' => admin_url('admin-ajax.php'),
@@ -916,10 +1060,18 @@ class Azure_Event_Rsvp {
     }
 
     private function ajax_reply(array $result, $event_id, $user_id) {
+        $variant = isset($_POST['variant']) ? sanitize_key(wp_unslash($_POST['variant'])) : '';
+        if (in_array($variant, self::SUMMARY_VARIANTS, true)) {
+            $return = isset($_POST['return']) ? esc_url_raw(wp_unslash($_POST['return'])) : '';
+            $return = $return !== '' && function_exists('wp_validate_redirect') ? (string) wp_validate_redirect($return, '') : '';
+            $html = self::render_summary_action($event_id, $variant, $user_id, null, $return !== '' ? $return : (string) get_permalink($event_id));
+        } else {
+            $html = self::render_for_event($event_id, $user_id);
+        }
         $payload = array(
             'message' => $result['message'],
             'code'    => $result['code'],
-            'html'    => self::render_for_event($event_id, $user_id),
+            'html'    => $html,
         );
         if ($result['ok']) {
             wp_send_json_success($payload);
@@ -1050,6 +1202,214 @@ class Azure_Event_Rsvp {
             'order'          => 'DESC',
             'meta_query'     => array(array('key' => self::META_ENABLED, 'value' => 'yes')),
         ));
+    }
+
+    // ──────────────────────────────────────────────
+    // Dashboard cards
+    // ──────────────────────────────────────────────
+
+    const CARD_LIST_LIMIT = 25;
+
+    public function register_dashboard_widget() {
+        if (!function_exists('current_user_can') || !current_user_can(self::manage_cap())) {
+            return;
+        }
+        wp_add_dashboard_widget('azure_event_rsvps', __('Event RSVPs', 'azure-plugin'), array($this, 'render_dashboard_widget'));
+    }
+
+    public function render_dashboard_widget() {
+        echo self::render_cards(self::dashboard_cards()); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in render_cards()
+    }
+
+    /**
+     * One card per RSVP event: upcoming soonest first, then past most
+     * recent first. An event is past once it has ended (or started, with
+     * no end).
+     *
+     * @param WP_Post[]|null $events Defaults to rsvp_events().
+     * @return array{upcoming:array<int,array>,past:array<int,array>}
+     */
+    public static function dashboard_cards($events = null, $now = null) {
+        $events = $events === null ? self::rsvp_events() : (array) $events;
+        $now = self::now($now);
+        $list_url = function_exists('admin_url') ? admin_url('admin.php?page=azure-plugin-rsvp') : '';
+        $upcoming = array();
+        $past = array();
+        foreach ($events as $ev) {
+            if (!is_object($ev) || empty($ev->ID)) {
+                continue;
+            }
+            $id = (int) $ev->ID;
+            $settings = self::event_settings($id);
+            $details = self::event_details($id);
+            $start = self::local($details['start']);
+            $end = self::local($details['end']);
+            $ends = $end && $start && $end > $start ? $end : $start;
+            if ($ends && $details['all_day']) {
+                $ends = $ends->setTime(23, 59, 59);
+            }
+            $rows = self::rsvps_for_event($id);
+            $taken = 0;
+            $list = array();
+            foreach ($rows as $row) {
+                $taken += self::party_size($row);
+                $at = self::local((string) ($row->created_at ?? ''));
+                $list[] = array(
+                    'name'   => self::display_name($row),
+                    'email'  => self::display_email($row),
+                    'guests' => (int) ($row->guests ?? 0),
+                    'at'     => $at ? $at->format('M j, g:i A') : '',
+                );
+            }
+            $closes = self::local(self::closes_at($id));
+            $card = array(
+                'id'          => $id,
+                'title'       => $details['title'] !== '' ? $details['title'] : (string) ($ev->post_title ?? ''),
+                'when'        => $details['when'],
+                'status'      => (string) ($ev->post_status ?? ''),
+                'view_url'    => $details['url'],
+                'edit_url'    => function_exists('get_edit_post_link') ? (string) get_edit_post_link($id, 'raw') : '',
+                'admin_url'   => $list_url !== '' ? $list_url . '&event_id=' . $id : '',
+                'export_url'  => function_exists('admin_url') ? self::export_url($id) : '',
+                'rsvp_count'  => count($rows),
+                'people'      => $taken,
+                'capacity'    => $settings['capacity'],
+                'deadline'    => $closes ? $closes->format('M j, g:i A') : '',
+                'deadline_set'=> $settings['deadline'] !== '',
+                'closed'      => self::is_closed($id, $now),
+                'rsvps'       => $list,
+                'sort'        => $start ? $start->getTimestamp() : 0,
+            );
+            if ($ends && $ends < $now) {
+                $past[] = $card;
+            } else {
+                $upcoming[] = $card;
+            }
+        }
+        usort($upcoming, function ($a, $b) { return $a['sort'] <=> $b['sort']; });
+        usort($past, function ($a, $b) { return $b['sort'] <=> $a['sort']; });
+        return array('upcoming' => $upcoming, 'past' => $past);
+    }
+
+    /**
+     * @param array{upcoming:array,past:array} $cards
+     */
+    public static function render_cards(array $cards) {
+        $h = function ($v) {
+            return self::h($v);
+        };
+        $out = '<div class="pta-rsvp-cards-wrap">' . self::cards_css();
+        if (empty($cards['upcoming']) && empty($cards['past'])) {
+            $out .= '<p class="pta-rsvp-cards-empty">' . $h(__('No events take RSVPs yet. Open an event and tick Enable RSVP in its RSVP box.', 'azure-plugin')) . '</p>';
+            return $out . '</div>';
+        }
+        if (empty($cards['upcoming'])) {
+            $out .= '<p class="pta-rsvp-cards-empty">' . $h(__('No upcoming events take RSVPs.', 'azure-plugin')) . '</p>';
+        } else {
+            $out .= '<div class="pta-rsvp-cards">';
+            foreach ($cards['upcoming'] as $card) {
+                $out .= self::render_card($card);
+            }
+            $out .= '</div>';
+        }
+        if (!empty($cards['past'])) {
+            $out .= '<details class="pta-rsvp-cards-past"><summary>' . $h(sprintf(
+                /* translators: %d: number of past events */
+                _n('%d past event', '%d past events', count($cards['past']), 'azure-plugin'),
+                count($cards['past'])
+            )) . '</summary><div class="pta-rsvp-cards">';
+            foreach ($cards['past'] as $card) {
+                $out .= self::render_card($card);
+            }
+            $out .= '</div></details>';
+        }
+        return $out . '</div>';
+    }
+
+    private static function render_card(array $c) {
+        $h = function ($v) {
+            return self::h($v);
+        };
+        $title = $c['view_url'] !== ''
+            ? '<a href="' . $h($c['view_url']) . '">' . $h($c['title']) . '</a>'
+            : $h($c['title']);
+        $status = $c['status'] === 'publish' ? '' : ' <span class="pta-rsvp-card-status">' . $h(ucfirst($c['status'])) . '</span>';
+        $count = $c['capacity'] > 0
+            /* translators: 1: people coming, 2: capacity */
+            ? sprintf(__('%1$d of %2$d spots', 'azure-plugin'), $c['people'], $c['capacity'])
+            /* translators: %d: people coming */
+            : sprintf(_n('%d person', '%d people', $c['people'], 'azure-plugin'), $c['people']);
+        /* translators: %d: number of RSVPs */
+        $count .= ' · ' . sprintf(_n('%d RSVP', '%d RSVPs', $c['rsvp_count'], 'azure-plugin'), $c['rsvp_count']);
+        if ($c['closed']) {
+            $deadline = __('RSVPs closed', 'azure-plugin');
+        } elseif ($c['deadline'] !== '') {
+            /* translators: %s: date and time */
+            $deadline = sprintf($c['deadline_set'] ? __('RSVP by %s', 'azure-plugin') : __('Closes at start, %s', 'azure-plugin'), $c['deadline']);
+        } else {
+            $deadline = '';
+        }
+
+        $out = '<div class="pta-rsvp-card" data-event-id="' . (int) $c['id'] . '">';
+        $out .= '<h3 class="pta-rsvp-card-title">' . $title . $status . '</h3>';
+        if ($c['when'] !== '') {
+            $out .= '<p class="pta-rsvp-card-when">' . $h($c['when']) . '</p>';
+        }
+        $out .= '<p class="pta-rsvp-card-count"><strong>' . $h($count) . '</strong>' . ($deadline !== '' ? '<br><span>' . $h($deadline) . '</span>' : '') . '</p>';
+        if ($c['rsvps']) {
+            $out .= '<ul class="pta-rsvp-card-list">';
+            foreach (array_slice($c['rsvps'], 0, self::CARD_LIST_LIMIT) as $r) {
+                $guests = $r['guests'] > 0 ? ' <span class="pta-rsvp-card-guests">+' . (int) $r['guests'] . '</span>' : '';
+                $out .= '<li><span class="pta-rsvp-card-name">' . $h($r['name'] !== '' ? $r['name'] : $r['email']) . $guests . '</span>'
+                    . ($r['email'] !== '' ? ' <a class="pta-rsvp-card-email" href="mailto:' . $h($r['email']) . '">' . $h($r['email']) . '</a>' : '')
+                    . ($r['at'] !== '' ? ' <span class="pta-rsvp-card-at">' . $h($r['at']) . '</span>' : '')
+                    . '</li>';
+            }
+            $out .= '</ul>';
+            $more = count($c['rsvps']) - self::CARD_LIST_LIMIT;
+            if ($more > 0) {
+                /* translators: %d: RSVPs not shown */
+                $out .= '<p class="pta-rsvp-card-more">' . $h(sprintf(__('+ %d more on the RSVP page', 'azure-plugin'), $more)) . '</p>';
+            }
+        } else {
+            $out .= '<p class="pta-rsvp-card-none">' . $h(__('No RSVPs yet.', 'azure-plugin')) . '</p>';
+        }
+        $links = array();
+        if ($c['admin_url'] !== '') {
+            $links[] = '<a href="' . $h($c['admin_url']) . '">' . $h(__('All RSVPs', 'azure-plugin')) . '</a>';
+        }
+        if ($c['export_url'] !== '') {
+            $links[] = '<a href="' . $h($c['export_url']) . '">' . $h(__('Export CSV', 'azure-plugin')) . '</a>';
+        }
+        if ($c['edit_url'] !== '') {
+            $links[] = '<a href="' . $h($c['edit_url']) . '">' . $h(__('Edit event', 'azure-plugin')) . '</a>';
+        }
+        if ($links) {
+            $out .= '<p class="pta-rsvp-card-links">' . implode(' · ', $links) . '</p>';
+        }
+        return $out . '</div>';
+    }
+
+    private static function cards_css() {
+        return '<style>'
+            . '.pta-rsvp-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin:8px 0 12px}'
+            . '.pta-rsvp-card{border:1px solid #dcdcde;border-radius:6px;padding:12px;background:#fff;min-width:0}'
+            . '.pta-rsvp-card-title{margin:0 0 4px;font-size:14px;line-height:1.4}'
+            . '.pta-rsvp-card-title a{text-decoration:none}'
+            . '.pta-rsvp-card-status{display:inline-block;margin-left:6px;padding:0 6px;border-radius:3px;background:#f0f0f1;color:#50575e;font-size:11px;font-weight:600;vertical-align:middle}'
+            . '.pta-rsvp-card-when{margin:0 0 6px;color:#50575e;font-size:12px}'
+            . '.pta-rsvp-card-count{margin:0 0 8px;font-size:13px}'
+            . '.pta-rsvp-card-count span{color:#50575e;font-size:12px}'
+            . '.pta-rsvp-card-list{margin:0 0 8px;padding:0;list-style:none;max-height:220px;overflow:auto;border-top:1px solid #f0f0f1}'
+            . '.pta-rsvp-card-list li{margin:0;padding:6px 0;border-bottom:1px solid #f0f0f1;font-size:12px;line-height:1.4;overflow-wrap:anywhere}'
+            . '.pta-rsvp-card-name{font-weight:600;color:#1d2327}'
+            . '.pta-rsvp-card-guests{color:#2271b1;font-weight:600}'
+            . '.pta-rsvp-card-email{display:block;color:#50575e}'
+            . '.pta-rsvp-card-at{display:block;color:#787c82;font-size:11px}'
+            . '.pta-rsvp-card-none,.pta-rsvp-card-more{margin:0 0 8px;color:#646970;font-size:12px}'
+            . '.pta-rsvp-card-links{margin:0;font-size:12px}'
+            . '.pta-rsvp-cards-past summary{cursor:pointer;font-weight:600;margin:4px 0}'
+            . '</style>';
     }
 
     public static function display_name($rsvp) {

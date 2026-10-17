@@ -142,7 +142,7 @@ class Azure_Calendar_Shortcode {
         if ($reading_pta) {
             $calendar_id = isset($atts['id']) ? trim((string) $atts['id']) : '';
             $events = $this->fetch_pta_events($start_date, $end_date, $calendar_id);
-            $calendar_events = $this->format_events_for_calendar($events);
+            $calendar_events = $this->format_events_for_calendar($events, self::display_timezone($atts['timezone']));
 
             $output  = '<div id="' . esc_attr($container_id) . '" class="azure-calendar-container" style="height: ' . esc_attr($atts['height']) . '; width: ' . esc_attr($atts['width']) . ';"></div>';
             $output .= $this->render_subscribe_bar($container_id, $calendar_id);
@@ -215,7 +215,7 @@ class Azure_Calendar_Shortcode {
         }
         
         // Convert events to FullCalendar format
-        $calendar_events = $this->format_events_for_calendar($events);
+        $calendar_events = $this->format_events_for_calendar($events, self::display_timezone($atts['timezone']));
         
         // Build calendar HTML and JavaScript
         $output = '<div id="' . esc_attr($container_id) . '" class="azure-calendar-container" style="height: ' . esc_attr($atts['height']) . '; width: ' . esc_attr($atts['width']) . ';"></div>';
@@ -437,6 +437,9 @@ class Azure_Calendar_Shortcode {
             $join    = $show_join
                 ? Azure_Event_CPT::render_join_meeting_button($eid, 'inline')
                 : '';
+            if ($show_join && class_exists('Azure_Event_Rsvp')) {
+                $join .= Azure_Event_Rsvp::render_summary_action($eid, 'inline');
+            }
             $venue   = '';
             if ($show_loc) {
                 $vid = (int) get_post_meta($eid, '_EventVenueID', true);
@@ -760,14 +763,16 @@ class Azure_Calendar_Shortcode {
      * exclusive, so passing the date verbatim yields the correct
      * span across day cells.
      */
-    private function format_events_for_calendar($events) {
+    private function format_events_for_calendar($events, $tz = null) {
         $calendar_events = array();
+        $tz = $tz instanceof DateTimeZone ? $tz : self::display_timezone();
 
         foreach ($events as $event) {
             $is_all_day = !empty($event['allDay']);
             $start      = $event['start'] ?? '';
             $end        = $event['end']   ?? '';
 
+            $time_label = '';
             if ($is_all_day) {
                 if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $start, $m)) {
                     $start = $m[1];
@@ -775,6 +780,10 @@ class Azure_Calendar_Shortcode {
                 if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $end, $m)) {
                     $end = $m[1];
                 }
+            } else {
+                $time_label = self::time_label($start, $end, $tz);
+                $start = self::to_wall_clock($start, $tz);
+                $end   = self::to_wall_clock($end, $tz);
             }
 
             $color = $this->get_event_color($event);
@@ -801,7 +810,8 @@ class Azure_Calendar_Shortcode {
                 'classNames'      => $class_names,
                 'display'         => $is_all_day ? 'block' : 'auto',
                 'extendedProps'   => array(
-                    'joinUrl' => $event['joinUrl'] ?? '',
+                    'joinUrl'   => $event['joinUrl'] ?? '',
+                    'timeLabel' => $time_label,
                 ),
             );
             if (!empty($event['url'])) {
@@ -813,6 +823,126 @@ class Azure_Calendar_Shortcode {
         return $calendar_events;
     }
     
+    /**
+     * Timezone every calendar time is shown in: the shortcode's
+     * timezone="" when it names a real zone, otherwise the site timezone.
+     *
+     * @param string $override
+     * @return DateTimeZone
+     */
+    public static function display_timezone($override = '') {
+        $override = trim((string) $override);
+        if ($override !== '') {
+            try {
+                return new DateTimeZone($override);
+            } catch (Exception $e) {
+                // Fall through to the site timezone.
+            }
+        }
+        if (function_exists('wp_timezone')) {
+            return wp_timezone();
+        }
+        return new DateTimeZone(function_exists('azure_wp_timezone_string') ? azure_wp_timezone_string() : 'UTC');
+    }
+
+    /**
+     * FullCalendar has no timezone plugin here, so for a named zone it
+     * shows the wall-clock digits of each event string and ignores any
+     * offset. Event strings are therefore sent as offset-free site wall
+     * clock (to_wall_clock()), and the zone name only has to be one
+     * FullCalendar accepts: the IANA name, or UTC for a raw offset.
+     *
+     * @return string
+     */
+    public static function fullcalendar_timezone_name(DateTimeZone $tz) {
+        $name = $tz->getName();
+        if ($name === '' || preg_match('/^[+-]\d{2}:?\d{2}$/', $name) || strpos($name, '/') === false) {
+            return 'UTC';
+        }
+        return $name;
+    }
+
+    /**
+     * Any ISO/MySQL datetime as "Y-m-d\TH:i:s" wall clock in $tz.
+     * Strings with Z or an offset are converted; strings without one
+     * are already site-local (pta_event storage) and are kept.
+     *
+     * @param string $value
+     * @return string
+     */
+    public static function to_wall_clock($value, DateTimeZone $tz) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+        $clean = preg_replace('/\.\d+/', '', $value);
+        try {
+            $has_offset = (bool) preg_match('/(Z|[+-]\d{2}:?\d{2})$/i', $clean);
+            $dt = $has_offset ? new DateTime($clean) : new DateTime($clean, $tz);
+            $dt->setTimezone($tz);
+            return $dt->format('Y-m-d\TH:i:s');
+        } catch (Exception $e) {
+            return $value;
+        }
+    }
+
+    /**
+     * Unix timestamp for an ISO/MySQL datetime; offset-free values are
+     * read as wall clock in $tz.
+     *
+     * @return int 0 when unparseable
+     */
+    public static function to_timestamp($value, DateTimeZone $tz) {
+        $wall = self::to_wall_clock($value, $tz);
+        if ($wall === '') {
+            return 0;
+        }
+        try {
+            return (new DateTime($wall, $tz))->getTimestamp();
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Hover/assistive text for a timed event, e.g. "10:00 am – 11:30 am",
+     * formatted in $tz with the site time format. Spans that end on a
+     * later day name both days.
+     *
+     * @return string
+     */
+    public static function time_label($start, $end, DateTimeZone $tz) {
+        $s = self::to_wall_clock($start, $tz);
+        if ($s === '') {
+            return '';
+        }
+        $e = self::to_wall_clock($end, $tz);
+        $time_fmt = function_exists('get_option') ? (string) get_option('time_format', 'g:i a') : 'g:i a';
+        if ($time_fmt === '') {
+            $time_fmt = 'g:i a';
+        }
+        $fmt = function ($wall, $format) use ($tz) {
+            $dt = new DateTime($wall, $tz);
+            return function_exists('wp_date') ? wp_date($format, $dt->getTimestamp(), $tz) : $dt->format($format);
+        };
+        $label = $fmt($s, $time_fmt);
+        if ($e === '' || $e === $s) {
+            return $label;
+        }
+        if (substr($e, 0, 10) !== substr($s, 0, 10)) {
+            return $fmt($s, 'M j') . ', ' . $label . ' – ' . $fmt($e, 'M j') . ', ' . $fmt($e, $time_fmt);
+        }
+        return $label . ' – ' . $fmt($e, $time_fmt);
+    }
+
+    /**
+     * Seconds to add to UTC for the current site wall clock, so the
+     * calendar's "today" and now-line follow the site, not UTC.
+     */
+    public static function now_offset_seconds(DateTimeZone $tz) {
+        return (int) $tz->getOffset(new DateTime('now', new DateTimeZone('UTC')));
+    }
+
     /**
      * Get event color based on categories or default
      */
@@ -842,18 +972,12 @@ class Azure_Calendar_Shortcode {
         // from Outlook, so they are not trusted output.
         $events_json = wp_json_encode($events, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         
-        // Display TZ must match how pta_event times are stored (WP local).
-        // A stale plugin default of America/New_York used to win over the
-        // site timezone and shift Outlook-synced events by several hours.
-        $timezone = azure_wp_timezone_string();
-        if (!empty($atts['timezone'])) {
-            $timezone = $atts['timezone'];
-        } else {
-            $settings = Azure_Settings::get_all_settings();
-            if (!empty($atts['id']) && !empty($settings['calendar_timezone_' . $atts['id']])) {
-                $timezone = $settings['calendar_timezone_' . $atts['id']];
-            }
-        }
+        // Event strings arrive as site wall clock (format_events_for_calendar),
+        // so the grid, the hover text and "today" all follow the site
+        // timezone whatever the visitor's or Outlook's zone is.
+        $display_tz = self::display_timezone($atts['timezone'] ?? '');
+        $timezone = esc_js(self::fullcalendar_timezone_name($display_tz));
+        $now_offset_ms = self::now_offset_seconds($display_tz) * 1000;
         
         // Map view names to FullCalendar v6 view names
         $view_map = array(
@@ -875,8 +999,11 @@ class Azure_Calendar_Shortcode {
         // format through the calendar rather than toLocale*().
         function ptaCalEventSummary(cal, ev, withDate) {
             var lines = [ev.title || ''];
+            var label = (ev.extendedProps && ev.extendedProps.timeLabel) ? String(ev.extendedProps.timeLabel) : '';
             try {
-                if (ev.allDay) {
+                if (label && !withDate) {
+                    lines.push(label);
+                } else if (ev.allDay) {
                     if (withDate) {
                         lines.push(cal.formatDate(ev.start, { weekday: 'short', month: 'short', day: 'numeric' }));
                     }
@@ -903,6 +1030,7 @@ class Azure_Calendar_Shortcode {
                 var calendar = new FullCalendar.Calendar(calendarEl, {
                     initialView: '{$initial_view}',
                     timeZone: '{$timezone}',
+                    now: function() { return new Date(Date.now() + ({$now_offset_ms})).toISOString().slice(0, 19); },
                     events: {$events_json},
                     headerToolbar: {
                         left: 'prev,next today',
@@ -956,10 +1084,14 @@ class Azure_Calendar_Shortcode {
      */
     private function render_events_list($events, $atts) {
         $output = '<div class="' . esc_attr($atts['class']) . ' format-' . esc_attr($atts['format']) . '">';
+        $tz = self::display_timezone($atts['timezone'] ?? '');
+        $fmt = function ($format, $ts) use ($tz) {
+            return function_exists('wp_date') ? wp_date($format, $ts, $tz) : date($format, $ts);
+        };
         
         foreach ($events as $event) {
-            $start_time = strtotime($event['start']);
-            $end_time = strtotime($event['end']);
+            $start_time = self::to_timestamp($event['start'], $tz);
+            $end_time = self::to_timestamp($event['end'], $tz);
             
             $output .= '<div class="azure-event-item">';
             
@@ -971,13 +1103,13 @@ class Azure_Calendar_Shortcode {
                 $output .= '<div class="event-datetime">';
                 
                 if ($atts['show_dates']) {
-                    $output .= '<span class="event-date">' . date($atts['date_format'], $start_time) . '</span>';
+                    $output .= '<span class="event-date">' . $fmt($atts['date_format'], $start_time) . '</span>';
                 }
                 
                 if ($atts['show_times'] && !$event['allDay']) {
-                    $output .= ' <span class="event-time">' . date($atts['time_format'], $start_time);
+                    $output .= ' <span class="event-time">' . $fmt($atts['time_format'], $start_time);
                     if ($start_time !== $end_time) {
-                        $output .= ' - ' . date($atts['time_format'], $end_time);
+                        $output .= ' - ' . $fmt($atts['time_format'], $end_time);
                     }
                     $output .= '</span>';
                 }
