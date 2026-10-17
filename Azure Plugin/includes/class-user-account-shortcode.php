@@ -157,7 +157,7 @@ class Azure_User_Account_Shortcode {
                         + ' onclick="azureToggleAccountMenu(\'' + id + '\')"'
                         + ' style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;">'
                         + (d.avatar_html || ('<img src="' + (d.avatar||'') + '" width="32" height="32" class="user-account-avatar" style="border-radius:50%;" />'))
-                        + '<span class="user-account-name">' + d.display_name + '</span>'
+                        + '<span class="user-account-name">' + String(d.display_name || '').replace(/[&<>"']/g, function(c){ return '&#' + c.charCodeAt(0) + ';'; }) + '</span>'
                         + (d.badge_html || '')
                         + '<span class="user-account-arrow" style="transition:transform .2s ease;">'
                         + '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
@@ -235,11 +235,6 @@ class Azure_User_Account_Shortcode {
                     : $avatar_img;
                 ?>
                 <span class="user-account-name"><?php echo esc_html($user->display_name); ?></span>
-                <?php
-                if (class_exists('Azure_Membership_Module')) {
-                    echo Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill');
-                }
-                ?>
                 <span class="user-account-arrow" style="transition:transform .2s ease;">
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                         <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" stroke-width="1.5"
@@ -307,10 +302,10 @@ class Azure_User_Account_Shortcode {
 
         $avatar_url = get_avatar_url($user->ID, array('size' => 40));
         $avatar_img = '<img src="' . esc_url($avatar_url) . '" width="32" height="32" class="user-account-avatar" style="border-radius:50%;" />';
+        // The member star rides on the avatar; the header has no text pill.
         $badge_html = '';
         if (class_exists('Azure_Membership_Module')) {
             $avatar_img = Azure_Membership_Module::wrap_member_avatar($avatar_img, (int) $user->ID);
-            $badge_html = Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill');
         }
 
         wp_send_json(array(

@@ -318,11 +318,30 @@ button.pta-join-meeting.pta-rsvp-action {
     justify-content: flex-end;
     gap: 6px;
 }
-@media (max-width: 600px) {
-    .pta-join-meeting.pta-rsvp-action {
-        min-height: 36px;
+/* Phones: Join goes full width (above), so RSVP does too, with Cancel
+   beside it. */
+@media (max-width: 560px) {
+    .pta-rsvp-inline {
+        display: flex;
+        width: 100%;
+        flex-wrap: nowrap;
     }
-    .upcoming-join-meeting .pta-join-meeting.pta-rsvp-action {
-        min-height: 32px;
+    .pta-rsvp-inline .pta-join-meeting.pta-rsvp-action {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: 0;
+        min-height: 36px;
+        justify-content: center;
+    }
+    .pta-rsvp-inline-cancel {
+        flex: 0 0 auto;
+        padding: 8px 4px;
+    }
+    .pta-rsvp-inline-msg:not(:empty) {
+        flex: 0 1 auto;
+    }
+    .upcoming-join-meeting .pta-rsvp-inline .pta-join-meeting--compact.pta-rsvp-action {
+        min-height: 28px;
+        padding: 3px 10px;
     }
 }

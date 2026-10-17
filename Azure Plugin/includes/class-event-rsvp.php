@@ -1028,7 +1028,8 @@ class Azure_Event_Rsvp {
             return;
         }
         $ver = defined('AZURE_PLUGIN_VERSION') ? AZURE_PLUGIN_VERSION : '1.0';
-        wp_enqueue_style('azure-event-rsvp', AZURE_PLUGIN_URL . 'css/event-rsvp.css', array(), $ver);
+        wp_enqueue_style('pta-event-shared', AZURE_PLUGIN_URL . 'css/pta-event-shared.css', array(), $ver);
+        wp_enqueue_style('azure-event-rsvp', AZURE_PLUGIN_URL . 'css/event-rsvp.css', array('pta-event-shared'), $ver);
         wp_enqueue_script('azure-event-rsvp', AZURE_PLUGIN_URL . 'js/event-rsvp.js', array('jquery'), $ver, true);
         wp_localize_script('azure-event-rsvp', 'azureRsvp', array(
             'ajaxurl' => admin_url('admin-ajax.php'),
