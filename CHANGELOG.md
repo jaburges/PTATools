@@ -2,6 +2,21 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.177 — RSVP in previews, and a pointer for editors
+
+### Fixed
+
+- **Previewing a draft event now shows the RSVP box to editors.** Before, the box only appeared on published events, so an editor previewing a draft saw nothing and couldn't tell whether RSVP was set up. The preview shows the count and guest picker, with the RSVP button disabled and "Preview: members can RSVP once this event is published." Members and visitors still see nothing on drafts, and nobody can RSVP to a draft.
+
+### Added
+
+- **A note for editors when RSVP is off.** If an event doesn't take RSVPs, people who can edit it now see "Only editors see this: RSVP is off for this event…" where the RSVP box would be. It says where to turn RSVP on and links to the editor. Members and visitors see nothing.
+
+### Where to find it
+
+- **Module switch:** PTA Tools dashboard → Calendar card → *RSVP* switch, or PTA Tools → Scheduling & Events → RSVP.
+- **Per-event setting:** the event editor's right-hand sidebar → *Event* tab → **RSVP** panel at the bottom, below Categories → **Enable RSVP**.
+
 ## 3.147.176 — Product fields on Product Collection cards
 
 ### Changed
