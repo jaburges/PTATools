@@ -35,3 +35,9 @@
 .pta-event-rsvp .pta-rsvp-message.is-error {
     color: #b32d2e;
 }
+
+.pta-event-rsvp button[disabled],
+.pta-event-rsvp select[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+}

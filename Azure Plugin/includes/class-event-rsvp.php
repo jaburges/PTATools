@@ -757,14 +757,22 @@ class Azure_Event_Rsvp {
     public static function render_for_event($event_id, $user_id = null, $now = null) {
         $event_id = (int) $event_id;
         $post = self::event_post($event_id);
-        $settings = self::event_settings($event_id);
-        if (!$post || $post->post_status !== 'publish' || !$settings['enabled']) {
+        if (!$post) {
             return '';
         }
         if ($user_id === null) {
             $user_id = function_exists('get_current_user_id') ? (int) get_current_user_id() : 0;
         }
         $user_id = (int) $user_id;
+        $settings = self::event_settings($event_id);
+        $can_edit = self::user_can_edit_event($user_id, $event_id);
+        if (!$settings['enabled']) {
+            return $can_edit ? self::editor_off_note($event_id) : '';
+        }
+        $preview = $post->post_status !== 'publish';
+        if ($preview && !$can_edit) {
+            return '';
+        }
         $rsvp = $user_id > 0 ? self::get_rsvp($event_id, $user_id) : null;
         $going = $rsvp && $rsvp->status === self::STATUS_GOING;
         $closed = self::is_closed($event_id, $now);
@@ -795,7 +803,19 @@ class Azure_Event_Rsvp {
             $out .= '<p class="pta-rsvp-summary">' . $h(implode(' · ', $summary)) . '</p>';
         }
 
-        if ($going) {
+        if ($preview) {
+            $out .= '<p class="pta-rsvp-status pta-rsvp-preview-note">' . $h(__('Preview: members can RSVP once this event is published.', 'azure-plugin')) . '</p>';
+            $out .= '<div class="pta-rsvp-form">';
+            if ($settings['max_guests'] > 0) {
+                $out .= '<label class="pta-rsvp-guests">' . $h(__('Guests', 'azure-plugin')) . ' <select name="guests" disabled>';
+                for ($i = 0; $i <= $settings['max_guests']; $i++) {
+                    $out .= '<option value="' . $i . '">' . $i . '</option>';
+                }
+                $out .= '</select></label> ';
+            }
+            $out .= '<button type="button" class="button button-primary pta-rsvp-submit" disabled aria-disabled="true">' . $h(__('RSVP', 'azure-plugin')) . '</button>';
+            $out .= '</div>';
+        } elseif ($going) {
             $out .= '<p class="pta-rsvp-status">' . $h(sprintf(
                 /* translators: %s: "Just you" or "You + 2 guests" */
                 __('You\'re going. %s.', 'azure-plugin'),
@@ -829,6 +849,28 @@ class Azure_Event_Rsvp {
         }
         $out .= '<p class="pta-rsvp-message" role="status" aria-live="polite"></p>';
         $out .= '</section>';
+        return $out;
+    }
+
+    public static function user_can_edit_event($user_id, $event_id) {
+        if ((int) $user_id <= 0 || !function_exists('user_can')) {
+            return false;
+        }
+        return (bool) user_can((int) $user_id, 'edit_post', (int) $event_id);
+    }
+
+    /**
+     * Only people who can edit the event see this: where to turn RSVP on.
+     */
+    private static function editor_off_note($event_id) {
+        $edit = function_exists('get_edit_post_link') ? (string) get_edit_post_link((int) $event_id, 'raw') : '';
+        $out = '<section class="pta-event-rsvp pta-event-rsvp--off" data-event-id="' . (int) $event_id . '">';
+        $out .= '<p class="pta-rsvp-editor-note" style="margin:0 0 24px;padding:10px 12px;background:#f0f6fc;border-left:4px solid #2271b1;font-size:14px;line-height:1.5;"><strong>' . self::h(__('Only editors see this:', 'azure-plugin')) . '</strong> '
+            . self::h(__('RSVP is off for this event. In the event editor, open the Event settings sidebar, find the RSVP panel and tick Enable RSVP, then Update.', 'azure-plugin'));
+        if ($edit !== '') {
+            $out .= ' <a href="' . self::h($edit) . '">' . self::h(__('Edit this event', 'azure-plugin')) . '</a>';
+        }
+        $out .= '</p></section>';
         return $out;
     }
 
