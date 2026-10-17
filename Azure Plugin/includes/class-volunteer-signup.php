@@ -3016,6 +3016,7 @@ class Azure_Volunteer_Signup {
         $added_acts = array();
         $too_many = '';
         $unchanged = false;
+        $resized = false;
 
         foreach ($activity_ids as $aid) {
             $act = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$activities_t} WHERE id = %d", $aid));
@@ -3051,6 +3052,7 @@ class Azure_Volunteer_Signup {
                 continue;
             }
             if ($existing) {
+                $resized = true;
                 $saved = $wpdb->update($signups_t, array('party_size' => $size), array('id' => (int) $existing->id));
             } else {
                 $saved = $wpdb->insert($signups_t, array(
@@ -3080,6 +3082,13 @@ class Azure_Volunteer_Signup {
 
         $sheet_id = (int) $added_acts[0]->sheet_id;
         $this->send_confirmation_email($user_id, $sheet_id, $added_acts);
+        $this->notify_organizer(
+            'volunteer_organizer_signup',
+            $user_id,
+            self::get_sheet($sheet_id),
+            $added_acts,
+            $resized && count($added_acts) === 1 ? __('changed their group size for', 'azure-plugin') : null
+        );
         $this->touch_upcoming_cache();
 
         wp_send_json_success(array(
@@ -3103,7 +3112,20 @@ class Azure_Volunteer_Signup {
         }
 
         $signups_t = Azure_Database::get_table_name('volunteer_signups');
-        $wpdb->delete($signups_t, array('activity_id' => $activity_id, 'user_id' => $user_id));
+        $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$signups_t} WHERE activity_id = %d AND user_id = %d",
+            $activity_id,
+            $user_id
+        ));
+        $removed = $wpdb->delete($signups_t, array('activity_id' => $activity_id, 'user_id' => $user_id));
+        if ($existing && $removed) {
+            $act = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$activities_t} WHERE id = %d", $activity_id));
+            if ($act) {
+                $act->party_size = self::party_size_of($existing);
+                $this->notify_organizer('volunteer_organizer_cancel', $user_id, self::get_sheet((int) $act->sheet_id), array($act));
+            }
+        }
         $this->touch_upcoming_cache();
 
         wp_send_json_success(array('message' => __('You have withdrawn from this activity.', 'azure-plugin')));
@@ -3144,6 +3166,80 @@ class Azure_Volunteer_Signup {
         );
 
         wp_mail($user->user_email, $subject, $message, array('Content-Type: text/html; charset=UTF-8'));
+    }
+
+    /**
+     * The sheet's creator, who gets a short notice about sign-ups and
+     * cancellations. Null when the sheet has no creator, the account is
+     * gone or has no email, or the creator is the volunteer.
+     *
+     * @param object $sheet
+     * @param int    $volunteer_id
+     * @return object|null WP_User-like
+     */
+    public static function organizer_for_sheet($sheet, $volunteer_id) {
+        $creator_id = is_object($sheet) ? (int) ($sheet->created_by ?? 0) : 0;
+        if ($creator_id <= 0 || $creator_id === (int) $volunteer_id || !function_exists('get_userdata')) {
+            return null;
+        }
+        $user = get_userdata($creator_id);
+        if (!$user || trim((string) ($user->user_email ?? '')) === '') {
+            return null;
+        }
+        return $user;
+    }
+
+    public static function sheet_admin_url($sheet) {
+        $id = is_object($sheet) ? (int) ($sheet->id ?? 0) : 0;
+        return function_exists('admin_url') ? (string) admin_url('admin.php?page=azure-plugin-volunteer&edit_sheet=' . $id) : '';
+    }
+
+    /**
+     * @param string   $key       volunteer_organizer_signup | volunteer_organizer_cancel
+     * @param object   $organizer WP_User-like
+     * @param object   $volunteer WP_User-like
+     * @param object   $sheet
+     * @param object[] $activities Each may carry party_size.
+     * @param string   $intro     Overrides the message's "signed up for" text.
+     * @return array{0:string,1:string} subject, body
+     */
+    public static function compose_organizer_message($key, $organizer, $volunteer, $sheet, $activities, $event_title = '', $intro = null) {
+        $shift_vars = self::notice_vars('', '', $sheet, self::with_party_in_names($activities), $event_title, '', 0);
+        $url = self::sheet_admin_url($sheet);
+        $vars = array(
+            'name'            => (string) ($organizer->display_name ?? ''),
+            'volunteer'       => (string) ($volunteer->display_name ?? ''),
+            'volunteer_email' => (string) ($volunteer->user_email ?? ''),
+            'event'           => $shift_vars['event'],
+            'shifts'          => $shift_vars['shifts'],
+            'sheet_url'       => $url,
+            'sheet_link'      => $url === '' ? '' : '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;"><a href="' . self::email_text($url) . '" style="color:#0073aa;">' . self::email_text(__('View the sign-up sheet', 'azure-plugin')) . '</a></p>',
+            'site_name'       => self::site_name(),
+        );
+        if ($intro !== null) {
+            $vars['intro'] = (string) $intro;
+        }
+        return Azure_Email_Messages::render($key, $vars);
+    }
+
+    /**
+     * @param object[] $activities
+     */
+    private function notify_organizer($key, $volunteer_id, $sheet, $activities, $intro = null) {
+        $organizer = self::organizer_for_sheet($sheet, $volunteer_id);
+        $volunteer = function_exists('get_userdata') ? get_userdata((int) $volunteer_id) : null;
+        if (!$organizer || !$volunteer || empty($activities)) {
+            return false;
+        }
+        list($event_title) = $this->event_notice_fields($sheet);
+        list($subject, $body) = self::compose_organizer_message($key, $organizer, $volunteer, $sheet, $activities, $event_title, $intro);
+        if ($body === '') {
+            return false;
+        }
+        return (bool) wp_mail($organizer->user_email, $subject, $body, array(
+            'Content-Type: text/html; charset=UTF-8',
+            'Reply-To: ' . $volunteer->user_email,
+        ));
     }
 
     /**
