@@ -82,6 +82,38 @@
         $('#azure-vs-confirm-modal').data('sheet', $row.closest('.azure-volunteer-sheet'));
     }
 
+    function esc(text) {
+        return $('<div>').text(String(text)).html();
+    }
+
+    /**
+     * Donate buttons shown straight after a signup for an activity that asks
+     * for a donation. The page reloads only when the person presses Done, so
+     * the buttons don't vanish before they can tap one.
+     */
+    function showDonate($sheet, donate) {
+        $sheet.find('.azure-vs-donate').remove();
+        var buttons = '';
+        (donate.amounts || []).forEach(function(a) {
+            buttons += '<a class="azure-vs-donate-amount" href="' + esc(a.url) + '">' + esc(a.label) + '</a>';
+        });
+        var html = '<div class="azure-vs-donate" role="region" aria-label="' + esc(donate.label) + '">' +
+            '<p class="azure-vs-donate-intro">' + esc(i18n.donate_intro || 'Thanks for signing up! You chose to donate. Pick an amount:') + '</p>' +
+            '<a class="azure-vs-donate-main" href="' + esc(donate.url) + '">' + esc(donate.label) + '</a>' +
+            (buttons ? '<div class="azure-vs-donate-amounts">' + buttons + '</div>' : '') +
+            '<button type="button" class="button azure-vs-donate-done">' + esc(i18n.donate_done || 'Done') + '</button>' +
+            '</div>';
+        $sheet.find('.azure-vs-message').after(html);
+        var el = $sheet.find('.azure-vs-donate').get(0);
+        if (el && el.scrollIntoView) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    $(document).on('click', '.azure-vs-donate-done', function() {
+        location.reload();
+    });
+
     function signup(activityId, $sheet, size) {
         var $msg = $sheet.find('.azure-vs-message');
         $msg.hide();
@@ -94,6 +126,11 @@
         $.post(azureVolunteer.ajaxurl, data)
         .done(function(res) {
             if (res.success) {
+                if (res.data.donate && res.data.donate.url) {
+                    $msg.removeClass('error').addClass('success').text(res.data.message || i18n.saved || 'Saved!').show();
+                    showDonate($sheet, res.data.donate);
+                    return;
+                }
                 showMessage($msg, res.data.message || i18n.saved || 'Saved!', 'success');
                 setTimeout(function() { location.reload(); }, 800);
             } else {
