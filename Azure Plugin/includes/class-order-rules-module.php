@@ -528,6 +528,7 @@ class Azure_Order_Rules_Module {
         $to = $basic ? self::recipients_text($basic) : '';
         return array(
             'to'        => $to,
+            'submitter_copy' => self::rules_send_submitter_copy($rules),
             'paused'    => $basic && empty($basic->enabled) && $to !== '',
             'email_url' => $basic && $basic->email_key !== '' ? self::email_edit_url($basic->email_key, $basic->id) : '',
             'rule_url'  => $basic ? self::rule_edit_url($basic->id) : '',
@@ -535,6 +536,21 @@ class Azure_Order_Rules_Module {
             'rules_url' => admin_url('admin.php?page=azure-plugin-system&tab=rules'),
             'can_edit'  => self::current_user_can_manage(),
         );
+    }
+
+    /**
+     * Whether any enabled rule emails the person who filled the form in.
+     * Without one they see the on-screen message but get no email.
+     *
+     * @param object[] $rules Hydrated form rules.
+     */
+    public static function rules_send_submitter_copy(array $rules) {
+        foreach ($rules as $rule) {
+            if (!empty($rule->enabled) && in_array('{submitter_email}', (array) ($rule->to_token_list ?? array()), true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
