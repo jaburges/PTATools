@@ -6454,6 +6454,61 @@
     }
 
     /**
+     * Same 5px buffer the send path adds (Azure_Newsletter_Email_Css::
+     * ensure_edge_buffer), so Review shows what recipients get. Keep the
+     * two in step.
+     */
+    function ensurePreviewEdgeBuffer(html) {
+        var px = 5;
+        var cls = 'nl-edge-buffer';
+        if (!html || html.indexOf(cls) !== -1) {
+            return html;
+        }
+        var open = /<table\b(?=[^>]*(?:\bwidth\s*=\s*["']?600(?:px)?["'\s>]|width\s*:\s*600px))[^>]*>/i.exec(html);
+        if (!open) {
+            return html;
+        }
+        var start = open.index;
+        var openEnd = start + open[0].length;
+        var tagRe = /<(\/?)table\b[^>]*>/gi;
+        tagRe.lastIndex = start;
+        var depth = 0;
+        var close = -1;
+        var tag;
+        while ((tag = tagRe.exec(html)) !== null) {
+            depth += tag[1] === '/' ? -1 : 1;
+            if (depth === 0) {
+                close = tag[0].toLowerCase() === '</table>' ? tag.index : -1;
+                break;
+            }
+        }
+        if (close < 0) {
+            return html;
+        }
+        var inner = html.slice(openEnd, close);
+        var lead = '';
+        var rows = inner;
+        var trail = '';
+        var parts = /^((?:\s|<!--[\s\S]*?-->)*<tbody\b[^>]*>)([\s\S]*)(<\/tbody>\s*)$/i.exec(inner);
+        if (parts) {
+            lead = parts[1];
+            rows = parts[2];
+            trail = parts[3];
+        }
+        if (!/<tr/i.test(rows)) {
+            return html;
+        }
+        rows = rows.replace(/(<img\b[^>]*\bwidth\s*=\s*["']?)600(?=["'\s>\/])/gi, '$1' + (600 - 2 * px));
+        var box = html.slice(start, openEnd) + lead
+            + '<tr><td class="' + cls + '" style="padding: ' + px + 'px;">'
+            + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%;"><tbody>'
+            + rows + '</tbody></table></td></tr>' + trail + '</table>';
+        var outer = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%;"><tbody><tr>'
+            + '<td align="center" class="' + cls + '-outer" style="padding: 0 ' + px + 'px;">' + box + '</td></tr></tbody></table>';
+        return html.slice(0, start) + outer + html.slice(close + '</table>'.length);
+    }
+
+    /**
      * Update preview iframe (Step 3).
      * Uses full document HTML so images and styles render.
      */
@@ -6461,7 +6516,7 @@
         var html = $('#newsletter_content_html').val();
         var frame = document.getElementById('preview-frame');
         if (frame && html) {
-            html = ensurePreviewFluidCss(html);
+            html = ensurePreviewEdgeBuffer(ensurePreviewFluidCss(html));
             var doc = frame.contentDocument || frame.contentWindow.document;
             doc.open();
             doc.write(html);

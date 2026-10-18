@@ -23,6 +23,8 @@ class Azure_Newsletter_Email_Css {
     const FLUID_MARKER = '/* pta-nl-fluid */';
     const LIST_MARKER = '/* pta-nl-lists */';
     const COLUMN_GAP_PX = 10;
+    const EDGE_BUFFER_PX = 5;
+    const EDGE_BUFFER_CLASS = 'nl-edge-buffer';
     const BUTTON_LINK_STYLE = 'display: inline-block; padding: 14px 30px; font-weight: bold; color: #ffffff; text-decoration: none;';
 
     /**
@@ -124,7 +126,78 @@ class Azure_Newsletter_Email_Css {
         if (strpos($html, self::FLUID_MARKER) === false) {
             $html = self::append_style($html, self::fluid_wrapper_css());
         }
+        if (is_string($html) && $html !== '') {
+            $html = self::ensure_edge_buffer($html);
+        }
         return (is_string($html) && $html !== '') ? $html : $original;
+    }
+
+    /**
+     * EDGE_BUFFER_PX between everything in the email and the edge of its
+     * 600px box, and between the box and the screen edge on phones, where
+     * the box goes full width.
+     *
+     * The box's rows move into one padded cell instead of padding the
+     * existing cells: their own padding (the footer's 30px, the header's 0)
+     * comes from <style> rules that an inline padding would override.
+     * Emails without a 600px box are left as they are.
+     */
+    public static function ensure_edge_buffer($html) {
+        if (!is_string($html) || $html === '' || strpos($html, self::EDGE_BUFFER_CLASS) !== false) {
+            return $html;
+        }
+        if (!preg_match('/<table\b(?=[^>]*(?:\bwidth\s*=\s*["\']?600(?:px)?["\'\s>]|width\s*:\s*600px))[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE)) {
+            return $html;
+        }
+        $start = $m[0][1];
+        $open_end = $start + strlen($m[0][0]);
+        $close = self::matching_table_close($html, $start);
+        if ($close === null) {
+            return $html;
+        }
+        $inner = substr($html, $open_end, $close - $open_end);
+        if (preg_match('/^((?:\s|<!--.*?-->)*<tbody\b[^>]*>)(.*)(<\/tbody>\s*)$/is', $inner, $parts)) {
+            list(, $lead, $rows, $trail) = $parts;
+        } else {
+            list($lead, $rows, $trail) = array('', $inner, '');
+        }
+        if (stripos($rows, '<tr') === false) {
+            return $html;
+        }
+        $px = (int) self::EDGE_BUFFER_PX;
+        // Outlook sizes images from the width attribute, so a full-width 600 would push the box past 600.
+        $rows = preg_replace('/(<img\b[^>]*\bwidth\s*=\s*["\']?)600(?=["\'\s>\/])/i', '${1}' . (600 - 2 * $px), $rows);
+        $box = substr($html, $start, $open_end - $start)
+            . $lead
+            . '<tr><td class="' . self::EDGE_BUFFER_CLASS . '" style="padding: ' . $px . 'px;">'
+            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%;"><tbody>'
+            . $rows
+            . '</tbody></table></td></tr>'
+            . $trail
+            . '</table>';
+        $outer = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width: 100%;"><tbody><tr>'
+            . '<td align="center" class="' . self::EDGE_BUFFER_CLASS . '-outer" style="padding: 0 ' . $px . 'px;">'
+            . $box
+            . '</td></tr></tbody></table>';
+        $close_end = $close + strlen('</table>');
+        return substr($html, 0, $start) . $outer . substr($html, $close_end);
+    }
+
+    /**
+     * Offset of the </table> that closes the <table> at $start, or null.
+     */
+    private static function matching_table_close($html, $start) {
+        if (!preg_match_all('/<(\/?)table\b[^>]*>/i', $html, $tags, PREG_OFFSET_CAPTURE | PREG_SET_ORDER, $start)) {
+            return null;
+        }
+        $depth = 0;
+        foreach ($tags as $tag) {
+            $depth += $tag[1][0] === '/' ? -1 : 1;
+            if ($depth === 0) {
+                return strcasecmp(substr($tag[0][0], 0, 8), '</table>') === 0 ? $tag[0][1] : null;
+            }
+        }
+        return null;
     }
 
     /**

@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.181 — Breathing room around newsletter emails
+
+### Changed
+
+- **Newsletters keep 5px clear of the edge.** Every newsletter now has a 5px buffer inside the white email box, so headings and anything else that ran edge to edge no longer touch it, and 5px between the box and the screen edge on phones, where the box fills the width. It is one buffer around the whole email, not extra padding per section, so section spacing is unchanged; the dark footer sits inside it too. It is added when the email is sent (test sends, campaigns and order-rule emails), so existing and scheduled campaigns get it without editing, and the Review step preview shows it. A 600px-wide header image is sized to 590px so Outlook keeps the email at 600px.
+
 ## 3.147.180 — RSVP for more than one person
 
 ### Added
