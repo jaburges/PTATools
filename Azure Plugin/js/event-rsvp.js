@@ -6,6 +6,42 @@
         return;
     }
 
+    // − Jamie +1 + : the hidden guests input holds the count; the label and
+    // the buttons' limits follow it.
+    function syncParty($party) {
+        if ($party.data('locked')) {
+            return;
+        }
+        var max = parseInt($party.data('max'), 10) || 0;
+        var $input = $party.find('input[name="guests"]');
+        var n = Math.min(max, Math.max(0, parseInt($input.val(), 10) || 0));
+        $input.val(n);
+        $party.find('.pta-rsvp-party-label').text($party.data('name') + (n > 0 ? ' +' + n : ''));
+        $party.find('.pta-rsvp-step[data-step="-1"]').prop('disabled', n <= 0).attr('aria-disabled', n <= 0 ? 'true' : 'false');
+        $party.find('.pta-rsvp-step[data-step="1"]').prop('disabled', n >= max).attr('aria-disabled', n >= max ? 'true' : 'false');
+    }
+
+    function guestsIn($scope) {
+        var $input = $scope.find('.pta-rsvp-party input[name="guests"]');
+        return $input.length ? (parseInt($input.val(), 10) || 0) : 0;
+    }
+
+    function enableButtons($scope) {
+        $scope.find('button').prop('disabled', false);
+        $scope.find('.pta-rsvp-party').each(function () {
+            syncParty($(this));
+        });
+    }
+
+    $(document).on('click', '.pta-rsvp-party .pta-rsvp-step', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var $party = $(this).closest('.pta-rsvp-party');
+        var $input = $party.find('input[name="guests"]');
+        $input.val((parseInt($input.val(), 10) || 0) + parseInt($(this).data('step'), 10));
+        syncParty($party);
+    });
+
     function send($box, action, data) {
         var $msg = $box.find('.pta-rsvp-message');
         var $buttons = $box.find('button');
@@ -28,14 +64,13 @@
         }).fail(function () {
             $msg.addClass('is-error').text(azureRsvp.i18n.error);
         }).always(function () {
-            $box.find('button').prop('disabled', false);
+            enableButtons($box);
         });
     }
 
     $(document).on('click', '.pta-event-rsvp .pta-rsvp-submit', function () {
         var $box = $(this).closest('.pta-event-rsvp');
-        var $guests = $box.find('select[name="guests"]');
-        send($box, 'azure_rsvp_create', { guests: $guests.length ? $guests.val() : 0 });
+        send($box, 'azure_rsvp_create', { guests: guestsIn($box) });
     });
 
     $(document).on('click', '.pta-event-rsvp .pta-rsvp-cancel', function () {
@@ -47,7 +82,7 @@
 
     // The RSVP control next to "Join meeting" on event lists. The server
     // sends back the refreshed control; its message line shows the result.
-    function sendInline($wrap, action) {
+    function sendInline($wrap, action, guests) {
         var $buttons = $wrap.find('button');
         $buttons.prop('disabled', true);
         $wrap.find('.pta-rsvp-inline-msg').removeClass('is-error').text(azureRsvp.i18n.saving);
@@ -56,7 +91,7 @@
             nonce: azureRsvp.nonce,
             event_id: $wrap.data('event-id'),
             variant: $wrap.data('variant'),
-            guests: 0,
+            guests: guests || 0,
             'return': window.location.href
         }).done(function (res) {
             var payload = (res && res.data) || {};
@@ -71,14 +106,39 @@
         }).fail(function () {
             $wrap.find('.pta-rsvp-inline-msg').addClass('is-error').text(azureRsvp.i18n.error);
         }).always(function () {
-            $wrap.find('button').prop('disabled', false);
+            enableButtons($wrap);
         });
     }
 
+    // Events that allow guests open the − / + picker first; Confirm saves.
     $(document).on('click', '.pta-rsvp-inline .pta-rsvp-inline-go', function (e) {
         e.preventDefault();
         e.stopPropagation();
-        sendInline($(this).closest('.pta-rsvp-inline'), 'azure_rsvp_create');
+        var $wrap = $(this).closest('.pta-rsvp-inline');
+        var $party = $wrap.find('.pta-rsvp-inline-party');
+        if (!$party.length) {
+            sendInline($wrap, 'azure_rsvp_create', 0);
+            return;
+        }
+        $(this).prop('hidden', true);
+        $party.prop('hidden', false);
+        syncParty($party.find('.pta-rsvp-party'));
+        $party.find('.pta-rsvp-step[data-step="1"]').trigger('focus');
+    });
+
+    $(document).on('click', '.pta-rsvp-inline .pta-rsvp-inline-confirm', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var $wrap = $(this).closest('.pta-rsvp-inline');
+        sendInline($wrap, 'azure_rsvp_create', guestsIn($wrap));
+    });
+
+    $(document).on('click', '.pta-rsvp-inline .pta-rsvp-inline-back', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var $wrap = $(this).closest('.pta-rsvp-inline');
+        $wrap.find('.pta-rsvp-inline-party').prop('hidden', true);
+        $wrap.find('.pta-rsvp-inline-go').prop('hidden', false).trigger('focus');
     });
 
     $(document).on('click', '.pta-rsvp-inline .pta-rsvp-inline-cancel', function (e) {

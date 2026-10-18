@@ -42,4 +42,4 @@ $t->equals(1, substr_count($again, '/my-account/volunteered/'), 'Signups is not 
 $other = $insert->invoke($instance, $html, (object) array('theme_location' => 'primary'));
 $t->equals($html, $other, 'other menus are left alone');
 
-$t->finish();
+exit($t->finish() > 0 ? 1 : 0);

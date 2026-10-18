@@ -39,6 +39,9 @@ class Azure_Event_Rsvp {
     /** Upper bound for the per-event plus-guests setting. */
     const GUEST_LIMIT = 20;
 
+    /** Plus-guests allowed when the event leaves the setting blank. 0 has to be entered to allow none. */
+    const DEFAULT_MAX_GUESTS = 5;
+
     private static $instance = null;
 
     public static function get_instance() {
@@ -111,17 +114,19 @@ class Azure_Event_Rsvp {
      */
     public static function event_settings($event_id) {
         $event_id = (int) $event_id;
+        $guests = (string) get_post_meta($event_id, self::META_MAX_GUESTS, true);
         return array(
             'enabled'    => get_post_meta($event_id, self::META_ENABLED, true) === 'yes',
             'capacity'   => max(0, (int) get_post_meta($event_id, self::META_CAPACITY, true)),
             'deadline'   => (string) get_post_meta($event_id, self::META_DEADLINE, true),
-            'max_guests' => min(self::GUEST_LIMIT, max(0, (int) get_post_meta($event_id, self::META_MAX_GUESTS, true))),
+            'max_guests' => $guests === '' ? self::DEFAULT_MAX_GUESTS : min(self::GUEST_LIMIT, max(0, (int) $guests)),
         );
     }
 
     /**
      * Editor input → stored meta values. Blank capacity means unlimited,
-     * a blank deadline means RSVPs close when the event starts.
+     * a blank deadline means RSVPs close when the event starts, blank
+     * guests means DEFAULT_MAX_GUESTS.
      *
      * @param array $input enabled, capacity, deadline (datetime-local), max_guests
      * @return array{enabled:string,capacity:int,deadline:string,max_guests:int}
@@ -137,7 +142,7 @@ class Azure_Event_Rsvp {
             }
         }
         $capacity = self::whole_number($input['capacity'] ?? '');
-        $guests = self::whole_number($input['max_guests'] ?? '');
+        $guests = trim((string) ($input['max_guests'] ?? '')) === '' ? self::DEFAULT_MAX_GUESTS : self::whole_number($input['max_guests']);
         return array(
             'enabled'    => !empty($input['enabled']) ? 'yes' : 'no',
             'capacity'   => max(0, $capacity),
@@ -578,6 +583,55 @@ class Azure_Event_Rsvp {
     }
 
     /**
+     * What the RSVP is filed under on the page: first name, else display name.
+     */
+    public static function party_name($user_id) {
+        $user_id = (int) $user_id;
+        $name = function_exists('get_user_meta') ? trim((string) get_user_meta($user_id, 'first_name', true)) : '';
+        if ($name === '' && function_exists('get_userdata')) {
+            $user = get_userdata($user_id);
+            $name = $user ? trim((string) $user->display_name) : '';
+        }
+        return $name !== '' ? $name : __('You', 'azure-plugin');
+    }
+
+    /**
+     * "Jamie" or "Jamie +2".
+     */
+    public static function party_label($name, $guests) {
+        $guests = max(0, (int) $guests);
+        return $guests > 0 ? $name . ' +' . $guests : (string) $name;
+    }
+
+    /**
+     * − Jamie +1 + : picks how many guests come along. The count travels in
+     * the hidden guests input; event-rsvp.js keeps the label and the
+     * buttons' limits in step with it.
+     */
+    private static function party_stepper($name, $max, $disabled = false) {
+        $max = max(0, (int) $max);
+        $off = ' disabled aria-disabled="true"';
+        return '<span class="pta-rsvp-party" data-max="' . $max . '" data-name="' . self::h($name) . '"' . ($disabled ? ' data-locked="1"' : '') . '>'
+            . '<button type="button" class="pta-rsvp-step" data-step="-1" aria-label="' . self::h(__('One fewer guest', 'azure-plugin')) . '"' . $off . '>−</button>'
+            . '<output class="pta-rsvp-party-label" aria-live="polite">' . self::h($name) . '</output>'
+            . '<input type="hidden" name="guests" value="0">'
+            . '<button type="button" class="pta-rsvp-step" data-step="1" aria-label="' . self::h(__('Add a guest', 'azure-plugin')) . '"' . ($disabled || $max === 0 ? $off : '') . '>+</button>'
+            . '</span>';
+    }
+
+    /**
+     * Guests this person can still pick: the event's limit, less any
+     * shortfall in the spaces left (they take one themselves).
+     */
+    private static function guests_open($settings, $left) {
+        $max = (int) $settings['max_guests'];
+        if ($left !== null) {
+            $max = min($max, max(0, $left - 1));
+        }
+        return $max;
+    }
+
+    /**
      * @return array<string,string>
      */
     public static function email_vars($user, $event_id, $rsvp = null) {
@@ -808,19 +862,15 @@ class Azure_Event_Rsvp {
             $out .= '<p class="pta-rsvp-status pta-rsvp-preview-note">' . $h(__('Preview: members can RSVP once this event is published.', 'azure-plugin')) . '</p>';
             $out .= '<div class="pta-rsvp-form">';
             if ($settings['max_guests'] > 0) {
-                $out .= '<label class="pta-rsvp-guests">' . $h(__('Guests', 'azure-plugin')) . ' <select name="guests" disabled>';
-                for ($i = 0; $i <= $settings['max_guests']; $i++) {
-                    $out .= '<option value="' . $i . '">' . $i . '</option>';
-                }
-                $out .= '</select></label> ';
+                $out .= self::party_stepper($user_id > 0 ? self::party_name($user_id) : __('You', 'azure-plugin'), $settings['max_guests'], true);
             }
             $out .= '<button type="button" class="button button-primary pta-rsvp-submit" disabled aria-disabled="true">' . $h(__('RSVP', 'azure-plugin')) . '</button>';
             $out .= '</div>';
         } elseif ($going) {
             $out .= '<p class="pta-rsvp-status">' . $h(sprintf(
-                /* translators: %s: "Just you" or "You + 2 guests" */
-                __('You\'re going. %s.', 'azure-plugin'),
-                self::guests_label((int) $rsvp->guests)
+                /* translators: %s: "Jamie" or "Jamie +2" */
+                __('You\'re going: %s.', 'azure-plugin'),
+                self::party_label(self::party_name($user_id), (int) $rsvp->guests)
             )) . '</p>';
             $out .= '<button type="button" class="button pta-rsvp-cancel">' . $h(__('Cancel RSVP', 'azure-plugin')) . '</button>';
         } elseif ($closed) {
@@ -833,17 +883,10 @@ class Azure_Event_Rsvp {
             $out .= '<p class="pta-rsvp-status">' . $h(__('Log in to RSVP to this event.', 'azure-plugin')) . '</p>';
             $out .= '<a class="button pta-rsvp-login" href="' . $h($login) . '">' . $h(__('Log in to RSVP', 'azure-plugin')) . '</a>';
         } else {
-            $max = $settings['max_guests'];
-            if ($left !== null) {
-                $max = min($max, max(0, $left - 1));
-            }
+            $max = self::guests_open($settings, $left);
             $out .= '<div class="pta-rsvp-form">';
             if ($max > 0) {
-                $out .= '<label class="pta-rsvp-guests">' . $h(__('Guests', 'azure-plugin')) . ' <select name="guests">';
-                for ($i = 0; $i <= $max; $i++) {
-                    $out .= '<option value="' . $i . '">' . $i . '</option>';
-                }
-                $out .= '</select></label> ';
+                $out .= self::party_stepper(self::party_name($user_id), $max);
             }
             $out .= '<button type="button" class="button button-primary pta-rsvp-submit">' . $h(__('RSVP', 'azure-plugin')) . '</button>';
             $out .= '</div>';
@@ -925,8 +968,13 @@ class Azure_Event_Rsvp {
         $left = self::spaces_left($event_id);
 
         if ($going) {
-            /* translators: %s: event title */
-            $inner = '<span class="' . $btn . ' is-going" aria-label="' . $h(sprintf(__('You are going to %s', 'azure-plugin'), $title)) . '">' . $h(__('Going ✓', 'azure-plugin')) . '</span>'
+            $guests = max(0, (int) $rsvp->guests);
+            $label = $guests > 0
+                /* translators: 1: number of guests, 2: event title */
+                ? sprintf(_n('You and %1$d guest are going to %2$s', 'You and %1$d guests are going to %2$s', $guests, 'azure-plugin'), $guests, $title)
+                /* translators: %s: event title */
+                : sprintf(__('You are going to %s', 'azure-plugin'), $title);
+            $inner = '<span class="' . $btn . ' is-going" aria-label="' . $h($label) . '">' . $h(__('Going ✓', 'azure-plugin')) . ($guests > 0 ? ' +' . $guests : '') . '</span>'
                 . '<button type="button" class="pta-rsvp-inline-cancel">' . $h(__('Cancel', 'azure-plugin')) . '</button>';
         } elseif (self::is_closed($event_id, $now)) {
             $inner = '<span class="' . $btn . ' is-closed">' . $h(__('RSVPs closed', 'azure-plugin')) . '</span>';
@@ -942,6 +990,15 @@ class Azure_Event_Rsvp {
         } else {
             /* translators: %s: event title */
             $inner = '<button type="button" class="' . $btn . ' pta-rsvp-inline-go" aria-label="' . $h(sprintf(__('RSVP to %s', 'azure-plugin'), $title)) . '">' . $h(__('RSVP', 'azure-plugin')) . '</button>';
+            $max = self::guests_open($settings, $left);
+            if ($max > 0) {
+                // Opened by the RSVP button; nothing is saved until Confirm.
+                $inner .= '<span class="pta-rsvp-inline-party" hidden>'
+                    . self::party_stepper(self::party_name($user_id), $max)
+                    . '<button type="button" class="' . $btn . ' pta-rsvp-inline-confirm">' . $h(__('Confirm', 'azure-plugin')) . '</button>'
+                    . '<button type="button" class="pta-rsvp-inline-back" aria-label="' . $h(__('Close without RSVPing', 'azure-plugin')) . '">×</button>'
+                    . '</span>';
+            }
         }
 
         self::enqueue_frontend_assets();
@@ -1130,7 +1187,8 @@ class Azure_Event_Rsvp {
         </p>
         <p>
             <label for="pta_rsvp_max_guests"><?php esc_html_e('Plus-guests allowed per RSVP', 'azure-plugin'); ?></label><br>
-            <input type="number" min="0" max="<?php echo (int) self::GUEST_LIMIT; ?>" step="1" id="pta_rsvp_max_guests" name="pta_rsvp_max_guests" value="<?php echo $s['max_guests'] > 0 ? esc_attr((string) $s['max_guests']) : ''; ?>" placeholder="0" style="width:100%;">
+            <input type="number" min="0" max="<?php echo (int) self::GUEST_LIMIT; ?>" step="1" id="pta_rsvp_max_guests" name="pta_rsvp_max_guests" value="<?php echo esc_attr((string) $s['max_guests']); ?>" placeholder="<?php echo (int) self::DEFAULT_MAX_GUESTS; ?>" style="width:100%;">
+            <span class="description"><?php esc_html_e('People pick this with + and − when they RSVP. 0 means just themselves.', 'azure-plugin'); ?></span>
         </p>
         <?php if ($s['enabled']) : ?>
             <p><a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-rsvp&event_id=' . (int) $post->ID)); ?>">
@@ -1169,7 +1227,7 @@ class Azure_Event_Rsvp {
             self::META_ENABLED    => $clean['enabled'] === 'yes' ? 'yes' : '',
             self::META_CAPACITY   => $clean['capacity'] > 0 ? (int) $clean['capacity'] : '',
             self::META_DEADLINE   => (string) $clean['deadline'],
-            self::META_MAX_GUESTS => $clean['max_guests'] > 0 ? (int) $clean['max_guests'] : '',
+            self::META_MAX_GUESTS => (int) $clean['max_guests'] === self::DEFAULT_MAX_GUESTS ? '' : (string) (int) $clean['max_guests'],
         );
         foreach ($map as $key => $value) {
             if ($value === '') {

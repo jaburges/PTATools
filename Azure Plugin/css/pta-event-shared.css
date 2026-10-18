@@ -304,6 +304,75 @@ button.pta-join-meeting.pta-rsvp-action {
     opacity: 0.55;
     cursor: wait;
 }
+.pta-rsvp-inline [hidden] {
+    display: none !important;
+}
+
+/* − Jamie +1 + : guests picker, on the event page and in lists. */
+.pta-rsvp-party {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.pta-rsvp-party .pta-rsvp-step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid #4338ca;
+    border-radius: 50%;
+    background: #ffffff;
+    color: #4338ca;
+    font: inherit;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+.pta-rsvp-party .pta-rsvp-step:hover:not([disabled]),
+.pta-rsvp-party .pta-rsvp-step:focus-visible {
+    background: #eef2ff;
+}
+.pta-rsvp-party .pta-rsvp-step[disabled] {
+    opacity: 0.35;
+    cursor: default;
+}
+.pta-rsvp-party-label {
+    min-width: 4.5em;
+    text-align: center;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.pta-rsvp-inline-party {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.pta-rsvp-inline-party .pta-rsvp-step {
+    width: 26px;
+    height: 26px;
+    font-size: 15px;
+}
+.pta-rsvp-inline-party .pta-rsvp-party-label {
+    min-width: 0;
+    font-size: 13px;
+}
+.pta-rsvp-inline-back {
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: #50575e;
+    font: inherit;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
 .pta-events-card-join,
 .pta-events-list-join {
     display: flex;

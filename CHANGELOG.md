@@ -2,6 +2,16 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.180 — RSVP for more than one person
+
+### Added
+
+- **Bring guests with − and +.** The RSVP box on an event page shows − and + buttons around your name: tap + and it reads "Jamie +1", "Jamie +2" and so on, then tap **RSVP**. On event lists (`[up-next]`, `[azure_calendar_events]`, /events) tapping **RSVP** opens the same picker with **Confirm** and × to close; nothing is saved until Confirm. The RSVP is filed under the signed-in person (first name, else display name) and afterwards shows as "You're going: Jamie +1." on the event page and **Going ✓ +1** on lists. The picker never goes past the event's guest limit or the spaces left.
+
+### Changed
+
+- **Guests are allowed by default.** An event with the *Plus-guests allowed per RSVP* box left blank now allows up to 5 guests (it used to allow none). Enter 0 for events where people RSVP only for themselves. Capacity still counts guests.
+
 ## 3.147.179 — Automatic backups run, restorable database dumps, accurate backup widget
 
 ### Fixed

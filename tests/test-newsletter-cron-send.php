@@ -13,9 +13,7 @@ if (!defined('AZURE_PLUGIN_PATH')) {
 }
 
 // The plugin builds the module from inside its own init callback.
-if (!function_exists('did_action')) {
-    function did_action($hook) { return $hook === 'init' ? 1 : 0; }
-}
+WP_Shim::$did_actions['init'] = 1;
 if (!class_exists('Azure_Logger')) {
     class Azure_Logger {
         public static function __callStatic($name, $args) {}
@@ -64,4 +62,4 @@ $t->check(strpos($js_src, 'Sending now will replace the schedule.') !== false, '
 $job = file_get_contents(dirname(__DIR__) . '/infra/aca-wordpress/job-wpcron.yaml');
 $t->check(strpos($job, 'cronExpression: "*/30 * * * *"') !== false, 'wp-cron job runs every 30 minutes');
 
-$t->finish();
+exit($t->finish() > 0 ? 1 : 0);

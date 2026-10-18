@@ -20,11 +20,6 @@
     gap: 12px;
 }
 
-.pta-event-rsvp .pta-rsvp-guests select {
-    margin-left: 6px;
-    min-width: 64px;
-}
-
 .pta-event-rsvp .pta-rsvp-message {
     margin: 10px 0 0;
     min-height: 1.4em;
@@ -36,8 +31,7 @@
     color: #b32d2e;
 }
 
-.pta-event-rsvp button[disabled],
-.pta-event-rsvp select[disabled] {
+.pta-event-rsvp button[disabled] {
     opacity: 0.55;
     cursor: not-allowed;
 }

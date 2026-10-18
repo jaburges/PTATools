@@ -105,6 +105,13 @@ $t->equals(array('enabled' => 'yes', 'capacity' => 40, 'deadline' => '2030-05-01
 $s = Azure_Event_Rsvp::sanitize_settings(array('capacity' => '', 'deadline' => 'nonsense', 'max_guests' => '99'));
 $t->equals(array('enabled' => 'no', 'capacity' => 0, 'deadline' => '', 'max_guests' => Azure_Event_Rsvp::GUEST_LIMIT), $s, 'blank capacity is unlimited, a bad deadline is dropped, guests are capped');
 $t->equals(0, Azure_Event_Rsvp::sanitize_settings(array('capacity' => '-5'))['capacity'], 'a negative capacity is unlimited, not negative');
+$t->equals(Azure_Event_Rsvp::DEFAULT_MAX_GUESTS, Azure_Event_Rsvp::sanitize_settings(array('max_guests' => ' '))['max_guests'], 'blank guests means the default');
+$t->equals(0, Azure_Event_Rsvp::sanitize_settings(array('max_guests' => '0'))['max_guests'], 'guests can be turned off with 0');
+Azure_Event_Rsvp::save_settings(105, Azure_Event_Rsvp::sanitize_settings(array('enabled' => true, 'max_guests' => '0')));
+$t->check(WP_Shim::$post_meta[105]['_pta_rsvp_max_guests'] === '0' && Azure_Event_Rsvp::event_settings(105)['max_guests'] === 0, 'an explicit 0 is stored and read back as no guests');
+Azure_Event_Rsvp::save_settings(105, Azure_Event_Rsvp::sanitize_settings(array('enabled' => true)));
+$t->check(!isset(WP_Shim::$post_meta[105]['_pta_rsvp_max_guests']) && Azure_Event_Rsvp::event_settings(105)['max_guests'] === Azure_Event_Rsvp::DEFAULT_MAX_GUESTS, 'the default needs no meta row');
+unset(WP_Shim::$post_meta[105]);
 
 add_event(100, 'Fall Carnival', '2030-10-23 18:00:00', '2030-10-23 20:30:00', array(
     'venue'   => 'School gym',
@@ -278,11 +285,26 @@ $t->check(strpos($html, 'pta-rsvp-login') !== false && strpos($html, 'wp-login.p
 $t->check(strpos($html, 'pta-rsvp-submit') === false, 'logged-out visitors get no RSVP button');
 $html = Azure_Event_Rsvp::render_for_event(130, 8, $before_deadline);
 $t->check(strpos($html, 'pta-rsvp-submit') !== false && strpos($html, 'data-event-id="130"') !== false, 'signed-in people get an RSVP button');
-$t->check(strpos($html, 'name="guests"') === false, 'no guest picker when guests are not allowed');
+$t->check(strpos($html, '<span class="pta-rsvp-party" data-max="' . Azure_Event_Rsvp::DEFAULT_MAX_GUESTS . '" data-name="Sam Parent">') !== false, 'a blank guest setting offers the default number of guests');
+$t->check(strpos($html, '<output class="pta-rsvp-party-label" aria-live="polite">Sam Parent</output><input type="hidden" name="guests" value="0">') !== false, 'the picker starts at just them, labelled with their name');
+$t->check(strpos($html, 'data-step="-1" aria-label="One fewer guest" disabled') !== false && strpos($html, 'data-step="1" aria-label="Add a guest">+</button>') !== false, 'at zero guests only + works');
+add_event(131, 'Staff lunch', '2030-11-12 12:00:00', '2030-11-12 13:00:00', array('rsvp' => array('enabled' => true, 'max_guests' => '0')));
+$html = Azure_Event_Rsvp::render_for_event(131, 8, $before_deadline);
+$t->check(strpos($html, 'pta-rsvp-submit') !== false && strpos($html, 'name="guests"') === false, 'no guest picker when the event allows 0 guests');
+$t->equals('too_many_guests', Azure_Event_Rsvp::create(131, 8, 1, $before_deadline)['code'], 'and a guest sent anyway is refused');
 $html = Azure_Event_Rsvp::render_for_event(130, 7, $before_deadline);
-$t->check(strpos($html, 'pta-rsvp-cancel') !== false && strpos($html, 'You&#039;re going. Just you.') !== false, 'people who RSVP\'d see their RSVP and a Cancel button');
+$t->check(strpos($html, 'pta-rsvp-cancel') !== false && strpos($html, 'You&#039;re going: Jamie Parent.') !== false, 'people who RSVP\'d see their RSVP and a Cancel button');
+Rsvp_State::$user_meta[7]['first_name'] = 'Jamie';
+add_event(133, 'Pancake breakfast', '2030-11-14 08:00:00', '2030-11-14 09:00:00');
+Azure_Event_Rsvp::create(133, 7, 1, $before_deadline);
+$t->check(strpos(Azure_Event_Rsvp::render_for_event(133, 7, $before_deadline), 'You&#039;re going: Jamie +1.') !== false, 'the RSVP is shown under their first name with its guests: Jamie +1');
+unset(Rsvp_State::$user_meta[7]['first_name']);
+$t->equals('Alex +3', Azure_Event_Rsvp::party_label('Alex', 3), 'party label adds the guest count');
+$t->equals('Alex', Azure_Event_Rsvp::party_label('Alex', 0), 'and is just the name with no guests');
 $html = Azure_Event_Rsvp::render_for_event(102, 9, $before_deadline);
-$t->check(strpos($html, 'pta-rsvp-submit') !== false && strpos($html, '<option value="1">') === false, 'the guest picker never offers more than the spaces left');
+$t->check(strpos($html, 'pta-rsvp-submit') !== false && strpos($html, 'name="guests"') === false, 'the guest picker never offers more than the spaces left');
+add_event(132, 'Workshop', '2030-11-13 18:00:00', '2030-11-13 19:00:00', array('rsvp' => array('enabled' => true, 'capacity' => '3')));
+$t->check(strpos(Azure_Event_Rsvp::render_for_event(132, 8, $before_deadline), 'data-max="2"') !== false, 'with three spaces left the picker stops at +2');
 $html = Azure_Event_Rsvp::render_for_event(100, 10, $before_deadline);
 $t->check(strpos($html, '4 of 5 spots taken') !== false && strpos($html, 'name="guests"') === false, 'one space left: the count shows and no guests are offered');
 Azure_Event_Rsvp::create(100, 10, 0, $before_deadline);

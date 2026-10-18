@@ -63,7 +63,8 @@ $html = $R::render_for_event(37184, $admin, $now);
 $t->check(strpos($html, 'class="pta-event-rsvp"') !== false, 'an editor previewing a draft sees the RSVP box');
 $t->check(strpos($html, 'Preview: members can RSVP once this event is published.') !== false, 'with a note that it opens on publish');
 $t->check(strpos($html, 'pta-rsvp-submit" disabled aria-disabled="true"') !== false, 'and the RSVP button, disabled');
-$t->check(strpos($html, '0 of 30 spots taken') !== false && strpos($html, '<select name="guests" disabled>') !== false, 'capacity and the guest picker preview too');
+$t->check(strpos($html, '0 of 30 spots taken') !== false && strpos($html, 'data-max="2"') !== false && strpos($html, 'data-locked="1"') !== false, 'capacity and the guest picker preview too');
+$t->check(strpos($html, 'data-step="1" aria-label="Add a guest" disabled') !== false, 'with the picker disabled');
 $t->equals('', $R::render_for_event(37184, $member, $now), 'members do not see RSVP on a draft');
 $t->equals('', $R::render_for_event(37184, 0, $now), 'visitors do not see RSVP on a draft');
 $r = $R::create(37184, $admin, 0, $now);
@@ -72,7 +73,7 @@ WP_Shim::$post_meta[37184]['_pta_rsvp_enabled'] = 'yes';
 
 // Published with RSVP on
 $html = $R::render_for_event(37185, $member, $now);
-$t->check(strpos($html, 'pta-rsvp-submit">RSVP</button>') !== false && strpos($html, 'disabled') === false, 'members get a working RSVP button once published');
+$t->check(strpos($html, 'pta-rsvp-submit">RSVP</button>') !== false && strpos($html, 'data-locked') === false && strpos($html, 'aria-label="Add a guest">+</button>') !== false, 'members get a working RSVP button and guest picker once published');
 $t->check(strpos($R::render_for_event(37185, 0, $now), 'pta-rsvp-login') !== false, 'visitors are asked to log in');
 $t->check(strpos($R::render_for_event(37185, $admin, $now), 'Preview:') === false, 'editors see the normal box on a published event');
 

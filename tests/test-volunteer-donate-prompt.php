@@ -115,4 +115,4 @@ $t->equals(0, Azure_Donations_Module::requested_donate_amount(), 'zero is ignore
 unset($_GET['donate_amount']);
 $t->equals(0, Azure_Donations_Module::requested_donate_amount(), 'no parameter, no preset');
 
-$t->finish();
+exit($t->finish() > 0 ? 1 : 0);

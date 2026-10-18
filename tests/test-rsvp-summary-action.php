@@ -112,6 +112,14 @@ $t->check(strpos(Azure_Event_Rsvp::render_summary_action(300, 'compact', 0, $now
 // Logged in, not going
 $out = Azure_Event_Rsvp::render_summary_action(300, 'inline', 7, $now);
 $t->check(strpos($out, '<button type="button" class="pta-join-meeting pta-rsvp-action pta-rsvp-inline-go" aria-label="RSVP to PTSA General Meeting">RSVP</button>') !== false, 'logged in: an RSVP button');
+$t->check(strpos($out, '<span class="pta-rsvp-inline-party" hidden><span class="pta-rsvp-party" data-max="5" data-name="Jamie Parent">') !== false, 'RSVP opens a hidden guest picker labelled with their name');
+$t->check(strpos($out, 'pta-rsvp-inline-confirm">Confirm</button><button type="button" class="pta-rsvp-inline-back" aria-label="Close without RSVPing">×</button></span>') !== false, 'with Confirm and a close button');
+add_event(305, 'Members only', '2030-10-27 18:00:00', '2030-10-27 19:00:00', array('rsvp' => array('enabled' => true, 'max_guests' => '0')));
+$t->check(strpos(Azure_Event_Rsvp::render_summary_action(305, 'inline', 7, $now), 'pta-rsvp-inline-party') === false, 'no picker when the event allows no guests: RSVP saves straight away');
+add_event(306, 'Family picnic', '2030-10-28 12:00:00', '2030-10-28 14:00:00');
+Azure_Event_Rsvp::create(306, 7, 2, $now);
+$out = Azure_Event_Rsvp::render_summary_action(306, 'inline', 7, $now);
+$t->check(strpos($out, 'aria-label="You and 2 guests are going to Family picnic">Going ✓ +2</span>') !== false, 'going with guests: Going ✓ +2');
 
 // Going
 Azure_Event_Rsvp::create(300, 7, 0, $now);
@@ -168,6 +176,7 @@ $arch = file_get_contents(dirname(__DIR__) . '/Azure Plugin/templates/archive-pt
 $t->check(strpos($arch, "Azure_Event_Rsvp::render_summary_action(\$eid, 'inline')") !== false, 'the events list page shows RSVP beside Join');
 $js = file_get_contents(dirname(__DIR__) . '/Azure Plugin/js/event-rsvp.js');
 $t->check(strpos($js, "'.pta-rsvp-inline .pta-rsvp-inline-go'") !== false && strpos($js, "variant: \$wrap.data('variant')") !== false, 'the list control posts the same AJAX actions with its variant');
+$t->check(strpos($js, "sendInline(\$wrap, 'azure_rsvp_create', guestsIn(\$wrap));") !== false && strpos($js, "send(\$box, 'azure_rsvp_create', { guests: guestsIn(\$box) });") !== false, 'Confirm and the event page RSVP send the picked guest count');
 $rsvp_src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-event-rsvp.php');
 $t->check(strpos($rsvp_src, '$html = self::render_summary_action($event_id, $variant, $user_id, null,') !== false, 'the AJAX reply re-renders the list control');
 
