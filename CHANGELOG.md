@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.182 — PTA Products block
+
+### Added
+
+- **PTA Products block for sidebars and pages.** Add "PTA Products" from the Widgets category in the block or widget editor and set everything by clicking: pick a category from a dropdown, tick specific products from a searchable list (and put them in order), or both. A **Show input fields** switch decides what the cards do. Off: each card shows the image, name, price and a Select options / View product button that opens the product page, and nothing is added from the card. On: products with product fields show them on the card with Add to cart, as on the yearbook order page. Family memberships and products with options always open their page. Columns (1 for a sidebar, up to 4), image, price and button text are adjustable, and the editor shows a live preview. The same cards are available as `[pta-products category="membership" fields="off"]` (also `products="12,34"`, `columns`, `limit`, `image`, `price`, `button`). Existing product grids, including the yearbook order page, are unchanged.
+
 ## 3.147.181 — Breathing room around newsletter emails
 
 ### Changed

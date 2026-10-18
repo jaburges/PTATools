@@ -1,0 +1,85 @@
+.pta-products {
+    display: grid;
+    grid-template-columns: repeat(var(--pta-products-columns, 1), minmax(0, 1fr));
+    gap: 16px;
+    margin: 0 0 24px;
+    padding: 0;
+    list-style: none;
+}
+
+/* Phones: one card per row whatever the column setting. */
+@media (max-width: 600px) {
+    .pta-products {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.pta-products__item {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e2e4e7;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.pta-products__image {
+    display: block;
+    margin: 0 0 10px;
+}
+
+.pta-products__image img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+}
+
+.pta-products__title {
+    margin: 0 0 6px;
+    font-size: 16px;
+    line-height: 1.3;
+}
+
+.pta-products__title a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.pta-products__price {
+    margin: 0 0 10px;
+    font-weight: 600;
+}
+
+.pta-products__action {
+    margin-top: auto;
+}
+
+.pta-products .pta-products__button {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border-radius: 4px;
+    background: #2271b1;
+    color: #fff;
+    font-weight: 600;
+    line-height: 24px;
+    text-align: center;
+    text-decoration: none;
+}
+
+.pta-products .pta-products__button:hover,
+.pta-products .pta-products__button:focus {
+    background: #135e96;
+    color: #fff;
+}
+
+.pta-products-empty {
+    padding: 12px;
+    border: 1px dashed #c3c4c7;
+    color: #50575e;
+}
