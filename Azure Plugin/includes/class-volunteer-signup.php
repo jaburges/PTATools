@@ -2128,18 +2128,20 @@ class Azure_Volunteer_Signup {
      *
      * @param array<int,array{sheet:object,activity:object}> $rows
      * @param object|null $user
+     * @param DateTimeInterface|string|null $now
      * @return string
      */
-    public static function build_feed_ics(array $rows, $user = null) {
-        return self::wrap_calendar(self::shift_vevents($rows, $user), 'Volunteering');
+    public static function build_feed_ics(array $rows, $user = null, $now = null) {
+        return self::wrap_calendar(self::shift_vevents($rows, $user, $now), 'Volunteering');
     }
 
     /**
      * @param array<int,array{sheet:object,activity:object}> $rows
      * @param object|null $user
+     * @param DateTimeInterface|string|null $now
      * @return string[] VEVENT blocks for shifts that have not ended.
      */
-    public static function shift_vevents(array $rows, $user = null) {
+    public static function shift_vevents(array $rows, $user = null, $now = null) {
         $events = array();
         foreach ($rows as $row) {
             $sheet = isset($row['sheet']) ? $row['sheet'] : null;
@@ -2147,7 +2149,7 @@ class Azure_Volunteer_Signup {
             if (!$activity) {
                 continue;
             }
-            if (!self::slot_is_upcoming($sheet, $activity)) {
+            if (!self::slot_is_upcoming($sheet, $activity, $now)) {
                 continue;
             }
             $event = self::slot_vevent($sheet, $activity, $user);
