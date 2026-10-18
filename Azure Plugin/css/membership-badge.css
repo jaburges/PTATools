@@ -33,23 +33,38 @@
 .pta-member-avatar {
     position: relative;
     display: inline-block;
+    flex-shrink: 0;
     line-height: 0;
     vertical-align: middle;
 }
 
-.pta-member-badge--mark {
+/* Members: a small blue star in a circle on the avatar's bottom-right
+   corner. Sized from the avatar (about a third of it), never below 12px. */
+.pta-member-badge--star {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    line-height: 0;
+    border-radius: 50%;
+    vertical-align: middle;
+}
+
+.pta-member-badge--star svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.pta-member-avatar .pta-member-badge--star {
     position: absolute;
-    right: -4px;
-    bottom: -4px;
-    max-width: calc(100% + 8px);
-    padding: 1px 5px;
-    border: 2px solid #fff;
-    border-radius: 999px;
-    background: #0a2d57;
-    color: #fff;
-    font-size: 8px;
-    letter-spacing: 0.02em;
-    box-shadow: 0 1px 2px rgba(10, 45, 87, 0.25);
+    right: -2px;
+    bottom: -2px;
+    width: clamp(12px, 34%, 24px);
+    height: auto;
+    aspect-ratio: 1 / 1;
+    background: #fff;
+    box-shadow: 0 0 0 2px #fff, 0 1px 2px rgba(10, 45, 87, 0.3);
+    pointer-events: auto;
 }
 
 .pta-parent-directory__name {
@@ -60,11 +75,6 @@
 }
 
 .pta-parent-directory__name .pta-member-badge--pill {
-    margin-left: 0;
-}
-
-.pta-user-dropdown__trigger .pta-member-badge--pill,
-.user-account-toggle .pta-member-badge--pill {
     margin-left: 0;
 }
 

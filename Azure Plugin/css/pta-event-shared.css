@@ -235,3 +235,113 @@
         justify-content: center;
     }
 }
+
+/* ============================================================
+   RSVP next to "Join meeting" on event lists. Same shape as the
+   Join button, outlined so the two read as different actions.
+   ============================================================ */
+
+.pta-rsvp-inline {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    vertical-align: middle;
+}
+button.pta-join-meeting.pta-rsvp-action {
+    font-family: inherit;
+    margin: 0;
+    -webkit-appearance: none;
+    appearance: none;
+}
+.pta-join-meeting.pta-rsvp-action,
+.pta-join-meeting.pta-rsvp-action:visited {
+    background: #ffffff;
+    color: #4338ca !important;
+    border-color: #4338ca;
+}
+.pta-join-meeting.pta-rsvp-action:hover,
+.pta-join-meeting.pta-rsvp-action:focus {
+    background: #eef2ff;
+    color: #3730a3 !important;
+    border-color: #3730a3;
+}
+.pta-rsvp-inline .pta-join-meeting.pta-rsvp-action.is-going {
+    background: #ecfdf3 !important;
+    color: #067647 !important;
+    border-color: #079455 !important;
+    cursor: default;
+}
+.pta-rsvp-inline .pta-join-meeting.pta-rsvp-action.is-full,
+.pta-rsvp-inline .pta-join-meeting.pta-rsvp-action.is-closed {
+    background: #f6f7f7 !important;
+    color: #50575e !important;
+    border-color: #c3c4c7 !important;
+    cursor: default;
+}
+.pta-rsvp-inline-cancel {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #b32d2e;
+    font: inherit;
+    font-size: 12px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.pta-rsvp-inline-msg {
+    font-size: 12px;
+    color: #00a32a;
+}
+.pta-rsvp-inline-msg:empty {
+    display: none;
+}
+.pta-rsvp-inline-msg.is-error {
+    color: #b32d2e;
+}
+.pta-rsvp-inline button[disabled] {
+    opacity: 0.55;
+    cursor: wait;
+}
+.pta-events-card-join,
+.pta-events-list-join {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.upcoming-join-meeting {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+/* Phones: Join goes full width (above), so RSVP does too, with Cancel
+   beside it. */
+@media (max-width: 560px) {
+    .pta-rsvp-inline {
+        display: flex;
+        width: 100%;
+        flex-wrap: nowrap;
+    }
+    .pta-rsvp-inline .pta-join-meeting.pta-rsvp-action {
+        flex: 1 1 auto;
+        width: auto;
+        min-width: 0;
+        min-height: 36px;
+        justify-content: center;
+    }
+    .pta-rsvp-inline-cancel {
+        flex: 0 0 auto;
+        padding: 8px 4px;
+    }
+    .pta-rsvp-inline-msg:not(:empty) {
+        flex: 0 1 auto;
+    }
+    .upcoming-join-meeting .pta-rsvp-inline .pta-join-meeting--compact.pta-rsvp-action {
+        min-height: 28px;
+        padding: 3px 10px;
+    }
+}

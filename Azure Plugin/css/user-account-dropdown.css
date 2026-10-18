@@ -24,6 +24,10 @@
     font-weight: 500;
     color: #24292e;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    flex-wrap: nowrap;
+    white-space: nowrap;
     text-align: left;
 }
 
@@ -43,9 +47,12 @@
     flex-shrink: 0;
 }
 
-/* Name */
+/* Name: one line, cut with an ellipsis rather than wrapping */
 .user-account-name {
     flex-grow: 1;
+    display: inline-block;
+    min-width: 0;
+    max-width: 18ch;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -208,17 +215,25 @@
 }
 
 /* Responsive */
+@media (max-width: 600px) {
+    .user-account-dropdown-wrapper {
+        max-width: 48vw;
+    }
+
+    .user-account-toggle {
+        gap: 6px !important;
+        padding: 4px 8px 4px 4px;
+    }
+
+    .user-account-name {
+        max-width: 26vw;
+        font-size: 13px;
+    }
+}
+
 @media (max-width: 480px) {
     .user-account-dropdown-wrapper.style-card {
         max-width: 100%;
-    }
-    
-    .user-account-toggle {
-        padding: 10px 14px;
-    }
-    
-    .user-account-name {
-        max-width: 150px;
     }
 }
 

@@ -79,5 +79,10 @@ $t->check(strpos(Azure_Volunteer_Signup::subscribe_page_html($feed, '<b>x</b>'),
 
 $src = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-volunteer-signup.php');
 $t->check(strpos($src, "add_action('template_redirect', array(\$this, 'maybe_serve_subscribe_page')") !== false, 'the subscribe page is served on template_redirect');
+$t->check(strpos($src, '$subscribe_url = self::calendar_subscribe_url($user_id);') !== false, 'My Account passes the https chooser link');
+$tpl = file_get_contents(dirname(__DIR__) . '/Azure Plugin/templates/my-account-volunteered.php');
+$t->check(strpos($tpl, 'esc_url(!empty($subscribe_url) ? $subscribe_url : $webcal_url)') !== false, 'the My Account Subscribe button opens the chooser, not a bare webcal:// link');
+$edge = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-edge-cache.php');
+$t->check(strpos($edge, "add_action('template_redirect', array(\$this, 'send_shared_cache_headers'), 99)") !== false, 'the edge-cache header hook runs after the private page has exited');
 
 exit($t->finish() === 0 ? 0 : 1);

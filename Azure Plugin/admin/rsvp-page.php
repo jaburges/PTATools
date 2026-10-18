@@ -92,6 +92,8 @@ if ($event) :
     $events = Azure_Event_Rsvp::rsvp_events();
     ?>
     <p><?php esc_html_e('To take RSVPs, open an event and tick "Enable RSVP" in its RSVP box. Confirmation and cancellation emails can be edited under Emails → Messages.', 'azure-plugin'); ?></p>
+    <?php echo Azure_Event_Rsvp::render_cards(Azure_Event_Rsvp::dashboard_cards($events)); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in render_cards() ?>
+    <h2><?php esc_html_e('All RSVP events', 'azure-plugin'); ?></h2>
     <table class="widefat striped">
         <thead>
             <tr>

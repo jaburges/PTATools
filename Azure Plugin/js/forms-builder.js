@@ -664,6 +664,7 @@
             }
             $notify.val(n.to || '').prop('readonly', !n.can_edit);
             $row.find('.azure-forms-notify-readonly').prop('hidden', !!n.can_edit);
+            syncNoCopy(!!n.submitter_copy);
             var $paused = $row.find('.azure-forms-notify-paused').empty().prop('hidden', !n.paused);
             if (n.paused) {
                 $paused.append(document.createTextNode('This email is paused, so nothing is being sent. '))
@@ -690,8 +691,12 @@
                 $others.append($ul);
             }
         }
+        function syncNoCopy(savedCopy) {
+            var typed = /\{submitter_email\}/i.test(String($notify.val() || ''));
+            $root.find('.azure-forms-notify-no-copy').prop('hidden', state.notifyDirty ? typed : (savedCopy || typed));
+        }
         renderNotify(boot.notify || null);
-        $notify.on('input', function () { state.notifyDirty = true; markDirty(); });
+        $notify.on('input', function () { state.notifyDirty = true; markDirty(); syncNoCopy(false); });
 
         function showShortcode() {
             if (!state.id) {

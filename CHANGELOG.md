@@ -2,6 +2,33 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.178 — Bullets in sent newsletters, Pacific times on calendar hovers, RSVP on event lists
+
+### Fixed
+
+- **Bulleted and numbered lists show in sent newsletters (#17).** The CSS added at send time (for test sends and campaigns) set list items to `display: block`, which removes the bullet or number in Gmail and every other client that reads `<style>`. The editor never had that CSS, which is why drafts looked fine. List items now stay list items. Lists also get their bullet style and indent written inline, so clients that strip `<style>` keep them too. HTML saved by older versions is corrected when it is sent.
+- **Calendar hover times are in Pacific time (#20).** The calendar took the time text from each event as it arrived and ignored its timezone. Outlook sends times in UTC when the site is set to UTC or to a plain offset such as UTC−7, so a 10 AM meeting showed "5:00pm" on hover. Times are now converted to the site timezone (Settings → General) before the calendar sees them. The hover text is written by the server in that timezone, and "today" follows the site clock, so all visitors see the same times wherever they are. All-day events and daylight-saving changes are covered. The `[azure_calendar_events]` list also formats times in the site timezone.
+- **Subscribe on My Account → Signups (#21)** opens the same calendar-app chooser page as the reminder emails, instead of a bare `webcal://` link that Android browsers ignore.
+- **`[up-next]` loads its styles.** The plugin loads `[up-next]` while the page is already rendering, after the point where it would add its stylesheet, so its Join buttons could appear unstyled. The styles now load in that case.
+
+### Added
+
+- **Donate after signing up (#18).** In the sign-up sheet editor, set *Donate after sign-up* to a donation page link, with optional button text and amounts (whole dollars, $5 to $100; the default is $5, $10, $25, $50, $100). Then tick **Ask to donate** on the options that should prompt. When someone signs up for one of them, a donate button and the amount buttons appear right away; the page reloads when they tap **Done**. A `[pta-donate]` page preselects the amount they tapped. It is off unless both are set: a sheet without a donation link, or without any option ticked, shows no donate button and sends no donate wording in any email. Signing up for several options already worked by signing up for each row; group sign-ups set how many people.
+- **Sheet organizers hear about sign-ups and cancellations.** Whoever created a sign-up sheet now gets a short email when someone signs up, changes their group size or withdraws. It covers both the sheet and My Account → Signups. The email says who it was (with their email), which options and how many people, and links to the sheet in PTA Tools. Replying goes to the volunteer. No email is sent when the organizer signs themselves up, or when the sheet has no creator or the creator's account is gone or has no email. Edit the wording under Emails → Messages (*Sheet organizer: new sign-up* / *cancellation*).
+- **Sign-ups CSV per sheet (#18).** The download button on each sheet in PTA Tools → Volunteer Sign up gives one row per person per option: activity, time, name, email, number of people, and sign-up time.
+- **RSVP dashboard widget (#26).** The WP Dashboard has an **Event RSVPs** widget, and PTA Tools → RSVP shows the same cards above its table. There is one card per event with RSVP on, soonest first. Each card shows the date, time and status (drafts are marked), people vs capacity, the deadline, and the RSVPs (name, email, guests, time). Each card has links to the full RSVP list, the CSV export and the event editor. Past events are collapsed. Only people who can manage PTA Tools see it.
+- **RSVP beside "Join meeting" on event lists (#29).** This covers `[up-next]`, `[azure_calendar_events]` cards and the /events list.
+  - Signed in: an **RSVP** button, or **Going ✓** with **Cancel**. These use the same checks as the event page (duplicates, capacity, deadline).
+  - Signed out: **Log in to RSVP**, which comes back to the same page.
+  - **Full** and **RSVPs closed** show when they apply. Nothing shows when RSVP is off.
+  - The button matches the Join button and goes full width on phones.
+  - `[up-next]`'s cached HTML holds no one's RSVP; each visitor's state is filled in per page view. In a newsletter the slot is a plain **RSVP** link to the event page.
+- **Forms warn when no confirmation goes out (#19).** A form's Settings tab now says when the person filling it in gets the on-screen message but no email, and how to send them a copy (`{submitter_email}`).
+
+### Changed
+
+- **Mobile header (#28).** Members now get a small blue star in a circle on the corner of their avatar, with the tooltip "PTSA member". It replaces the "PTSA" text mark and the "PTSA Member" pill in the header. The header account menu keeps the avatar, name and caret on one line, and a long name ends with "…" instead of wrapping. Phones get tighter spacing. Profiles and the directory keep the text pill.
+
 ## 3.147.177 — RSVP in previews, and a pointer for editors
 
 ### Fixed

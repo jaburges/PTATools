@@ -3,7 +3,7 @@
  * My Account → Signups.
  *
  * Variables from Azure_Volunteer_Signup::render_account_page():
- * $signups, $opportunities, $feed_url, $webcal_url, $nonce, $ajax_url
+ * $signups, $opportunities, $feed_url, $webcal_url, $subscribe_url, $nonce, $ajax_url
  */
 
 if (!defined('ABSPATH')) {
@@ -193,7 +193,7 @@ $render_groups = function ($groups) use ($shift_date, $activity_name) {
     <section class="pta-volunteered-section">
         <h2><?php esc_html_e('Your signups', 'azure-plugin'); ?></h2>
         <p class="pta-volunteered-subscribe">
-            <a class="button button-primary" href="<?php echo esc_url($webcal_url); ?>"><?php esc_html_e('Subscribe', 'azure-plugin'); ?></a>
+            <a class="button button-primary" href="<?php echo esc_url(!empty($subscribe_url) ? $subscribe_url : $webcal_url); ?>"><?php esc_html_e('Subscribe', 'azure-plugin'); ?></a>
             <button type="button" class="button pta-vol-copy" data-url="<?php echo esc_attr($feed_url); ?>"><?php esc_html_e('Copy calendar link', 'azure-plugin'); ?></button>
         </p>
         <p class="pta-volunteered-note">

@@ -311,4 +311,14 @@ $t->equals($writes, count($wpdb->writes), 'saving the same recipients writes not
 $t->equals(0, (int) Azure_Order_Rules_Module::form_rules(9)[0]->enabled, 'so a rule paused under Rules stays paused');
 $t->equals(true, Azure_Order_Rules_Module::form_notify_summary(9)['paused'], 'and the form shows it as paused');
 
+// #19: does the person who filled the form in get a confirmation email?
+$wpdb->update($rules_table, array('enabled' => 1), array('id' => $cleared->id));
+$t->equals(false, Azure_Order_Rules_Module::form_notify_summary(9)['submitter_copy'], 'staff-only recipients send the submitter no confirmation');
+Azure_Order_Rules_Module::set_form_recipients(9, 'Contact', 'webmaster@example.org, {submitter_email}');
+$t->equals(true, Azure_Order_Rules_Module::form_notify_summary(9)['submitter_copy'], 'adding {submitter_email} sends them a copy');
+$wpdb->update($rules_table, array('enabled' => 0), array('id' => $cleared->id));
+$t->equals(false, Azure_Order_Rules_Module::form_notify_summary(9)['submitter_copy'], 'a paused rule sends no copy');
+$page = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/forms-page.php');
+$t->check(strpos($page, 'azure-forms-notify-no-copy') !== false, 'the form settings warn when no confirmation email goes out');
+
 exit($t->finish() > 0 ? 1 : 0);

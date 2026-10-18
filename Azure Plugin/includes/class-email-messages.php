@@ -30,6 +30,7 @@ class Azure_Email_Messages {
         $volunteer_body = self::volunteer_body();
         $volunteer_raw = array('shifts', 'location', 'event_link', 'subscribe_button');
         $volunteer_tokens = array('{name}', '{intro}', '{event}', '{shifts}', '{location}', '{event_link}', '{event_url}', '{subscribe_url}', '{subscribe_button}', '{site_name}');
+        $organizer_tokens = array('{name}', '{volunteer}', '{volunteer_email}', '{intro}', '{event}', '{shifts}', '{sheet_link}', '{sheet_url}', '{site_name}');
         $rsvp_raw = array('details', 'description', 'event_link', 'subscribe_button');
         $rsvp_tokens = array('{name}', '{intro}', '{event}', '{when}', '{location}', '{guests}', '{details}', '{description}', '{event_link}', '{event_url}', '{subscribe_url}', '{subscribe_button}', '{site_name}');
         return array(
@@ -54,6 +55,28 @@ class Azure_Email_Messages {
                 'intro'       => __('This is a reminder that you are volunteering soon.', 'azure-plugin'),
                 'raw'         => $volunteer_raw,
                 'tokens'      => $volunteer_tokens,
+            ),
+            'volunteer_organizer_signup' => array(
+                'group'       => __('Volunteers', 'azure-plugin'),
+                'label'       => __('Sheet organizer: new sign-up', 'azure-plugin'),
+                'description' => __('Sent to the person who created a sign-up sheet when someone signs up or changes their group size. Not sent when they sign themselves up.', 'azure-plugin'),
+                'format'      => 'html',
+                'subject'     => 'New sign-up: {volunteer} — {event}',
+                'body'        => self::organizer_body(),
+                'intro'       => __('signed up for', 'azure-plugin'),
+                'raw'         => array('shifts', 'sheet_link'),
+                'tokens'      => $organizer_tokens,
+            ),
+            'volunteer_organizer_cancel' => array(
+                'group'       => __('Volunteers', 'azure-plugin'),
+                'label'       => __('Sheet organizer: cancellation', 'azure-plugin'),
+                'description' => __('Sent to the person who created a sign-up sheet when someone withdraws. Not sent when they withdraw themselves.', 'azure-plugin'),
+                'format'      => 'html',
+                'subject'     => 'Cancelled: {volunteer} — {event}',
+                'body'        => self::organizer_body(),
+                'intro'       => __('withdrew from', 'azure-plugin'),
+                'raw'         => array('shifts', 'sheet_link'),
+                'tokens'      => $organizer_tokens,
             ),
             'rsvp_confirmation' => array(
                 'group'       => __('Events', 'azure-plugin'),
@@ -431,6 +454,29 @@ HTML;
           {subscribe_button}
           {event_link}
           <p style="margin:0;font-size:15px;line-height:1.5;color:#3c434a;">Thank you for helping out!</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+HTML;
+    }
+
+    private static function organizer_body() {
+        return <<<'HTML'
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);overflow:hidden;">
+        <tr><td style="padding:32px 32px 16px 32px;">
+          <p style="margin:0 0 8px 0;font-size:13px;color:#646970;">{site_name}</p>
+          <h1 style="margin:0 0 12px 0;font-size:22px;color:#1d2327;">{event}</h1>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">Hi {name},</p>
+          <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;"><strong>{volunteer}</strong> ({volunteer_email}) {intro}:</p>
+          {shifts}
+          {sheet_link}
         </td></tr>
       </table>
     </td></tr>

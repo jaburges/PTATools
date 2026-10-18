@@ -12,6 +12,17 @@ if (!defined('ABSPATH')) {
 
 class Azure_Newsletter_Shortcodes {
 
+    /** @var int Depth of shortcode rendering for an email. */
+    private static $expanding = 0;
+
+    /**
+     * True while a shortcode renders into newsletter HTML, so list
+     * shortcodes can emit email-safe links instead of script controls.
+     */
+    public static function is_expanding() {
+        return self::$expanding > 0;
+    }
+
     /**
      * Replace designer shortcode placeholders and any remaining registered
      * shortcodes in newsletter HTML.
@@ -145,6 +156,7 @@ class Azure_Newsletter_Shortcodes {
      */
     private static function render_shortcode($raw) {
         $token = self::clean_token($raw);
+        self::$expanding++;
         try {
             ob_start();
             $rendered = do_shortcode($token);
@@ -154,6 +166,8 @@ class Azure_Newsletter_Shortcodes {
                 ob_end_clean();
             }
             return null;
+        } finally {
+            self::$expanding--;
         }
 
         if ($echoed !== '') {

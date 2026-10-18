@@ -1441,6 +1441,19 @@ class Azure_Donations_Module {
 
     // ─── Shortcode [pta-donate] ──────────────────────────────────────
 
+    /**
+     * Whole-dollar ?donate_amount= from a volunteer sign-up donate button,
+     * or 0 when absent or outside 1–10,000.
+     */
+    public static function requested_donate_amount() {
+        $raw = isset($_GET['donate_amount']) ? (string) $_GET['donate_amount'] : '';
+        if (!preg_match('/^\d{1,5}$/', $raw)) {
+            return 0;
+        }
+        $n = (int) $raw;
+        return ($n >= 1 && $n <= 10000) ? $n : 0;
+    }
+
     public function shortcode_donate($atts) {
         $atts = shortcode_atts(array(
             'campaign_id' => 0,
@@ -1591,6 +1604,19 @@ class Azure_Donations_Module {
                 selectedAmount = parseFloat($(this).val()) || 0;
                 selectedLabel = String($form.find('.pta-donate-amount-btn[data-custom="1"]').first().data('label') || 'Custom');
             });
+
+            var preset = <?php echo (int) self::requested_donate_amount(); ?>;
+            if (preset > 0) {
+                var $match = $form.find('.pta-donate-amount-btn').filter(function() {
+                    return parseFloat($(this).data('amount')) === preset;
+                }).first();
+                if ($match.length) {
+                    $match.trigger('click');
+                } else if ($form.find('.pta-donate-other').length) {
+                    $form.find('.pta-donate-amount-btn[data-custom="1"]').first().trigger('click');
+                    $form.find('.pta-donate-other').val(preset).trigger('input');
+                }
+            }
 
             $form.find('.pta-donate-submit').on('click', function() {
                 var $btn = $(this);

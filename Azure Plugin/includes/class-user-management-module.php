@@ -350,8 +350,10 @@ class Azure_User_Management_Module {
         $name_html   = ($atts['show_name'] === 'yes')
             ? '<span class="pta-user-dropdown__name">' . esc_html($user->display_name) . '</span>'
             : '';
-        $badge_html  = class_exists('Azure_Membership_Module')
-            ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'pill')
+        // Members get a star on the avatar (get_avatar filter). The header
+        // has no room for the text pill on phones.
+        $badge_html  = ($avatar_html === '' && class_exists('Azure_Membership_Module'))
+            ? Azure_Membership_Module::member_badge_html((int) $user->ID, 'avatar')
             : '';
 
         $menu_html = wp_nav_menu(array(
