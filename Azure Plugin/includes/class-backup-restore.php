@@ -12,6 +12,19 @@ if (!defined('ABSPATH')) {
 }
 
 class Azure_Backup_Restore {
+
+    const PHP_DUMP_HEADER = '-- WordPress Database Backup (PHP)';
+
+    /**
+     * Older PHP dumps escaped values with esc_sql(), which writes a random
+     * per-request 64-hex placeholder in place of every %.
+     *
+     * @param string $sql
+     * @return string
+     */
+    public static function repair_placeholder_escapes($sql) {
+        return preg_replace('/\{[0-9a-f]{64}\}/', '%', $sql);
+    }
     
     private static $restore_in_progress = false;
     private $storage;
@@ -594,12 +607,19 @@ class Azure_Backup_Restore {
         $executed = 0;
         $errors = 0;
         $last_table = '';
+        $php_dump = false;
         @set_time_limit(0);
 
         while (($line = $read_fn($handle)) !== false) {
             $trimmed = trim($line);
+            if (strpos($trimmed, self::PHP_DUMP_HEADER) === 0) {
+                $php_dump = true;
+            }
             if ($trimmed === '' || strpos($trimmed, '--') === 0 || strpos($trimmed, '#') === 0) {
                 continue;
+            }
+            if ($php_dump) {
+                $line = self::repair_placeholder_escapes($line);
             }
 
             $buffer .= $line;

@@ -3288,33 +3288,9 @@ class Azure_Admin {
      * Render Backup Widget
      */
     public function render_backup_widget() {
-        global $wpdb;
-        $activity_table = Azure_Database::get_table_name('activity_log');
-        
-        $stats = array(
-            'last_backup' => null,
-            'last_backup_status' => 'unknown',
-            'backups_this_month' => 0,
-            'total_size' => 0
-        );
-        
-        if ($activity_table) {
-            // Get last backup
-            $last_backup = $wpdb->get_row(
-                "SELECT created_at, status, details FROM {$activity_table} WHERE module = 'backup' AND action IN ('backup_complete', 'backup_started') ORDER BY created_at DESC LIMIT 1"
-            );
-            if ($last_backup) {
-                $stats['last_backup'] = $last_backup->created_at;
-                $stats['last_backup_status'] = $last_backup->status;
-            }
-            
-            // Get backups this month
-            $first_of_month = date('Y-m-01 00:00:00');
-            $stats['backups_this_month'] = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$activity_table} WHERE module = 'backup' AND action = 'backup_complete' AND created_at >= %s",
-                $first_of_month
-            )) ?: 0;
-        }
+        $stats = class_exists('Azure_Backup')
+            ? Azure_Backup::dashboard_stats()
+            : array('last_backup' => null, 'last_backup_status' => 'unknown', 'backups_this_month' => 0, 'next_backup' => null, 'schedule_enabled' => false);
         ?>
         <style>
             .azure-backup-widget .backup-status { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; padding: 12px; background: #f9f9f9; border-radius: 4px; }
@@ -3329,12 +3305,12 @@ class Azure_Admin {
             .azure-backup-widget .backup-actions { display: flex; gap: 10px; }
         </style>
         <div class="azure-backup-widget">
-            <div class="backup-status <?php echo $stats['last_backup_status']; ?>">
+            <div class="backup-status <?php echo esc_attr($stats['last_backup_status']); ?>">
                 <span class="dashicons dashicons-<?php echo $stats['last_backup_status'] === 'success' ? 'yes-alt' : 'warning'; ?>"></span>
                 <div class="backup-info">
                     <?php if ($stats['last_backup']): ?>
-                    <strong><?php _e('Last Backup', 'azure-plugin'); ?></strong>
-                    <span><?php echo date('M j, Y g:i A', strtotime($stats['last_backup'])); ?></span>
+                    <strong><?php echo $stats['last_backup_status'] === 'error' ? esc_html__('Latest backup failed', 'azure-plugin') : esc_html__('Last Backup', 'azure-plugin'); ?></strong>
+                    <span><?php echo esc_html(($stats['last_backup_status'] === 'error' ? __('Last good backup: ', 'azure-plugin') : '') . get_date_from_gmt($stats['last_backup'], 'M j, Y g:i A')); ?></span>
                     <?php else: ?>
                     <strong><?php _e('No backups yet', 'azure-plugin'); ?></strong>
                     <span><?php _e('Run your first backup', 'azure-plugin'); ?></span>
@@ -3342,8 +3318,19 @@ class Azure_Admin {
                 </div>
             </div>
             
-            <p style="margin-bottom: 15px;">
-                <strong><?php echo $stats['backups_this_month']; ?></strong> <?php _e('backups this month', 'azure-plugin'); ?>
+            <p style="margin-bottom: 6px;">
+                <strong><?php echo (int) $stats['backups_this_month']; ?></strong> <?php _e('backups this month', 'azure-plugin'); ?>
+            </p>
+            <p style="margin-bottom: 15px; color: #646970;">
+                <?php
+                if ($stats['next_backup']) {
+                    echo esc_html(sprintf(__('Next automatic backup: %s', 'azure-plugin'), wp_date('M j, Y g:i A', $stats['next_backup'])));
+                } elseif ($stats['schedule_enabled']) {
+                    esc_html_e('Automatic backups are on but not scheduled yet.', 'azure-plugin');
+                } else {
+                    esc_html_e('Automatic backups are off.', 'azure-plugin');
+                }
+                ?>
             </p>
             
             <div class="backup-actions">

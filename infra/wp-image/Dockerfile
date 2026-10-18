@@ -17,10 +17,12 @@
 FROM wordpress:7.0.2-php8.3-apache
 
 # unzip is needed by WordPress for plugin/theme operations; the rest of the
-# base image already carries the required PHP extensions.
+# base image already carries the required PHP extensions. mariadb-client
+# provides mysqldump for the backup module's consistent (--single-transaction)
+# database dump; without it backups fall back to a slower PHP export.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends unzip less curl ca-certificates; \
+    apt-get install -y --no-install-recommends unzip less curl ca-certificates mariadb-client; \
     rm -rf /var/lib/apt/lists/*
 
 # phpredis backs the object cache drop-in. The build toolchain is installed only

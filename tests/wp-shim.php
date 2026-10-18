@@ -61,9 +61,12 @@ class WP_Shim {
     public static $http_calls = array();
     /** @var array post_id => [meta_key => value] */
     public static $post_meta = array();
+    /** @var array hook => times fired, for did_action(). */
+    public static $did_actions = array();
 
     public static function reset() {
         self::$post_meta = array();
+        self::$did_actions = array();
         self::$settings = array();
         self::$cron = array();
         self::$options = array();
@@ -166,6 +169,9 @@ if (!class_exists('Azure_Logger')) {
 // ---------------------------------------------------------------------------
 
 function add_action($hook, $cb, $priority = 10, $args = 1) { return true; }
+if (!function_exists('did_action')) {
+    function did_action($hook) { return WP_Shim::$did_actions[$hook] ?? 0; }
+}
 function add_filter($hook, $cb, $priority = 10, $args = 1) { return true; }
 function __($text, $domain = null) { return $text; }
 function esc_html($text) { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); }

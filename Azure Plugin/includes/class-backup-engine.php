@@ -87,22 +87,60 @@ class Azure_Backup_Engine {
         return null;
     }
 
+    /**
+     * Option-file contents for mysqldump. Values are quoted because an
+     * unquoted '#' or ';' in a password starts a comment in option files.
+     *
+     * @param array       $creds  host, port, user, pass
+     * @param string|null $ssl_ca CA bundle path when the connection needs TLS.
+     * @return string
+     */
+    public static function mysqldump_defaults(array $creds, $ssl_ca = null) {
+        $quote = function ($value) {
+            return '"' . addcslashes((string) $value, "\\\"") . '"';
+        };
+        $out = "[client]\nuser=" . $quote($creds['user']) . "\npassword=" . $quote($creds['pass']) . "\n";
+        if (!empty($creds['host'])) {
+            $out .= 'host=' . $quote($creds['host']) . "\n";
+        }
+        if (!empty($creds['port'])) {
+            $out .= ctype_digit((string) $creds['port'])
+                ? 'port=' . $creds['port'] . "\n"
+                : 'socket=' . $quote($creds['port']) . "\n";
+        }
+        if ($ssl_ca) {
+            $out .= 'ssl-ca=' . $quote($ssl_ca) . "\n";
+        }
+        return $out;
+    }
+
+    /**
+     * CA bundle to verify the database server with, when wp-config connects over TLS.
+     *
+     * @return string|null
+     */
+    private function mysqldump_ssl_ca() {
+        if (!defined('MYSQL_CLIENT_FLAGS') || !defined('MYSQLI_CLIENT_SSL') || !(MYSQL_CLIENT_FLAGS & MYSQLI_CLIENT_SSL)) {
+            return null;
+        }
+        foreach (array('/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt') as $bundle) {
+            if (is_readable($bundle)) {
+                return $bundle;
+            }
+        }
+        return null;
+    }
+
     private function dump_with_mysqldump($binary, $gz_path) {
         $creds = $this->get_db_credentials();
 
         $tmp_defaults = tempnam(sys_get_temp_dir(), 'myd');
-        $defaults_content = "[client]\nuser={$creds['user']}\npassword={$creds['pass']}\n";
-        if ($creds['host']) {
-            $defaults_content .= "host={$creds['host']}\n";
-        }
-        if ($creds['port']) {
-            $defaults_content .= "port={$creds['port']}\n";
-        }
-        file_put_contents($tmp_defaults, $defaults_content);
+        file_put_contents($tmp_defaults, self::mysqldump_defaults($creds, $this->mysqldump_ssl_ca()));
 
         $cmd = escapeshellarg($binary)
              . ' --defaults-extra-file=' . escapeshellarg($tmp_defaults)
-             . ' --quote-names --add-drop-table --skip-lock-tables'
+             . ' --single-transaction --skip-lock-tables --no-tablespaces'
+             . ' --quote-names --add-drop-table --default-character-set=utf8mb4'
              . ' --extended-insert --max_allowed_packet=1M'
              . ' ' . escapeshellarg($creds['name']);
 
@@ -204,7 +242,8 @@ class Azure_Backup_Engine {
                         if (is_null($value)) {
                             $values[] = 'NULL';
                         } else {
-                            $values[] = "'" . esc_sql($value) . "'";
+                            // esc_sql() swaps every % for a per-request placeholder.
+                            $values[] = "'" . $wpdb->remove_placeholder_escape(esc_sql($value)) . "'";
                         }
                     }
                     $row_str = '(' . implode(',', $values) . ')';

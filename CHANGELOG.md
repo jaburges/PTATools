@@ -2,6 +2,15 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.179 — Automatic backups run, restorable database dumps, accurate backup widget
+
+### Fixed
+
+- **Automatic backups run.** "Run backups automatically" never scheduled anything: the scheduler was set up from inside WordPress's `init` step and hooked itself onto that same step, which WordPress does not run. The daily backup and the weekly cleanup are now scheduled on the first admin or cron request after the update.
+- **Database dumps restore correctly.** When `mysqldump` was not available, the PHP export wrote a random 64-character code in place of every `%` (a side effect of WordPress's `esc_sql()`), so a restore would have corrupted URLs, CSS percentages and serialized settings. New dumps write real `%`, and restoring an older PHP dump turns the codes back into `%`. The container image now includes `mysqldump`, which takes a consistent snapshot in one transaction.
+- **The Backup Status widget counts your backups.** It read activity-log entries that the backup job never writes, so it always said 0. It now reads the backup list, shows the last good backup even after a failure, and says when the next automatic backup is due (or that automatic backups are off or not yet scheduled).
+- **Cleanup deletes whole backups.** Expired backups had only their manifest removed, leaving every archive behind in storage. Cleanup now removes all of a backup's files, keeps the row (and retries next week) if any file could not be deleted, and always keeps the three newest completed backups whatever their age. It no longer deletes activity-log history at the backup retention period; that housekeeping keeps 90 days.
+
 ## 3.147.178 — Bullets in sent newsletters, Pacific times on calendar hovers, RSVP on event lists
 
 ### Fixed
@@ -23,6 +32,7 @@ Release notes for PTA Tools, newest first. Earlier versions are on the [wiki cha
   - **Full** and **RSVPs closed** show when they apply. Nothing shows when RSVP is off.
   - The button matches the Join button and goes full width on phones.
   - `[up-next]`'s cached HTML holds no one's RSVP; each visitor's state is filled in per page view. In a newsletter the slot is a plain **RSVP** link to the event page.
+- **How-to video cards.** `[pta-video-gallery]` lays out `[pta-video src="…" poster="…" title="…"]description[/pta-video]` cards: the video with its thumbnail, a title and a short description. `[pta-team-only message="…"]` shows its content to administrators and PTSA team (Azure AD) users, and the optional message to everyone else. Used on FAQ → How To.
 - **Forms warn when no confirmation goes out (#19).** A form's Settings tab now says when the person filling it in gets the on-screen message but no email, and how to send them a copy (`{submitter_email}`).
 
 ### Changed

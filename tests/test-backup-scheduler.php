@@ -201,4 +201,132 @@ wp_clear_scheduled_hook('azure_backup_scheduled');
 $s->setup_schedules();
 $t->check(wp_next_scheduled('azure_backup_scheduled') !== false, 'an externally cleared event is re-armed');
 
+// ---------------------------------------------------------------------------
+// 8. Built from inside init (how the plugin loads it) it schedules at once
+// ---------------------------------------------------------------------------
+
+WP_Shim::reset();
+WP_Shim::$did_actions['init'] = 1;
+WP_Shim::$settings = array(
+    'backup_schedule_enabled'   => true,
+    'backup_schedule_frequency' => 'daily',
+    'backup_schedule_time'      => '02:00',
+);
+new Azure_Backup_Scheduler();
+$t->check(wp_next_scheduled('azure_backup_scheduled') !== false, 'constructed during init, the daily backup is scheduled without another init');
+$t->check(wp_next_scheduled('azure_backup_cleanup') !== false, 'constructed during init, the cleanup is scheduled too');
+
+WP_Shim::reset();
+WP_Shim::$settings = array('backup_schedule_enabled' => true, 'backup_schedule_time' => '02:00');
+new Azure_Backup_Scheduler();
+$t->equals(false, wp_next_scheduled('azure_backup_scheduled'), 'constructed before init, scheduling waits for the init hook');
+
+// ---------------------------------------------------------------------------
+// 9. Cleanup removes every blob of an expired backup
+// ---------------------------------------------------------------------------
+
+function job($id, $status, $created_at, $files = array(), $manifest = null) {
+    $state = array();
+    foreach ($files as $entity => $blobs) {
+        $state[$entity] = array('status' => 'completed', 'files' => $blobs);
+    }
+    $state['_validation'] = array('passed' => true);
+    return (object) array(
+        'id' => $id,
+        'status' => $status,
+        'created_at' => $created_at,
+        'azure_blob_name' => $manifest,
+        'entity_state' => json_encode($state),
+    );
+}
+
+$j = job(7, 'completed', '2026-09-09 21:14:56', array(
+    'database' => array('site/2026/09/09/b7/b7-db.sql.gz'),
+    'uploads'  => array('site/2026/09/09/b7/b7-uploads.zip', 'site/2026/09/09/b7/b7-uploads2.zip'),
+    'content'  => array(),
+), 'site/2026/09/09/b7/b7-manifest.json');
+$t->equals(array(
+    'site/2026/09/09/b7/b7-db.sql.gz',
+    'site/2026/09/09/b7/b7-uploads.zip',
+    'site/2026/09/09/b7/b7-uploads2.zip',
+    'site/2026/09/09/b7/b7-manifest.json',
+), Azure_Backup_Scheduler::job_blob_names($j), 'a backup\'s blobs are every component archive plus the manifest');
+$t->equals(array(), Azure_Backup_Scheduler::job_blob_names(job(8, 'failed', '2026-09-01 00:00:00')), 'a job that uploaded nothing has no blobs');
+
+// ---------------------------------------------------------------------------
+// 10. Retention never removes the newest completed backups
+// ---------------------------------------------------------------------------
+
+$jobs = array(
+    job(1, 'completed', '2026-08-19 19:59:58'),
+    job(2, 'completed', '2026-09-09 21:14:56'),
+    job(3, 'failed',    '2026-09-10 02:00:00'),
+    job(4, 'completed', '2026-10-01 02:00:00'),
+    job(5, 'completed', '2026-10-17 02:00:00'),
+    job(6, 'completed', '2026-10-18 02:00:00'),
+);
+$ids = function ($list) { return array_map(function ($j) { return $j->id; }, $list); };
+
+$t->equals(array(1, 2, 3), $ids(Azure_Backup_Scheduler::jobs_to_expire($jobs, '2026-10-11 00:00:00')), 'past-retention jobs expire oldest first, the newest three completed are kept');
+$t->equals(array(3), $ids(Azure_Backup_Scheduler::jobs_to_expire(array_slice($jobs, 1, 3), '2026-10-11 00:00:00')), 'with only two completed backups, both are kept however old they are');
+$t->equals(array(), $ids(Azure_Backup_Scheduler::jobs_to_expire($jobs, '2026-08-01 00:00:00')), 'nothing inside the retention window expires');
+$running = job(9, 'running', '2026-01-01 00:00:00');
+$t->equals(array(), $ids(Azure_Backup_Scheduler::jobs_to_expire(array($running), '2026-10-11 00:00:00')), 'an in-flight job is never expired');
+
+// ---------------------------------------------------------------------------
+// 11. cleanup_old_backups() end to end
+// ---------------------------------------------------------------------------
+
+class Fake_Cleanup_Wpdb {
+    public $prefix = 'wp_';
+    public $rows = array();
+    public $deleted = array();
+    public function get_results($sql) { return $this->rows; }
+    public function delete($table, $where, $format = null) { $this->deleted[] = $where['id']; return 1; }
+}
+
+class Azure_Backup_Storage {
+    public static $deleted = array();
+    public static $fail = array();
+    public function delete_backup($blob) {
+        if (in_array($blob, self::$fail, true)) {
+            throw new Exception('Delete failed with status 500');
+        }
+        if (strpos($blob, 'gone') !== false) {
+            throw new Exception('Delete failed with status 404');
+        }
+        self::$deleted[] = $blob;
+        return true;
+    }
+    public function get_blob_properties($blob) {
+        return in_array($blob, self::$fail, true) ? array('size' => 1) : false;
+    }
+}
+
+$database_calls = array();
+WP_Shim::reset();
+WP_Shim::$settings = array('backup_retention_days' => 7);
+$GLOBALS['wpdb'] = new Fake_Cleanup_Wpdb();
+$old = gmdate('Y-m-d H:i:s', time() - 40 * 86400);
+$new = gmdate('Y-m-d H:i:s', time() - 86400);
+$GLOBALS['wpdb']->rows = array(
+    job(1, 'completed', $old, array('database' => array('s/b1/db.gz'), 'uploads' => array('s/b1/up.zip')), 's/b1/manifest.json'),
+    job(2, 'completed', $old, array('database' => array('s/b2/db.gz'), 'uploads' => array('s/b2/gone-up.zip')), 's/b2/manifest.json'),
+    job(3, 'completed', $old, array('database' => array('s/b3/db.gz')), 's/b3/manifest.json'),
+    job(4, 'completed', $new, array('database' => array('s/b4/db.gz')), 's/b4/manifest.json'),
+    job(5, 'completed', $new, array(), 's/b5/manifest.json'),
+    job(6, 'completed', $new, array(), 's/b6/manifest.json'),
+);
+Azure_Backup_Storage::$fail = array('s/b3/db.gz');
+
+$s = new Azure_Backup_Scheduler();
+$s->cleanup_old_backups();
+
+$t->check(in_array('s/b1/up.zip', Azure_Backup_Storage::$deleted, true), 'cleanup deletes component archives, not just the manifest');
+$t->check(in_array('s/b1/manifest.json', Azure_Backup_Storage::$deleted, true), 'cleanup deletes the manifest');
+$t->check(in_array(1, $GLOBALS['wpdb']->deleted, true), 'a fully deleted backup loses its row');
+$t->check(in_array(2, $GLOBALS['wpdb']->deleted, true), 'a blob that was already gone does not block removing the row');
+$t->check(!in_array(3, $GLOBALS['wpdb']->deleted, true), 'a backup whose blob could not be deleted keeps its row for the next run');
+$t->check(!array_intersect(array(4, 5, 6), $GLOBALS['wpdb']->deleted), 'recent backups are untouched');
+
 exit($t->finish() > 0 ? 1 : 0);

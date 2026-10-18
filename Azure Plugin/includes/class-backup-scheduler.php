@@ -23,8 +23,13 @@ class Azure_Backup_Scheduler {
             add_action('azure_backup_scheduled', array($this, 'run_scheduled_backup'));
             add_action('azure_backup_cleanup', array($this, 'cleanup_old_backups'));
             
-            // Setup schedules on init
-            add_action('init', array($this, 'setup_schedules'));
+            // The plugin builds this class from its own init callback, and a
+            // callback added to the init priority that is already running never fires.
+            if (did_action('init')) {
+                $this->setup_schedules();
+            } else {
+                add_action('init', array($this, 'setup_schedules'));
+            }
             
             // AJAX actions
             add_action('wp_ajax_azure_schedule_backup', array($this, 'ajax_schedule_backup'));
@@ -216,68 +221,125 @@ class Azure_Backup_Scheduler {
         $this->setup_backup_schedule();
     }
     
+    /** Completed backups kept regardless of age, so a stalled schedule can't age out every copy. */
+    const KEEP_LATEST_COMPLETED = 3;
+
+    /** Days of activity log and other housekeeping records to keep; independent of backup retention. */
+    const RECORD_RETENTION_DAYS = 90;
+
+    /**
+     * Every blob a backup job wrote: each component archive plus the manifest.
+     *
+     * @param object $job backup_jobs row
+     * @return string[]
+     */
+    public static function job_blob_names($job) {
+        $blobs = array();
+        $entity_state = json_decode($job->entity_state ?? '{}', true);
+        if (is_array($entity_state)) {
+            foreach ($entity_state as $key => $state) {
+                if (strpos((string) $key, '_') === 0 || !is_array($state)) {
+                    continue;
+                }
+                foreach ($state['files'] ?? array() as $blob) {
+                    if (is_string($blob) && $blob !== '') {
+                        $blobs[] = $blob;
+                    }
+                }
+            }
+        }
+        if (!empty($job->azure_blob_name)) {
+            $blobs[] = $job->azure_blob_name;
+        }
+        return array_values(array_unique($blobs));
+    }
+
+    /**
+     * Jobs past retention, oldest first, never including the newest completed ones.
+     *
+     * @param object[] $jobs   backup_jobs rows (any order)
+     * @param string   $cutoff GMT 'Y-m-d H:i:s'
+     * @return object[]
+     */
+    public static function jobs_to_expire(array $jobs, $cutoff) {
+        $completed = array_values(array_filter($jobs, function ($j) { return $j->status === 'completed'; }));
+        usort($completed, function ($a, $b) { return strcmp((string) $b->created_at, (string) $a->created_at); });
+        $protected = array();
+        foreach (array_slice($completed, 0, self::KEEP_LATEST_COMPLETED) as $j) {
+            $protected[$j->id] = true;
+        }
+
+        $expired = array_values(array_filter($jobs, function ($j) use ($cutoff, $protected) {
+            return in_array($j->status, array('completed', 'failed', 'cancelled'), true)
+                && (string) $j->created_at < $cutoff
+                && !isset($protected[$j->id]);
+        }));
+        usort($expired, function ($a, $b) { return strcmp((string) $a->created_at, (string) $b->created_at); });
+        return $expired;
+    }
+
     /**
      * Clean up old backups
      */
     public function cleanup_old_backups() {
-        $retention_days = Azure_Settings::get_setting('backup_retention_days', 30);
+        $retention_days = (int) Azure_Settings::get_setting('backup_retention_days', 30);
         
         if ($retention_days <= 0) {
             Azure_Logger::info('Backup Scheduler: Cleanup skipped - retention disabled');
-            return;
+        } else {
+            $this->expire_backups($retention_days);
         }
-        
+
+        Azure_Database::cleanup_old_records(self::RECORD_RETENTION_DAYS);
+    }
+
+    private function expire_backups($retention_days) {
         Azure_Logger::info("Backup Scheduler: Starting cleanup of backups older than {$retention_days} days");
-        
+
         try {
             global $wpdb;
             $table = Azure_Database::get_table_name('backup_jobs');
-            
             if (!$table) {
                 throw new Exception('Database table not found');
             }
-            
-            // Get old backups
-            $cutoff_date = date('Y-m-d H:i:s', strtotime("-{$retention_days} days"));
-            $old_backups = $wpdb->get_results($wpdb->prepare(
-                "SELECT * FROM {$table} WHERE created_at < %s AND status = 'completed'",
-                $cutoff_date
-            ));
-            
+
+            $cutoff = gmdate('Y-m-d H:i:s', time() - $retention_days * DAY_IN_SECONDS);
+            $jobs = $wpdb->get_results("SELECT id, status, created_at, azure_blob_name, entity_state FROM {$table} WHERE status IN ('completed', 'failed', 'cancelled')");
+            $storage = class_exists('Azure_Backup_Storage') ? new Azure_Backup_Storage() : null;
+
             $deleted_count = 0;
-            $storage = null;
-            
-            if (class_exists('Azure_Backup_Storage')) {
-                $storage = new Azure_Backup_Storage();
-            }
-            
-            foreach ($old_backups as $backup) {
-                try {
-                    // Delete from Azure Storage if available
-                    if ($storage && !empty($backup->azure_blob_name)) {
-                        $storage->delete_backup($backup->azure_blob_name);
+            foreach (self::jobs_to_expire((array) $jobs, $cutoff) as $job) {
+                $blobs = self::job_blob_names($job);
+                if (!empty($blobs) && !$storage) {
+                    Azure_Logger::warning("Backup Scheduler: Storage unavailable, keeping backup {$job->id}");
+                    continue;
+                }
+
+                $all_gone = true;
+                foreach ($blobs as $blob) {
+                    try {
+                        $storage->delete_backup($blob);
+                    } catch (Exception $e) {
+                        if ($storage->get_blob_properties($blob)) {
+                            $all_gone = false;
+                            Azure_Logger::warning("Backup Scheduler: Failed to delete {$blob}: " . $e->getMessage());
+                        }
                     }
-                    
-                    // Delete from database
-                    $wpdb->delete($table, array('id' => $backup->id), array('%d'));
-                    
+                }
+
+                // Keep the row while any blob remains, so the next run retries it.
+                if ($all_gone) {
+                    $wpdb->delete($table, array('id' => $job->id), array('%d'));
                     $deleted_count++;
-                    
-                } catch (Exception $e) {
-                    Azure_Logger::warning('Backup Scheduler: Failed to delete backup ' . $backup->id . ': ' . $e->getMessage());
                 }
             }
-            
+
             Azure_Logger::info("Backup Scheduler: Cleanup completed - deleted {$deleted_count} old backups");
             Azure_Database::log_activity('backup', 'cleanup_completed', 'cleanup', null, array('deleted_count' => $deleted_count));
-            
         } catch (Exception $e) {
             Azure_Logger::error('Backup Scheduler: Cleanup failed: ' . $e->getMessage());
             Azure_Database::log_activity('backup', 'cleanup_failed', 'cleanup', null, array('error' => $e->getMessage()));
         }
-        
-        // Also clean up database records
-        Azure_Database::cleanup_old_records($retention_days);
     }
     
     /**

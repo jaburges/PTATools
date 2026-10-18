@@ -885,6 +885,59 @@ class Azure_Backup {
     }
 
     // ------------------------------------------------------------------
+    // Dashboard summary
+    // ------------------------------------------------------------------
+
+    /**
+     * Figures for the Backup Status dashboard widget, read from the jobs table.
+     * Times are GMT ('Y-m-d H:i:s') or UTC timestamps.
+     *
+     * @param int|null $now UTC timestamp to treat as "now".
+     * @return array{last_backup:?string,last_backup_status:string,backups_this_month:int,next_backup:?int,schedule_enabled:bool}
+     */
+    public static function dashboard_stats($now = null) {
+        global $wpdb;
+        $stats = array(
+            'last_backup'        => null,
+            'last_backup_status' => 'unknown',
+            'backups_this_month' => 0,
+            'next_backup'        => null,
+            'schedule_enabled'   => (bool) Azure_Settings::get_setting('backup_schedule_enabled', false),
+        );
+
+        $next = wp_next_scheduled('azure_backup_scheduled');
+        $stats['next_backup'] = $next ? (int) $next : null;
+
+        $table = Azure_Database::get_table_name('backup_jobs');
+        if (!$table) {
+            return $stats;
+        }
+
+        $last = $wpdb->get_var("SELECT MAX(completed_at) FROM {$table} WHERE status = 'completed'");
+        if ($last) {
+            $stats['last_backup'] = $last;
+        }
+
+        $latest_status = $wpdb->get_var("SELECT status FROM {$table} WHERE status IN ('completed', 'failed') ORDER BY id DESC LIMIT 1");
+        if ($latest_status) {
+            $stats['last_backup_status'] = $latest_status === 'completed' ? 'success' : 'error';
+        }
+
+        $month_start = (new DateTimeImmutable('@' . ($now === null ? time() : (int) $now)))
+            ->setTimezone(wp_timezone())
+            ->modify('first day of this month')
+            ->setTime(0, 0, 0)
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->format('Y-m-d H:i:s');
+        $stats['backups_this_month'] = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE status = 'completed' AND completed_at >= %s",
+            $month_start
+        ));
+
+        return $stats;
+    }
+
+    // ------------------------------------------------------------------
     // Scheduled backup
     // ------------------------------------------------------------------
 

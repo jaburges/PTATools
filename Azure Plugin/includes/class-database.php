@@ -1475,16 +1475,10 @@ class Azure_Database {
         global $wpdb;
         
         $date_threshold = date('Y-m-d H:i:s', strtotime("-{$days} days"));
-        
-        // Clean up old backup jobs
-        $backup_jobs_table = self::get_table_name('backup_jobs');
-        if ($backup_jobs_table) {
-            $wpdb->query($wpdb->prepare(
-                "DELETE FROM {$backup_jobs_table} WHERE created_at < %s AND status IN ('completed', 'failed')",
-                $date_threshold
-            ));
-        }
-        
+
+        // Backup job rows are expired by Azure_Backup_Scheduler, which also
+        // deletes their blobs; dropping rows here would orphan them.
+
         // Clean up expired calendar cache
         $calendar_cache_table = self::get_table_name('calendar_cache');
         if ($calendar_cache_table) {

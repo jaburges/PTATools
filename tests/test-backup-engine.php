@@ -170,4 +170,73 @@ if (is_dir($root)) {
     $rrmdir($root);
 }
 
+// ---------------------------------------------------------------------------
+// PHP database dump writes real % characters
+// ---------------------------------------------------------------------------
+
+foreach (array('ARRAY_N' => 'ARRAY_N', 'ARRAY_A' => 'ARRAY_A') as $const => $value) {
+    if (!defined($const)) {
+        define($const, $value);
+    }
+}
+
+/** Mirrors core: esc_sql() hides every % behind a per-request placeholder. */
+class Fake_Dump_Wpdb {
+    public $prefix = 'wp_';
+    public $placeholder = '{0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}';
+    public $rows = array();
+    public function get_results($sql, $output = null) {
+        if (strpos($sql, 'SHOW TABLES') === 0) {
+            return array(array('wp_options'));
+        }
+        return strpos($sql, 'OFFSET 0') !== false ? $this->rows : array();
+    }
+    public function get_row($sql, $output = null) {
+        return array('wp_options', 'CREATE TABLE `wp_options` (`option_id` bigint, `option_name` varchar(191), `option_value` longtext)');
+    }
+    public function prepare($sql, ...$args) { return vsprintf(str_replace('%d', '%d', $sql), $args); }
+    public function add_placeholder_escape($s) { return str_replace('%', $this->placeholder, $s); }
+    public function remove_placeholder_escape($s) { return str_replace($this->placeholder, '%', $s); }
+}
+if (!function_exists('esc_sql')) {
+    function esc_sql($data) {
+        global $wpdb;
+        return $wpdb->add_placeholder_escape(addslashes($data));
+    }
+}
+
+$GLOBALS['wpdb'] = new Fake_Dump_Wpdb();
+$serialized = serialize(array('width' => '50%', 'url' => 'https://example.test/a%20b'));
+$GLOBALS['wpdb']->rows = array(
+    array('option_id' => '1', 'option_name' => 'discount', 'option_value' => '100% off'),
+    array('option_id' => '2', 'option_name' => 'layout', 'option_value' => $serialized),
+    array('option_id' => '3', 'option_name' => 'empty', 'option_value' => null),
+);
+$gz = tempnam(sys_get_temp_dir(), 'dump') . '.sql.gz';
+call_private(new Azure_Backup_Engine('b', sys_get_temp_dir()), 'dump_with_php', array($gz));
+$dump = implode('', gzfile($gz));
+@unlink($gz);
+
+$t->check(strpos($dump, "'100% off'") !== false, 'a % in the data is written as a real % in the PHP dump');
+$t->check(strpos($dump, $GLOBALS['wpdb']->placeholder) === false, 'the PHP dump has no wpdb placeholder strings');
+$t->check(strpos($dump, addslashes($serialized)) !== false, 'serialized values keep their exact bytes, so their lengths still match');
+$t->check(strpos($dump, 'NULL') !== false, 'NULL stays NULL');
+$t->check(strpos($dump, '-- WordPress Database Backup (PHP)') === 0, 'the PHP dump starts with the header restore keys off');
+
+// ---------------------------------------------------------------------------
+// mysqldump option file
+// ---------------------------------------------------------------------------
+
+$defaults = Azure_Backup_Engine::mysqldump_defaults(
+    array('host' => 'db.example.test', 'port' => '3306', 'user' => 'admin', 'pass' => 'p#ss;w"rd\\x'),
+    '/etc/ssl/certs/ca-certificates.crt'
+);
+$t->check(strpos($defaults, "password=\"p#ss;w\\\"rd\\\\x\"\n") !== false, 'the password is quoted and escaped, so # and ; are not read as comments');
+$t->check(strpos($defaults, "port=3306\n") !== false, 'a numeric port is written as port');
+$t->check(strpos($defaults, "ssl-ca=\"/etc/ssl/certs/ca-certificates.crt\"\n") !== false, 'a TLS connection names the CA bundle so the server certificate is verified');
+
+$socket = Azure_Backup_Engine::mysqldump_defaults(array('host' => 'localhost', 'port' => '/var/run/mysqld/mysqld.sock', 'user' => 'u', 'pass' => 'p'));
+$t->check(strpos($socket, "socket=\"/var/run/mysqld/mysqld.sock\"\n") !== false, 'a socket path after the host is written as socket, not port');
+$t->check(strpos($socket, 'ssl-ca') === false, 'no CA line without TLS');
+
 exit($t->finish() > 0 ? 1 : 0);
