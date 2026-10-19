@@ -225,7 +225,9 @@ class Azure_PTA_Products_Block {
     private function card_html($product, array $s) {
         $url = (string) $product->get_permalink();
         $name = (string) $product->get_name();
-        $out = '<li class="pta-products__item">';
+        // The card is a div inside the li so theme widget-list rules
+        // (li padding, li:last-child borders) don't reshape it.
+        $out = '<li class="pta-products__item"><div class="pta-products__card">';
         if ($s['show_image'] && method_exists($product, 'get_image')) {
             $out .= '<a class="pta-products__image" href="' . esc_url($url) . '" tabindex="-1" aria-hidden="true">' . $product->get_image('woocommerce_thumbnail', array('loading' => 'lazy')) . '</a>';
         }
@@ -237,7 +239,7 @@ class Azure_PTA_Products_Block {
             }
         }
         $out .= '<div class="pta-products__action">' . ($s['show_fields'] ? $this->add_to_cart_html($product, $s) : self::link_button($url, self::link_text($product, $s))) . '</div>';
-        return $out . '</li>';
+        return $out . '</div></li>';
     }
 
     private function add_to_cart_html($product, array $s) {
@@ -254,7 +256,7 @@ class Azure_PTA_Products_Block {
         if (!$ajax) {
             return self::link_button((string) $product->add_to_cart_url(), $text);
         }
-        return '<div class="wp-block-button pta-products__button-wrap"><a href="' . esc_url((string) $product->add_to_cart_url()) . '"'
+        return '<div class="pta-products__button-wrap"><a href="' . esc_url((string) $product->add_to_cart_url()) . '"'
             . ' class="wp-block-button__link wp-element-button pta-products__button add_to_cart_button ajax_add_to_cart"'
             . ' data-product_id="' . esc_attr((string) $product->get_id()) . '" data-quantity="1" rel="nofollow">'
             . esc_html($text) . '</a></div>';
@@ -274,7 +276,7 @@ class Azure_PTA_Products_Block {
     }
 
     private static function link_button($url, $text) {
-        return '<div class="wp-block-button pta-products__button-wrap"><a class="wp-block-button__link wp-element-button pta-products__button" href="' . esc_url($url) . '">'
+        return '<div class="pta-products__button-wrap"><a class="wp-block-button__link wp-element-button pta-products__button" href="' . esc_url($url) . '">'
             . esc_html($text) . '</a></div>';
     }
 }

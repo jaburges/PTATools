@@ -1,4 +1,12 @@
-.pta-products {
+/*
+ * Selectors start at .wp-block-pta-products .pta-products so they outrank
+ * theme widget rules such as ".aft-light-mode .widget ul > li a".
+ */
+.wp-block-pta-products {
+    container-type: inline-size;
+}
+
+.wp-block-pta-products .pta-products {
     display: grid;
     grid-template-columns: repeat(var(--pta-products-columns, 1), minmax(0, 1fr));
     gap: 16px;
@@ -7,17 +15,19 @@
     list-style: none;
 }
 
-/* Phones: one card per row whatever the column setting. */
-@media (max-width: 600px) {
-    .pta-products {
-        grid-template-columns: minmax(0, 1fr);
-    }
+.wp-block-pta-products .pta-products .pta-products__item {
+    display: flex;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
 }
 
-.pta-products__item {
+.wp-block-pta-products .pta-products .pta-products__card {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
-    margin: 0;
+    min-width: 0;
     padding: 12px;
     background: #fff;
     border: 1px solid #e2e4e7;
@@ -25,57 +35,112 @@
     text-align: center;
 }
 
-.pta-products__image {
+.wp-block-pta-products .pta-products .pta-products__image {
     display: block;
     margin: 0 0 10px;
+    border: 0;
 }
 
-.pta-products__image img {
+.wp-block-pta-products .pta-products__image img {
     display: block;
     width: 100%;
     height: auto;
     border-radius: 6px;
 }
 
-.pta-products__title {
+.wp-block-pta-products .pta-products .pta-products__title {
     margin: 0 0 6px;
     font-size: 16px;
     line-height: 1.3;
 }
 
-.pta-products__title a {
+.wp-block-pta-products .pta-products .pta-products__card .pta-products__title a {
     color: inherit;
+    border: 0;
     text-decoration: none;
 }
 
-.pta-products__price {
+.wp-block-pta-products .pta-products .pta-products__price {
     margin: 0 0 10px;
     font-weight: 600;
 }
 
-.pta-products__action {
+.wp-block-pta-products .pta-products .pta-products__action {
     margin-top: auto;
 }
 
-.pta-products .pta-products__button {
-    display: block;
+.wp-block-pta-products .pta-products .pta-products__button-wrap {
+    margin: 0;
+}
+
+.wp-block-pta-products .pta-products .pta-products__card .pta-products__button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 100%;
     min-height: 44px;
     box-sizing: border-box;
     padding: 10px 14px;
+    border: 0;
     border-radius: 4px;
     background: #2271b1;
     color: #fff;
+    font-size: 14px;
     font-weight: 600;
-    line-height: 24px;
+    line-height: 1.3;
     text-align: center;
     text-decoration: none;
 }
 
-.pta-products .pta-products__button:hover,
-.pta-products .pta-products__button:focus {
+.wp-block-pta-products .pta-products .pta-products__card .pta-products__button:hover,
+.wp-block-pta-products .pta-products .pta-products__card .pta-products__button:focus {
     background: #135e96;
     color: #fff;
+}
+
+/* Three or four across: small cards, e.g. memberships in a sidebar. */
+.wp-block-pta-products :is(.pta-products--cols-3, .pta-products--cols-4) {
+    gap: 8px;
+}
+
+.wp-block-pta-products :is(.pta-products--cols-3, .pta-products--cols-4) .pta-products__card {
+    padding: 6px;
+    border-radius: 6px;
+}
+
+.wp-block-pta-products :is(.pta-products--cols-3, .pta-products--cols-4) .pta-products__image {
+    margin-bottom: 6px;
+}
+
+.wp-block-pta-products :is(.pta-products--cols-3, .pta-products--cols-4) .pta-products__title {
+    margin-bottom: 4px;
+    font-size: 13px;
+    line-height: 1.25;
+}
+
+.wp-block-pta-products :is(.pta-products--cols-3, .pta-products--cols-4) .pta-products__price {
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+
+.wp-block-pta-products :is(.pta-products--cols-3, .pta-products--cols-4) .pta-products__card .pta-products__button {
+    min-height: 40px;
+    padding: 6px 4px;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+/* Sized to the block, not the screen, so a sidebar on a phone keeps 3 across. */
+@container (max-width: 479px) {
+    .wp-block-pta-products .pta-products--cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@container (max-width: 279px) {
+    .wp-block-pta-products .pta-products {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .pta-products-empty {

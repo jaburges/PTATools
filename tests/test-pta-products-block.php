@@ -106,6 +106,7 @@ $t->check($n['columns'] === 4 && $n['limit'] === 1, 'columns and limit are clamp
 $html = $block->render_block(array('category' => 'membership'));
 $t->check(strpos($html, '<div class="wp-block-pta-products"><ul class="pta-products pta-products--cols-1" style="--pta-products-columns:1;">') === 0, 'a one-column list by default');
 $t->equals(3, substr_count($html, 'class="pta-products__item"'), 'one card per category product');
+$t->check(substr_count($html, '<li class="pta-products__item"><div class="pta-products__card">') === 3 && strpos($html, 'wp-block-button ') === false, 'cards sit in their own box, clear of theme list and .wp-block-button margins');
 $t->check(strpos($html, '<a class="wp-block-button__link wp-element-button pta-products__button" href="https://example.test/product/p10/">Select options</a>') !== false, 'fields off: the button opens the product page');
 $t->check(strpos($html, 'azure-pf-inline') === false && strpos($html, 'add-to-cart') === false && strpos($html, 'ajax_add_to_cart') === false, 'fields off: no fields and nothing added from the card');
 $t->check(strpos($html, '<h3 class="pta-products__title"><a href="https://example.test/product/p11/">Staff Membership</a></h3>') !== false, 'the title links to the product');

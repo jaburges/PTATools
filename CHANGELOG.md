@@ -2,6 +2,13 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.183 — PTA Products three across in a sidebar
+
+### Fixed
+
+- **PTA Products cards fit a sidebar three across.** With Columns set to 3 or 4 the cards are compact (smaller title, price and button, tighter spacing), so three memberships sit side by side in the homepage sidebar instead of one huge card each. A sidebar on a phone keeps 3 across; only a very narrow space drops to one column, and 4 columns drop to 2 in narrow spaces. Columns now follow the width of the block rather than the screen.
+- **Theme styles no longer reshape the cards.** In a sidebar the theme turned the button text dark grey on blue, dropped the last card's bottom border and padding, and added a 1em gap above and below each button. The cards now keep their own white button text, borders and spacing.
+
 ## 3.147.182 — PTA Products block
 
 ### Added
