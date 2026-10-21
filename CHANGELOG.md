@@ -2,6 +2,16 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.185 — PHP 8.4
+
+### Security
+
+- **The site image moves to PHP 8.4.27**, which fixes the two critical PHP remote code execution flaws disclosed on 21 October 2026 (CVE-2026-109618 and CVE-2026-109619). The previous image ran PHP 8.3.33 under Apache mod_php, the configuration where unauthenticated exploitation was demonstrated. WordPress core stays at 7.0.2.
+
+### Changed
+
+- **No PHP 8.4 deprecation notices.** CSV imports and exports pass their separator, enclosure and escape characters explicitly, so files read and write exactly as before. Backup restore checks a dropped database connection with a query instead of the deprecated `mysqli_ping()`.
+
 ## 3.147.184 — Seated event tickets
 
 ### Added

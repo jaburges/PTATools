@@ -62,7 +62,7 @@ class Azure_Orders_Reports_Export {
         foreach ($selected as $col) {
             $headers[] = $col['label'];
         }
-        fputcsv($handle, $headers);
+        fputcsv($handle, $headers, ',', '"', '\\');
 
         // Body.
         $query = new Azure_Orders_Reports_Query();
@@ -79,7 +79,7 @@ class Azure_Orders_Reports_Export {
                 }
                 $row[] = self::guard_csv_cell((string) $val);
             }
-            fputcsv($handle, $row);
+            fputcsv($handle, $row, ',', '"', '\\');
             $rows++;
 
             if ($rows % 200 === 0 && function_exists('fflush')) {

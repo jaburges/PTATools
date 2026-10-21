@@ -57,12 +57,20 @@ overwritten on the next restart or revision.
 This is not theoretical: 7.0.2 was applied from wp-admin twice in early August
 2026 and both times the site came back on the image's version.
 
-**To change the WordPress version, change the `FROM` tag** in the Dockerfile and
-rebuild:
+**To change the WordPress version, change the `core` stage tag** in the
+Dockerfile and rebuild:
 
 ```dockerfile
-FROM wordpress:7.0.2-php8.3-apache
+FROM wordpress:7.0.2-php8.4-apache AS core
 ```
+
+PHP comes from the second `FROM`, which tracks the newest core's tag
+(`wordpress:7.1.3-php8.4-apache`). Docker Hub stops rebuilding a core version's
+tags once a newer core ships, so `7.0.2-php8.3-apache` was stuck on PHP 8.3.33
+and never received the October 2026 PHP security release. To pick up a PHP
+security release, rebuild; if the tag has stopped updating, move the runtime
+stage to the newest core's tag on the same PHP minor. That changes no
+WordPress files and needs no database step.
 
 Then deploy, and complete the database half of the upgrade, which does *not*
 happen by itself on the front end:

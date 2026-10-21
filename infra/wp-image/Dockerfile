@@ -13,8 +13,22 @@
 
 # Core version is set here and nowhere else. Updating from wp-admin cannot
 # persist — core lives in this image layer, not on the uploads share — so bumping
-# this tag is how the site's WordPress version changes.
-FROM wordpress:7.0.2-php8.3-apache
+# the core stage tag is how the site's WordPress version changes.
+#
+# PHP and WordPress come from separate stages because Docker Hub stops
+# rebuilding a wordpress:<version> tag once a newer core ships, so an older
+# core's tag never receives PHP security releases. The runtime stage tracks the
+# newest core's tag for its PHP; the core stage supplies the WordPress files the
+# database schema expects. Keep both on the same PHP minor.
+FROM wordpress:7.0.2-php8.4-apache AS core
+
+FROM wordpress:7.1.3-php8.4-apache
+
+# The entrypoint copies /usr/src/wordpress into the document root at every
+# start, so replacing it here is what pins the running core.
+RUN rm -rf /usr/src/wordpress
+COPY --from=core /usr/src/wordpress /usr/src/wordpress
+ENV WORDPRESS_VERSION=7.0.2
 
 # unzip is needed by WordPress for plugin/theme operations; the rest of the
 # base image already carries the required PHP extensions. mariadb-client

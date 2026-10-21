@@ -2829,7 +2829,7 @@ class Azure_Volunteer_Signup {
         header('Content-Disposition: attachment; filename="' . $name . '-signups.csv"');
         $out = fopen('php://output', 'w');
         foreach (self::export_rows($sheet, $activities, $signups) as $row) {
-            fputcsv($out, array_map(array(__CLASS__, 'csv_cell'), $row));
+            fputcsv($out, array_map(array(__CLASS__, 'csv_cell'), $row), ',', '"', '\\');
         }
         fclose($out);
         exit;

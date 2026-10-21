@@ -160,7 +160,7 @@ class Azure_Parent_Children_Importer {
         fwrite($fh, $csv);
         rewind($fh);
 
-        $header = fgetcsv($fh);
+        $header = fgetcsv($fh, 0, ',', '"', '\\');
         if (!$header) {
             fclose($fh);
             return new WP_Error('empty_csv', 'CSV is empty.');
@@ -186,7 +186,7 @@ class Azure_Parent_Children_Importer {
 
         $out = array();
         $line_no = 1;
-        while (($cells = fgetcsv($fh)) !== false) {
+        while (($cells = fgetcsv($fh, 0, ',', '"', '\\')) !== false) {
             $line_no++;
             // Normalize: allow shorter rows than header.
             $row = array();

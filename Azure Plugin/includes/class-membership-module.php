@@ -3725,7 +3725,7 @@ class Azure_Membership_Module {
 
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-        fputcsv($out, array('Name', 'Email', 'Parent 2 Name', 'Parent 2 Email', 'Membership Type', 'Paid Date', 'Children', 'Role Types'));
+        fputcsv($out, array('Name', 'Email', 'Parent 2 Name', 'Parent 2 Email', 'Membership Type', 'Paid Date', 'Children', 'Role Types'), ',', '"', '\\');
         foreach ($rows as $row) {
             fputcsv($out, array(
                 $row['name'],
@@ -3736,7 +3736,7 @@ class Azure_Membership_Module {
                 $row['paid_at'],
                 $row['children'],
                 implode('; ', $row['role_types']),
-            ));
+            ), ',', '"', '\\');
         }
         fclose($out);
         exit;

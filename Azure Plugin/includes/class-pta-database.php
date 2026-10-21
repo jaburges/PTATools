@@ -374,7 +374,7 @@ class Azure_PTA_Database {
             }
             
             // Parse CSV line
-            $data = str_getcsv($line);
+            $data = str_getcsv($line, ',', '"', '\\');
             
             if ($header === null) {
                 // First line is header

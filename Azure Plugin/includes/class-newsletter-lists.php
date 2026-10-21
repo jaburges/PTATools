@@ -488,7 +488,7 @@ class Azure_Newsletter_Lists {
         
         $imported = 0;
         $skipped = 0;
-        $header = fgetcsv($handle);
+        $header = fgetcsv($handle, 0, ',', '"', '\\');
         
         // Find column indexes
         $email_col = array_search('email', array_map('strtolower', $header));
@@ -499,7 +499,7 @@ class Azure_Newsletter_Lists {
             $email_col = 0; // Default to first column
         }
         
-        while (($row = fgetcsv($handle)) !== false) {
+        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
             $email = trim($row[$email_col] ?? '');
             
             if (!is_email($email)) {
@@ -543,7 +543,7 @@ class Azure_Newsletter_Lists {
         $output = fopen('php://temp', 'r+');
         
         // Header
-        fputcsv($output, array('email', 'name', 'user_id', 'subscribed'));
+        fputcsv($output, array('email', 'name', 'user_id', 'subscribed'), ',', '"', '\\');
         
         // Data
         foreach ($subscribers as $sub) {
@@ -552,7 +552,7 @@ class Azure_Newsletter_Lists {
                 $sub['name'],
                 $sub['user_id'],
                 'yes'
-            ));
+            ), ',', '"', '\\');
         }
         
         rewind($output);

@@ -655,7 +655,7 @@ class Azure_Backup_Restore {
                 // Auto-reconnect on "server has gone away"
                 if (stripos($err, 'server has gone away') !== false || stripos($err, 'Lost connection') !== false) {
                     Azure_Logger::warning("Restore: Lost DB connection, reconnecting...", 'Backup');
-                    if (mysqli_ping($mysqli) || $wpdb->db_connect(false)) {
+                    if (@mysqli_query($mysqli, 'SELECT 1') !== false || $wpdb->db_connect(false)) {
                         $result = $this->execute_sql($mysqli, $query);
                         if ($result !== false) continue;
                     }
