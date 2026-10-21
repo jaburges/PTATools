@@ -270,6 +270,9 @@ class Azure_PTA_Products_Block {
         if ($s['button_text'] !== '') {
             return $s['button_text'];
         }
+        if (method_exists($product, 'is_type') && $product->is_type('ticket')) {
+            return (string) $product->add_to_cart_text();
+        }
         $needs_page = (method_exists($product, 'is_type') && ($product->is_type('variable') || $product->is_type('grouped')))
             || (class_exists('Azure_Product_Fields_Module') && Azure_Product_Fields_Module::product_needs_product_page((int) $product->get_id()));
         return $needs_page ? __('Select options', 'azure-plugin') : __('View product', 'azure-plugin');

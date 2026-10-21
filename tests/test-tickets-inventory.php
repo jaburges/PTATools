@@ -87,4 +87,22 @@ $t->equals(3, $I::count_taken($FRI, array('par'), 'cartP'), 'a cart does not cou
 $t->equals(2, $I::count_taken($FRI, array('par', 'reg'), '', 42), 'per-buyer count');
 $t->equals(0, $I::count_taken($FRI, array()), 'no sections, nothing counted');
 
+// ── Seats assigned by hand to a VIP order ──────────────────────────────
+$VIP = 777;
+$t->check($I::assign($VIP, $FRI, array($seat('front', 'A-5'), $seat('front', 'A-6')))['ok'], 'free seats can be assigned to a VIP order');
+$t->equals(array('A-5' => 'taken', 'A-6' => 'taken'), $I::taken($FRI)['front'], 'assigned seats are taken');
+$t->check($I::assign($VIP, $FRI, array($seat('front', 'A-5')))['ok'], 'assigning a seat the order already has is fine');
+$I::claim($FRI, array($seat('front', 'A-7')), 'cartV');
+$r = $I::assign($VIP, $FRI, array($seat('front', 'A-8'), $seat('front', 'A-7')));
+$t->check(!$r['ok'] && $r['taken'] === array($seat('front', 'A-7')), 'a seat in someone\'s cart cannot be assigned');
+$t->check(!isset($I::taken($FRI)['front']['A-8']), 'all or nothing: A-8 was not left assigned');
+$t->check(!$I::assign(778, $FRI, array($seat('front', 'A-5')))['ok'], 'another order cannot be given an assigned seat');
+$I::unassign($VIP, $FRI, array($seat('front', 'A-6')));
+$t->equals(array('A-5' => 'taken', 'A-7' => 'taken'), $I::taken($FRI)['front'], 'unassigning frees just that seat');
+$I::$now += 86400 * 30;
+$I::cleanup(function () { return 'failed'; });
+$t->equals('taken', $I::taken($FRI)['front']['A-5'] ?? '', 'assigned seats survive cleanup');
+$I::release_order($VIP);
+$t->check(!isset($I::taken($FRI)['front']['A-5']), 'cancelling the VIP order frees its seats');
+
 exit($t->finish() > 0 ? 1 : 0);

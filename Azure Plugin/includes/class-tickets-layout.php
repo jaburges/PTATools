@@ -4,13 +4,16 @@
  * the venue's `_azure_seating_layout` meta.
  *
  * Block types:
- *   rectangle          reserved seats in rows (A, B, ...) numbered 1..N
+ *   rectangle          reserved seats in rows (A, B, ...) numbered
+ *                      startSeat..startSeat+seatsPerRow-1, so the two halves
+ *                      of a row split by an aisle can carry on one numbering
  *   general_admission  unnumbered places up to a capacity
  *   area               drawn on the map, never sold (e.g. a gym mat)
  *   stage, label, aisle  decoration
  *
  * A rectangle's `seatTypes` map marks single seats, keyed "<row>-<number>":
- * "accessible" (wheelchair space) or "none" (no seat there).
+ * "accessible" (wheelchair space), "companion" (the seat beside one) or
+ * "none" (no seat there). `angle` and `stagger` only change the drawing.
  *
  * Section ids are part of every hold, sale and ticket, so sanitize() keeps
  * them exactly as saved and only invents one for a block that has none.
@@ -27,9 +30,12 @@ class Azure_Tickets_Layout {
     const SELLABLE = array('rectangle', 'general_admission');
     const TYPES = array('rectangle', 'general_admission', 'area', 'stage', 'label', 'aisle');
     const SEAT_ACCESSIBLE = 'accessible';
+    const SEAT_COMPANION = 'companion';
     const SEAT_NONE = 'none';
     const MAX_ROWS = 26;
     const MAX_SEATS_PER_ROW = 100;
+    const MAX_SEAT_NUMBER = 999;
+    const MAX_ANGLE = 45;
     const MAX_GA_CAPACITY = 10000;
 
     public static function empty_layout() {
@@ -95,6 +101,9 @@ class Azure_Tickets_Layout {
                     $max_rows = self::MAX_ROWS - (ord($block['startRow']) - ord('A'));
                     $block['rowCount'] = self::clamp($b['rowCount'] ?? 2, 1, $max_rows);
                     $block['seatsPerRow'] = self::clamp($b['seatsPerRow'] ?? 10, 1, self::MAX_SEATS_PER_ROW);
+                    $block['startSeat'] = self::clamp($b['startSeat'] ?? 1, 1, self::MAX_SEAT_NUMBER - $block['seatsPerRow'] + 1);
+                    $block['angle'] = self::clamp($b['angle'] ?? 0, -self::MAX_ANGLE, self::MAX_ANGLE);
+                    $block['stagger'] = !empty($b['stagger']);
                     $block['seatTypes'] = self::seat_types($b['seatTypes'] ?? array(), $block);
                     break;
                 case 'general_admission':
@@ -142,7 +151,15 @@ class Azure_Tickets_Layout {
     }
 
     /**
-     * @return array<string,string> seat key ("B-7") => "normal" | "accessible".
+     * @return int[] The seat numbers along each row of a rectangle.
+     */
+    public static function seat_numbers(array $block) {
+        $first = max(1, (int) ($block['startSeat'] ?? 1));
+        return range($first, $first + max(1, (int) $block['seatsPerRow']) - 1);
+    }
+
+    /**
+     * @return array<string,string> seat key ("B-7") => "normal" | "accessible" | "companion".
      */
     public static function seats(array $block) {
         if (($block['type'] ?? '') !== 'rectangle') {
@@ -151,20 +168,20 @@ class Azure_Tickets_Layout {
         $types = $block['seatTypes'] ?? array();
         $out = array();
         foreach (self::row_labels($block) as $row) {
-            for ($n = 1; $n <= (int) $block['seatsPerRow']; $n++) {
+            foreach (self::seat_numbers($block) as $n) {
                 $key = $row . '-' . $n;
                 $type = $types[$key] ?? '';
                 if ($type === self::SEAT_NONE) {
                     continue;
                 }
-                $out[$key] = $type === self::SEAT_ACCESSIBLE ? self::SEAT_ACCESSIBLE : 'normal';
+                $out[$key] = in_array($type, array(self::SEAT_ACCESSIBLE, self::SEAT_COMPANION), true) ? $type : 'normal';
             }
         }
         return $out;
     }
 
     /**
-     * @return string|null "normal" / "accessible", or null when the key is not a seat in this block.
+     * @return string|null "normal" / "accessible" / "companion", or null when the key is not a seat in this block.
      */
     public static function seat_type(array $block, $seat_key) {
         $seats = self::seats($block);
@@ -195,7 +212,14 @@ class Azure_Tickets_Layout {
         }
         $parts = explode('-', (string) $seat_key, 2);
         /* translators: 1: section name, 2: row letter, 3: seat number */
-        return sprintf(__('%1$s · Row %2$s, Seat %3$s', 'azure-plugin'), $block['name'], $parts[0], $parts[1] ?? '');
+        $label = sprintf(__('%1$s · Row %2$s, Seat %3$s', 'azure-plugin'), $block['name'], $parts[0], $parts[1] ?? '');
+        $type = self::seat_type($block, $seat_key);
+        if ($type === self::SEAT_ACCESSIBLE) {
+            $label .= ' ' . __('(wheelchair space)', 'azure-plugin');
+        } elseif ($type === self::SEAT_COMPANION) {
+            $label .= ' ' . __('(companion seat)', 'azure-plugin');
+        }
+        return $label;
     }
 
     private static function seat_types($raw, array $block) {
@@ -203,20 +227,22 @@ class Azure_Tickets_Layout {
             return array();
         }
         $rows = array_flip(self::row_labels($block));
+        $first = (int) $block['startSeat'];
+        $last = $first + (int) $block['seatsPerRow'] - 1;
         $out = array();
         foreach ($raw as $key => $type) {
-            if (!in_array($type, array(self::SEAT_ACCESSIBLE, self::SEAT_NONE), true)) {
+            if (!in_array($type, array(self::SEAT_ACCESSIBLE, self::SEAT_COMPANION, self::SEAT_NONE), true)) {
                 continue;
             }
             if (!preg_match('/^([A-Z])-(\d{1,3})$/', (string) $key, $m)) {
                 continue;
             }
-            if (!isset($rows[$m[1]]) || (int) $m[2] < 1 || (int) $m[2] > $block['seatsPerRow']) {
+            if (!isset($rows[$m[1]]) || (int) $m[2] < $first || (int) $m[2] > $last) {
                 continue;
             }
             $out[$m[1] . '-' . (int) $m[2]] = $type;
         }
-        ksort($out);
+        ksort($out, SORT_NATURAL);
         return $out;
     }
 

@@ -24,6 +24,8 @@ class Azure_Tickets_Cart {
     const ITEM_SEATS = '_ticket_seats';
     const ITEM_HOLD = '_ticket_hold';
     const ITEM_SECTION = '_ticket_section';
+    const ITEM_KIND = '_ticket_kind';
+    const ITEM_ATTEST = '_ticket_accessible_attested';
     const ORDER_ATTACHED = '_ticket_holds_attached';
 
     /** @var self|null */
@@ -64,6 +66,11 @@ class Azure_Tickets_Cart {
         foreach (array('cancelled', 'failed', 'refunded') as $status) {
             add_action('woocommerce_order_status_' . $status, array($this, 'order_released'));
         }
+
+        add_filter('woocommerce_variation_is_purchasable', array($this, 'vip_purchasable'), 20, 2);
+        add_filter('wc_stripe_payment_request_supported_types', array($this, 'stripe_supported_types'));
+        add_filter('render_block_woocommerce/cart', array($this, 'cart_block_extras'), 10, 1);
+        add_action('woocommerce_after_cart', array($this, 'classic_cart_extras'));
     }
 
     // ── Selection → cart lines ─────────────────────────────────────────
@@ -74,6 +81,9 @@ class Azure_Tickets_Cart {
      * @return array{ok:bool, error?:string, taken?:array, lines?:array}
      */
     public static function prepare($product_id, array $request, $user_id, $hold_key, $in_cart = 0) {
+        if (Azure_Tickets_Config::sales_closed($product_id)) {
+            return self::fail(__('Online sales for this performance have closed.', 'azure-plugin'));
+        }
         $sections = Azure_Tickets_Config::sections($product_id);
         if (!$sections) {
             return self::fail(__('Seating isn\'t set up for this performance yet.', 'azure-plugin'));
@@ -81,7 +91,8 @@ class Azure_Tickets_Cart {
 
         $places = array();
         $wanted = array();
-        $accessible = false;
+        $accessible = 0;
+        $companions = 0;
         foreach ((array) ($request['seats'] ?? array()) as $s) {
             $sid = (string) ($s['section_id'] ?? '');
             $key = (string) ($s['seat_key'] ?? '');
@@ -93,7 +104,8 @@ class Azure_Tickets_Cart {
             if ($type === null || !$section['on_sale']) {
                 return self::fail(sprintf(__('%s isn\'t available. Please reload the seat map.', 'azure-plugin'), Azure_Tickets_Layout::seat_label($section['block'], $key)));
             }
-            $accessible = $accessible || $type === Azure_Tickets_Layout::SEAT_ACCESSIBLE;
+            $accessible += $type === Azure_Tickets_Layout::SEAT_ACCESSIBLE ? 1 : 0;
+            $companions += $type === Azure_Tickets_Layout::SEAT_COMPANION ? 1 : 0;
             $places[$sid . '|' . $key] = array('section_id' => $sid, 'seat_key' => $key, 'name' => self::name($s['name'] ?? ''));
             $wanted[$sid] = ($wanted[$sid] ?? 0) + 1;
         }
@@ -120,8 +132,12 @@ class Azure_Tickets_Cart {
         if ($total + (int) $in_cart > $max) {
             return self::fail(sprintf(_n('You can buy up to %d ticket for this performance.', 'You can buy up to %d tickets for this performance.', $max, 'azure-plugin'), $max));
         }
-        if ($accessible && empty($request['accessible_ok']) && !Azure_Tickets_Config::release_accessible($product_id)) {
-            return self::fail(__('Please confirm that someone in your party needs an accessible space.', 'azure-plugin'));
+        $released = Azure_Tickets_Config::release_accessible($product_id);
+        if ($accessible && empty($request['accessible_ok']) && !$released) {
+            return self::fail(__('Please confirm that someone in your party needs a wheelchair space.', 'azure-plugin'));
+        }
+        if ($companions > $accessible && !$released) {
+            return self::fail(__('Companion seats are for the companion of someone in a wheelchair space. Choose them together with a wheelchair space, or pick other seats.', 'azure-plugin'));
         }
         if (Azure_Tickets_Config::require_names($product_id)) {
             $names = array_column($places, 'name');
@@ -187,10 +203,12 @@ class Azure_Tickets_Cart {
             $claimed_general[$sid] = $keys;
         }
 
+        // One cart line per section and ticket type (Regular / ADA).
         $lines = array();
         foreach ($places as $p) {
             $section = $sections[$p['section_id']];
-            $lines[$p['section_id']]['seats'][] = array(
+            $kind = Azure_Tickets_Config::seat_kind($section['block'], $p['seat_key']);
+            $lines[$p['section_id'] . '|' . $kind]['seats'][] = array(
                 'section_id' => $p['section_id'],
                 'seat_key'   => $p['seat_key'],
                 'label'      => Azure_Tickets_Layout::seat_label($section['block'], $p['seat_key']),
@@ -199,7 +217,7 @@ class Azure_Tickets_Cart {
         }
         foreach ($claimed_general as $sid => $keys) {
             foreach ($keys as $i => $key) {
-                $lines[$sid]['seats'][] = array(
+                $lines[$sid . '|' . Azure_Tickets_Config::KIND_REGULAR]['seats'][] = array(
                     'section_id' => $sid,
                     'seat_key'   => $key,
                     'label'      => $sections[$sid]['name'],
@@ -207,9 +225,13 @@ class Azure_Tickets_Cart {
                 );
             }
         }
-        foreach ($lines as $sid => &$line) {
+        $attested = ($accessible && !$released) ? current_time('mysql') : '';
+        foreach ($lines as $ref => &$line) {
+            list($sid, $kind) = explode('|', $ref);
             $line['section_id'] = $sid;
-            $line['price'] = $sections[$sid]['price'];
+            $line['kind'] = $kind;
+            $line['price'] = Azure_Tickets_Config::seat_price($product_id, $sections[$sid], $kind);
+            $line['attested'] = $kind === Azure_Tickets_Config::KIND_ADA ? $attested : '';
         }
         unset($line);
         return array('ok' => true, 'lines' => array_values($lines));
@@ -221,6 +243,10 @@ class Azure_Tickets_Cart {
      * @return string '' when fine, otherwise why the line has to go.
      */
     public static function refresh($product_id, array $seats, $hold_key, $user_id) {
+        if (Azure_Tickets_Config::sales_closed($product_id)) {
+            Azure_Tickets_Inventory::release($hold_key, $product_id, self::places_of($seats));
+            return __('Online sales for this performance have closed, so its tickets were removed from your cart.', 'azure-plugin');
+        }
         $sections = Azure_Tickets_Config::sections($product_id);
         $places = array();
         foreach ($seats as $s) {
@@ -306,11 +332,13 @@ class Azure_Tickets_Cart {
                 $left = min($left, $s['limit'] - $sold);
             }
             $config[$sid] = array(
-                'price'   => $s['price'],
-                'on_sale' => $s['on_sale'],
-                'access'  => $s['access'],
-                'locked'  => $s['access'] === Azure_Tickets_Config::ACCESS_FAMILIES && !$family,
-                'left'    => max(0, $left),
+                'price'      => $s['price'],
+                'ada_price'  => Azure_Tickets_Config::seat_price($product_id, $s, Azure_Tickets_Config::KIND_ADA),
+                'on_sale'    => $s['on_sale'],
+                'opens'      => $s['opens_at'] && $s['enabled'] ? wp_date('D j M, g:ia', $s['opens_at']) : '',
+                'access'     => $s['access'],
+                'locked'     => $s['access'] === Azure_Tickets_Config::ACCESS_FAMILIES && !$family,
+                'left'       => max(0, $left),
             );
         }
         return array(
@@ -321,6 +349,7 @@ class Azure_Tickets_Cart {
             'release_accessible' => Azure_Tickets_Config::release_accessible($product_id),
             'signed_in'          => $user_id > 0,
             'family'             => $family,
+            'extras'             => (bool) Azure_Tickets_Config::extras($product_id),
         );
     }
 
@@ -362,6 +391,8 @@ class Azure_Tickets_Cart {
                 self::ITEM_SEATS   => $line['seats'],
                 self::ITEM_HOLD    => $hold_key,
                 self::ITEM_SECTION => $line['section_id'],
+                self::ITEM_KIND    => $line['kind'],
+                self::ITEM_ATTEST  => $line['attested'],
             ));
             if (!$key) {
                 Azure_Tickets_Inventory::release($hold_key, $product_id, self::places_of($line['seats']));
@@ -383,9 +414,26 @@ class Azure_Tickets_Cart {
 
     public function is_purchasable($purchasable, $product) {
         if (!self::is_ticket($product)) {
-            return $purchasable;
+            return $purchasable && !self::vip_closed($product);
         }
         return $product->get_status() === 'publish' && Azure_Tickets_Config::price_range($product->get_id()) !== null;
+    }
+
+    public function vip_purchasable($purchasable, $variation) {
+        return $purchasable && !self::vip_closed($variation);
+    }
+
+    /**
+     * A seat-assignment (VIP) product stops selling when the sections held
+     * for it open to everyone.
+     */
+    private static function vip_closed($product) {
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return false;
+        }
+        $parent = method_exists($product, 'get_parent_id') ? (int) $product->get_parent_id() : 0;
+        $close = Azure_Tickets_Config::vip_close_ts($product->get_id(), $parent);
+        return $close > 0 && Azure_Tickets_Config::now() >= $close;
     }
 
     public function set_prices($cart) {
@@ -396,8 +444,50 @@ class Azure_Tickets_Cart {
             $sections = Azure_Tickets_Config::sections($item['product_id']);
             $sid = $item[self::ITEM_SECTION] ?? '';
             if (isset($sections[$sid])) {
-                $item['data']->set_price($sections[$sid]['price']);
+                $kind = ($item[self::ITEM_KIND] ?? '') === Azure_Tickets_Config::KIND_ADA ? Azure_Tickets_Config::KIND_ADA : Azure_Tickets_Config::KIND_REGULAR;
+                $item['data']->set_price(Azure_Tickets_Config::seat_price($item['product_id'], $sections[$sid], $kind));
             }
+        }
+    }
+
+    /**
+     * Stripe hides Apple Pay / Google Pay for carts with product types it
+     * doesn't list, which is every ticket cart. Listing tickets only on the
+     * checkout page keeps wallets off the product and cart pages (where they
+     * would skip seat choice and the extras) and offers them at checkout.
+     */
+    public function stripe_supported_types($types) {
+        $checkout = function_exists('is_checkout') && is_checkout() && !(function_exists('is_cart') && is_cart());
+        if ($checkout && is_array($types) && !in_array('ticket', $types, true)) {
+            $types[] = 'ticket';
+        }
+        return $types;
+    }
+
+    /**
+     * @return int A ticket product in the cart that has extras, or 0.
+     */
+    private static function cart_extras_product() {
+        if (!function_exists('WC') || !WC()->cart) {
+            return 0;
+        }
+        foreach (WC()->cart->get_cart() as $item) {
+            if (!empty($item[self::ITEM_SEATS]) && Azure_Tickets_Config::extras($item['product_id'])) {
+                return (int) $item['product_id'];
+            }
+        }
+        return 0;
+    }
+
+    public function cart_block_extras($html) {
+        $pid = self::cart_extras_product();
+        return $pid && function_exists('azure_tickets_extras_html') ? $html . azure_tickets_extras_html($pid, 'cart') : $html;
+    }
+
+    public function classic_cart_extras() {
+        $pid = self::cart_extras_product();
+        if ($pid && function_exists('azure_tickets_extras_html')) {
+            echo azure_tickets_extras_html($pid, 'cart'); // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts
         }
     }
 
@@ -425,6 +515,7 @@ class Azure_Tickets_Cart {
         if ($date) {
             $data[] = array('name' => __('Performance', 'azure-plugin'), 'value' => date_i18n('D j M, g:ia', strtotime($date)));
         }
+        $data[] = array('name' => __('Ticket type', 'azure-plugin'), 'value' => self::kind_label($item[self::ITEM_KIND] ?? ''));
         foreach ($item[self::ITEM_SEATS] as $s) {
             $data[] = array('name' => __('Seat', 'azure-plugin'), 'value' => $s['label'] . ($s['name'] !== '' ? ' — ' . $s['name'] : ''));
         }
@@ -455,11 +546,15 @@ class Azure_Tickets_Cart {
         }
     }
 
+    public static function kind_label($kind) {
+        return $kind === Azure_Tickets_Config::KIND_ADA ? __('ADA (wheelchair space)', 'azure-plugin') : __('Regular', 'azure-plugin');
+    }
+
     public function price_html($html, $product) {
         if (!self::is_ticket($product)) {
             return $html;
         }
-        $range = Azure_Tickets_Config::price_range($product->get_id());
+        $range = Azure_Tickets_Config::listed_price_range($product->get_id());
         if ($range === null) {
             return '';
         }
@@ -475,10 +570,20 @@ class Azure_Tickets_Cart {
         $item->add_meta_data(self::ITEM_SEATS, $values[self::ITEM_SEATS], true);
         $item->add_meta_data(self::ITEM_HOLD, $values[self::ITEM_HOLD], true);
         $item->add_meta_data(self::ITEM_SECTION, $values[self::ITEM_SECTION] ?? '', true);
+        $item->add_meta_data(self::ITEM_KIND, $values[self::ITEM_KIND] ?? Azure_Tickets_Config::KIND_REGULAR, true);
         $labels = array_map(function ($s) {
             return $s['label'] . ($s['name'] !== '' ? ' — ' . $s['name'] : '');
         }, $values[self::ITEM_SEATS]);
+        $item->add_meta_data(__('Ticket type', 'azure-plugin'), self::kind_label($values[self::ITEM_KIND] ?? ''), true);
         $item->add_meta_data(__('Seats', 'azure-plugin'), implode("\n", $labels), true);
+        if (!empty($values[self::ITEM_ATTEST])) {
+            $item->add_meta_data(self::ITEM_ATTEST, $values[self::ITEM_ATTEST], true);
+            $item->add_meta_data(
+                __('Accessibility', 'azure-plugin'),
+                sprintf(__('Buyer confirmed a wheelchair space is needed (%s)', 'azure-plugin'), date_i18n('j M Y, g:ia', strtotime($values[self::ITEM_ATTEST]))),
+                true
+            );
+        }
     }
 
     public static function order_places($order) {

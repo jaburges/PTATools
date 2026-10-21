@@ -21,7 +21,7 @@ class Azure_Tickets_Generator {
         $tickets_table = $wpdb->prefix . 'azure_tickets';
         
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$tickets_table} WHERE order_id = %d ORDER BY id ASC",
+            "SELECT * FROM {$tickets_table} WHERE order_id = %d AND status = 'active' ORDER BY product_id, row_letter, seat_number, id",
             $order_id
         ));
     }
@@ -128,6 +128,7 @@ class Azure_Tickets_Generator {
      * Build ticket email HTML
      */
     private function build_ticket_email($order, $tickets_by_product) {
+        $wallet_on = class_exists('Azure_Tickets_Apple_Wallet') && Azure_Tickets_Apple_Wallet::is_configured();
         ob_start();
         ?>
         <!DOCTYPE html>
@@ -198,6 +199,9 @@ class Azure_Tickets_Generator {
                                 <?php endif; ?>
                                 <p><strong>Order:</strong> #<?php echo esc_html($order->get_order_number()); ?></p>
                                 <p style="font-size: 12px; color: #666;">Present this QR code at the entrance for check-in.</p>
+                                <?php if ($wallet_on): ?>
+                                <p><a href="<?php echo esc_url(Azure_Tickets_Apple_Wallet::url($ticket->ticket_code)); ?>" class="btn btn-wallet" style="background:#000;color:#fff;">Add to Apple Wallet</a></p>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>

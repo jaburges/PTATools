@@ -51,6 +51,7 @@ require_once dirname(__DIR__) . '/Azure Plugin/includes/class-tickets-cart.php';
 
 $GLOBALS['wpdb'] = tickets_test_wpdb();
 Azure_Tickets_Inventory::$now = strtotime('2026-11-01 18:00:00 UTC');
+Azure_Tickets_Config::$now = Azure_Tickets_Inventory::$now;
 
 $VENUE = 900;
 $FRI = 501;
@@ -60,6 +61,7 @@ WP_Shim::$post_meta[$VENUE]['_azure_seating_layout'] = json_encode(array('blocks
     array('id' => 'ga', 'type' => 'general_admission', 'name' => 'Back wall', 'price' => 5, 'capacity' => 3),
     array('id' => 'vip', 'type' => 'rectangle', 'name' => 'Reserved for staff', 'price' => 0, 'rowCount' => 1, 'seatsPerRow' => 2),
     array('id' => 'mat', 'type' => 'area', 'label' => 'Gym mat'),
+    array('id' => 'wc', 'type' => 'rectangle', 'name' => 'Aisle', 'price' => 10, 'rowCount' => 1, 'seatsPerRow' => 4, 'startRow' => 'F', 'seatTypes' => array('F-1' => 'accessible', 'F-2' => 'companion', 'F-3' => 'companion')),
 )));
 WP_Shim::$post_meta[$FRI] = array(
     '_ticket_venue_id'        => $VENUE,
@@ -92,7 +94,7 @@ $seat = function ($s, $k, $name = '') { return array('section_id' => $s, 'seat_k
 
 // ── Settings ───────────────────────────────────────────────────────────
 $sections = Azure_Tickets_Config::sections($FRI);
-$t->equals(array('par', 'reg', 'ga', 'vip'), array_keys($sections), 'sellable sections come from the venue layout; the gym mat is not one');
+$t->equals(array('par', 'reg', 'ga', 'vip', 'wc'), array_keys($sections), 'sellable sections come from the venue layout; the gym mat is not one');
 $t->check($sections['par']['price'] === 10.0 && $sections['reg']['price'] === 9.5 && $sections['ga']['price'] === 5.0, 'a blank price uses the layout, a set one overrides it, unset sections use the layout');
 $t->check($sections['ga']['on_sale'] && !$sections['vip']['on_sale'], 'sections are on sale unless switched off');
 $t->equals(array('ada@example.com', 'bob@example.com'), Azure_Tickets_Config::family_rules($FRI)['emails'], 'emails are picked out of pasted CSV text');
@@ -100,7 +102,7 @@ $t->equals(array(5.0, 10.0), Azure_Tickets_Config::price_range($FRI), 'price ran
 $t->equals('2026-07-01', Azure_Tickets_Config::school_year_start(strtotime('2026-10-21')), 'school year starts 1 July');
 $t->equals('2025-07-01', Azure_Tickets_Config::school_year_start(strtotime('2026-03-02')), 'and before July it is last year');
 $stored = json_decode(Azure_Tickets_Config::sanitize_sections(array('par' => array('price' => '12', 'limit' => '-3', 'on_sale' => '1', 'access' => 'families'), 'zzz' => array('price' => 1)), Azure_Tickets_Config::layout($FRI)), true);
-$t->check($stored['par'] == array('price' => 12, 'limit' => 0, 'on_sale' => true, 'access' => 'families') && !isset($stored['zzz']) && $stored['reg']['on_sale'] === false, 'saved settings keep only layout sections; an unticked box is off');
+$t->check($stored['par'] == array('price' => 12, 'limit' => 0, 'on_sale' => true, 'from' => '', 'access' => 'families') && !isset($stored['zzz']) && $stored['reg']['on_sale'] === false, 'saved settings keep only layout sections; an unticked box is off');
 
 // ── Eligible families ──────────────────────────────────────────────────
 $t->check(Azure_Tickets_Access::is_family(7, $FRI), 'on the uploaded list (case-insensitive)');
@@ -143,9 +145,54 @@ $t->check($C::prepare($FRI, array('seats' => array($seat('par', 'B-1'))), 8, 'ca
 
 // ── Accessible seats ───────────────────────────────────────────────────
 $r = $C::prepare($FRI, array('seats' => array($seat('par', 'A-1'))), 7, 'cartAda');
-$t->check(!$r['ok'] && strpos($r['error'], 'accessible') !== false, 'an accessible space needs the buyer to confirm the need');
+$t->check(!$r['ok'] && strpos($r['error'], 'wheelchair space') !== false, 'an accessible space needs the buyer to confirm the need');
 $t->check($C::prepare($FRI, array('seats' => array($seat('par', 'A-1'))), 7, 'cartAda', 0)['ok'] === false, 'still refused without confirmation');
 $t->check($C::prepare($FRI, array('seats' => array($seat('par', 'A-1')), 'accessible_ok' => 1), 7, 'cartAda')['ok'], 'and allowed with it');
+
+// ── Wheelchair spaces, companion seats, ADA tickets ────────────────────
+$r = $C::prepare($FRI, array('seats' => array($seat('wc', 'F-2')), 'accessible_ok' => 1), 9, 'cartW');
+$t->check(!$r['ok'] && strpos($r['error'], 'Companion seats') !== false, 'a companion seat on its own is refused');
+$r = $C::prepare($FRI, array('seats' => array($seat('wc', 'F-1'), $seat('wc', 'F-2'), $seat('wc', 'F-3')), 'accessible_ok' => 1), 9, 'cartW');
+$t->check(!$r['ok'] && strpos($r['error'], 'Companion seats') !== false, 'one wheelchair space brings one companion seat');
+$r = $C::prepare($FRI, array('seats' => array($seat('wc', 'F-1'), $seat('wc', 'F-2'), $seat('wc', 'F-4')), 'accessible_ok' => 1), 9, 'cartW');
+$kinds = $r['ok'] ? array_column($r['lines'], 'kind') : array();
+$t->equals(array('ada', 'regular'), $kinds, 'a wheelchair space is an ADA ticket; the companion and the plain seat are Regular');
+$t->check($r['ok'] && $r['lines'][0]['price'] === 10.0 && count($r['lines'][1]['seats']) === 2, 'with no ADA price set, ADA tickets cost the section price');
+$t->check($r['ok'] && $r['lines'][0]['attested'] !== '' && $r['lines'][1]['attested'] === '', 'the attestation time goes on the ADA line only');
+Azure_Tickets_Inventory::release('cartW', $FRI, array($seat('wc', 'F-1'), $seat('wc', 'F-2'), $seat('wc', 'F-4')));
+WP_Shim::$post_meta[$FRI]['_ticket_ada_price'] = '7.5';
+$r = $C::prepare($FRI, array('seats' => array($seat('wc', 'F-1')), 'accessible_ok' => 1), 9, 'cartW');
+$t->check($r['ok'] && $r['lines'][0]['price'] === 7.5, 'an ADA price overrides the section price');
+Azure_Tickets_Inventory::release('cartW', $FRI, array($seat('wc', 'F-1')));
+unset(WP_Shim::$post_meta[$FRI]['_ticket_ada_price']);
+
+// ── Sections that open later, performances that close ──────────────────
+$opens = json_decode(WP_Shim::$post_meta[$FRI]['_ticket_sections'], true);
+$opens['wc'] = array('price' => '', 'limit' => 0, 'on_sale' => true, 'from' => '2026-11-02T09:00', 'access' => 'all');
+WP_Shim::$post_meta[$FRI]['_ticket_sections'] = json_encode($opens);
+$s = Azure_Tickets_Config::sections($FRI)['wc'];
+$t->check($s['enabled'] && !$s['on_sale'] && $s['opens_at'] > Azure_Tickets_Config::now(), 'a section with a future opening time is held back');
+$t->check(!$C::prepare($FRI, array('seats' => array($seat('wc', 'F-4'))), 9, 'cartO')['ok'], 'and its seats cannot be bought yet');
+Azure_Tickets_Config::$now = strtotime('2026-11-02 18:00:00 UTC');
+$t->check(Azure_Tickets_Config::sections($FRI)['wc']['on_sale'], 'it opens on time');
+Azure_Tickets_Config::$now = Azure_Tickets_Inventory::$now;
+unset($opens['wc']);
+WP_Shim::$post_meta[$FRI]['_ticket_sections'] = json_encode($opens);
+
+WP_Shim::$post_meta[$FRI]['_ticket_event_date'] = '2026-11-02T19:00';
+$t->check(!Azure_Tickets_Config::sales_closed($FRI), 'sales are open the day before the performance');
+WP_Shim::$post_meta[$FRI]['_ticket_event_date'] = '2026-11-01T19:00';
+$t->check(Azure_Tickets_Config::sales_closed($FRI), 'and close at midnight before it');
+$t->check(strpos($C::prepare($FRI, array('seats' => array($seat('reg', 'E-5'))), 9, 'cartX')['error'] ?? '', 'closed') !== false, 'a closed performance sells nothing');
+$t->equals(null, Azure_Tickets_Config::listed_price_range($FRI), 'and shows no price');
+WP_Shim::$post_meta[$FRI]['_ticket_sales_close'] = '2026-11-01T20:00';
+$t->check(!Azure_Tickets_Config::sales_closed($FRI), 'a closing time set on the product wins');
+unset(WP_Shim::$post_meta[$FRI]['_ticket_event_date'], WP_Shim::$post_meta[$FRI]['_ticket_sales_close']);
+
+// ── Seat-assignment (VIP) products stop selling when front rows open ───
+update_option('azure_tickets_vip_close', array(34300 => strtotime('2026-10-30 09:00:00 UTC')));
+$t->equals(strtotime('2026-10-30 09:00:00 UTC'), Azure_Tickets_Config::vip_close_ts(34301, 34300), 'a variation closes with its parent');
+$t->equals(0, Azure_Tickets_Config::vip_close_ts(999), 'other products never close');
 WP_Shim::$post_meta[$FRI]['_ticket_release_accessible'] = 'yes';
 Azure_Tickets_Inventory::release('cartAda', $FRI, array(array('section_id' => 'par', 'seat_key' => 'A-1')));
 $t->check($C::prepare($FRI, array('seats' => array($seat('par', 'A-1'))), 7, 'cartAda')['ok'], 'once released to general sale, no confirmation is needed');

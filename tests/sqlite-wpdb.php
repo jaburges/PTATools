@@ -84,6 +84,31 @@ class Sqlite_WPDB {
         $this->queries[] = $sql;
         return $this->pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN);
     }
+
+    public function insert($table, array $data) {
+        $cols = implode(', ', array_keys($data));
+        $vals = implode(', ', array_map(array($this, 'literal'), $data));
+        return $this->query("INSERT INTO {$table} ({$cols}) VALUES ({$vals})");
+    }
+
+    public function update($table, array $data, array $where) {
+        $set = array();
+        foreach ($data as $k => $v) {
+            $set[] = $k . ' = ' . $this->literal($v);
+        }
+        $cond = array();
+        foreach ($where as $k => $v) {
+            $cond[] = $k . ' = ' . $this->literal($v);
+        }
+        return $this->query("UPDATE {$table} SET " . implode(', ', $set) . ' WHERE ' . implode(' AND ', $cond));
+    }
+
+    private function literal($v) {
+        if ($v === null) {
+            return 'NULL';
+        }
+        return is_int($v) ? (string) $v : $this->pdo->quote((string) $v);
+    }
 }
 
 if (!defined('ARRAY_A')) {

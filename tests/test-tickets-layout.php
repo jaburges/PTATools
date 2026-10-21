@@ -61,6 +61,24 @@ $t->equals(7 + 400 + 1, Azure_Tickets_Layout::capacity($l), 'venue capacity');
 $t->equals('Parents of performers L · Row A, Seat 3', Azure_Tickets_Layout::seat_label($p, 'A-3'), 'seat label');
 $t->equals('Standing', Azure_Tickets_Layout::seat_label($sections['ga1'], '5'), 'GA label is the area name');
 
+$t->check($p['startSeat'] === 1 && $p['angle'] === 0 && $p['stagger'] === false, 'older layouts get seat 1, no angle and no stagger');
+
+// Right half of a row split by an aisle: seats 9-16, angled and staggered.
+$right = Azure_Tickets_Layout::sanitize(array('blocks' => array(array(
+    'id' => 'right', 'type' => 'rectangle', 'name' => 'Right', 'rowCount' => 2, 'seatsPerRow' => 8, 'startRow' => 'D',
+    'startSeat' => 9, 'angle' => -80, 'stagger' => 1,
+    'seatTypes' => array('D-9' => 'none', 'D-10' => 'accessible', 'D-11' => 'companion', 'D-1' => 'accessible', 'E-17' => 'none'),
+))))['blocks'][0];
+$t->equals(range(9, 16), Azure_Tickets_Layout::seat_numbers($right), 'seat numbers start at the start seat');
+$t->check($right['angle'] === -45 && $right['stagger'] === true, 'angle is clamped to ±45 and stagger kept');
+$t->equals(array('D-9' => 'none', 'D-10' => 'accessible', 'D-11' => 'companion'), $right['seatTypes'], 'seat types outside the numbering are dropped');
+$t->equals('companion', Azure_Tickets_Layout::seat_type($right, 'D-11'), 'companion seat');
+$t->check(Azure_Tickets_Layout::seat_type($right, 'D-1') === null && Azure_Tickets_Layout::seat_type($right, 'D-9') === null, 'seat 1 is not in this half, and no-seat is not a seat');
+$t->equals(15, Azure_Tickets_Layout::section_capacity($right), 'capacity of the right half');
+$t->equals('Right · Row D, Seat 10 (wheelchair space)', Azure_Tickets_Layout::seat_label($right, 'D-10'), 'wheelchair space label');
+$t->equals('Right · Row D, Seat 11 (companion seat)', Azure_Tickets_Layout::seat_label($right, 'D-11'), 'companion seat label');
+$t->equals(992, Azure_Tickets_Layout::sanitize(array('blocks' => array(array('type' => 'rectangle', 'seatsPerRow' => 8, 'startSeat' => 5000))))['blocks'][0]['startSeat'], 'the last seat number stays within 999');
+
 $t->equals(Azure_Tickets_Layout::empty_layout(), Azure_Tickets_Layout::decode('not json'), 'bad JSON decodes to an empty layout');
 $t->equals($ids, array_column(Azure_Tickets_Layout::decode(json_encode($raw))['blocks'], 'id'), 'decode sanitizes stored JSON the same way');
 

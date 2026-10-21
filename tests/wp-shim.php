@@ -126,6 +126,10 @@ if (!class_exists('Azure_Settings')) {
         public static function get_setting($key, $default = '') {
             return array_key_exists($key, WP_Shim::$settings) ? WP_Shim::$settings[$key] : $default;
         }
+        public static function update_setting($key, $value) {
+            WP_Shim::$settings[$key] = $value;
+            return true;
+        }
         public static function is_module_enabled($module) {
             return (bool) self::get_setting("enable_{$module}", false);
         }
@@ -179,6 +183,13 @@ function esc_attr($text) { return htmlspecialchars((string) $text, ENT_QUOTES, '
 
 function wp_timezone() {
     return new DateTimeZone(WP_Shim::$timezone);
+}
+
+if (!function_exists('wp_date')) {
+    function wp_date($format, $timestamp = null, $timezone = null) {
+        $d = new DateTime('@' . (int) ($timestamp ?? time()));
+        return $d->setTimezone($timezone instanceof DateTimeZone ? $timezone : wp_timezone())->format($format);
+    }
 }
 
 function current_time($type = 'mysql', $gmt = 0) {

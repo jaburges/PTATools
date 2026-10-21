@@ -53,6 +53,9 @@ $pta_venues = get_posts(array(
             <a href="?page=azure-plugin-tickets&tab=venues" class="button">
                 <?php _e('Cancel', 'azure-plugin'); ?>
             </a>
+            <button type="button" class="button" id="import-layout"><?php _e('Import layout', 'azure-plugin'); ?></button>
+            <button type="button" class="button" id="export-layout"><?php _e('Export layout', 'azure-plugin'); ?></button>
+            <input type="file" id="import-layout-file" accept="application/json,.json" hidden>
         </div>
     </div>
     
@@ -186,15 +189,28 @@ $pta_venues = get_posts(array(
                     </select>
                 </div>
                 <div class="settings-group">
+                    <label><?php _e('First seat number', 'azure-plugin'); ?></label>
+                    <input type="number" class="block-setting" data-setting="startSeat" min="1" max="999" value="1">
+                    <p class="description"><?php _e('For the right half of a row split by an aisle, start where the left half ends (left 1–8, right 9–16) so every seat number is unique.', 'azure-plugin'); ?></p>
+                </div>
+                <div class="settings-group">
+                    <label><?php _e('Angle', 'azure-plugin'); ?> <span class="angle-value">0°</span></label>
+                    <input type="range" class="block-setting" data-setting="angle" min="-45" max="45" step="1" value="0">
+                </div>
+                <div class="settings-group">
+                    <label><input type="checkbox" class="block-setting" data-setting="stagger"> <?php _e('Stagger rows (every other row shifted half a seat)', 'azure-plugin'); ?></label>
+                </div>
+                <div class="settings-group">
                     <label><?php _e('Section Color', 'azure-plugin'); ?></label>
                     <input type="color" class="block-setting" data-setting="color" value="#4CAF50">
                 </div>
                 <div class="settings-group seat-tools">
                     <label><?php _e('Seats', 'azure-plugin'); ?></label>
-                    <p class="description"><?php _e('Pick a tool, then click or drag across seats on the map. Click a marked seat again to make it a normal seat.', 'azure-plugin'); ?></p>
+                    <p class="description"><?php _e('Pick a tool, then click or drag across seats on the map. Click a marked seat again to make it a normal seat. A wheelchair space next to a "No seat" is drawn two chairs wide.', 'azure-plugin'); ?></p>
                     <div class="seat-tool-buttons">
                         <button type="button" class="button seat-tool" data-tool="move"><?php _e('Move block', 'azure-plugin'); ?></button>
-                        <button type="button" class="button seat-tool" data-tool="accessible">&#9855; <?php _e('Accessible', 'azure-plugin'); ?></button>
+                        <button type="button" class="button seat-tool" data-tool="accessible">&#9855; <?php _e('Wheelchair', 'azure-plugin'); ?></button>
+                        <button type="button" class="button seat-tool" data-tool="companion"><?php _e('Companion', 'azure-plugin'); ?></button>
                         <button type="button" class="button seat-tool" data-tool="none"><?php _e('No seat', 'azure-plugin'); ?></button>
                         <button type="button" class="button seat-tool" data-tool="normal"><?php _e('Normal', 'azure-plugin'); ?></button>
                     </div>

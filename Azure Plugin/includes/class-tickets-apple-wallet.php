@@ -1,8 +1,20 @@
 <?php
 /**
- * Tickets Module - Apple Wallet Pass Generator
- * 
- * Generates .pkpass files for Apple Wallet integration
+ * Apple Wallet passes for tickets.
+ *
+ * A pass is built when it is downloaded, from GET
+ * /wp-json/pta-tickets/v1/wallet/<code>?sig=<hmac>, and is never stored: it
+ * carries the ticket's QR code, so a file under uploads would let anyone with
+ * the URL pattern collect other people's tickets.
+ *
+ * The Pass Type ID certificate is kept in a non-autoloaded option, not under
+ * uploads, which is a shared, web-served folder. Its private key is stored
+ * encrypted with the site's auth salt (wp-config, not the database), so a
+ * database dump alone doesn't expose it; changing the salts means uploading
+ * the certificate again. Passes are signed with it plus Apple's WWDR G4
+ * intermediate (includes/certs, valid to 2030-12-10).
+ *
+ * @package AzurePlugin
  */
 
 if (!defined('ABSPATH')) {
@@ -10,433 +22,358 @@ if (!defined('ABSPATH')) {
 }
 
 class Azure_Tickets_Apple_Wallet {
-    
-    private $pass_type_id;
-    private $team_id;
-    private $cert_path;
-    private $cert_password;
-    private $wwdr_cert_path;
-    
-    public function __construct() {
-        $this->pass_type_id = Azure_Settings::get_setting('tickets_apple_pass_type_id', '');
-        $this->team_id = Azure_Settings::get_setting('tickets_apple_team_id', '');
-        $this->cert_path = Azure_Settings::get_setting('tickets_apple_cert_path', '');
-        $this->cert_password = Azure_Settings::get_setting('tickets_apple_cert_password', '');
-        
-        // WWDR (Apple Worldwide Developer Relations) certificate
-        $upload_dir = wp_upload_dir();
-        $this->wwdr_cert_path = $upload_dir['basedir'] . '/azure-plugin/certificates/AppleWWDRCA.pem';
-    }
-    
-    /**
-     * Check if Apple Wallet is configured
-     * 
-     * @return bool
-     */
-    public function is_configured() {
-        return !empty($this->pass_type_id) && 
-               !empty($this->team_id) && 
-               !empty($this->cert_path) && 
-               file_exists($this->cert_path);
-    }
-    
-    /**
-     * Generate Apple Wallet pass for a ticket
-     * 
-     * @param int $ticket_id
-     * @return string|false Path to .pkpass file or false on failure
-     */
-    public function generate_pass($ticket_id) {
-        if (!$this->is_configured()) {
-            Azure_Logger::warning('Tickets: Apple Wallet not configured');
-            return false;
+
+    const CERT_OPTION = 'azure_tickets_apple_certificate';
+
+    /** @var self|null */
+    private static $instance = null;
+
+    public static function get_instance() {
+        if (self::$instance === null) {
+            self::$instance = new self();
         }
-        
-        global $wpdb;
-        $tickets_table = $wpdb->prefix . 'azure_tickets';
-        
-        $ticket = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$tickets_table} WHERE id = %d",
-            $ticket_id
-        ));
-        
-        if (!$ticket) {
-            return false;
-        }
-        
-        // Get product/event details
-        $product = wc_get_product($ticket->product_id);
-        $event_name = $product ? $product->get_name() : 'Event';
-        $event_date = get_post_meta($ticket->product_id, '_ticket_event_date', true);
-        
-        // Create pass JSON
-        $pass_json = $this->create_pass_json($ticket, $event_name, $event_date);
-        
-        // Create pass package
-        $pass_path = $this->create_pass_package($ticket, $pass_json);
-        
-        return $pass_path;
+        return self::$instance;
     }
-    
+
+    private function __construct() {
+        add_action('rest_api_init', array($this, 'register_route'));
+    }
+
+    public static function wwdr_path() {
+        return dirname(__FILE__) . '/certs/AppleWWDRCAG4.pem';
+    }
+
+    public static function pass_type_id() {
+        return trim((string) Azure_Settings::get_setting('tickets_apple_pass_type_id', ''));
+    }
+
+    public static function team_id() {
+        return trim((string) Azure_Settings::get_setting('tickets_apple_team_id', ''));
+    }
+
+    public static function is_configured() {
+        return self::pass_type_id() !== '' && self::team_id() !== '' && get_option(self::CERT_OPTION, '') !== '';
+    }
+
+    // ── Certificate ───────────────────────────────────────────────────
+
     /**
-     * Create pass.json content
+     * Reads an uploaded certificate: a .p12 (as exported by Keychain Access,
+     * including its older RC2 encryption) or a PEM file with the certificate
+     * and private key.
+     *
+     * @return array{ok:bool, error?:string, cert?:string, pkey?:OpenSSLAsymmetricKey, pass_type_id?:string, team_id?:string, expires?:int}
      */
-    private function create_pass_json($ticket, $event_name, $event_date) {
-        $seat_info = Azure_Tickets_Config::ticket_seat_label($ticket);
-        
-        $org_name = Azure_Settings::get_setting('org_name', get_bloginfo('name'));
-        
+    public static function read_upload($bytes, $password) {
+        if (!function_exists('openssl_pkcs12_read')) {
+            return array('ok' => false, 'error' => __('This server\'s PHP has no OpenSSL, so it can\'t sign passes.', 'azure-plugin'));
+        }
+        $bytes = (string) $bytes;
+        $password = (string) $password;
+        $p12 = array();
+        if (@openssl_pkcs12_read($bytes, $p12, $password)) {
+            return self::describe($p12['cert'], openssl_pkey_get_private($p12['pkey']));
+        }
+        // OpenSSL 3 can't decrypt RC2, which macOS still uses for exports; its command line can.
+        $pem = strpos($bytes, '-----BEGIN') !== false ? $bytes : self::legacy_p12_to_pem($bytes, $password);
+        if ($pem !== '') {
+            $key = @openssl_pkey_get_private($pem, $password);
+            preg_match_all('/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/s', $pem, $m);
+            foreach ($m[0] as $cert) {
+                if ($key && openssl_x509_check_private_key($cert, $key)) {
+                    return self::describe($cert, $key);
+                }
+            }
+        }
+        return array('ok' => false, 'error' => __('That file couldn\'t be opened. Check the password, and that you exported the certificate together with its private key (in Keychain Access, under My Certificates).', 'azure-plugin'));
+    }
+
+    private static function legacy_p12_to_pem($bytes, $password) {
+        if (!function_exists('proc_open')) {
+            return '';
+        }
+        $proc = @proc_open(
+            array('openssl', 'pkcs12', '-legacy', '-nodes', '-passin', 'env:PTA_P12_PASSWORD'),
+            array(0 => array('pipe', 'r'), 1 => array('pipe', 'w'), 2 => array('pipe', 'w')),
+            $pipes, null, array('PTA_P12_PASSWORD' => $password, 'PATH' => '/usr/local/bin:/usr/bin:/bin')
+        );
+        if (!is_resource($proc)) {
+            return '';
+        }
+        fwrite($pipes[0], $bytes);
+        fclose($pipes[0]);
+        $out = (string) stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        return proc_close($proc) === 0 ? $out : '';
+    }
+
+    private static function describe($cert_pem, $key) {
+        if (!$key) {
+            return array('ok' => false, 'error' => __('The private key couldn\'t be read.', 'azure-plugin'));
+        }
+        $info = openssl_x509_parse($cert_pem);
+        $subject = $info['subject'] ?? array();
+        return array(
+            'ok'           => true,
+            'cert'         => $cert_pem,
+            'pkey'         => $key,
+            'pass_type_id' => (string) ($subject['UID'] ?? ''),
+            'team_id'      => (string) ($subject['OU'] ?? ''),
+            'expires'      => (int) ($info['validTo_time_t'] ?? 0),
+        );
+    }
+
+    /**
+     * Stores the certificate and fills in the Pass Type ID and Team ID it was issued for.
+     *
+     * @return array read_upload() result
+     */
+    public static function save_certificate($bytes, $password) {
+        $r = self::read_upload($bytes, $password);
+        if (!$r['ok']) {
+            return $r;
+        }
+        if (strpos($r['pass_type_id'], 'pass.') !== 0) {
+            return array('ok' => false, 'error' => __('That certificate isn\'t a Pass Type ID certificate. In the Apple Developer site, create it under Identifiers → Pass Type IDs.', 'azure-plugin'));
+        }
+        if (!openssl_pkey_export($r['pkey'], $key_pem, wp_salt('auth'))) {
+            return array('ok' => false, 'error' => __('The private key couldn\'t be stored.', 'azure-plugin'));
+        }
+        openssl_x509_export($r['cert'], $cert_pem);
+        update_option(self::CERT_OPTION, wp_json_encode(array('cert' => $cert_pem, 'key' => $key_pem)), false);
+        Azure_Settings::update_setting('tickets_apple_pass_type_id', $r['pass_type_id']);
+        if ($r['team_id'] !== '') {
+            Azure_Settings::update_setting('tickets_apple_team_id', $r['team_id']);
+        }
+        return $r;
+    }
+
+    public static function remove_certificate() {
+        delete_option(self::CERT_OPTION);
+    }
+
+    /**
+     * @return array|null The stored certificate and key with its details, null when none.
+     */
+    public static function certificate_info() {
+        $stored = json_decode((string) get_option(self::CERT_OPTION, ''), true);
+        if (!is_array($stored) || empty($stored['cert'])) {
+            return null;
+        }
+        $key = @openssl_pkey_get_private((string) ($stored['key'] ?? ''), wp_salt('auth'));
+        if (!$key) {
+            return array('ok' => false, 'error' => __('The stored certificate can\'t be unlocked (the site\'s security keys may have changed). Please upload it again.', 'azure-plugin'));
+        }
+        return self::describe($stored['cert'], $key);
+    }
+
+    // ── The pass ──────────────────────────────────────────────────────
+
+    public static function signature($code) {
+        return substr(hash_hmac('sha256', 'ticket-wallet|' . strtoupper((string) $code), wp_salt('auth')), 0, 20);
+    }
+
+    public static function url($code) {
+        return add_query_arg('sig', self::signature($code), rest_url(Azure_Tickets_QR::ROUTE_NAMESPACE . '/wallet/' . rawurlencode(strtoupper((string) $code))));
+    }
+
+    /**
+     * pass.json for a ticket.
+     *
+     * @param object $ticket Row from the tickets table.
+     * @param array  $info   event, starts (Unix time or 0), section, venue, org, order
+     */
+    public static function pass_data($ticket, array $info) {
+        $code = (string) $ticket->ticket_code;
+        $barcode = array('message' => (string) $ticket->qr_data, 'format' => 'PKBarcodeFormatQR', 'messageEncoding' => 'iso-8859-1', 'altText' => $code);
+        $seat = array();
+        if (!empty($ticket->row_letter)) {
+            $seat[] = array('key' => 'row', 'label' => 'ROW', 'value' => (string) $ticket->row_letter);
+            $seat[] = array('key' => 'seat', 'label' => 'SEAT', 'value' => (string) (int) $ticket->seat_number);
+        }
+        $seat[] = array('key' => 'section', 'label' => 'SECTION', 'value' => $info['section'] !== '' ? $info['section'] : __('General admission', 'azure-plugin'));
+
+        $aux = array();
+        if (!empty($info['starts'])) {
+            $aux[] = array('key' => 'time', 'label' => 'TIME', 'value' => wp_date('g:i a', $info['starts']));
+        }
+        if (!empty($ticket->attendee_name)) {
+            $aux[] = array('key' => 'name', 'label' => 'NAME', 'value' => (string) $ticket->attendee_name);
+        }
+
+        $back = array(
+            array('key' => 'code', 'label' => 'Ticket code', 'value' => $code),
+            array('key' => 'order', 'label' => 'Order', 'value' => '#' . $info['order']),
+        );
+        if ($info['venue'] !== '') {
+            $back[] = array('key' => 'venue', 'label' => 'Venue', 'value' => $info['venue']);
+        }
+        $back[] = array('key' => 'info', 'label' => 'At the door', 'value' => 'Show this pass at the entrance. Each ticket admits one person to the seat shown.');
+
         $pass = array(
-            'formatVersion' => 1,
-            'passTypeIdentifier' => $this->pass_type_id,
-            'serialNumber' => 'ticket-' . $ticket->id,
-            'teamIdentifier' => $this->team_id,
-            'organizationName' => $org_name,
-            'description' => $event_name . ' Ticket',
-            'logoText' => $org_name,
-            'foregroundColor' => 'rgb(255, 255, 255)',
-            'backgroundColor' => 'rgb(34, 113, 177)',
-            'labelColor' => 'rgb(200, 200, 200)',
-            
-            'barcode' => array(
-                'message' => $ticket->qr_data,
-                'format' => 'PKBarcodeFormatQR',
-                'messageEncoding' => 'iso-8859-1'
+            'formatVersion'      => 1,
+            'passTypeIdentifier' => self::pass_type_id(),
+            'teamIdentifier'     => self::team_id(),
+            'serialNumber'       => $code,
+            'organizationName'   => $info['org'],
+            'description'        => $info['event'] . ' ticket',
+            'logoText'           => $info['org'],
+            'foregroundColor'    => 'rgb(255, 255, 255)',
+            'backgroundColor'    => 'rgb(29, 35, 39)',
+            'labelColor'         => 'rgb(170, 196, 230)',
+            'barcode'            => $barcode,
+            'barcodes'           => array($barcode),
+            'eventTicket'        => array(
+                'primaryFields'   => array(array('key' => 'event', 'label' => 'EVENT', 'value' => $info['event'])),
+                'secondaryFields' => $seat,
+                'auxiliaryFields' => $aux,
+                'backFields'      => $back,
             ),
-            
-            'barcodes' => array(
-                array(
-                    'message' => $ticket->qr_data,
-                    'format' => 'PKBarcodeFormatQR',
-                    'messageEncoding' => 'iso-8859-1'
-                )
-            ),
-            
-            'eventTicket' => array(
-                'primaryFields' => array(
-                    array(
-                        'key' => 'event',
-                        'label' => 'EVENT',
-                        'value' => $event_name
-                    )
-                ),
-                'secondaryFields' => array(
-                    array(
-                        'key' => 'seat',
-                        'label' => 'SEAT',
-                        'value' => $seat_info
-                    )
-                ),
-                'auxiliaryFields' => array(
-                    array(
-                        'key' => 'ticket-code',
-                        'label' => 'TICKET CODE',
-                        'value' => $ticket->ticket_code
-                    )
-                ),
-                'backFields' => array(
-                    array(
-                        'key' => 'attendee',
-                        'label' => 'Attendee',
-                        'value' => $ticket->attendee_name ?: 'Guest'
-                    ),
-                    array(
-                        'key' => 'order',
-                        'label' => 'Order Number',
-                        'value' => '#' . $ticket->order_id
-                    ),
-                    array(
-                        'key' => 'terms',
-                        'label' => 'Terms & Conditions',
-                        'value' => 'This ticket is non-transferable. Please present this pass at the entrance for check-in.'
-                    )
-                )
-            )
         );
-        
-        // Add date if available
-        if ($event_date) {
-            $pass['relevantDate'] = date('c', strtotime($event_date));
-            $pass['eventTicket']['headerFields'] = array(
-                array(
-                    'key' => 'date',
-                    'label' => 'DATE',
-                    'value' => date('M j, Y', strtotime($event_date)),
-                    'textAlignment' => 'PKTextAlignmentRight'
-                )
-            );
+        if (!empty($info['starts'])) {
+            $pass['relevantDate'] = gmdate('Y-m-d\TH:i:s\Z', $info['starts']);
+            $pass['expirationDate'] = gmdate('Y-m-d\TH:i:s\Z', $info['starts'] + DAY_IN_SECONDS);
+            $pass['eventTicket']['headerFields'] = array(array('key' => 'date', 'label' => 'DATE', 'value' => wp_date('D j M', $info['starts']), 'textAlignment' => 'PKTextAlignmentRight'));
         }
-        
-        return json_encode($pass, JSON_PRETTY_PRINT);
+        return $pass;
     }
-    
+
     /**
-     * Create the .pkpass file package
+     * @return string|WP_Error .pkpass bytes
      */
-    private function create_pass_package($ticket, $pass_json) {
-        // Create temp directory
-        $upload_dir = wp_upload_dir();
-        $temp_dir = $upload_dir['basedir'] . '/azure-plugin/temp/pass-' . $ticket->id . '-' . time();
-        
-        if (!wp_mkdir_p($temp_dir)) {
-            Azure_Logger::error('Tickets: Could not create temp directory for pass');
-            return false;
+    public static function build($ticket, array $info) {
+        if (!self::is_configured()) {
+            return new WP_Error('pta_wallet', 'Apple Wallet isn\'t set up.');
         }
-        
-        // Write pass.json
-        file_put_contents($temp_dir . '/pass.json', $pass_json);
-        
-        // Copy images (icon, logo)
-        // For now, generate simple placeholder images
-        $this->create_pass_images($temp_dir);
-        
-        // Create manifest
-        $manifest = $this->create_manifest($temp_dir);
-        file_put_contents($temp_dir . '/manifest.json', json_encode($manifest));
-        
-        // Sign the pass
-        if (!$this->sign_pass($temp_dir)) {
-            $this->cleanup_temp_dir($temp_dir);
-            return false;
-        }
-        
-        // Create .pkpass (ZIP file)
-        $pkpass_path = $upload_dir['basedir'] . '/azure-plugin/passes/ticket-' . $ticket->id . '.pkpass';
-        wp_mkdir_p(dirname($pkpass_path));
-        
-        if (!$this->create_pkpass($temp_dir, $pkpass_path)) {
-            $this->cleanup_temp_dir($temp_dir);
-            return false;
-        }
-        
-        // Cleanup
-        $this->cleanup_temp_dir($temp_dir);
-        
-        return $pkpass_path;
-    }
-    
-    /**
-     * Create placeholder pass images
-     */
-    private function create_pass_images($dir) {
-        // Icon (required, 29x29, 58x58, 87x87)
-        $this->create_icon_image($dir . '/icon.png', 29);
-        $this->create_icon_image($dir . '/icon@2x.png', 58);
-        $this->create_icon_image($dir . '/icon@3x.png', 87);
-        
-        // Logo (optional, 160x50, 320x100)
-        $this->create_logo_image($dir . '/logo.png', 160, 50);
-        $this->create_logo_image($dir . '/logo@2x.png', 320, 100);
-    }
-    
-    /**
-     * Create a simple icon image
-     */
-    private function create_icon_image($path, $size) {
-        $img = imagecreatetruecolor($size, $size);
-        $blue = imagecolorallocate($img, 34, 113, 177);
-        $white = imagecolorallocate($img, 255, 255, 255);
-        
-        imagefill($img, 0, 0, $blue);
-        
-        // Draw ticket icon symbol
-        $margin = $size * 0.2;
-        imagefilledrectangle($img, $margin, $margin, $size - $margin, $size - $margin, $white);
-        
-        imagepng($img, $path);
-        imagedestroy($img);
-    }
-    
-    /**
-     * Create a simple logo image
-     */
-    private function create_logo_image($path, $width, $height) {
-        $img = imagecreatetruecolor($width, $height);
-        
-        // Transparent background
-        imagesavealpha($img, true);
-        $transparent = imagecolorallocatealpha($img, 0, 0, 0, 127);
-        imagefill($img, 0, 0, $transparent);
-        
-        // White text
-        $white = imagecolorallocate($img, 255, 255, 255);
-        $org_name = Azure_Settings::get_setting('org_name', 'Event');
-        
-        $font_size = 3;
-        $text_width = imagefontwidth($font_size) * strlen($org_name);
-        $x = ($width - $text_width) / 2;
-        $y = ($height - imagefontheight($font_size)) / 2;
-        
-        imagestring($img, $font_size, $x, $y, $org_name, $white);
-        
-        imagepng($img, $path);
-        imagedestroy($img);
-    }
-    
-    /**
-     * Create manifest.json with SHA1 hashes
-     */
-    private function create_manifest($dir) {
-        $manifest = array();
-        
-        $files = glob($dir . '/*');
-        foreach ($files as $file) {
-            if (is_file($file) && basename($file) !== 'manifest.json' && basename($file) !== 'signature') {
-                $manifest[basename($file)] = sha1_file($file);
-            }
-        }
-        
-        return $manifest;
-    }
-    
-    /**
-     * Sign the pass with certificate
-     */
-    private function sign_pass($dir) {
-        if (!function_exists('openssl_pkcs7_sign')) {
-            Azure_Logger::error('Tickets: OpenSSL extension not available for pass signing');
-            return false;
-        }
-        
-        if (!file_exists($this->cert_path)) {
-            Azure_Logger::error('Tickets: Certificate file not found: ' . $this->cert_path);
-            return false;
-        }
-        
-        $manifest_path = $dir . '/manifest.json';
-        $signature_path = $dir . '/signature';
-        
-        // Read certificate
-        $cert_data = file_get_contents($this->cert_path);
-        $pkcs12 = array();
-        
-        if (!openssl_pkcs12_read($cert_data, $pkcs12, $this->cert_password)) {
-            Azure_Logger::error('Tickets: Failed to read certificate. Check password.');
-            return false;
-        }
-        
-        // Sign manifest
-        $cert = openssl_x509_read($pkcs12['cert']);
-        $pkey = openssl_pkey_get_private($pkcs12['pkey'], $this->cert_password);
-        
-        // Create signature using PKCS7
-        $temp_pem = $dir . '/temp_cert.pem';
-        file_put_contents($temp_pem, $pkcs12['cert'] . "\n" . $pkcs12['pkey']);
-        
-        // For proper signing, we'd need the WWDR certificate too
-        // This is a simplified version
-        $signed = openssl_pkcs7_sign(
-            $manifest_path,
-            $signature_path . '.tmp',
-            'file://' . $temp_pem,
-            array('file://' . $temp_pem, $this->cert_password),
-            array(),
-            PKCS7_BINARY | PKCS7_DETACHED
-        );
-        
-        unlink($temp_pem);
-        
-        if (!$signed) {
-            Azure_Logger::error('Tickets: Failed to sign pass: ' . openssl_error_string());
-            return false;
-        }
-        
-        // Extract DER signature from PEM
-        $signature_pem = file_get_contents($signature_path . '.tmp');
-        $matches = array();
-        if (preg_match('/-----BEGIN PKCS7-----(.*?)-----END PKCS7-----/s', $signature_pem, $matches)) {
-            $signature_der = base64_decode($matches[1]);
-            file_put_contents($signature_path, $signature_der);
-        }
-        
-        unlink($signature_path . '.tmp');
-        
-        return file_exists($signature_path);
-    }
-    
-    /**
-     * Create .pkpass ZIP file
-     */
-    private function create_pkpass($source_dir, $destination) {
         if (!class_exists('ZipArchive')) {
-            Azure_Logger::error('Tickets: ZipArchive extension not available');
-            return false;
+            return new WP_Error('pta_wallet', 'ZipArchive is missing.');
         }
-        
-        $zip = new ZipArchive();
-        
-        if ($zip->open($destination, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-            Azure_Logger::error('Tickets: Could not create ZIP file');
-            return false;
+        $signer = self::certificate_info();
+        if (!$signer || !$signer['ok']) {
+            return new WP_Error('pta_wallet', $signer ? $signer['error'] : 'No certificate.');
         }
-        
-        $files = glob($source_dir . '/*');
-        foreach ($files as $file) {
-            if (is_file($file)) {
-                $zip->addFile($file, basename($file));
+
+        $files = array('pass.json' => wp_json_encode(self::pass_data($ticket, $info), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        foreach (array('icon.png' => 29, 'icon@2x.png' => 58, 'icon@3x.png' => 87) as $name => $size) {
+            $files[$name] = self::icon_png($size);
+        }
+        $manifest = wp_json_encode(array_map('sha1', $files), JSON_UNESCAPED_SLASHES);
+
+        $tmp = get_temp_dir();
+        $in = tempnam($tmp, 'pkm');
+        $out = tempnam($tmp, 'pks');
+        $zip_path = tempnam($tmp, 'pkz');
+        try {
+            file_put_contents($in, $manifest);
+            $signed = openssl_cms_sign($in, $out, $signer['cert'], $signer['pkey'], array(),
+                OPENSSL_CMS_DETACHED | OPENSSL_CMS_BINARY, OPENSSL_ENCODING_DER, self::wwdr_path());
+            if (!$signed) {
+                return new WP_Error('pta_wallet', 'Signing failed: ' . (string) openssl_error_string());
+            }
+            $files['manifest.json'] = $manifest;
+            $files['signature'] = (string) file_get_contents($out);
+
+            $zip = new ZipArchive();
+            if ($zip->open($zip_path, ZipArchive::OVERWRITE) !== true) {
+                return new WP_Error('pta_wallet', 'Could not create the pass file.');
+            }
+            foreach ($files as $name => $bytes) {
+                $zip->addFromString($name, $bytes);
+            }
+            $zip->close();
+            return (string) file_get_contents($zip_path);
+        } finally {
+            foreach (array($in, $out, $zip_path) as $f) {
+                if ($f && file_exists($f)) {
+                    unlink($f);
+                }
             }
         }
-        
-        $zip->close();
-        
-        return file_exists($destination);
     }
-    
+
     /**
-     * Clean up temporary directory
+     * The site icon when there is one, else a plain ticket shape.
      */
-    private function cleanup_temp_dir($dir) {
-        if (!is_dir($dir)) {
-            return;
+    private static function icon_png($size) {
+        if (!function_exists('imagecreatetruecolor')) {
+            return '';
         }
-        
-        $files = glob($dir . '/*');
-        foreach ($files as $file) {
-            if (is_file($file)) {
-                unlink($file);
-            }
+        $src = null;
+        $icon_id = function_exists('get_option') ? (int) get_option('site_icon') : 0;
+        $file = $icon_id && function_exists('get_attached_file') ? get_attached_file($icon_id) : '';
+        if ($file && is_readable($file)) {
+            $src = @imagecreatefromstring((string) file_get_contents($file));
         }
-        
-        rmdir($dir);
+        $im = imagecreatetruecolor($size, $size);
+        imagesavealpha($im, true);
+        if ($src) {
+            imagealphablending($im, false);
+            imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+            imagealphablending($im, true);
+            imagecopyresampled($im, $src, 0, 0, 0, 0, $size, $size, imagesx($src), imagesy($src));
+        } else {
+            imagefill($im, 0, 0, imagecolorallocate($im, 29, 35, 39));
+            $m = (int) round($size * 0.2);
+            imagefilledrectangle($im, $m, (int) round($size * 0.3), $size - $m, (int) round($size * 0.7), imagecolorallocate($im, 255, 255, 255));
+        }
+        ob_start();
+        imagepng($im);
+        return (string) ob_get_clean();
     }
-    
-    /**
-     * Get URL for downloading pass
-     * 
-     * @param int $ticket_id
-     * @return string|false
-     */
-    public function get_pass_url($ticket_id) {
-        $pass_path = $this->generate_pass($ticket_id);
-        
-        if (!$pass_path || !file_exists($pass_path)) {
-            return false;
-        }
-        
-        $upload_dir = wp_upload_dir();
-        $relative_path = str_replace($upload_dir['basedir'], '', $pass_path);
-        
-        return $upload_dir['baseurl'] . $relative_path;
+
+    // ── Download ──────────────────────────────────────────────────────
+
+    public function register_route() {
+        register_rest_route(Azure_Tickets_QR::ROUTE_NAMESPACE, '/wallet/(?P<code>[A-Za-z0-9]{6,20})', array(
+            'methods'             => 'GET',
+            'callback'            => array($this, 'serve'),
+            'permission_callback' => '__return_true',
+        ));
     }
-    
-    /**
-     * Serve pass file for download
-     * 
-     * @param int $ticket_id
-     */
-    public function serve_pass($ticket_id) {
-        $pass_path = $this->generate_pass($ticket_id);
-        
-        if (!$pass_path || !file_exists($pass_path)) {
-            wp_die('Pass not found');
+
+    public function serve($request) {
+        global $wpdb;
+        $code = strtoupper((string) $request['code']);
+        if (!hash_equals(self::signature($code), (string) $request->get_param('sig'))) {
+            return new WP_Error('pta_wallet', 'Not found', array('status' => 404));
         }
-        
+        $ticket = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}azure_tickets WHERE ticket_code = %s", $code));
+        if (!$ticket || $ticket->status !== 'active') {
+            return new WP_Error('pta_wallet', 'This ticket is no longer valid.', array('status' => 410));
+        }
+        $pkpass = self::build($ticket, self::ticket_info($ticket));
+        if (is_wp_error($pkpass)) {
+            Azure_Logger::error('Tickets: Apple Wallet pass failed: ' . $pkpass->get_error_message());
+            return new WP_Error('pta_wallet', 'The Wallet pass could not be made. Please use the QR code in your email.', array('status' => 500));
+        }
         header('Content-Type: application/vnd.apple.pkpass');
-        header('Content-Disposition: attachment; filename="ticket-' . $ticket_id . '.pkpass"');
-        header('Content-Length: ' . filesize($pass_path));
-        
-        readfile($pass_path);
+        header('Content-Disposition: attachment; filename="ticket-' . $code . '.pkpass"');
+        header('Content-Length: ' . strlen($pkpass));
+        header('Cache-Control: private, no-store');
+        echo $pkpass;
         exit;
     }
-}
 
+    public static function ticket_info($ticket) {
+        $pid = (int) $ticket->product_id;
+        $product = function_exists('wc_get_product') ? wc_get_product($pid) : null;
+        $order = function_exists('wc_get_order') ? wc_get_order((int) $ticket->order_id) : null;
+        $section = '';
+        foreach (Azure_Tickets_Layout::sections(Azure_Tickets_Config::layout($pid)) as $block) {
+            if ($block['id'] === (string) $ticket->section_id) {
+                $section = (string) $block['name'];
+            }
+        }
+        $venue_id = (int) get_post_meta($pid, Azure_Tickets_Config::META_VENUE, true);
+        return array(
+            'event'   => $product ? $product->get_name() : __('Event', 'azure-plugin'),
+            'starts'  => Azure_Tickets_Config::local_ts(get_post_meta($pid, Azure_Tickets_Config::META_EVENT_DATE, true)),
+            'section' => $section,
+            'venue'   => $venue_id ? get_the_title($venue_id) : '',
+            'org'     => (string) Azure_Settings::get_setting('org_name', get_bloginfo('name')),
+            'order'   => $order ? $order->get_order_number() : (string) $ticket->order_id,
+        );
+    }
+}

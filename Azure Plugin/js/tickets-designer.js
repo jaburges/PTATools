@@ -13,7 +13,7 @@
     var SELLABLE = ['rectangle', 'general_admission'];
 
     var DEFAULTS = {
-        rectangle: { name: 'Section', price: 10, startRow: 'A', rowCount: 4, seatsPerRow: 10, color: '#4caf50', seatTypes: {} },
+        rectangle: { name: 'Section', price: 10, startRow: 'A', rowCount: 4, seatsPerRow: 10, startSeat: 1, angle: 0, stagger: false, color: '#4caf50', seatTypes: {} },
         general_admission: { name: 'General Admission', price: 10, capacity: 50, color: '#ff9800', width: 200, height: 100 },
         area: { label: 'Gym mat – kids floor seating', color: '#d9cdea', width: 260, height: 110 },
         stage: { label: 'STAGE', color: '#333333', width: 400, height: 60 },
@@ -46,22 +46,53 @@
         return rows;
     }
 
+    function seatNumbers(b) {
+        var out = [];
+        for (var i = 0; i < b.seatsPerRow; i++) out.push(b.startSeat + i);
+        return out;
+    }
+
+    /**
+     * The cells of one row. A wheelchair space next to a "no seat" is drawn
+     * two chairs wide, the way the room is set up (two chairs removed).
+     * Same rule as the buyer's seat map.
+     */
+    function rowCells(b, r) {
+        var nums = seatNumbers(b), out = [];
+        for (var i = 0; i < nums.length; i++) {
+            var key = r + '-' + nums[i], t = b.seatTypes[key] || '';
+            var nextKey = i + 1 < nums.length ? r + '-' + nums[i + 1] : null;
+            var nt = nextKey ? (b.seatTypes[nextKey] || '') : null;
+            if (t === 'accessible' && nt === 'none') {
+                out.push({ key: key, n: nums[i], type: t, span: 2 });
+                i++;
+            } else if (t === 'none' && nt === 'accessible') {
+                out.push({ key: nextKey, n: nums[i + 1], type: 'accessible', span: 2 });
+                i++;
+            } else {
+                out.push({ key: key, n: nums[i], type: t, span: 1 });
+            }
+        }
+        return out;
+    }
+
     function seatCounts(b) {
-        var total = 0, accessible = 0;
+        var total = 0, accessible = 0, companion = 0;
         rowLabels(b).forEach(function(r) {
-            for (var n = 1; n <= b.seatsPerRow; n++) {
+            seatNumbers(b).forEach(function(n) {
                 var t = b.seatTypes[r + '-' + n];
                 if (t !== 'none') {
                     total++;
                     if (t === 'accessible') accessible++;
+                    if (t === 'companion') companion++;
                 }
-            }
+            });
         });
-        return { total: total, accessible: accessible };
+        return { total: total, accessible: accessible, companion: companion };
     }
 
     function fitRectangle(b) {
-        b.width = Math.max(80, snap(b.seatsPerRow * SEAT + 30));
+        b.width = Math.max(80, snap(b.seatsPerRow * SEAT + 30 + (b.stagger ? SEAT / 2 : 0)));
         b.height = Math.max(50, snap(b.rowCount * SEAT + 34));
     }
 
@@ -114,6 +145,9 @@
             if (b.type === 'rectangle') {
                 b.rowCount = clamp(b.rowCount, 1, 26 - (b.startRow.charCodeAt(0) - 65));
                 b.seatsPerRow = clamp(b.seatsPerRow, 1, 100);
+                b.startSeat = clamp(b.startSeat, 1, 1000 - b.seatsPerRow);
+                b.angle = clamp(b.angle, -45, 45);
+                b.stagger = !!b.stagger;
                 if (Array.isArray(b.seatTypes)) b.seatTypes = {};
                 if (!b.width || !b.height) fitRectangle(b);
             }
@@ -136,14 +170,16 @@
                 height: b.height + 'px',
                 backgroundColor: (b.type === 'label') ? 'transparent' : b.color,
                 color: b.type === 'label' ? b.color : '',
-                fontSize: b.type === 'label' ? b.fontSize + 'px' : ''
+                fontSize: b.type === 'label' ? b.fontSize + 'px' : '',
+                transform: b.angle ? 'rotate(' + b.angle + 'deg)' : ''
             });
 
             var html = '';
             switch (b.type) {
                 case 'rectangle':
                     var counts = seatCounts(b);
-                    html = '<div class="block-head">' + esc(b.name) + ' <span class="block-seats">' + counts.total + ' seats' +
+                    var last = b.startSeat + b.seatsPerRow - 1;
+                    html = '<div class="block-head">' + esc(b.name) + ' <span class="block-seats">' + b.startSeat + '–' + last + ' · ' + counts.total + ' seats' +
                         (counts.accessible ? ' · ' + counts.accessible + ' ♿' : '') + '</span></div>' + this.gridHtml(b);
                     break;
                 case 'general_admission':
@@ -163,13 +199,13 @@
         },
 
         gridHtml: function(b) {
-            var parts = ['<div class="seat-grid" style="grid-template-columns: auto repeat(' + b.seatsPerRow + ', minmax(0, 1fr))">'];
-            rowLabels(b).forEach(function(r) {
-                parts.push('<span class="row-label">' + r + '</span>');
-                for (var n = 1; n <= b.seatsPerRow; n++) {
-                    var key = r + '-' + n, t = b.seatTypes[key];
-                    parts.push('<span class="seat-cell' + (t ? ' is-' + t : '') + '" data-key="' + key + '" title="Row ' + r + ', Seat ' + n + '"></span>');
-                }
+            var parts = ['<div class="seat-rows" style="--n:' + b.seatsPerRow + '">'];
+            rowLabels(b).forEach(function(r, i) {
+                parts.push('<div class="seat-row' + (b.stagger ? (i % 2 ? ' stagger-b' : ' stagger-a') : '') + '"><span class="row-label">' + r + '</span><span class="seat-cells">');
+                rowCells(b, r).forEach(function(c) {
+                    parts.push('<span class="seat-cell' + (c.type ? ' is-' + c.type : '') + '" style="flex-grow:' + c.span + '" data-key="' + c.key + '" title="Row ' + r + ', Seat ' + c.n + '"></span>');
+                });
+                parts.push('</span></div>');
             });
             parts.push('</div>');
             return parts.join('');
@@ -231,7 +267,9 @@
             $panel.html($tpl.length ? $tpl.html() : '');
             $panel.find('.block-setting').each(function() {
                 var key = $(this).data('setting');
-                if (b[key] !== undefined) $(this).val(b[key]);
+                if (b[key] === undefined) return;
+                if (this.type === 'checkbox') $(this).prop('checked', !!b[key]);
+                else $(this).val(b[key]);
             });
             this.refreshSeatTools();
         },
@@ -244,7 +282,9 @@
             });
             if (b && b.type === 'rectangle') {
                 var c = seatCounts(b);
-                $panel.find('.seat-summary').text(c.total + ' seats, ' + c.accessible + ' accessible');
+                $panel.find('.seat-summary').text(c.total + ' seats (' + b.startSeat + '–' + (b.startSeat + b.seatsPerRow - 1) + ' in each row), ' +
+                    c.accessible + ' wheelchair, ' + c.companion + ' companion');
+                $panel.find('.angle-value').text(b.angle + '°');
             }
         },
 
@@ -268,9 +308,28 @@
                     if (key === 'startRow') b.startRow = /^[A-Z]$/.test(raw) ? raw : 'A';
                     if (key === 'seatsPerRow') b.seatsPerRow = clamp(raw, 1, 100);
                     b.rowCount = clamp(key === 'rowCount' ? raw : b.rowCount, 1, 26 - (b.startRow.charCodeAt(0) - 65));
+                    b.startSeat = clamp(b.startSeat, 1, 1000 - b.seatsPerRow);
                     this.pruneSeatTypes(b);
                     fitRectangle(b);
                     v = b[key];
+                    break;
+                case 'startSeat':
+                    // Marked seats keep their place in the row when the numbering moves.
+                    v = clamp(raw, 1, 1000 - b.seatsPerRow);
+                    var shift = v - b.startSeat, moved = {};
+                    Object.keys(b.seatTypes).forEach(function(k) {
+                        var p = k.split('-');
+                        moved[p[0] + '-' + (parseInt(p[1], 10) + shift)] = b.seatTypes[k];
+                    });
+                    b.seatTypes = moved;
+                    break;
+                case 'angle':
+                    v = clamp(raw, -45, 45);
+                    break;
+                case 'stagger':
+                    b.stagger = !!raw;
+                    fitRectangle(b);
+                    v = b.stagger;
                     break;
                 case 'orientation':
                     var long = Math.max(b.width, b.height, 60);
@@ -288,9 +347,9 @@
         pruneSeatTypes: function(b) {
             var keep = {};
             rowLabels(b).forEach(function(r) {
-                for (var n = 1; n <= b.seatsPerRow; n++) {
+                seatNumbers(b).forEach(function(n) {
                     if (b.seatTypes[r + '-' + n]) keep[r + '-' + n] = b.seatTypes[r + '-' + n];
-                }
+                });
             });
             b.seatTypes = keep;
         },
@@ -349,7 +408,7 @@
                 b.seatTypes[key] = g.paintType;
             }
             $('#vb-' + b.id + ' .seat-cell[data-key="' + key + '"]')
-                .removeClass('is-accessible is-none')
+                .removeClass('is-accessible is-companion is-none')
                 .addClass(g.paintType === 'normal' ? '' : 'is-' + g.paintType);
             this.dirty = true;
         },
@@ -452,7 +511,14 @@
             });
 
             $(document).on('input change', '#block-settings-panel .block-setting', function() {
-                self.change($(this).data('setting'), $(this).val());
+                self.change($(this).data('setting'), this.type === 'checkbox' ? this.checked : $(this).val());
+            });
+            $('#export-layout').on('click', function() { self.exportLayout(); });
+            $('#import-layout').on('click', function() { $('#import-layout-file').trigger('click'); });
+            $('#import-layout-file').on('change', function() {
+                var file = this.files && this.files[0];
+                this.value = '';
+                if (file) self.importLayout(file);
             });
             $(document).on('click', '#block-settings-panel .seat-tool', function() {
                 self.tool = $(this).data('tool');
@@ -504,6 +570,38 @@
                 canvas: { width: this.canvasW, height: this.canvasH },
                 blocks: this.blocks
             });
+        },
+
+        exportLayout: function() {
+            var name = $.trim($('.venue-info-display strong').text() || $('#venue-name').val() || 'venue');
+            var url = URL.createObjectURL(new Blob([this.layoutJson()], { type: 'application/json' }));
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = name.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase() + '-layout.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        },
+
+        importLayout: function(file) {
+            var self = this;
+            var reader = new FileReader();
+            reader.onload = function() {
+                var layout;
+                try { layout = JSON.parse(reader.result); } catch (e) { layout = null; }
+                if (!layout || !layout.canvas || !Array.isArray(layout.blocks)) {
+                    window.alert('That file is not a seating layout exported from this designer.');
+                    return;
+                }
+                var sellable = self.blocks.filter(function(b) { return SELLABLE.indexOf(b.type) !== -1; }).length;
+                if (sellable && !window.confirm('Replace this venue\'s layout with the imported one? Sections that are not in the imported file will stop selling once you save.')) {
+                    return;
+                }
+                self.load(layout);
+                self.dirty = true;
+            };
+            reader.readAsText(file);
         },
 
         save: function() {

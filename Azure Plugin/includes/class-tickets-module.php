@@ -75,6 +75,7 @@ class Azure_Tickets_Module {
             Azure_Tickets_Cart::get_instance();
         }
         Azure_Tickets_QR::get_instance();
+        Azure_Tickets_Apple_Wallet::get_instance();
 
         // Schedule reservation cleanup
         if (!wp_next_scheduled('azure_tickets_cleanup_reservations')) {
@@ -95,6 +96,7 @@ class Azure_Tickets_Module {
             'class-tickets-config.php',
             'class-tickets-access.php',
             'class-tickets-cart.php',
+            'class-tickets-assign.php',
             'class-tickets-qr.php',
             'class-tickets-product-type.php',
             'class-tickets-generator.php',
@@ -213,7 +215,11 @@ class Azure_Tickets_Module {
      * Enqueue frontend assets
      */
     public function enqueue_frontend_assets() {
-        // Only on single product pages for ticket products
+        if (is_cart()) {
+            // For the extras reminder under the cart.
+            wp_enqueue_style('azure-tickets-frontend', AZURE_PLUGIN_URL . 'css/tickets-frontend.css', array(), AZURE_PLUGIN_VERSION);
+            return;
+        }
         if (!is_product()) {
             return;
         }
@@ -285,38 +291,41 @@ class Azure_Tickets_Module {
      * Create tickets for a line item
      */
     private function create_tickets_for_item($order, $item) {
-        global $wpdb;
-        $tickets_table = $wpdb->prefix . 'azure_tickets';
-        
         $seats = $item->get_meta(Azure_Tickets_Cart::ITEM_SEATS);
         if (!is_array($seats) || !$seats) {
             return;
         }
+        foreach ($seats as $seat) {
+            self::insert_ticket($order, $item->get_product_id(), $seat);
+        }
+    }
 
-        $product_id = $item->get_product_id();
+    /**
+     * @param WC_Order $order
+     * @param array $seat section_id, seat_key, name
+     */
+    public static function insert_ticket($order, $product_id, array $seat) {
+        global $wpdb;
+        $reserved = preg_match('/^([A-Z])-(\d+)$/', (string) ($seat['seat_key'] ?? ''), $m);
         $event_id = get_post_meta($product_id, '_ticket_event_id', true);
         $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
-
-        foreach ($seats as $seat) {
-            $reserved = preg_match('/^([A-Z])-(\d+)$/', (string) ($seat['seat_key'] ?? ''), $m);
-            $ticket_code = self::generate_ticket_code();
-            $wpdb->insert($tickets_table, array(
-                'order_id' => $order->get_id(),
-                'product_id' => $product_id,
-                'event_id' => $event_id ?: null,
-                'venue_id' => $venue_id ?: null,
-                'section_id' => $seat['section_id'] ?? null,
-                'row_letter' => $reserved ? $m[1] : null,
-                'seat_number' => $reserved ? (int) $m[2] : null,
-                'attendee_name' => sanitize_text_field($seat['name'] ?? ''),
-                'attendee_email' => $order->get_billing_email(),
-                'ticket_code' => $ticket_code,
-                // The scanner reads the bare code; nothing else needs to be in the QR.
-                'qr_data' => $ticket_code,
-                'status' => 'active',
-                'created_at' => current_time('mysql')
-            ));
-        }
+        $ticket_code = self::generate_ticket_code();
+        return $wpdb->insert($wpdb->prefix . 'azure_tickets', array(
+            'order_id' => $order->get_id(),
+            'product_id' => $product_id,
+            'event_id' => $event_id ?: null,
+            'venue_id' => $venue_id ?: null,
+            'section_id' => $seat['section_id'] ?? null,
+            'row_letter' => $reserved ? $m[1] : null,
+            'seat_number' => $reserved ? (int) $m[2] : null,
+            'attendee_name' => sanitize_text_field($seat['name'] ?? ''),
+            'attendee_email' => $order->get_billing_email(),
+            'ticket_code' => $ticket_code,
+            // The scanner reads the bare code; nothing else needs to be in the QR.
+            'qr_data' => $ticket_code,
+            'status' => 'active',
+            'created_at' => current_time('mysql')
+        ));
     }
 
     /**

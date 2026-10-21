@@ -46,23 +46,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tickets_settings_nonc
             Azure_Settings::update_setting('tickets_apple_team_id', sanitize_text_field($_POST['apple_wallet_team_id']));
         }
         
-        // Handle certificate upload
-        if (!empty($_FILES['apple_wallet_certificate']['tmp_name'])) {
-            $upload_dir = wp_upload_dir();
-            $cert_dir = $upload_dir['basedir'] . '/azure-plugin/certificates/';
-            
-            if (!file_exists($cert_dir)) {
-                wp_mkdir_p($cert_dir);
-                file_put_contents($cert_dir . '.htaccess', 'deny from all');
+        // The certificate is read in memory and kept in an option, never written under uploads.
+        $wallet_error = '';
+        if (!empty($_POST['apple_wallet_remove']) && class_exists('Azure_Tickets_Apple_Wallet')) {
+            Azure_Tickets_Apple_Wallet::remove_certificate();
+        } elseif (!empty($_FILES['apple_wallet_certificate']['tmp_name']) && is_uploaded_file($_FILES['apple_wallet_certificate']['tmp_name']) && class_exists('Azure_Tickets_Apple_Wallet')) {
+            $p12 = (string) file_get_contents($_FILES['apple_wallet_certificate']['tmp_name'], false, null, 0, 65536);
+            $saved = Azure_Tickets_Apple_Wallet::save_certificate($p12, (string) wp_unslash($_POST['apple_wallet_cert_password'] ?? ''));
+            if (!$saved['ok']) {
+                $wallet_error = $saved['error'];
             }
-            
-            $cert_path = $cert_dir . 'apple-wallet.p12';
-            move_uploaded_file($_FILES['apple_wallet_certificate']['tmp_name'], $cert_path);
-            Azure_Settings::update_setting('tickets_apple_cert_path', $cert_path);
-        }
-        
-        if (isset($_POST['apple_wallet_cert_password'])) {
-            Azure_Settings::update_setting('tickets_apple_cert_password', sanitize_text_field($_POST['apple_wallet_cert_password']));
         }
         
         // General settings
@@ -73,17 +66,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tickets_settings_nonc
             Azure_Settings::update_setting('tickets_reservation_timeout', intval($_POST['tickets_reservation_timeout']));
         }
         
+        if ($wallet_error !== '') {
+            echo '<div class="notice notice-error"><p>' . esc_html__('Apple Wallet certificate not saved:', 'azure-plugin') . ' ' . esc_html($wallet_error) . '</p></div>';
+        }
         echo '<div class="notice notice-success is-dismissible"><p>' . __('Settings saved.', 'azure-plugin') . '</p></div>';
         $settings = Azure_Settings::get_all_settings(); // Reload
     }
 }
 
-// Handle table creation
-if (isset($_POST['create_tickets_tables']) && wp_verify_nonce($_POST['tickets_danger_nonce'], 'tickets_danger_zone')) {
-    Azure_Tickets_Module::create_tables();
-    echo '<div class="notice notice-success is-dismissible"><p>' . __('Database tables created successfully.', 'azure-plugin') . '</p></div>';
-    $tables_exist = true;
-}
+// The tabs need the module's classes, which only load while it is on.
+$module_loaded = class_exists('Azure_Tickets_Module') && class_exists('Azure_Tickets_Layout');
 ?>
 
 <div class="wrap azure-tickets-page">
@@ -109,20 +101,14 @@ if (isset($_POST['create_tickets_tables']) && wp_verify_nonce($_POST['tickets_da
         </div>
     </div>
     
-    <?php if (!$tables_exist): ?>
-    <div class="notice notice-warning">
+    <?php if (!$module_loaded): ?>
+    <div class="notice notice-info inline">
         <p>
-            <strong><?php _e('Database tables not created.', 'azure-plugin'); ?></strong>
-            <?php _e('Please create the required database tables to use the Tickets module.', 'azure-plugin'); ?>
+            <strong><?php _e('Event Tickets is turned off.', 'azure-plugin'); ?></strong>
+            <?php _e('Turn it on with the switch above to design venues and sell tickets. Its database tables are set up automatically.', 'azure-plugin'); ?>
         </p>
-        <form method="post" style="margin: 10px 0;">
-            <?php wp_nonce_field('tickets_danger_zone', 'tickets_danger_nonce'); ?>
-            <button type="submit" name="create_tickets_tables" class="button button-primary">
-                <?php _e('Create Database Tables', 'azure-plugin'); ?>
-            </button>
-        </form>
     </div>
-    <?php endif; ?>
+    <?php else: ?>
     
     <!-- Tab Navigation -->
     <nav class="nav-tab-wrapper">
@@ -134,6 +120,9 @@ if (isset($_POST['create_tickets_tables']) && wp_verify_nonce($_POST['tickets_da
         </a>
         <a href="?page=azure-plugin-tickets&tab=tickets" class="nav-tab <?php echo $current_tab === 'tickets' ? 'nav-tab-active' : ''; ?>">
             <span class="dashicons dashicons-tickets-alt"></span> <?php _e('Tickets', 'azure-plugin'); ?>
+        </a>
+        <a href="?page=azure-plugin-tickets&tab=assign" class="nav-tab <?php echo $current_tab === 'assign' ? 'nav-tab-active' : ''; ?>">
+            <span class="dashicons dashicons-groups"></span> <?php _e('Assign seats', 'azure-plugin'); ?>
         </a>
         <a href="<?php echo admin_url('admin.php?page=azure-plugin-tickets-checkin'); ?>" class="nav-tab <?php echo $current_tab === 'checkin' ? 'nav-tab-active' : ''; ?>">
             <span class="dashicons dashicons-smartphone"></span> <?php _e('Check-in', 'azure-plugin'); ?>
@@ -155,6 +144,9 @@ if (isset($_POST['create_tickets_tables']) && wp_verify_nonce($_POST['tickets_da
             case 'tickets':
                 include AZURE_PLUGIN_PATH . 'admin/tickets-list.php';
                 break;
+            case 'assign':
+                include AZURE_PLUGIN_PATH . 'admin/tickets-assign.php';
+                break;
             case 'settings':
                 include AZURE_PLUGIN_PATH . 'admin/tickets-settings.php';
                 break;
@@ -163,6 +155,7 @@ if (isset($_POST['create_tickets_tables']) && wp_verify_nonce($_POST['tickets_da
         }
         ?>
     </div>
+    <?php endif; ?>
 </div>
 
 <style>
@@ -281,7 +274,7 @@ jQuery(document).ready(function($) {
             },
             success: function(response) {
                 if (response.success) {
-                    $toggle.closest('.module-toggle-card').find('.module-status').text(enabled ? 'Enabled' : 'Disabled');
+                    window.location.reload();
                 } else {
                     alert('Error: ' + response.data);
                     $toggle.prop('checked', !enabled);

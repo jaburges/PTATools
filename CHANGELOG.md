@@ -2,6 +2,29 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.186 — Theater tickets: wheelchair spaces, cast & crew seats, extras, Apple Wallet
+
+### Added
+
+- **Angled, staggered seating with continuous numbering.** Seated sections can be rotated up to 45° and have alternate rows offset by half a seat. A section can start at any seat number, so seats run on across a centre aisle (left A1–A8, right A9–A16). Layouts can be exported to and imported from a JSON file.
+- **Wheelchair spaces and companion seats.** Paint seats as Wheelchair or Companion. A wheelchair space next to a "no seat" is drawn two chairs wide. Until the release switch is on, companion seats can only be bought together with a wheelchair space.
+- **Regular and ADA tickets.** Choosing a wheelchair space opens a short self-attestation; the buyer's confirmation and its time are saved on the order. Wheelchair spaces sell as ADA tickets, at the section price or a separate ADA price. The seat map shows Regular and ADA counts as seats are clicked on and off.
+- **Sections that open later.** Each section can have an "Opens" date and time; until then buyers see when it goes on sale.
+- **Online sales close at midnight before the performance**, or at a time set on the product.
+- **Cast & crew seats assigned by hand.** Link a hidden product that families buy without choosing a seat, then use **Tickets → Assign seats** to paste each order's seats (for example "D4 Jane Smith"). Saving takes the seats off the map and creates tickets; tick "Email tickets" to send them. Cancelling the order frees the seats. The product can stop selling when the held rows open to everyone.
+- **Extras after choosing seats.** Pick products to offer (flowers, stargrams, concessions) under a heading such as "Jazz up your theater experience". They appear after seats are added and again below the cart, with their product fields.
+- **Apple Wallet passes.** Each ticket in the ticket email has an "Add to Apple Wallet" button. The pass shows the performance, row, seat, section and QR code. Upload the Pass Type ID certificate (.p12 from Keychain Access) under **Tickets → Settings**; the Pass Type ID and Team ID are read from it.
+
+### Changed
+
+- **Apple Pay and Google Pay only at checkout for tickets**, so buyers don't skip seat choice or the extras. Tick **Checkout** under the Stripe express checkout locations to offer them there.
+- **Ticket products say "Choose seats"** in product lists and blocks, and link to the seat map.
+- **The ticket email leaves out cancelled tickets** and lists seats in order.
+
+### Security
+
+- **The Wallet certificate is no longer saved under uploads.** It is kept in the database with its private key encrypted by the site's secret keys. Passes are made when downloaded through a signed link and never stored as files.
+
 ## 3.147.185 — PHP 8.4
 
 ### Security

@@ -210,6 +210,52 @@ class Azure_Tickets_Inventory {
         return $lost;
     }
 
+    /**
+     * Give seats straight to an order paid for something else (a VIP cast &
+     * crew ticket whose seats are chosen by hand). All or nothing.
+     *
+     * @return array{ok:bool, taken:array} taken lists places someone else has.
+     */
+    public static function assign($order_id, $product_id, array $places) {
+        global $wpdb;
+        $table = self::table();
+        self::purge_expired_holds($product_id);
+        $added = array();
+        $taken = array();
+        foreach ($places as $p) {
+            $ok = $wpdb->query($wpdb->prepare(
+                "INSERT IGNORE INTO {$table} (product_id, section_id, seat_key, status, hold_key, user_id, order_id, expires_at, created_at) VALUES (%d, %s, %s, 'sold', '', 0, %d, NULL, %s)",
+                (int) $product_id, (string) $p['section_id'], (string) $p['seat_key'], (int) $order_id, self::now()
+            ));
+            if ($ok) {
+                $added[] = $p;
+                continue;
+            }
+            $owner = $wpdb->get_var($wpdb->prepare(
+                "SELECT order_id FROM {$table} WHERE product_id = %d AND section_id = %s AND seat_key = %s AND status = 'sold'",
+                (int) $product_id, (string) $p['section_id'], (string) $p['seat_key']
+            ));
+            if ((int) $owner !== (int) $order_id) {
+                $taken[] = $p;
+            }
+        }
+        if ($taken) {
+            self::unassign($order_id, $product_id, $added);
+            return array('ok' => false, 'taken' => $taken);
+        }
+        return array('ok' => true, 'taken' => array());
+    }
+
+    public static function unassign($order_id, $product_id, array $places) {
+        global $wpdb;
+        foreach ($places as $p) {
+            $wpdb->query($wpdb->prepare(
+                "DELETE FROM " . self::table() . " WHERE order_id = %d AND product_id = %d AND section_id = %s AND seat_key = %s",
+                (int) $order_id, (int) $product_id, (string) $p['section_id'], (string) $p['seat_key']
+            ));
+        }
+    }
+
     public static function release_order($order_id) {
         global $wpdb;
         $wpdb->query($wpdb->prepare("DELETE FROM " . self::table() . " WHERE order_id = %d", (int) $order_id));
