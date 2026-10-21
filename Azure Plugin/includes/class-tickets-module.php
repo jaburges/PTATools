@@ -11,6 +11,9 @@ if (!defined('ABSPATH')) {
 }
 
 class Azure_Tickets_Module {
+
+    const DB_VERSION = '2';
+    const DB_VERSION_OPTION = 'azure_tickets_db_version';
     
     private static $instance = null;
     
@@ -22,17 +25,19 @@ class Azure_Tickets_Module {
     }
     
     private function __construct() {
-        // Initialize hooks
-        add_action('init', array($this, 'init'));
+        // The plugin loader creates this during `init`; a callback added for
+        // the running priority would never fire, so set up straight away.
+        if (did_action('init')) {
+            $this->init();
+        } else {
+            add_action('init', array($this, 'init'));
+        }
         
         // Enqueue admin styles and scripts
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
         
         // Enqueue frontend styles and scripts
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
-        
-        // WooCommerce hooks
-        add_action('woocommerce_loaded', array($this, 'init_woocommerce_integration'));
         
         // Order completion hooks for ticket generation
         add_action('woocommerce_order_status_completed', array($this, 'generate_tickets_for_order'));
@@ -42,10 +47,6 @@ class Azure_Tickets_Module {
         add_action('wp_ajax_azure_tickets_save_venue', array($this, 'ajax_save_venue'));
         add_action('wp_ajax_azure_tickets_get_venue', array($this, 'ajax_get_venue'));
         add_action('wp_ajax_azure_tickets_delete_venue', array($this, 'ajax_delete_venue'));
-        add_action('wp_ajax_azure_tickets_get_availability', array($this, 'ajax_get_availability'));
-        add_action('wp_ajax_nopriv_azure_tickets_get_availability', array($this, 'ajax_get_availability'));
-        add_action('wp_ajax_azure_tickets_reserve_seats', array($this, 'ajax_reserve_seats'));
-        add_action('wp_ajax_nopriv_azure_tickets_reserve_seats', array($this, 'ajax_reserve_seats'));
         add_action('wp_ajax_azure_tickets_checkin', array($this, 'ajax_checkin'));
         add_action('wp_ajax_azure_tickets_validate_ticket', array($this, 'ajax_validate_ticket'));
         
@@ -64,7 +65,17 @@ class Azure_Tickets_Module {
     public function init() {
         // Load additional module classes
         $this->load_module_classes();
-        
+
+        if (get_option(self::DB_VERSION_OPTION) !== self::DB_VERSION) {
+            self::create_tables();
+            update_option(self::DB_VERSION_OPTION, self::DB_VERSION);
+        }
+        Azure_Tickets_Inventory::maybe_create_table();
+        if (class_exists('WooCommerce')) {
+            Azure_Tickets_Cart::get_instance();
+        }
+        Azure_Tickets_QR::get_instance();
+
         // Schedule reservation cleanup
         if (!wp_next_scheduled('azure_tickets_cleanup_reservations')) {
             wp_schedule_event(time(), 'hourly', 'azure_tickets_cleanup_reservations');
@@ -79,7 +90,12 @@ class Azure_Tickets_Module {
      */
     private function load_module_classes() {
         $classes = array(
-            'class-tickets-venue.php',
+            'class-tickets-layout.php',
+            'class-tickets-inventory.php',
+            'class-tickets-config.php',
+            'class-tickets-access.php',
+            'class-tickets-cart.php',
+            'class-tickets-qr.php',
             'class-tickets-product-type.php',
             'class-tickets-generator.php',
             'class-tickets-apple-wallet.php',
@@ -102,16 +118,6 @@ class Azure_Tickets_Module {
         $admin_role = get_role('administrator');
         if ($admin_role && !$admin_role->has_cap('scan_tickets')) {
             $admin_role->add_cap('scan_tickets');
-        }
-    }
-    
-    /**
-     * Initialize WooCommerce integration
-     */
-    public function init_woocommerce_integration() {
-        // Load product type class
-        if (class_exists('WC_Product') && !class_exists('WC_Product_Ticket')) {
-            require_once AZURE_PLUGIN_PATH . 'includes/class-tickets-product-type.php';
         }
     }
     
@@ -212,7 +218,7 @@ class Azure_Tickets_Module {
             return;
         }
         
-        global $product;
+        $product = wc_get_product(get_queried_object_id());
         if ($product && $product->get_type() === 'ticket') {
             wp_enqueue_style(
                 'azure-tickets-frontend',
@@ -231,17 +237,10 @@ class Azure_Tickets_Module {
             
             wp_localize_script('azure-tickets-seat-selector', 'azureTicketsFrontend', array(
                 'ajaxUrl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('azure_tickets_frontend_nonce'),
                 'productId' => $product->get_id(),
                 'cartUrl' => wc_get_cart_url(),
-                'strings' => array(
-                    'selectSeats' => __('Select your seats', 'azure-plugin'),
-                    'seatsSelected' => __('seats selected', 'azure-plugin'),
-                    'addToCart' => __('Add to Cart', 'azure-plugin'),
-                    'enterName' => __('Enter attendee name', 'azure-plugin'),
-                    'seatUnavailable' => __('This seat is no longer available', 'azure-plugin'),
-                    'reservationExpired' => __('Your seat reservation has expired', 'azure-plugin'),
-                )
+                'loginUrl' => wp_login_url(get_permalink($product->get_id())),
+                'currency' => html_entity_decode(get_woocommerce_currency_symbol(), ENT_QUOTES, 'UTF-8'),
             ));
         }
     }
@@ -275,6 +274,11 @@ class Azure_Tickets_Module {
                 $this->create_tickets_for_item($order, $item);
             }
         }
+
+        if (class_exists('Azure_Tickets_Generator')) {
+            $generator = new Azure_Tickets_Generator();
+            $generator->send_ticket_email($order->get_id());
+        }
     }
     
     /**
@@ -284,119 +288,54 @@ class Azure_Tickets_Module {
         global $wpdb;
         $tickets_table = $wpdb->prefix . 'azure_tickets';
         
-        // Get ticket meta (seat info, attendee names)
-        $seat_data = $item->get_meta('_ticket_seats');
-        $attendee_names = $item->get_meta('_attendee_names');
-        
-        if (!is_array($seat_data)) {
-            $seat_data = array();
+        $seats = $item->get_meta(Azure_Tickets_Cart::ITEM_SEATS);
+        if (!is_array($seats) || !$seats) {
+            return;
         }
-        if (!is_array($attendee_names)) {
-            $attendee_names = array();
-        }
-        
+
         $product_id = $item->get_product_id();
         $event_id = get_post_meta($product_id, '_ticket_event_id', true);
         $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
-        
-        // Generate tickets
-        $quantity = $item->get_quantity();
-        for ($i = 0; $i < $quantity; $i++) {
-            $seat = isset($seat_data[$i]) ? $seat_data[$i] : array();
-            $attendee_name = isset($attendee_names[$i]) ? $attendee_names[$i] : '';
-            
-            $ticket_code = $this->generate_ticket_code();
-            $qr_data = json_encode(array(
-                'ticket_id' => 0, // Will be updated after insert
-                'code' => $ticket_code,
-                'event' => $event_id,
-                'product' => $product_id,
-                'checksum' => hash('sha256', $ticket_code . $order->get_id() . $i)
-            ));
-            
+
+        foreach ($seats as $seat) {
+            $reserved = preg_match('/^([A-Z])-(\d+)$/', (string) ($seat['seat_key'] ?? ''), $m);
+            $ticket_code = self::generate_ticket_code();
             $wpdb->insert($tickets_table, array(
                 'order_id' => $order->get_id(),
                 'product_id' => $product_id,
-                'event_id' => $event_id,
-                'venue_id' => $venue_id,
+                'event_id' => $event_id ?: null,
+                'venue_id' => $venue_id ?: null,
                 'section_id' => $seat['section_id'] ?? null,
-                'row_letter' => $seat['row'] ?? null,
-                'seat_number' => $seat['seat'] ?? null,
-                'attendee_name' => sanitize_text_field($attendee_name),
+                'row_letter' => $reserved ? $m[1] : null,
+                'seat_number' => $reserved ? (int) $m[2] : null,
+                'attendee_name' => sanitize_text_field($seat['name'] ?? ''),
                 'attendee_email' => $order->get_billing_email(),
                 'ticket_code' => $ticket_code,
-                'qr_data' => $qr_data,
+                // The scanner reads the bare code; nothing else needs to be in the QR.
+                'qr_data' => $ticket_code,
                 'status' => 'active',
                 'created_at' => current_time('mysql')
             ));
-            
-            $ticket_id = $wpdb->insert_id;
-            
-            // Update QR data with ticket ID
-            $qr_data = json_encode(array(
-                'ticket_id' => $ticket_id,
-                'code' => $ticket_code,
-                'event' => $event_id,
-                'product' => $product_id,
-                'checksum' => hash('sha256', $ticket_code . $order->get_id() . $i)
-            ));
-            
-            $wpdb->update($tickets_table, array('qr_data' => $qr_data), array('id' => $ticket_id));
-            
-            // Mark seat as sold
-            $this->mark_seat_sold($venue_id, $seat);
-        }
-        
-        // Generate and send ticket email
-        if (class_exists('Azure_Tickets_Generator')) {
-            $generator = new Azure_Tickets_Generator();
-            $generator->send_ticket_email($order->get_id());
         }
     }
-    
+
     /**
-     * Generate unique ticket code
+     * 10 characters from an alphabet without look-alikes (no 0/O, 1/I/L).
      */
-    private function generate_ticket_code() {
-        return strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8));
-    }
-    
-    /**
-     * Mark a seat as sold
-     */
-    private function mark_seat_sold($venue_id, $seat) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'azure_ticket_seat_status';
-        
-        if (!empty($seat['section_id']) && !empty($seat['row']) && !empty($seat['seat'])) {
-            $wpdb->replace($table, array(
-                'venue_id' => $venue_id,
-                'section_id' => $seat['section_id'],
-                'row_letter' => $seat['row'],
-                'seat_number' => $seat['seat'],
-                'status' => 'sold',
-                'updated_at' => current_time('mysql')
-            ));
+    public static function generate_ticket_code() {
+        $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+        $code = '';
+        for ($i = 0; $i < 10; $i++) {
+            $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
         }
+        return $code;
     }
-    
+
     /**
-     * Cleanup expired seat reservations
+     * Hourly: lapsed holds go, unpaid orders past their window are settled.
      */
     public function cleanup_expired_reservations() {
-        global $wpdb;
-        $table = $wpdb->prefix . 'azure_ticket_seat_status';
-        
-        // Reservations expire after 15 minutes
-        $expiry_time = date('Y-m-d H:i:s', strtotime('-15 minutes'));
-        
-        // Only the expired ones. An unconditional delete used to run first,
-        // which released every held seat once an hour — including seats a
-        // shopper was in the middle of checking out with.
-        $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$table} WHERE status = 'reserved' AND updated_at < %s",
-            $expiry_time
-        ));
+        Azure_Tickets_Inventory::cleanup(array('Azure_Tickets_Cart', 'order_state'));
     }
     
     /**
@@ -414,12 +353,11 @@ class Azure_Tickets_Module {
         }
 
         $venue_id = intval($_POST['venue_id'] ?? 0);
-        $layout_json = wp_unslash($_POST['layout_json'] ?? '{}');
-
-        $layout = json_decode($layout_json);
-        if (json_last_error() !== JSON_ERROR_NONE) {
+        $decoded = json_decode(wp_unslash($_POST['layout_json'] ?? ''), true);
+        if (!is_array($decoded)) {
             wp_send_json_error(array('message' => 'Invalid layout JSON'));
         }
+        $layout = Azure_Tickets_Layout::sanitize($decoded);
 
         if ($venue_id === 0) {
             $name = sanitize_text_field($_POST['name'] ?? '');
@@ -452,41 +390,16 @@ class Azure_Tickets_Module {
             }
         }
 
-        update_post_meta($venue_id, '_azure_seating_layout', $layout_json);
-        
-        // Calculate and store capacity
-        $capacity = $this->calculate_capacity_from_layout($layout);
-        update_post_meta($venue_id, '_azure_seating_capacity', $capacity);
-        
+        update_post_meta($venue_id, '_azure_seating_layout', wp_slash(wp_json_encode($layout)));
+        update_post_meta($venue_id, '_azure_seating_capacity', Azure_Tickets_Layout::capacity($layout));
+
         wp_send_json_success(array(
-            'message' => 'Venue saved successfully',
-            'venue_id' => $venue_id
+            'message'  => 'Venue saved successfully',
+            'venue_id' => $venue_id,
+            'layout'   => $layout,
         ));
     }
-    
-    /**
-     * Calculate capacity from layout
-     */
-    private function calculate_capacity_from_layout($layout) {
-        $capacity = 0;
-        
-        if (isset($layout->blocks) && is_array($layout->blocks)) {
-            foreach ($layout->blocks as $block) {
-                if (!isset($block->type)) continue;
-                
-                if ($block->type === 'general_admission') {
-                    $capacity += intval($block->capacity ?? 0);
-                } elseif ($block->type === 'rectangle') {
-                    $rows = intval($block->rowCount ?? 0);
-                    $seats_per_row = intval($block->seatsPerRow ?? 0);
-                    $capacity += $rows * $seats_per_row;
-                }
-            }
-        }
-        
-        return $capacity;
-    }
-    
+
     /**
      * AJAX: Get venue (with seating layout if present).
      * Accepts pta_venue or legacy tribe_venue posts.
@@ -506,22 +419,17 @@ class Azure_Tickets_Module {
             wp_send_json_error(array('message' => 'Venue not found'));
         }
 
-        $layout_json = get_post_meta($venue_id, '_azure_seating_layout', true);
-
         wp_send_json_success(array(
             'venue' => array(
                 'id' => $venue_id,
                 'name' => $venue->post_title,
-                'layout_json' => $layout_json ?: '{"canvas":{"width":800,"height":600},"blocks":[]}',
+                'layout_json' => wp_json_encode(Azure_Tickets_Layout::for_venue($venue_id)),
                 'address' => get_post_meta($venue_id, '_VenueAddress', true),
                 'city'    => get_post_meta($venue_id, '_VenueCity', true),
             )
         ));
     }
     
-    /**
-     * AJAX: Delete venue
-     */
     /**
      * AJAX: Delete venue seating layout.
      * Only removes the seating layout, not the venue post itself.
@@ -547,100 +455,19 @@ class Azure_Tickets_Module {
     }
 
     /**
-     * AJAX: Get seat availability for a ticket product's venue.
+     * The ticket code from whatever was scanned or typed: a bare code (current
+     * QR), or the JSON the first version put in QR codes ({"code"} / {"c"}).
      */
-    public function ajax_get_availability() {
-        $product_id = intval($_POST['product_id'] ?? 0);
-        $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
-
-        if (!$venue_id) {
-            wp_send_json_error(array('message' => 'No venue configured'));
+    public static function scanned_code($raw) {
+        $raw = trim((string) $raw);
+        if ($raw !== '' && $raw[0] === '{') {
+            $data = json_decode($raw, true);
+            $raw = is_array($data) ? (string) ($data['code'] ?? ($data['c'] ?? '')) : '';
         }
-
-        $venue = get_post($venue_id);
-        if (!$venue || !in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
-            wp_send_json_error(array('message' => 'Venue not found'));
-        }
-        
-        // Get seating layout from venue meta
-        $layout_json = get_post_meta($venue_id, '_azure_seating_layout', true);
-        if (!$layout_json) {
-            wp_send_json_error(array('message' => 'No seating layout configured for this venue'));
-        }
-        
-        global $wpdb;
-        $status_table = $wpdb->prefix . 'azure_ticket_seat_status';
-        
-        // Get sold/reserved seats
-        $unavailable = $wpdb->get_results($wpdb->prepare(
-            "SELECT section_id, row_letter, seat_number, status FROM {$status_table} WHERE venue_id = %d",
-            $venue_id
-        ));
-        
-        $unavailable_map = array();
-        foreach ($unavailable as $seat) {
-            $key = $seat->section_id . '-' . $seat->row_letter . '-' . $seat->seat_number;
-            $unavailable_map[$key] = $seat->status;
-        }
-        
-        wp_send_json_success(array(
-            'layout' => json_decode($layout_json),
-            'unavailable' => $unavailable_map
-        ));
+        $code = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $raw));
+        return strlen($code) <= 20 ? $code : '';
     }
-    
-    /**
-     * AJAX: Reserve seats temporarily
-     */
-    public function ajax_reserve_seats() {
-        $product_id = intval($_POST['product_id'] ?? 0);
-        $seats = json_decode(wp_unslash($_POST['seats'] ?? '[]'), true);
-        
-        if (!is_array($seats) || empty($seats)) {
-            wp_send_json_error(array('message' => 'No seats selected'));
-        }
-        
-        $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
-        
-        global $wpdb;
-        $table = $wpdb->prefix . 'azure_ticket_seat_status';
-        
-        // Check if all seats are available
-        foreach ($seats as $seat) {
-            $existing = $wpdb->get_var($wpdb->prepare(
-                "SELECT status FROM {$table} WHERE venue_id = %d AND section_id = %s AND row_letter = %s AND seat_number = %d",
-                $venue_id, $seat['section_id'], $seat['row'], $seat['seat']
-            ));
-            
-            if ($existing && $existing !== 'available') {
-                wp_send_json_error(array(
-                    'message' => sprintf('Seat %s%d is no longer available', $seat['row'], $seat['seat'])
-                ));
-            }
-        }
-        
-        // Reserve all seats
-        $session_id = session_id() ?: wp_generate_uuid4();
-        
-        foreach ($seats as $seat) {
-            $wpdb->replace($table, array(
-                'venue_id' => $venue_id,
-                'section_id' => $seat['section_id'],
-                'row_letter' => $seat['row'],
-                'seat_number' => $seat['seat'],
-                'status' => 'reserved',
-                'session_id' => $session_id,
-                'updated_at' => current_time('mysql')
-            ));
-        }
-        
-        wp_send_json_success(array(
-            'message' => 'Seats reserved',
-            'session_id' => $session_id,
-            'expires_in' => 900 // 15 minutes
-        ));
-    }
-    
+
     /**
      * AJAX: Check in a ticket
      */
@@ -651,30 +478,17 @@ class Azure_Tickets_Module {
             wp_send_json_error(array('message' => 'Permission denied'));
         }
         
-        $ticket_code = sanitize_text_field($_POST['ticket_code'] ?? '');
-        $qr_data = wp_unslash($_POST['qr_data'] ?? '');
-        
+        $ticket_code = self::scanned_code(wp_unslash($_POST['ticket_code'] ?? ($_POST['qr_data'] ?? '')));
+
         global $wpdb;
         $tickets_table = $wpdb->prefix . 'azure_tickets';
         $checkins_table = $wpdb->prefix . 'azure_ticket_checkins';
-        
-        // Find ticket
-        $ticket = null;
-        if (!empty($ticket_code)) {
-            $ticket = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$tickets_table} WHERE ticket_code = %s",
-                $ticket_code
-            ));
-        } elseif (!empty($qr_data)) {
-            $data = json_decode($qr_data, true);
-            if (isset($data['code'])) {
-                $ticket = $wpdb->get_row($wpdb->prepare(
-                    "SELECT * FROM {$tickets_table} WHERE ticket_code = %s",
-                    $data['code']
-                ));
-            }
-        }
-        
+
+        $ticket = $ticket_code === '' ? null : $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$tickets_table} WHERE ticket_code = %s",
+            $ticket_code
+        ));
+
         if (!$ticket) {
             wp_send_json_error(array('message' => 'Ticket not found', 'status' => 'invalid'));
         }
@@ -691,12 +505,16 @@ class Azure_Tickets_Module {
             wp_send_json_error(array('message' => 'Ticket is not valid', 'status' => 'invalid'));
         }
         
-        // Mark as used
-        $wpdb->update($tickets_table, array(
-            'status' => 'used',
-            'checked_in_at' => current_time('mysql'),
-            'checked_in_by' => get_current_user_id()
-        ), array('id' => $ticket->id));
+        // Conditional on 'active' so two scanners can't both admit one ticket.
+        $claimed = $wpdb->query($wpdb->prepare(
+            "UPDATE {$tickets_table} SET status = 'used', checked_in_at = %s, checked_in_by = %d WHERE id = %d AND status = 'active'",
+            current_time('mysql'),
+            get_current_user_id(),
+            $ticket->id
+        ));
+        if (!$claimed) {
+            wp_send_json_error(array('message' => 'Ticket already used', 'status' => 'already_used'));
+        }
         
         // Log check-in
         $wpdb->insert($checkins_table, array(
@@ -717,7 +535,7 @@ class Azure_Tickets_Module {
                 'code' => $ticket->ticket_code,
                 'attendee' => $ticket->attendee_name,
                 'event' => $product ? $product->get_name() : 'Unknown Event',
-                'seat' => $ticket->row_letter ? $ticket->row_letter . $ticket->seat_number : 'General Admission'
+                'seat' => Azure_Tickets_Config::ticket_seat_label($ticket)
             )
         ));
     }
@@ -735,7 +553,7 @@ class Azure_Tickets_Module {
             wp_send_json_error(array('message' => 'Permission denied'));
         }
 
-        $ticket_code = sanitize_text_field($_POST['ticket_code'] ?? '');
+        $ticket_code = self::scanned_code(wp_unslash($_POST['ticket_code'] ?? ''));
         
         global $wpdb;
         $tickets_table = $wpdb->prefix . 'azure_tickets';
@@ -758,7 +576,7 @@ class Azure_Tickets_Module {
                 'code' => $ticket->ticket_code,
                 'attendee' => $ticket->attendee_name,
                 'event' => $product ? $product->get_name() : 'Unknown Event',
-                'seat' => $ticket->row_letter ? $ticket->row_letter . $ticket->seat_number : 'General Admission',
+                'seat' => Azure_Tickets_Config::ticket_seat_label($ticket),
                 'checked_in' => $ticket->status === 'used',
                 'checked_in_at' => $ticket->checked_in_at
             )
@@ -944,7 +762,8 @@ class Azure_Tickets_Module {
     
     /**
      * Create database tables
-     * Note: Venues are now stored as TEC venues with seating layouts in post meta
+     * Venues are pta_venue posts with the layout in post meta; seat holds and
+     * sales are in Azure_Tickets_Inventory's table.
      */
     public static function create_tables() {
         global $wpdb;
@@ -994,32 +813,9 @@ class Azure_Tickets_Module {
         ) $charset_collate;";
         dbDelta($sql_checkins);
         
-        // Seat status table (for reservations and sold seats)
-        $table_seat_status = $wpdb->prefix . 'azure_ticket_seat_status';
-        $sql_seat_status = "CREATE TABLE $table_seat_status (
-            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-            venue_id bigint(20) unsigned NOT NULL,
-            product_id bigint(20) unsigned DEFAULT NULL,
-            section_id varchar(100) NOT NULL,
-            row_letter varchar(10) NOT NULL,
-            seat_number int(11) NOT NULL,
-            status varchar(20) DEFAULT 'available',
-            session_id varchar(100) DEFAULT NULL,
-            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY venue_seat (venue_id, product_id, section_id, row_letter, seat_number),
-            KEY status (status)
-        ) $charset_collate;";
-        dbDelta($sql_seat_status);
+        Azure_Tickets_Inventory::maybe_create_table();
         
         Azure_Logger::info('Tickets: Database tables created/updated');
     }
 }
-
-// Initialize the module if tickets are enabled
-add_action('plugins_loaded', function() {
-    if (Azure_Settings::is_module_enabled('tickets')) {
-        Azure_Tickets_Module::get_instance();
-    }
-}, 20);
 

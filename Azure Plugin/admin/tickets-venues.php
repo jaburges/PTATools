@@ -20,7 +20,7 @@ $venue_layout = null;
 if ($venue_id > 0) {
     $venue = get_post($venue_id);
     if ($venue && in_array($venue->post_type, array('pta_venue', 'tribe_venue'), true)) {
-        $venue_layout = get_post_meta($venue_id, '_azure_seating_layout', true);
+        $venue_layout = wp_json_encode(Azure_Tickets_Layout::for_venue($venue_id));
     }
 }
 
@@ -99,11 +99,15 @@ $pta_venues = get_posts(array(
             <div class="block-palette">
                 <div class="block-item" data-type="rectangle" draggable="true">
                     <span class="dashicons dashicons-grid-view"></span>
-                    <span><?php _e('Rectangle Section', 'azure-plugin'); ?></span>
+                    <span><?php _e('Seated Section', 'azure-plugin'); ?></span>
                 </div>
                 <div class="block-item" data-type="general_admission" draggable="true">
                     <span class="dashicons dashicons-groups"></span>
                     <span><?php _e('General Admission', 'azure-plugin'); ?></span>
+                </div>
+                <div class="block-item" data-type="area" draggable="true">
+                    <span class="dashicons dashicons-format-image"></span>
+                    <span><?php _e('Area (not sold)', 'azure-plugin'); ?></span>
                 </div>
                 <div class="block-item" data-type="stage" draggable="true">
                     <span class="dashicons dashicons-format-video"></span>
@@ -118,6 +122,7 @@ $pta_venues = get_posts(array(
                     <span><?php _e('Aisle', 'azure-plugin'); ?></span>
                 </div>
             </div>
+            <p class="description" style="margin-top:-8px"><?php _e('Click or drag onto the map. Sections are priced per performance on each ticket product; the price here is the default.', 'azure-plugin'); ?></p>
             
             <h3><?php _e('Canvas', 'azure-plugin'); ?></h3>
             <div class="canvas-controls">
@@ -142,7 +147,7 @@ $pta_venues = get_posts(array(
         <div class="designer-canvas-container">
             <div class="designer-canvas" id="venue-canvas" 
                  data-venue-id="<?php echo esc_attr($venue_id); ?>"
-                 data-layout="<?php echo esc_attr($venue_layout ?: '{"canvas":{"width":800,"height":600},"blocks":[]}'); ?>">
+                 data-layout="<?php echo esc_attr($venue_layout ?: wp_json_encode(Azure_Tickets_Layout::empty_layout())); ?>">
                 <!-- Blocks will be rendered here -->
             </div>
         </div>
@@ -161,7 +166,7 @@ $pta_venues = get_posts(array(
                     <input type="text" class="block-setting" data-setting="name" placeholder="<?php _e('e.g., Orchestra Left', 'azure-plugin'); ?>">
                 </div>
                 <div class="settings-group">
-                    <label><?php _e('Price ($)', 'azure-plugin'); ?></label>
+                    <label><?php _e('Default price ($)', 'azure-plugin'); ?></label>
                     <input type="number" class="block-setting" data-setting="price" min="0" step="0.01" value="0">
                 </div>
                 <div class="settings-group">
@@ -184,10 +189,25 @@ $pta_venues = get_posts(array(
                     <label><?php _e('Section Color', 'azure-plugin'); ?></label>
                     <input type="color" class="block-setting" data-setting="color" value="#4CAF50">
                 </div>
-                <div class="settings-group">
+                <div class="settings-group seat-tools">
+                    <label><?php _e('Seats', 'azure-plugin'); ?></label>
+                    <p class="description"><?php _e('Pick a tool, then click or drag across seats on the map. Click a marked seat again to make it a normal seat.', 'azure-plugin'); ?></p>
+                    <div class="seat-tool-buttons">
+                        <button type="button" class="button seat-tool" data-tool="move"><?php _e('Move block', 'azure-plugin'); ?></button>
+                        <button type="button" class="button seat-tool" data-tool="accessible">&#9855; <?php _e('Accessible', 'azure-plugin'); ?></button>
+                        <button type="button" class="button seat-tool" data-tool="none"><?php _e('No seat', 'azure-plugin'); ?></button>
+                        <button type="button" class="button seat-tool" data-tool="normal"><?php _e('Normal', 'azure-plugin'); ?></button>
+                    </div>
+                    <p class="seat-summary description"></p>
+                </div>
+                <div class="settings-group settings-actions">
+                    <button type="button" class="button duplicate-block">
+                        <span class="dashicons dashicons-admin-page"></span>
+                        <?php _e('Duplicate', 'azure-plugin'); ?>
+                    </button>
                     <button type="button" class="button delete-block" style="color: #d63638;">
                         <span class="dashicons dashicons-trash"></span>
-                        <?php _e('Delete Block', 'azure-plugin'); ?>
+                        <?php _e('Delete', 'azure-plugin'); ?>
                     </button>
                 </div>
             </template>
@@ -198,7 +218,7 @@ $pta_venues = get_posts(array(
                     <input type="text" class="block-setting" data-setting="name" placeholder="<?php _e('e.g., Standing Area', 'azure-plugin'); ?>">
                 </div>
                 <div class="settings-group">
-                    <label><?php _e('Price ($)', 'azure-plugin'); ?></label>
+                    <label><?php _e('Default price ($)', 'azure-plugin'); ?></label>
                     <input type="number" class="block-setting" data-setting="price" min="0" step="0.01" value="0">
                 </div>
                 <div class="settings-group">
@@ -209,10 +229,36 @@ $pta_venues = get_posts(array(
                     <label><?php _e('Area Color', 'azure-plugin'); ?></label>
                     <input type="color" class="block-setting" data-setting="color" value="#FF9800">
                 </div>
-                <div class="settings-group">
+                <div class="settings-group settings-actions">
+                    <button type="button" class="button duplicate-block">
+                        <span class="dashicons dashicons-admin-page"></span>
+                        <?php _e('Duplicate', 'azure-plugin'); ?>
+                    </button>
                     <button type="button" class="button delete-block" style="color: #d63638;">
                         <span class="dashicons dashicons-trash"></span>
-                        <?php _e('Delete Block', 'azure-plugin'); ?>
+                        <?php _e('Delete', 'azure-plugin'); ?>
+                    </button>
+                </div>
+            </template>
+            
+            <template id="area-settings">
+                <p class="description"><?php _e('Drawn on the map so buyers can see it, but no tickets are sold for it (e.g. a gym mat for kids on the floor).', 'azure-plugin'); ?></p>
+                <div class="settings-group">
+                    <label><?php _e('Label', 'azure-plugin'); ?></label>
+                    <input type="text" class="block-setting" data-setting="label">
+                </div>
+                <div class="settings-group">
+                    <label><?php _e('Color', 'azure-plugin'); ?></label>
+                    <input type="color" class="block-setting" data-setting="color" value="#d9cdea">
+                </div>
+                <div class="settings-group settings-actions">
+                    <button type="button" class="button duplicate-block">
+                        <span class="dashicons dashicons-admin-page"></span>
+                        <?php _e('Duplicate', 'azure-plugin'); ?>
+                    </button>
+                    <button type="button" class="button delete-block" style="color: #d63638;">
+                        <span class="dashicons dashicons-trash"></span>
+                        <?php _e('Delete', 'azure-plugin'); ?>
                     </button>
                 </div>
             </template>
@@ -226,10 +272,14 @@ $pta_venues = get_posts(array(
                     <label><?php _e('Background Color', 'azure-plugin'); ?></label>
                     <input type="color" class="block-setting" data-setting="color" value="#333333">
                 </div>
-                <div class="settings-group">
+                <div class="settings-group settings-actions">
+                    <button type="button" class="button duplicate-block">
+                        <span class="dashicons dashicons-admin-page"></span>
+                        <?php _e('Duplicate', 'azure-plugin'); ?>
+                    </button>
                     <button type="button" class="button delete-block" style="color: #d63638;">
                         <span class="dashicons dashicons-trash"></span>
-                        <?php _e('Delete Block', 'azure-plugin'); ?>
+                        <?php _e('Delete', 'azure-plugin'); ?>
                     </button>
                 </div>
             </template>
@@ -241,16 +291,20 @@ $pta_venues = get_posts(array(
                 </div>
                 <div class="settings-group">
                     <label><?php _e('Font Size', 'azure-plugin'); ?></label>
-                    <input type="number" class="block-setting" data-setting="fontSize" min="10" max="48" value="14">
+                    <input type="number" class="block-setting" data-setting="fontSize" min="8" max="72" value="14">
                 </div>
                 <div class="settings-group">
                     <label><?php _e('Text Color', 'azure-plugin'); ?></label>
                     <input type="color" class="block-setting" data-setting="color" value="#333333">
                 </div>
-                <div class="settings-group">
+                <div class="settings-group settings-actions">
+                    <button type="button" class="button duplicate-block">
+                        <span class="dashicons dashicons-admin-page"></span>
+                        <?php _e('Duplicate', 'azure-plugin'); ?>
+                    </button>
                     <button type="button" class="button delete-block" style="color: #d63638;">
                         <span class="dashicons dashicons-trash"></span>
-                        <?php _e('Delete Block', 'azure-plugin'); ?>
+                        <?php _e('Delete', 'azure-plugin'); ?>
                     </button>
                 </div>
             </template>
@@ -263,10 +317,14 @@ $pta_venues = get_posts(array(
                         <option value="vertical"><?php _e('Vertical', 'azure-plugin'); ?></option>
                     </select>
                 </div>
-                <div class="settings-group">
+                <div class="settings-group settings-actions">
+                    <button type="button" class="button duplicate-block">
+                        <span class="dashicons dashicons-admin-page"></span>
+                        <?php _e('Duplicate', 'azure-plugin'); ?>
+                    </button>
                     <button type="button" class="button delete-block" style="color: #d63638;">
                         <span class="dashicons dashicons-trash"></span>
-                        <?php _e('Delete Block', 'azure-plugin'); ?>
+                        <?php _e('Delete', 'azure-plugin'); ?>
                     </button>
                 </div>
             </template>
@@ -307,21 +365,11 @@ $pta_venues = get_posts(array(
     <?php else: ?>
     <div class="venues-grid">
         <?php foreach ($pta_venues as $v):
-            $layout_json = get_post_meta($v->ID, '_azure_seating_layout', true);
-            $layout = $layout_json ? json_decode($layout_json) : null;
-            $block_count = ($layout && isset($layout->blocks)) ? count($layout->blocks) : 0;
-            $has_layout = !empty($layout_json);
-
-            $capacity = 0;
-            if ($layout && isset($layout->blocks)) {
-                foreach ($layout->blocks as $block) {
-                    if ($block->type === 'rectangle') {
-                        $capacity += ($block->rowCount ?? 0) * ($block->seatsPerRow ?? 0);
-                    } elseif ($block->type === 'general_admission') {
-                        $capacity += $block->capacity ?? 0;
-                    }
-                }
-            }
+            $has_layout = (bool) get_post_meta($v->ID, '_azure_seating_layout', true);
+            $layout = Azure_Tickets_Layout::for_venue($v->ID);
+            $layout_json = wp_json_encode($layout);
+            $block_count = count(Azure_Tickets_Layout::sections($layout));
+            $capacity = Azure_Tickets_Layout::capacity($layout);
 
             $address = get_post_meta($v->ID, '_VenueAddress', true);
             $city    = get_post_meta($v->ID, '_VenueCity', true);
@@ -558,18 +606,30 @@ $pta_venues = get_posts(array(
     background: #e5e5e5;
     overflow: auto;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    /* Not centre: a canvas wider than the panel would be cut off on the left. */
+    align-items: flex-start;
+    justify-content: flex-start;
     padding: 30px;
     position: relative;
+    max-height: 80vh;
+}
+
+.designer-canvas-sizer {
+    margin: auto;
+    position: relative;
+    flex: none;
+}
+
+.designer-canvas-sizer .designer-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
 }
 
 .designer-canvas {
     background: #fff;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     position: relative;
-    min-width: 800px;
-    min-height: 600px;
 }
 
 .designer-canvas.drag-over {

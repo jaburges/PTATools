@@ -113,9 +113,10 @@ $t->check(
 // with.
 
 $tickets = src($plugin_dir, 'includes/class-tickets-module.php');
+$inventory = src($plugin_dir, 'includes/class-tickets-inventory.php');
 
-if (!preg_match('/function cleanup_expired_reservations.*?\n    }/s', $tickets, $m)) {
-    $t->check(false, 'cleanup_expired_reservations() is present');
+if (!preg_match('/function cleanup\(.*?\n    }/s', $inventory, $m)) {
+    $t->check(false, 'Azure_Tickets_Inventory::cleanup() is present');
 } else {
     $cleanup = $m[0];
     $t->check(
@@ -123,7 +124,7 @@ if (!preg_match('/function cleanup_expired_reservations.*?\n    }/s', $tickets, 
         'reservation cleanup issues no unscoped delete'
     );
     $t->check(
-        strpos($cleanup, 'updated_at < %s') !== false,
+        strpos($cleanup, "status = 'held' AND expires_at < %s") !== false,
         'reservation cleanup is still bounded by the expiry time'
     );
 }

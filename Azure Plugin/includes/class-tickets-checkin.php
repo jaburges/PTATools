@@ -36,9 +36,7 @@ class Azure_Tickets_Checkin {
         $product = wc_get_product($ticket->product_id);
         $event_name = $product ? $product->get_name() : 'Unknown Event';
         
-        $seat_info = $ticket->row_letter ? 
-            'Row ' . $ticket->row_letter . ', Seat ' . $ticket->seat_number : 
-            'General Admission';
+        $seat_info = Azure_Tickets_Config::ticket_seat_label($ticket);
         
         $result = array(
             'valid' => true,
@@ -78,39 +76,25 @@ class Azure_Tickets_Checkin {
     /**
      * Validate QR code data
      * 
-     * @param string $qr_data JSON QR data
+     * @param string $qr_data Scanned QR text
      * @return array Validation result
      */
     public function validate_qr($qr_data) {
-        $data = json_decode($qr_data, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE || empty($data['c'])) {
+        $code = Azure_Tickets_Module::scanned_code($qr_data);
+        if ($code === '') {
             return array(
                 'valid' => false,
                 'status' => 'invalid_qr',
                 'message' => __('Invalid QR code format', 'azure-plugin')
             );
         }
-        
-        // Verify checksum if present
-        if (!empty($data['cs']) && !empty($data['t'])) {
-            $expected_cs = substr(hash('sha256', $data['c'] . $data['t'] . AUTH_SALT), 0, 8);
-            if ($data['cs'] !== $expected_cs) {
-                return array(
-                    'valid' => false,
-                    'status' => 'invalid_checksum',
-                    'message' => __('Ticket verification failed', 'azure-plugin')
-                );
-            }
-        }
-        
-        return $this->validate_ticket($data['c']);
+        return $this->validate_ticket($code);
     }
     
     /**
      * Check in a ticket
      * 
-     * @param int|string $ticket_id_or_code Ticket ID or code
+     * @param int|string $ticket_id_or_code Ticket ID (int) or scanned code (string)
      * @param int $user_id User performing check-in
      * @return array Result
      */
@@ -120,7 +104,7 @@ class Azure_Tickets_Checkin {
         $checkins_table = $wpdb->prefix . 'azure_ticket_checkins';
         
         // Find ticket
-        if (is_numeric($ticket_id_or_code)) {
+        if (is_int($ticket_id_or_code)) {
             $ticket = $wpdb->get_row($wpdb->prepare(
                 "SELECT * FROM {$tickets_table} WHERE id = %d",
                 $ticket_id_or_code
@@ -128,7 +112,7 @@ class Azure_Tickets_Checkin {
         } else {
             $ticket = $wpdb->get_row($wpdb->prepare(
                 "SELECT * FROM {$tickets_table} WHERE ticket_code = %s",
-                strtoupper(trim($ticket_id_or_code))
+                Azure_Tickets_Module::scanned_code($ticket_id_or_code)
             ));
         }
         
@@ -168,8 +152,16 @@ class Azure_Tickets_Checkin {
                 'checked_in_at' => $check_in_time,
                 'checked_in_by' => $user_id
             ),
-            array('id' => $ticket->id)
+            array('id' => $ticket->id, 'status' => 'active')
         );
+        
+        if ($updated === 0) {
+            return array(
+                'success' => false,
+                'status' => 'already_used',
+                'message' => __('Ticket already used', 'azure-plugin')
+            );
+        }
         
         if ($updated === false) {
             return array(
@@ -192,9 +184,7 @@ class Azure_Tickets_Checkin {
         $product = wc_get_product($ticket->product_id);
         $event_name = $product ? $product->get_name() : 'Unknown Event';
         
-        $seat_info = $ticket->row_letter ? 
-            'Row ' . $ticket->row_letter . ', Seat ' . $ticket->seat_number : 
-            'General Admission';
+        $seat_info = Azure_Tickets_Config::ticket_seat_label($ticket);
         
         return array(
             'success' => true,

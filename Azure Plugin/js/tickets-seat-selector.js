@@ -1,513 +1,475 @@
 /**
- * Tickets Module - Seat Selector (Frontend)
+ * Tickets Module - seat map on a ticket product page.
+ *
+ * Draws the venue layout, lets the buyer pick reserved seats and general
+ * admission places, and sends the choice to azure_tickets_add_to_cart.
+ * Prices, limits and availability shown here are for guidance; the server
+ * checks all of them again and holds the seats.
  */
 (function($) {
     'use strict';
-    
-    var SeatSelector = {
-        productId: 0,
-        venueId: 0,
-        layout: null,
-        unavailableSeats: {},
-        selectedSeats: [],
-        maxTickets: 10,
-        requireNames: false,
-        sectionPrices: {},
-        currencySymbol: '$',
-        
-        init: function() {
-            var $container = $('.seat-selector-container');
-            if (!$container.length) return;
-            
-            this.productId = $container.data('product-id');
-            this.venueId = $container.data('venue-id');
-            this.maxTickets = $container.data('max-tickets') || 10;
-            this.requireNames = $container.data('require-names') == '1';
-            
-            // Get currency from WooCommerce if available
-            if (typeof wc_add_to_cart_params !== 'undefined') {
-                this.currencySymbol = wc_add_to_cart_params.currency_symbol || '$';
-            }
-            
-            this.loadLayout();
-            this.bindEvents();
-        },
-        
-        loadLayout: function() {
+
+    var cfg = window.azureTicketsFrontend || {};
+    var MIN_TAP = 22;
+
+    function esc(s) {
+        return $('<div>').text(s == null ? '' : String(s)).html();
+    }
+
+    function money(n) {
+        return (cfg.currency || '$') + Number(n || 0).toFixed(2);
+    }
+
+    function tint(hex, alpha) {
+        var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+        if (!m) return 'rgba(0,0,0,' + alpha + ')';
+        return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + alpha + ')';
+    }
+
+    function rowLabels(b) {
+        var start = (b.startRow || 'A').charCodeAt(0), rows = [];
+        for (var i = 0; i < b.rowCount; i++) rows.push(String.fromCharCode(start + i));
+        return rows;
+    }
+
+    function SeatMap($root) {
+        this.$root = $root;
+        this.productId = $root.data('productId');
+        this.requireNames = String($root.data('requireNames')) === '1';
+        this.data = null;
+        this.blocks = {};
+        this.selected = [];      // [{section_id, seat_key, name}]
+        this.general = {};       // section_id → {count, names[]}
+        this.scale = 1;
+        this.fitScale = 1;
+        this.load();
+    }
+
+    SeatMap.prototype = {
+
+        load: function(message) {
             var self = this;
-            
-            $.ajax({
-                url: azureTicketsFrontend.ajaxUrl,
-                type: 'POST',
-                data: {
-                    action: 'azure_tickets_get_availability',
-                    product_id: this.productId,
-                    nonce: azureTicketsFrontend.nonce
-                },
-                success: function(response) {
-                    if (response.success) {
-                        self.layout = response.data.layout;
-                        self.unavailableSeats = response.data.unavailable || {};
-                        self.extractPrices();
-                        self.renderLayout();
-                    } else {
-                        self.showError(response.data ? response.data.message : 'Error loading seats');
+            $.post(cfg.ajaxUrl, { action: 'azure_tickets_seat_map', product_id: this.productId })
+                .done(function(res) {
+                    if (!res || !res.success) {
+                        self.$root.html('<p class="pta-seatmap__error">' + esc((res && res.data && res.data.message) || 'The seating chart could not be loaded.') + '</p>');
+                        return;
                     }
-                },
-                error: function() {
-                    self.showError('Network error loading seats');
-                }
+                    self.data = res.data;
+                    self.blocks = {};
+                    res.data.layout.blocks.forEach(function(b) { self.blocks[b.id] = b; });
+                    self.dropUnavailable();
+                    self.build();
+                    if (message) self.notice(message, 'error');
+                })
+                .fail(function() {
+                    self.$root.html('<p class="pta-seatmap__error">The seating chart could not be loaded. Please refresh the page.</p>');
+                });
+        },
+
+        section: function(id) {
+            return this.data.sections[id] || null;
+        },
+
+        state: function(sid, key) {
+            var t = this.data.taken[sid] || {};
+            return t[key] || '';
+        },
+
+        dropUnavailable: function() {
+            var self = this;
+            this.selected = this.selected.filter(function(s) {
+                var sec = self.section(s.section_id);
+                return sec && sec.on_sale && !sec.locked && !self.state(s.section_id, s.seat_key);
+            });
+            Object.keys(this.general).forEach(function(sid) {
+                var sec = self.section(sid);
+                if (!sec || !sec.on_sale || sec.locked) delete self.general[sid];
+                else self.general[sid].count = Math.min(self.general[sid].count, sec.left);
             });
         },
-        
-        extractPrices: function() {
+
+        // ── Building the page ──────────────────────────────────────────
+
+        build: function() {
+            var d = this.data;
+            var html = [];
+            var lockedNames = [];
+            var hasAccessible = false;
+            var sampleColor = '';
             var self = this;
-            if (this.layout && this.layout.blocks) {
-                this.layout.blocks.forEach(function(block) {
-                    if (block.type === 'rectangle' || block.type === 'general_admission') {
-                        self.sectionPrices[block.id || block.name] = parseFloat(block.price) || 0;
-                    }
-                });
-            }
-        },
-        
-        renderLayout: function() {
-            var self = this;
-            var $seatMap = $('.seat-map');
-            var $loading = $('.loading-seats');
-            
-            if (!this.layout || !this.layout.blocks) {
-                this.showError('No seating layout configured');
-                return;
-            }
-            
-            // Calculate scale
-            var canvasWidth = this.layout.canvas ? this.layout.canvas.width : 800;
-            var canvasHeight = this.layout.canvas ? this.layout.canvas.height : 600;
-            var containerWidth = $seatMap.parent().width() - 40;
-            var scale = Math.min(1, containerWidth / canvasWidth);
-            
-            var $canvas = $('<div class="seat-canvas">')
-                .css({
-                    position: 'relative',
-                    width: canvasWidth * scale + 'px',
-                    height: canvasHeight * scale + 'px',
-                    margin: '0 auto'
-                });
-            
-            // Render blocks
-            this.layout.blocks.forEach(function(block) {
-                self.renderBlock($canvas, block, scale);
+            Object.keys(d.sections).forEach(function(sid) {
+                var b = self.blocks[sid];
+                if (!sampleColor && b.type === 'rectangle' && !d.sections[sid].locked) sampleColor = b.color;
+                if (d.sections[sid].locked && d.sections[sid].on_sale) lockedNames.push(b.name);
+                if (b.type === 'rectangle' && Object.keys(b.seatTypes || {}).some(function(k) { return b.seatTypes[k] === 'accessible'; })) hasAccessible = true;
             });
-            
-            // Add legend
-            var $legend = $('<div class="seat-legend">' +
-                '<div class="legend-item"><span class="legend-color available"></span> Available</div>' +
-                '<div class="legend-item"><span class="legend-color selected"></span> Selected</div>' +
-                '<div class="legend-item"><span class="legend-color sold"></span> Sold</div>' +
+
+            html.push('<div class="pta-seatmap__notice" role="status" aria-live="polite"></div>');
+            if (lockedNames.length) {
+                html.push('<p class="pta-seatmap__family">🔒 <strong>' + esc(lockedNames.join(', ')) + '</strong> ' +
+                    (d.signed_in
+                        ? 'is reserved for cast and crew families. Your account isn\'t on the list for this show; if you think it should be, please contact the PTSA.'
+                        : 'is reserved for cast and crew families. <a href="' + esc(cfg.loginUrl) + '">Sign in</a> to buy seats there.') + '</p>');
+            }
+            html.push('<div class="pta-seatmap__legend">' +
+                '<span><i class="pta-seat is-demo"' + (sampleColor ? ' style="--seat:' + esc(sampleColor) + '"' : '') + '></i>Available</span>' +
+                '<span><i class="pta-seat is-demo is-selected"></i>Your choice</span>' +
+                '<span><i class="pta-seat is-demo is-taken"></i>Taken</span>' +
+                (hasAccessible ? '<span><i class="pta-seat is-demo is-accessible"></i>Wheelchair space</span>' : '') +
                 '</div>');
-            
-            $loading.hide();
-            $seatMap.empty().append($canvas).append($legend).show();
-            
-            // Initial summary
-            this.updateSummary();
+            html.push('<div class="pta-seatmap__tools">' +
+                '<button type="button" class="pta-seatmap__zoom" data-zoom="out" aria-label="Zoom out">−</button>' +
+                '<button type="button" class="pta-seatmap__zoom" data-zoom="fit">Fit</button>' +
+                '<button type="button" class="pta-seatmap__zoom" data-zoom="in" aria-label="Zoom in">+</button>' +
+                '</div>');
+            html.push('<div class="pta-seatmap__viewport"><div class="pta-seatmap__sizer"><div class="pta-seatmap__canvas" style="width:' + d.layout.canvas.width + 'px;height:' + d.layout.canvas.height + 'px">');
+            d.layout.blocks.forEach(function(b) { html.push(self.blockHtml(b)); });
+            html.push('</div></div></div>');
+            html.push('<div class="pta-seatmap__general"></div>');
+            html.push('<div class="pta-seatmap__summary"></div>');
+            this.$root.html(html.join(''));
+
+            this.$viewport = this.$root.find('.pta-seatmap__viewport');
+            this.$sizer = this.$root.find('.pta-seatmap__sizer');
+            this.$canvas = this.$root.find('.pta-seatmap__canvas');
+            this.bind();
+            this.fit();
+            this.renderGeneral();
+            this.renderSummary();
         },
-        
-        renderBlock: function($canvas, block, scale) {
+
+        blockHtml: function(b) {
+            var style = 'left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.width + 'px;height:' + b.height + 'px;';
+            var sec = this.section(b.id);
+            switch (b.type) {
+                case 'rectangle':
+                    return this.rectangleHtml(b, sec, style);
+                case 'general_admission':
+                    var cls = 'pta-block pta-block--ga' + (!sec.on_sale ? ' is-off' : '') + (sec.locked ? ' is-locked' : '');
+                    return '<button type="button" class="' + cls + '" data-ga="' + esc(b.id) + '" style="' + style + 'background:' + tint(b.color, 0.25) + ';border-color:' + esc(b.color) + '">' +
+                        '<strong>' + esc(b.name) + '</strong><span>' +
+                        (sec.on_sale ? money(sec.price) + ' · ' + (sec.left > 0 ? sec.left + ' left' : 'Sold out') : 'Not on sale') +
+                        (sec.locked ? ' · 🔒' : '') + '</span></button>';
+                case 'area':
+                    return '<div class="pta-block pta-block--area" style="' + style + 'background-color:' + esc(b.color) + '"><span>' + esc(b.label) + '</span></div>';
+                case 'stage':
+                    return '<div class="pta-block pta-block--stage" style="' + style + 'background:' + esc(b.color) + '"><span>' + esc(b.label) + '</span></div>';
+                case 'label':
+                    return '<div class="pta-block pta-block--label" style="' + style + 'color:' + esc(b.color) + ';font-size:' + b.fontSize + 'px"><span>' + esc(b.text) + '</span></div>';
+                default:
+                    return '';
+            }
+        },
+
+        rectangleHtml: function(b, sec, style) {
             var self = this;
-            
-            // Skip non-purchasable blocks
-            if (block.type === 'stage' || block.type === 'aisle' || block.type === 'label') {
-                var $block = $('<div>')
-                    .addClass('stage-block')
-                    .css({
-                        position: 'absolute',
-                        left: (block.x * scale) + 'px',
-                        top: (block.y * scale) + 'px',
-                        width: (block.width * scale) + 'px',
-                        height: (block.height * scale) + 'px',
-                        background: block.color || '#333',
-                        color: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '4px',
-                        fontSize: (12 * scale) + 'px'
-                    })
-                    .text(block.label || block.text || '');
-                
-                $canvas.append($block);
+            var parts = [];
+            var cls = 'pta-block pta-block--seats' + (!sec.on_sale ? ' is-off' : '') + (sec.locked ? ' is-locked' : '');
+            parts.push('<div class="' + cls + '" style="' + style + 'background:' + tint(b.color, 0.12) + ';border-color:' + tint(b.color, 0.6) + '">');
+            parts.push('<div class="pta-block__head">' + esc(b.name) + ' <span>' +
+                (sec.on_sale ? money(sec.price) : 'Not on sale') + (sec.locked ? ' 🔒' : '') + '</span></div>');
+            parts.push('<div class="pta-block__grid" style="grid-template-columns:auto repeat(' + b.seatsPerRow + ',minmax(0,1fr))">');
+            rowLabels(b).forEach(function(r) {
+                parts.push('<span class="pta-row">' + r + '</span>');
+                for (var n = 1; n <= b.seatsPerRow; n++) {
+                    var key = r + '-' + n;
+                    var type = (b.seatTypes || {})[key];
+                    if (type === 'none') {
+                        parts.push('<span class="pta-gap"></span>');
+                        continue;
+                    }
+                    var st = self.state(b.id, key);
+                    var c = 'pta-seat' + (type === 'accessible' ? ' is-accessible' : '');
+                    var label = b.name + ', Row ' + r + ', Seat ' + n + (type === 'accessible' ? ', wheelchair space' : '');
+                    var disabled = false;
+                    if (st === 'taken') { c += ' is-taken'; label += ', taken'; disabled = true; }
+                    else if (st === 'mine') { c += ' is-mine'; label += ', in your cart'; disabled = true; }
+                    else if (!sec.on_sale) { c += ' is-taken'; disabled = true; }
+                    parts.push('<button type="button" class="' + c + '" style="--seat:' + esc(b.color) + '" data-s="' + esc(b.id) + '" data-k="' + key + '"' +
+                        ' aria-label="' + esc(label) + '" aria-pressed="false"' + (disabled ? ' disabled' : '') + '></button>');
+                }
+            });
+            parts.push('</div></div>');
+            return parts.join('');
+        },
+
+        // ── Zoom ───────────────────────────────────────────────────────
+
+        fit: function() {
+            var w = this.$viewport.innerWidth() || 320;
+            this.fitScale = Math.min(1.5, w / this.data.layout.canvas.width);
+            this.setScale(this.fitScale);
+        },
+
+        setScale: function(s, cx, cy) {
+            var vp = this.$viewport[0];
+            var before = this.scale;
+            cx = cx === undefined ? vp.clientWidth / 2 : cx;
+            cy = cy === undefined ? vp.clientHeight / 2 : cy;
+            var px = (vp.scrollLeft + cx) / before, py = (vp.scrollTop + cy) / before;
+            this.scale = Math.max(this.fitScale, Math.min(4, s));
+            var lw = this.data.layout.canvas.width, lh = this.data.layout.canvas.height;
+            this.$canvas.css('transform', 'scale(' + this.scale + ')');
+            this.$sizer.css({ width: lw * this.scale + 'px', height: lh * this.scale + 'px' });
+            this.$viewport.css('height', Math.min(lh * this.scale, Math.max(260, window.innerHeight * 0.7)) + 'px');
+            vp.scrollLeft = px * this.scale - cx;
+            vp.scrollTop = py * this.scale - cy;
+            this.$root.toggleClass('is-zoomed', this.scale > this.fitScale + 0.01);
+        },
+
+        zoomToSeat: function(el) {
+            var r = el.getBoundingClientRect();
+            var vr = this.$viewport[0].getBoundingClientRect();
+            var factor = (MIN_TAP + 6) / Math.max(1, r.width);
+            this.setScale(this.scale * factor, r.left + r.width / 2 - vr.left, r.top + r.height / 2 - vr.top);
+        },
+
+        // ── Choosing ───────────────────────────────────────────────────
+
+        countIn: function(sid) {
+            return this.selected.filter(function(s) { return s.section_id === sid; }).length + (this.general[sid] ? this.general[sid].count : 0);
+        },
+
+        total: function() {
+            var n = this.selected.length;
+            var self = this;
+            Object.keys(this.general).forEach(function(sid) { n += self.general[sid].count; });
+            return n;
+        },
+
+        toggleSeat: function(el) {
+            var sid = el.getAttribute('data-s'), key = el.getAttribute('data-k');
+            var sec = this.section(sid);
+            if (sec.locked) {
+                this.notice(this.data.signed_in
+                    ? 'Those seats are reserved for cast and crew families.'
+                    : 'Those seats are reserved for cast and crew families. Please sign in to buy them.', 'info');
                 return;
             }
-            
-            // Rectangle sections with individual seats
-            if (block.type === 'rectangle') {
-                this.renderSeatingSection($canvas, block, scale);
-            }
-            
-            // General admission
-            if (block.type === 'general_admission') {
-                this.renderGASection($canvas, block, scale);
-            }
-        },
-        
-        renderSeatingSection: function($canvas, block, scale) {
-            var self = this;
-            var sectionId = block.id || 'section-' + Math.random().toString(36).substr(2, 9);
-            block.id = sectionId;
-            
-            var $section = $('<div class="seating-section">')
-                .attr('data-section-id', sectionId)
-                .css({
-                    left: (block.x * scale) + 'px',
-                    top: (block.y * scale) + 'px',
-                    width: (block.width * scale) + 'px',
-                    minHeight: (block.height * scale) + 'px',
-                    background: block.color || '#4CAF50',
-                    padding: (10 * scale) + 'px'
-                });
-            
-            // Section header
-            var $header = $('<div class="section-name">')
-                .text(block.name || 'Section')
-                .css('fontSize', (14 * scale) + 'px');
-            $section.append($header);
-            
-            // Price
-            var price = block.price || 0;
-            var $price = $('<div class="section-price">')
-                .text(self.formatPrice(price))
-                .css('fontSize', (12 * scale) + 'px');
-            $section.append($price);
-            
-            // Generate seat rows
-            var rows = block.rows || this.generateRowLetters(block.startRow || 'A', block.rowCount || 2);
-            var seatsPerRow = block.seatsPerRow || 10;
-            
-            var $seatsContainer = $('<div class="seats-container">').css('marginTop', '10px');
-            
-            rows.forEach(function(row) {
-                var $row = $('<div class="seat-row">');
-                
-                // Row label
-                $row.append($('<span class="row-label">').text(row).css('fontSize', (10 * scale) + 'px'));
-                
-                for (var seat = 1; seat <= seatsPerRow; seat++) {
-                    var seatKey = sectionId + '-' + row + '-' + seat;
-                    var status = self.unavailableSeats[seatKey] || 'available';
-                    
-                    var $seat = $('<div class="seat">')
-                        .addClass(status)
-                        .attr('data-section', sectionId)
-                        .attr('data-row', row)
-                        .attr('data-seat', seat)
-                        .attr('data-price', price)
-                        .text(seat)
-                        .css({
-                            width: (20 * scale) + 'px',
-                            height: (20 * scale) + 'px',
-                            fontSize: (8 * scale) + 'px'
-                        });
-                    
-                    if (status === 'available') {
-                        $seat.on('click', function() {
-                            self.toggleSeat($(this));
-                        });
-                    }
-                    
-                    $row.append($seat);
-                }
-                
-                // Row label on right
-                $row.append($('<span class="row-label">').text(row).css('fontSize', (10 * scale) + 'px'));
-                
-                $seatsContainer.append($row);
-            });
-            
-            $section.append($seatsContainer);
-            $canvas.append($section);
-        },
-        
-        renderGASection: function($canvas, block, scale) {
-            var self = this;
-            var sectionId = block.id || 'ga-' + Math.random().toString(36).substr(2, 9);
-            block.id = sectionId;
-            
-            // Count available
-            var capacity = block.capacity || 100;
-            var sold = 0;
-            // Count sold GA tickets for this section
-            for (var key in this.unavailableSeats) {
-                if (key.startsWith(sectionId)) {
-                    sold++;
-                }
-            }
-            var available = Math.max(0, capacity - sold);
-            
-            var $section = $('<div class="seating-section ga-section">')
-                .attr('data-section-id', sectionId)
-                .attr('data-type', 'ga')
-                .attr('data-available', available)
-                .attr('data-price', block.price || 0)
-                .css({
-                    left: (block.x * scale) + 'px',
-                    top: (block.y * scale) + 'px',
-                    width: (block.width * scale) + 'px',
-                    height: (block.height * scale) + 'px',
-                    background: block.color || '#FF9800',
-                    cursor: available > 0 ? 'pointer' : 'not-allowed',
-                    opacity: available > 0 ? 1 : 0.6
-                });
-            
-            var $header = $('<div class="section-name">')
-                .text(block.name || 'General Admission')
-                .css('fontSize', (14 * scale) + 'px');
-            
-            var $price = $('<div class="section-price">')
-                .text(self.formatPrice(block.price || 0))
-                .css('fontSize', (12 * scale) + 'px');
-            
-            var $availability = $('<div class="section-availability">')
-                .text(available + ' available')
-                .css('fontSize', (11 * scale) + 'px');
-            
-            $section.append($header, $price, $availability);
-            
-            if (available > 0) {
-                $section.on('click', function() {
-                    self.showGASelector($(this), block);
-                });
-            }
-            
-            $canvas.append($section);
-        },
-        
-        generateRowLetters: function(startRow, count) {
-            var rows = [];
-            var startCode = startRow.charCodeAt(0);
-            for (var i = 0; i < count; i++) {
-                rows.push(String.fromCharCode(startCode + i));
-            }
-            return rows;
-        },
-        
-        toggleSeat: function($seat) {
-            var seatData = {
-                section_id: $seat.data('section'),
-                row: $seat.data('row'),
-                seat: $seat.data('seat'),
-                price: parseFloat($seat.data('price')) || 0
-            };
-            
-            var seatKey = seatData.section_id + '-' + seatData.row + '-' + seatData.seat;
-            
-            if ($seat.hasClass('selected')) {
-                // Deselect
-                $seat.removeClass('selected').addClass('available');
-                this.selectedSeats = this.selectedSeats.filter(function(s) {
-                    return !(s.section_id === seatData.section_id && s.row === seatData.row && s.seat === seatData.seat);
-                });
+            var i = this.indexOf(sid, key);
+            if (i !== -1) {
+                this.selected.splice(i, 1);
             } else {
-                // Check max tickets
-                if (this.selectedSeats.length >= this.maxTickets) {
-                    alert('Maximum ' + this.maxTickets + ' tickets per order.');
+                if (this.total() >= this.data.max) {
+                    this.notice(this.data.max > 0 ? 'You can choose up to ' + this.data.max + ' tickets for this performance.' : 'You already have the most tickets allowed for this performance in your cart.', 'error');
                     return;
                 }
-                
-                // Select
-                $seat.removeClass('available').addClass('selected');
-                this.selectedSeats.push(seatData);
+                if (this.countIn(sid) >= sec.left) {
+                    this.notice('No more seats are available in ' + this.blocks[sid].name + '.', 'error');
+                    return;
+                }
+                this.selected.push({ section_id: sid, seat_key: key, name: '' });
             }
-            
-            this.updateSummary();
+            this.notice('');
+            this.paintSeat(el);
+            this.renderSummary();
         },
-        
-        showGASelector: function($section, block) {
-            var self = this;
-            var available = parseInt($section.data('available')) || 0;
-            var price = parseFloat($section.data('price')) || 0;
-            var sectionId = $section.data('section-id');
-            
-            // Already selected from this section?
-            var existingCount = this.selectedSeats.filter(function(s) {
-                return s.section_id === sectionId;
-            }).length;
-            
-            var maxCanAdd = Math.min(available - existingCount, this.maxTickets - this.selectedSeats.length);
-            
-            if (maxCanAdd <= 0) {
-                alert('Maximum tickets reached.');
-                return;
+
+        indexOf: function(sid, key) {
+            for (var i = 0; i < this.selected.length; i++) {
+                if (this.selected[i].section_id === sid && this.selected[i].seat_key === key) return i;
             }
-            
-            // Simple prompt for quantity
-            var quantity = prompt('How many tickets? (1-' + maxCanAdd + ')', '1');
-            quantity = parseInt(quantity) || 0;
-            
-            if (quantity < 1 || quantity > maxCanAdd) {
-                if (quantity > 0) alert('Please enter a number between 1 and ' + maxCanAdd);
-                return;
-            }
-            
-            // Add GA tickets
-            for (var i = 0; i < quantity; i++) {
-                this.selectedSeats.push({
-                    section_id: sectionId,
-                    row: '',
-                    seat: 'GA-' + (existingCount + i + 1),
-                    price: price,
-                    is_ga: true
-                });
-            }
-            
-            this.updateSummary();
+            return -1;
         },
-        
-        updateSummary: function() {
-            var self = this;
-            var $list = $('.selected-seats-list');
-            var $total = $('.total-amount');
-            var $submitBtn = $('.ticket-add-to-cart-form button[type="submit"]');
-            var $attendeeNames = $('.attendee-names');
-            var $namesInputs = $('.names-inputs');
-            
-            $list.empty();
-            
-            if (this.selectedSeats.length === 0) {
-                $list.html('<p class="no-seats-selected">' + azureTicketsFrontend.strings.selectSeats + '</p>');
-                $total.text(this.formatPrice(0));
-                $submitBtn.prop('disabled', true);
-                $attendeeNames.hide();
+
+        paintSeat: function(el) {
+            var on = this.indexOf(el.getAttribute('data-s'), el.getAttribute('data-k')) !== -1;
+            el.classList.toggle('is-selected', on);
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        },
+
+        stepGeneral: function(sid, delta) {
+            var sec = this.section(sid);
+            if (!sec || !sec.on_sale) return;
+            if (sec.locked) {
+                this.notice('Those places are reserved for cast and crew families.' + (this.data.signed_in ? '' : ' Please sign in to buy them.'), 'info');
                 return;
             }
-            
+            var g = this.general[sid] || { count: 0, names: [] };
+            var next = g.count + delta;
+            if (delta > 0 && this.total() >= this.data.max) {
+                this.notice('You can choose up to ' + this.data.max + ' tickets for this performance.', 'error');
+                return;
+            }
+            if (delta > 0 && this.countIn(sid) >= sec.left) {
+                this.notice('No more places are available in ' + this.blocks[sid].name + '.', 'error');
+                return;
+            }
+            g.count = Math.max(0, next);
+            if (g.count) this.general[sid] = g; else delete this.general[sid];
+            this.notice('');
+            this.renderGeneral();
+            this.renderSummary();
+        },
+
+        renderGeneral: function() {
+            var self = this;
+            var rows = [];
+            Object.keys(this.data.sections).forEach(function(sid) {
+                var b = self.blocks[sid], sec = self.data.sections[sid];
+                if (b.type !== 'general_admission' || !sec.on_sale) return;
+                var n = self.general[sid] ? self.general[sid].count : 0;
+                rows.push('<div class="pta-ga" data-ga-row="' + esc(sid) + '"><span class="pta-ga__name"><strong>' + esc(b.name) + '</strong> ' + money(sec.price) +
+                    ' <small>' + (sec.locked ? '🔒 cast &amp; crew families' : (sec.left > 0 ? sec.left + ' left' : 'Sold out')) + '</small></span>' +
+                    '<span class="pta-ga__step"><button type="button" data-step="-1" data-sid="' + esc(sid) + '" aria-label="One fewer"' + (n ? '' : ' disabled') + '>−</button>' +
+                    '<output aria-live="polite">' + n + '</output>' +
+                    '<button type="button" data-step="1" data-sid="' + esc(sid) + '" aria-label="One more"' + (sec.left > 0 && !sec.locked ? '' : ' disabled') + '>+</button></span></div>');
+            });
+            this.$root.find('.pta-seatmap__general').html(rows.length ? '<h3>General admission</h3>' + rows.join('') : '');
+        },
+
+        renderSummary: function() {
+            var self = this;
+            var items = [];
+            var accessible = false;
             var total = 0;
-            
-            this.selectedSeats.forEach(function(seat, index) {
-                var seatLabel = seat.is_ga ? 'General Admission' : 'Row ' + seat.row + ', Seat ' + seat.seat;
-                var sectionName = self.getSectionName(seat.section_id);
-                
-                var $item = $('<div class="selected-seat-item">' +
-                    '<div class="seat-info">' +
-                        '<span class="seat-label">' + seatLabel + '</span>' +
-                        '<span class="section-label">' + sectionName + '</span>' +
-                    '</div>' +
-                    '<span class="seat-price">' + self.formatPrice(seat.price) + '</span>' +
-                    '<button type="button" class="remove-seat" data-index="' + index + '">&times;</button>' +
-                    '</div>');
-                
-                $list.append($item);
-                total += seat.price;
+            this.selected.forEach(function(s, i) {
+                var b = self.blocks[s.section_id], sec = self.section(s.section_id);
+                var parts = s.seat_key.split('-');
+                var isAcc = (b.seatTypes || {})[s.seat_key] === 'accessible';
+                accessible = accessible || isAcc;
+                total += sec.price;
+                items.push(self.itemHtml('seat', i, b.name + ' · Row ' + parts[0] + ', Seat ' + parts[1] + (isAcc ? ' ♿' : ''), sec.price, s.name));
             });
-            
-            // Bind remove buttons
-            $list.find('.remove-seat').on('click', function() {
-                var index = parseInt($(this).data('index'));
-                var seat = self.selectedSeats[index];
-                
-                // Update visual
-                if (!seat.is_ga) {
-                    var $seat = $('.seat[data-section="' + seat.section_id + '"][data-row="' + seat.row + '"][data-seat="' + seat.seat + '"]');
-                    $seat.removeClass('selected').addClass('available');
+            Object.keys(this.general).forEach(function(sid) {
+                var g = self.general[sid], b = self.blocks[sid], sec = self.section(sid);
+                for (var j = 0; j < g.count; j++) {
+                    total += sec.price;
+                    items.push(self.itemHtml('ga', sid + ':' + j, b.name, sec.price, g.names[j] || ''));
                 }
-                
-                self.selectedSeats.splice(index, 1);
-                self.updateSummary();
             });
-            
-            $total.text(this.formatPrice(total));
-            $submitBtn.prop('disabled', false);
-            
-            // Attendee names
-            if (this.requireNames) {
-                $namesInputs.empty();
-                this.selectedSeats.forEach(function(seat, index) {
-                    var label = seat.is_ga ? 'GA Ticket ' + (index + 1) : seat.row + seat.seat;
-                    var $group = $('<div class="name-input-group">' +
-                        '<label>' + label + '</label>' +
-                        '<input type="text" name="attendee_names[' + index + ']" placeholder="Attendee name" required>' +
-                        '</div>');
-                    $namesInputs.append($group);
-                });
-                $attendeeNames.show();
+
+            var html = [];
+            if (!items.length) {
+                html.push('<p class="pta-summary__empty">Tap a seat on the map to choose it.</p>');
+            } else {
+                html.push('<h3>Your tickets</h3><ul class="pta-summary__list">' + items.join('') + '</ul>');
+                if (accessible && !this.data.release_accessible) {
+                    html.push('<label class="pta-summary__confirm"><input type="checkbox" class="pta-accessible-ok"> Someone in my party needs a wheelchair space.</label>');
+                }
+                html.push('<p class="pta-summary__total">Total <strong>' + money(total) + '</strong></p>');
+                html.push('<button type="button" class="button alt pta-summary__add">Add ' + items.length + (items.length === 1 ? ' ticket' : ' tickets') + ' to cart</button>');
             }
-            
-            // Update hidden field
-            $('input[name="selected_seats"]').val(JSON.stringify(this.selectedSeats));
+            this.$root.find('.pta-seatmap__summary').html(html.join(''));
         },
-        
-        getSectionName: function(sectionId) {
-            if (!this.layout || !this.layout.blocks) return sectionId;
-            
-            var block = this.layout.blocks.find(function(b) {
-                return b.id === sectionId;
-            });
-            
-            return block ? (block.name || sectionId) : sectionId;
+
+        itemHtml: function(kind, ref, label, price, name) {
+            return '<li class="pta-summary__item"><span class="pta-summary__label">' + esc(label) + '</span><span class="pta-summary__price">' + money(price) + '</span>' +
+                '<input type="text" class="pta-summary__name" maxlength="80" data-kind="' + kind + '" data-ref="' + esc(ref) + '" value="' + esc(name) + '"' +
+                ' placeholder="' + (this.requireNames ? 'Name on ticket' : 'Name on ticket (optional)') + '"' + (this.requireNames ? ' required' : '') +
+                ' aria-label="Name on ticket for ' + esc(label) + '">' +
+                (kind === 'seat' ? '<button type="button" class="pta-summary__remove" data-ref="' + esc(ref) + '" aria-label="Remove ' + esc(label) + '">×</button>' : '') +
+                '</li>';
         },
-        
-        formatPrice: function(amount) {
-            return this.currencySymbol + parseFloat(amount).toFixed(2);
+
+        notice: function(msg, kind) {
+            this.$root.find('.pta-seatmap__notice').attr('data-kind', kind || '').html(msg);
         },
-        
-        showError: function(message) {
-            $('.loading-seats').html('<p style="color: #d63638;">' + message + '</p>');
-        },
-        
-        bindEvents: function() {
+
+        submit: function($btn) {
             var self = this;
-            
-            // Form submission
-            $('.ticket-add-to-cart-form').on('submit', function(e) {
-                e.preventDefault();
-                
-                if (self.selectedSeats.length === 0) {
-                    alert(azureTicketsFrontend.strings.selectSeats);
+            var general = Object.keys(this.general).map(function(sid) {
+                return { section_id: sid, count: self.general[sid].count, names: self.general[sid].names };
+            });
+            var $acc = this.$root.find('.pta-accessible-ok');
+            if ($acc.length && !$acc.is(':checked')) {
+                this.notice('Please confirm that someone in your party needs a wheelchair space, or choose a different seat.', 'error');
+                $acc.trigger('focus');
+                return;
+            }
+            if (this.requireNames && this.$root.find('.pta-summary__name').filter(function() { return !$.trim(this.value); }).length) {
+                this.notice('Please enter a name for each ticket.', 'error');
+                return;
+            }
+            $btn.prop('disabled', true).text('Holding your seats…');
+            $.post(cfg.ajaxUrl, {
+                action: 'azure_tickets_add_to_cart',
+                product_id: this.productId,
+                seats: JSON.stringify(this.selected),
+                general: JSON.stringify(general),
+                accessible_ok: $acc.is(':checked') ? 1 : 0
+            }).done(function(res) {
+                if (res && res.success) {
+                    window.location.href = res.data.cart_url || cfg.cartUrl;
                     return;
                 }
-                
-                var $btn = $(this).find('button[type="submit"]');
-                var originalText = $btn.text();
-                $btn.prop('disabled', true).text('Adding...');
-                
-                // Collect attendee names
-                var attendeeNames = [];
-                $(this).find('input[name^="attendee_names"]').each(function() {
-                    attendeeNames.push($(this).val());
-                });
-                
-                $.ajax({
-                    url: azureTicketsFrontend.ajaxUrl,
-                    type: 'POST',
-                    data: {
-                        action: 'azure_tickets_add_to_cart',
-                        product_id: self.productId,
-                        selected_seats: JSON.stringify(self.selectedSeats),
-                        attendee_names: attendeeNames,
-                        nonce: azureTicketsFrontend.nonce
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            window.location.href = response.data.cart_url;
-                        } else {
-                            alert(response.data ? response.data.message : 'Error adding to cart');
-                            $btn.prop('disabled', false).text(originalText);
-                        }
-                    },
-                    error: function() {
-                        alert('Network error. Please try again.');
-                        $btn.prop('disabled', false).text(originalText);
-                    }
-                });
+                var d = (res && res.data) || {};
+                var msg = esc(d.message || 'Those tickets could not be added. Please try again.');
+                if (d.login) msg += ' <a href="' + esc(cfg.loginUrl) + '">Sign in</a>';
+                if (d.reload) {
+                    self.load(msg);
+                    return;
+                }
+                self.notice(msg, 'error');
+                self.renderSummary();
+            }).fail(function() {
+                self.notice('Something went wrong. Please try again.', 'error');
+                self.renderSummary();
+            });
+        },
+
+        bind: function() {
+            var self = this;
+            this.$root.off('.pta');
+            this.$root.on('click.pta', '.pta-seat:not(.is-demo)', function() {
+                if (this.disabled) return;
+                if (this.getBoundingClientRect().width < MIN_TAP && self.scale < 4) {
+                    self.zoomToSeat(this);
+                    return;
+                }
+                self.toggleSeat(this);
+            });
+            this.$root.on('click.pta', '[data-ga]', function() {
+                var $row = self.$root.find('[data-ga-row="' + $(this).attr('data-ga') + '"]');
+                if ($row.length) {
+                    $row[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    $row.addClass('is-flash');
+                    setTimeout(function() { $row.removeClass('is-flash'); }, 900);
+                }
+                if (self.section($(this).attr('data-ga')).locked) self.stepGeneral($(this).attr('data-ga'), 1);
+            });
+            this.$root.on('click.pta', '[data-step]', function() {
+                self.stepGeneral($(this).attr('data-sid'), parseInt($(this).attr('data-step'), 10));
+            });
+            this.$root.on('click.pta', '.pta-seatmap__zoom', function() {
+                var z = $(this).data('zoom');
+                if (z === 'fit') self.setScale(self.fitScale);
+                else self.setScale(self.scale * (z === 'in' ? 1.5 : 1 / 1.5));
+            });
+            this.$root.on('input.pta', '.pta-summary__name', function() {
+                var ref = String($(this).data('ref'));
+                if ($(this).data('kind') === 'seat') {
+                    self.selected[parseInt(ref, 10)].name = this.value;
+                } else {
+                    var p = ref.split(':');
+                    self.general[p[0]].names[parseInt(p[1], 10)] = this.value;
+                }
+            });
+            this.$root.on('click.pta', '.pta-summary__remove', function() {
+                var s = self.selected[parseInt($(this).data('ref'), 10)];
+                self.selected.splice(parseInt($(this).data('ref'), 10), 1);
+                var el = self.$root.find('.pta-seat[data-s="' + s.section_id + '"][data-k="' + s.seat_key + '"]')[0];
+                if (el) self.paintSeat(el);
+                self.renderSummary();
+            });
+            this.$root.on('click.pta', '.pta-summary__add', function() { self.submit($(this)); });
+
+            var resizeTimer;
+            $(window).off('resize.pta' + this.productId).on('resize.pta' + this.productId, function() {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(function() {
+                    var wasFit = self.scale <= self.fitScale + 0.01;
+                    var w = self.$viewport.innerWidth() || 320;
+                    self.fitScale = Math.min(1.5, w / self.data.layout.canvas.width);
+                    self.setScale(wasFit ? self.fitScale : self.scale);
+                }, 150);
             });
         }
     };
-    
-    // Initialize on page load
-    $(document).ready(function() {
-        SeatSelector.init();
-    });
-    
-})(jQuery);
 
+    $(function() {
+        $('.pta-seatmap').each(function() { new SeatMap($(this)); });
+    });
+
+})(jQuery);

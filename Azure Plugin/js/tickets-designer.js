@@ -1,731 +1,556 @@
 /**
- * Tickets Module - Venue/Seating Designer
+ * Tickets Module - venue seating designer.
+ *
+ * Every block keeps the `id` it was saved with: holds, sales and tickets
+ * refer to sections by id, so a section must never be re-numbered. New
+ * blocks get a random id once, when they are created.
  */
 (function($) {
     'use strict';
-    
-    var VenueDesigner = {
-        canvas: null,
+
+    var GRID = 10;
+    var SEAT = 16;
+    var SELLABLE = ['rectangle', 'general_admission'];
+
+    var DEFAULTS = {
+        rectangle: { name: 'Section', price: 10, startRow: 'A', rowCount: 4, seatsPerRow: 10, color: '#4caf50', seatTypes: {} },
+        general_admission: { name: 'General Admission', price: 10, capacity: 50, color: '#ff9800', width: 200, height: 100 },
+        area: { label: 'Gym mat – kids floor seating', color: '#d9cdea', width: 260, height: 110 },
+        stage: { label: 'STAGE', color: '#333333', width: 400, height: 60 },
+        label: { text: 'Label', fontSize: 14, color: '#333333', width: 120, height: 30 },
+        aisle: { orientation: 'horizontal', color: '#e0e0e0', width: 200, height: 20 }
+    };
+
+    function newId() {
+        return 'sec-' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+    }
+
+    function snap(v) {
+        return Math.round(v / GRID) * GRID;
+    }
+
+    function clamp(v, lo, hi) {
+        v = parseInt(v, 10);
+        return isNaN(v) ? lo : Math.max(lo, Math.min(hi, v));
+    }
+
+    function esc(s) {
+        return $('<div>').text(s == null ? '' : String(s)).html();
+    }
+
+    function rowLabels(b) {
+        var start = (b.startRow || 'A').charCodeAt(0), rows = [];
+        for (var i = 0; i < b.rowCount; i++) {
+            rows.push(String.fromCharCode(start + i));
+        }
+        return rows;
+    }
+
+    function seatCounts(b) {
+        var total = 0, accessible = 0;
+        rowLabels(b).forEach(function(r) {
+            for (var n = 1; n <= b.seatsPerRow; n++) {
+                var t = b.seatTypes[r + '-' + n];
+                if (t !== 'none') {
+                    total++;
+                    if (t === 'accessible') accessible++;
+                }
+            }
+        });
+        return { total: total, accessible: accessible };
+    }
+
+    function fitRectangle(b) {
+        b.width = Math.max(80, snap(b.seatsPerRow * SEAT + 30));
+        b.height = Math.max(50, snap(b.rowCount * SEAT + 34));
+    }
+
+    var Designer = {
+        $canvas: null,
+        $sizer: null,
         blocks: [],
-        selectedBlock: null,
-        blockIdCounter: 0,
+        selectedId: null,
         zoom: 1,
-        isDragging: false,
-        isResizing: false,
-        dragOffset: { x: 0, y: 0 },
-        
+        tool: 'move',
+        dirty: false,
+        gesture: null,
+
         init: function() {
-            console.log('[VenueDesigner] Initializing...');
-            this.canvas = $('#venue-canvas');
-            
-            if (!this.canvas.length) {
-                console.log('[VenueDesigner] Canvas not found, exiting');
+            this.$canvas = $('#venue-canvas');
+            if (!this.$canvas.length) return;
+            this.$canvas.wrap('<div class="designer-canvas-sizer"></div>');
+            this.$sizer = this.$canvas.parent();
+
+            var layout = this.$canvas.data('layout');
+            if (typeof layout === 'string') {
+                try { layout = JSON.parse(layout); } catch (e) { layout = null; }
+            }
+            layout = layout || { canvas: { width: 800, height: 600 }, blocks: [] };
+            this.load(layout);
+            this.bind();
+            this.dirty = false;
+        },
+
+        load: function(layout) {
+            var self = this;
+            this.$canvas.empty();
+            this.blocks = [];
+            this.selectedId = null;
+            $('#canvas-width').val(layout.canvas.width);
+            $('#canvas-height').val(layout.canvas.height);
+            this.setCanvasSize(layout.canvas.width, layout.canvas.height);
+            (layout.blocks || []).forEach(function(b) {
+                self.blocks.push(self.normalise(b));
+            });
+            this.blocks.forEach(function(b) { self.render(b); });
+            this.showSettings();
+            this.updateCapacity();
+        },
+
+        normalise: function(b) {
+            var d = DEFAULTS[b.type] || DEFAULTS.label;
+            b = $.extend(true, {}, d, b);
+            if (!b.id) b.id = newId();
+            if (b.type === 'rectangle') {
+                b.rowCount = clamp(b.rowCount, 1, 26 - (b.startRow.charCodeAt(0) - 65));
+                b.seatsPerRow = clamp(b.seatsPerRow, 1, 100);
+                if (Array.isArray(b.seatTypes)) b.seatTypes = {};
+                if (!b.width || !b.height) fitRectangle(b);
+            }
+            return b;
+        },
+
+        // ── Rendering ──────────────────────────────────────────────────
+
+        render: function(b) {
+            var $el = $('#vb-' + b.id);
+            if (!$el.length) {
+                $el = $('<div>').attr({ id: 'vb-' + b.id, 'data-id': b.id }).appendTo(this.$canvas);
+            }
+            var classes = 'venue-block type-' + b.type + (b.id === this.selectedId ? ' selected' : '') +
+                (b.id === this.selectedId && this.tool !== 'move' ? ' is-painting' : '');
+            $el.attr('class', classes).css({
+                left: b.x + 'px',
+                top: b.y + 'px',
+                width: b.width + 'px',
+                height: b.height + 'px',
+                backgroundColor: (b.type === 'label') ? 'transparent' : b.color,
+                color: b.type === 'label' ? b.color : '',
+                fontSize: b.type === 'label' ? b.fontSize + 'px' : ''
+            });
+
+            var html = '';
+            switch (b.type) {
+                case 'rectangle':
+                    var counts = seatCounts(b);
+                    html = '<div class="block-head">' + esc(b.name) + ' <span class="block-seats">' + counts.total + ' seats' +
+                        (counts.accessible ? ' · ' + counts.accessible + ' ♿' : '') + '</span></div>' + this.gridHtml(b);
+                    break;
+                case 'general_admission':
+                    html = '<div class="block-label">' + esc(b.name) + '<div class="block-seats">' + b.capacity + ' places, unnumbered</div></div>';
+                    break;
+                case 'area':
+                    html = '<div class="block-label">' + esc(b.label) + '<div class="block-seats">Not sold</div></div>';
+                    break;
+                case 'stage':
+                    html = '<div class="block-label">' + esc(b.label) + '</div>';
+                    break;
+                case 'label':
+                    html = '<div class="block-label">' + esc(b.text) + '</div>';
+                    break;
+            }
+            $el.html(html + '<div class="resize-handle se" title="Resize"></div>');
+        },
+
+        gridHtml: function(b) {
+            var parts = ['<div class="seat-grid" style="grid-template-columns: auto repeat(' + b.seatsPerRow + ', minmax(0, 1fr))">'];
+            rowLabels(b).forEach(function(r) {
+                parts.push('<span class="row-label">' + r + '</span>');
+                for (var n = 1; n <= b.seatsPerRow; n++) {
+                    var key = r + '-' + n, t = b.seatTypes[key];
+                    parts.push('<span class="seat-cell' + (t ? ' is-' + t : '') + '" data-key="' + key + '" title="Row ' + r + ', Seat ' + n + '"></span>');
+                }
+            });
+            parts.push('</div>');
+            return parts.join('');
+        },
+
+        setCanvasSize: function(w, h) {
+            this.canvasW = clamp(w, 300, 3000);
+            this.canvasH = clamp(h, 200, 3000);
+            this.$canvas.css({ width: this.canvasW + 'px', height: this.canvasH + 'px', minWidth: 0, minHeight: 0 });
+            this.applyZoom();
+        },
+
+        setZoom: function(z) {
+            this.zoom = Math.max(0.3, Math.min(3, Math.round(z * 10) / 10));
+            this.applyZoom();
+            $('#zoom-level').text(Math.round(this.zoom * 100) + '%');
+        },
+
+        applyZoom: function() {
+            this.$canvas.css({ transform: 'scale(' + this.zoom + ')', transformOrigin: '0 0' });
+            this.$sizer.css({ width: this.canvasW * this.zoom + 'px', height: this.canvasH * this.zoom + 'px' });
+        },
+
+        updateCapacity: function() {
+            var total = 0;
+            this.blocks.forEach(function(b) {
+                if (b.type === 'rectangle') total += seatCounts(b).total;
+                if (b.type === 'general_admission') total += b.capacity;
+            });
+            $('#total-capacity').text(total);
+        },
+
+        // ── Selection and settings ─────────────────────────────────────
+
+        get: function(id) {
+            for (var i = 0; i < this.blocks.length; i++) {
+                if (this.blocks[i].id === id) return this.blocks[i];
+            }
+            return null;
+        },
+
+        select: function(id) {
+            var prev = this.selectedId;
+            this.selectedId = id;
+            if (prev !== id) this.tool = 'move';
+            if (prev && prev !== id && this.get(prev)) this.render(this.get(prev));
+            if (id) this.render(this.get(id));
+            this.showSettings();
+        },
+
+        showSettings: function() {
+            var $panel = $('#block-settings-panel');
+            var b = this.selectedId ? this.get(this.selectedId) : null;
+            if (!b) {
+                $panel.html('<p class="no-selection">Select a block to edit it, or add one from the left.</p>');
                 return;
             }
-            
-            console.log('[VenueDesigner] Canvas found:', this.canvas.attr('id'));
-            
-            this.loadLayout();
-            this.bindEvents();
-            this.updateCapacity();
-            
-            console.log('[VenueDesigner] Initialization complete');
+            var $tpl = $('#' + b.type + '-settings');
+            $panel.html($tpl.length ? $tpl.html() : '');
+            $panel.find('.block-setting').each(function() {
+                var key = $(this).data('setting');
+                if (b[key] !== undefined) $(this).val(b[key]);
+            });
+            this.refreshSeatTools();
         },
-        
-        loadLayout: function() {
-            var layoutData = this.canvas.data('layout');
-            
-            if (typeof layoutData === 'string') {
-                try {
-                    layoutData = JSON.parse(layoutData);
-                } catch (e) {
-                    layoutData = { canvas: { width: 800, height: 600 }, blocks: [] };
-                }
-            }
-            
-            // Set canvas size
-            if (layoutData.canvas) {
-                this.canvas.css({
-                    width: layoutData.canvas.width + 'px',
-                    height: layoutData.canvas.height + 'px'
-                });
-                $('#canvas-width').val(layoutData.canvas.width);
-                $('#canvas-height').val(layoutData.canvas.height);
-            }
-            
-            // Load blocks
-            if (layoutData.blocks && layoutData.blocks.length) {
-                layoutData.blocks.forEach(function(block) {
-                    VenueDesigner.addBlock(block, false);
-                });
+
+        refreshSeatTools: function() {
+            var b = this.selectedId ? this.get(this.selectedId) : null;
+            var $panel = $('#block-settings-panel');
+            $panel.find('.seat-tool').each(function() {
+                $(this).toggleClass('button-primary', $(this).data('tool') === Designer.tool);
+            });
+            if (b && b.type === 'rectangle') {
+                var c = seatCounts(b);
+                $panel.find('.seat-summary').text(c.total + ' seats, ' + c.accessible + ' accessible');
             }
         },
-        
-        bindEvents: function() {
-            var self = this;
-            
-            console.log('[VenueDesigner] Binding events, canvas found:', this.canvas.length > 0);
-            console.log('[VenueDesigner] Block items found:', $('.block-item').length);
-            
-            // Click to add block (primary method - always works)
-            $('.block-item').on('click', function(e) {
-                e.preventDefault();
-                var blockType = $(this).data('type');
-                console.log('[VenueDesigner] Click to add:', blockType);
-                
-                // Add block at center of canvas
-                var canvasWidth = parseInt($('#canvas-width').val()) || 800;
-                var canvasHeight = parseInt($('#canvas-height').val()) || 600;
-                
-                self.addBlock({
-                    type: blockType,
-                    x: Math.round((canvasWidth / 2 - 100) / 20) * 20,
-                    y: Math.round((canvasHeight / 2 - 40) / 20) * 20
-                }, true);
-            });
-            
-            // Store the block type being dragged
-            var draggedBlockType = null;
-            
-            // Drag from palette - use native events for reliability
-            document.querySelectorAll('.block-item').forEach(function(item) {
-                item.addEventListener('dragstart', function(e) {
-                    draggedBlockType = this.getAttribute('data-type');
-                    console.log('[VenueDesigner] Drag started:', draggedBlockType);
-                    e.dataTransfer.setData('text/plain', draggedBlockType);
-                    e.dataTransfer.effectAllowed = 'copyMove';
-                    this.classList.add('dragging');
-                });
-                
-                item.addEventListener('dragend', function(e) {
-                    console.log('[VenueDesigner] Drag ended');
-                    this.classList.remove('dragging');
-                    self.canvas.removeClass('drag-over');
-                    draggedBlockType = null;
-                });
-            });
-            
-            // Drop on canvas - use native events
-            var canvasEl = document.getElementById('venue-canvas');
-            var containerEl = document.querySelector('.designer-canvas-container');
-            
-            if (canvasEl && containerEl) {
-                // Dragover on container - MUST prevent default to allow drop
-                containerEl.addEventListener('dragover', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.dataTransfer.dropEffect = 'copy';
-                    self.canvas.addClass('drag-over');
-                }, false);
-                
-                containerEl.addEventListener('dragenter', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    self.canvas.addClass('drag-over');
-                }, false);
-                
-                containerEl.addEventListener('dragleave', function(e) {
-                    e.preventDefault();
-                    // Only remove if leaving container entirely
-                    if (!containerEl.contains(e.relatedTarget)) {
-                        self.canvas.removeClass('drag-over');
-                    }
-                }, false);
-                
-                containerEl.addEventListener('drop', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    self.canvas.removeClass('drag-over');
-                    
-                    var blockType = e.dataTransfer.getData('text/plain') || draggedBlockType;
-                    console.log('[VenueDesigner] Drop received, blockType:', blockType);
-                    
-                    if (!blockType) {
-                        console.log('[VenueDesigner] No block type in drop data');
-                        return;
-                    }
-                    
-                    var canvasRect = canvasEl.getBoundingClientRect();
-                    var x = (e.clientX - canvasRect.left) / self.zoom;
-                    var y = (e.clientY - canvasRect.top) / self.zoom;
-                    
-                    // Snap to grid (20px)
-                    x = Math.round(x / 20) * 20;
-                    y = Math.round(y / 20) * 20;
-                    
-                    // Ensure block is within canvas bounds
-                    var canvasWidth = parseInt($('#canvas-width').val()) || 800;
-                    var canvasHeight = parseInt($('#canvas-height').val()) || 600;
-                    x = Math.max(0, Math.min(x - 75, canvasWidth - 150));
-                    y = Math.max(0, Math.min(y - 30, canvasHeight - 60));
-                    
-                    console.log('[VenueDesigner] Adding block at:', x, y);
-                    
-                    self.addBlock({
-                        type: blockType,
-                        x: x,
-                        y: y
-                    }, true);
-                }, false);
-                
-                console.log('[VenueDesigner] Native drop events bound to container');
-            } else {
-                console.error('[VenueDesigner] Canvas or container not found!');
-            }
-            
-            // Select block
-            this.canvas.on('click', '.venue-block', function(e) {
-                e.stopPropagation();
-                self.selectBlock($(this).data('blockId'));
-            });
-            
-            // Deselect on canvas click
-            this.canvas.on('click', function(e) {
-                if (e.target === this) {
-                    self.deselectBlock();
-                }
-            });
-            
-            // Drag block
-            this.canvas.on('mousedown', '.venue-block', function(e) {
-                if ($(e.target).hasClass('resize-handle')) return;
-                
-                self.isDragging = true;
-                self.selectedBlock = $(this).data('blockId');
-                
-                var block = self.getBlock(self.selectedBlock);
-                self.dragOffset = {
-                    x: e.pageX - (self.canvas.offset().left + block.x * self.zoom),
-                    y: e.pageY - (self.canvas.offset().top + block.y * self.zoom)
-                };
-                
-                $(this).css('cursor', 'grabbing');
-            });
-            
-            $(document).on('mousemove', function(e) {
-                if (!self.isDragging || !self.selectedBlock) return;
-                
-                var canvasOffset = self.canvas.offset();
-                var x = (e.pageX - canvasOffset.left - self.dragOffset.x) / self.zoom;
-                var y = (e.pageY - canvasOffset.top - self.dragOffset.y) / self.zoom;
-                
-                // Snap to grid
-                x = Math.round(x / 20) * 20;
-                y = Math.round(y / 20) * 20;
-                
-                // Constrain to canvas
-                x = Math.max(0, Math.min(x, self.canvas.width() - 50));
-                y = Math.max(0, Math.min(y, self.canvas.height() - 30));
-                
-                self.updateBlockPosition(self.selectedBlock, x, y);
-            });
-            
-            $(document).on('mouseup', function() {
-                if (self.isDragging) {
-                    self.isDragging = false;
-                    $('.venue-block').css('cursor', 'move');
-                }
-            });
-            
-            // Resize handle
-            this.canvas.on('mousedown', '.resize-handle', function(e) {
-                e.stopPropagation();
-                self.isResizing = true;
-                self.selectedBlock = $(this).closest('.venue-block').data('blockId');
-                self.selectBlock(self.selectedBlock);
-            });
-            
-            $(document).on('mousemove', function(e) {
-                if (!self.isResizing || !self.selectedBlock) return;
-                
-                var block = self.getBlock(self.selectedBlock);
-                var $block = $('#block-' + self.selectedBlock);
-                var canvasOffset = self.canvas.offset();
-                
-                var newWidth = (e.pageX - canvasOffset.left) / self.zoom - block.x;
-                var newHeight = (e.pageY - canvasOffset.top) / self.zoom - block.y;
-                
-                // Snap to grid
-                newWidth = Math.round(newWidth / 20) * 20;
-                newHeight = Math.round(newHeight / 20) * 20;
-                
-                // Minimum size
-                newWidth = Math.max(60, newWidth);
-                newHeight = Math.max(40, newHeight);
-                
-                block.width = newWidth;
-                block.height = newHeight;
-                
-                $block.css({
-                    width: newWidth + 'px',
-                    height: newHeight + 'px'
-                });
-            });
-            
-            $(document).on('mouseup', function() {
-                self.isResizing = false;
-            });
-            
-            // Settings changes
-            $(document).on('input change', '.block-setting', function() {
-                if (!self.selectedBlock) return;
-                
-                var setting = $(this).data('setting');
-                var value = $(this).val();
-                
-                // Handle special cases
-                if ($(this).attr('type') === 'number') {
-                    value = parseFloat(value) || 0;
-                }
-                
-                self.updateBlockSetting(self.selectedBlock, setting, value);
-            });
-            
-            // Delete block
-            $(document).on('click', '.delete-block', function() {
-                if (self.selectedBlock) {
-                    self.deleteBlock(self.selectedBlock);
-                }
-            });
-            
-            // Canvas size
-            $('#canvas-width, #canvas-height').on('change', function() {
-                self.canvas.css({
-                    width: $('#canvas-width').val() + 'px',
-                    height: $('#canvas-height').val() + 'px'
-                });
-            });
-            
-            // Zoom controls
-            $('#zoom-in').on('click', function() {
-                self.setZoom(self.zoom + 0.1);
-            });
-            
-            $('#zoom-out').on('click', function() {
-                self.setZoom(self.zoom - 0.1);
-            });
-            
-            $('#zoom-reset').on('click', function() {
-                self.setZoom(1);
-            });
-            
-            // Save venue
-            $('#save-venue').on('click', function() {
-                self.saveVenue();
-            });
-            
-            // Keyboard shortcuts
-            $(document).on('keydown', function(e) {
-                if (!self.selectedBlock) return;
-                
-                // Delete key
-                if (e.key === 'Delete' || e.key === 'Backspace') {
-                    // Don't delete if typing in input
-                    if ($(e.target).is('input, textarea, select')) return;
-                    
-                    e.preventDefault();
-                    self.deleteBlock(self.selectedBlock);
-                }
-                
-                // Arrow keys for nudging
-                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-                    if ($(e.target).is('input, textarea')) return;
-                    
-                    e.preventDefault();
-                    var block = self.getBlock(self.selectedBlock);
-                    var step = e.shiftKey ? 20 : 5;
-                    
-                    switch (e.key) {
-                        case 'ArrowUp': block.y -= step; break;
-                        case 'ArrowDown': block.y += step; break;
-                        case 'ArrowLeft': block.x -= step; break;
-                        case 'ArrowRight': block.x += step; break;
-                    }
-                    
-                    self.updateBlockPosition(self.selectedBlock, block.x, block.y);
-                }
-            });
-        },
-        
-        addBlock: function(data, select) {
-            var id = 'block-' + (++this.blockIdCounter);
-            
-            var defaults = this.getBlockDefaults(data.type);
-            var block = $.extend({}, defaults, data, { id: id });
-            
-            this.blocks.push(block);
-            this.renderBlock(block);
-            
-            if (select) {
-                this.selectBlock(id);
-            }
-            
-            this.updateCapacity();
-        },
-        
-        getBlockDefaults: function(type) {
-            switch (type) {
-                case 'rectangle':
-                    return {
-                        type: 'rectangle',
-                        name: 'Section',
-                        price: 25,
-                        rowCount: 2,
-                        seatsPerRow: 10,
-                        startRow: 'A',
-                        selectionMode: 'exact',
-                        color: '#4CAF50',
-                        width: 200,
-                        height: 80
-                    };
-                case 'general_admission':
-                    return {
-                        type: 'general_admission',
-                        name: 'General Admission',
-                        price: 15,
-                        capacity: 100,
-                        color: '#FF9800',
-                        width: 200,
-                        height: 100
-                    };
-                case 'stage':
-                    return {
-                        type: 'stage',
-                        label: 'STAGE',
-                        color: '#333333',
-                        width: 400,
-                        height: 60
-                    };
-                case 'label':
-                    return {
-                        type: 'label',
-                        text: 'Label',
-                        fontSize: 14,
-                        color: '#333333',
-                        width: 100,
-                        height: 30
-                    };
-                case 'aisle':
-                    return {
-                        type: 'aisle',
-                        orientation: 'horizontal',
-                        width: 200,
-                        height: 20
-                    };
-                default:
-                    return {
-                        width: 100,
-                        height: 50
-                    };
-            }
-        },
-        
-        renderBlock: function(block) {
-            var $block = $('<div>')
-                .attr('id', block.id)
-                .addClass('venue-block type-' + block.type)
-                .data('blockId', block.id)
-                .css({
-                    left: block.x + 'px',
-                    top: block.y + 'px',
-                    width: block.width + 'px',
-                    height: block.height + 'px',
-                    backgroundColor: block.color || '#666'
-                });
-            
-            // Block content
-            var label = '';
-            switch (block.type) {
-                case 'rectangle':
-                    var totalSeats = (block.rowCount || 2) * (block.seatsPerRow || 10);
-                    label = '<div class="block-label">' + (block.name || 'Section') + 
-                            '<div class="block-seats">' + totalSeats + ' seats</div></div>';
+
+        change: function(key, raw) {
+            var b = this.get(this.selectedId);
+            if (!b) return;
+            var v = raw;
+            switch (key) {
+                case 'price':
+                    v = Math.max(0, Math.round((parseFloat(raw) || 0) * 100) / 100);
                     break;
-                case 'general_admission':
-                    label = '<div class="block-label">' + (block.name || 'GA') + 
-                            '<div class="block-seats">' + (block.capacity || 0) + ' capacity</div></div>';
+                case 'capacity':
+                    v = clamp(raw, 1, 10000);
                     break;
-                case 'stage':
-                    label = '<div class="block-label">' + (block.label || 'STAGE') + '</div>';
-                    break;
-                case 'label':
-                    $block.css({
-                        fontSize: (block.fontSize || 14) + 'px',
-                        color: block.color || '#333'
-                    });
-                    label = '<div class="block-label">' + (block.text || 'Label') + '</div>';
-                    break;
-                case 'aisle':
-                    label = '';
-                    if (block.orientation === 'vertical') {
-                        $block.css({
-                            width: '20px',
-                            height: block.height + 'px'
-                        });
-                    }
-                    break;
-            }
-            
-            $block.html(label);
-            
-            // Add resize handle
-            $block.append('<div class="resize-handle se"></div>');
-            
-            this.canvas.append($block);
-        },
-        
-        selectBlock: function(blockId) {
-            this.deselectBlock();
-            this.selectedBlock = blockId;
-            
-            $('#' + blockId).addClass('selected');
-            
-            var block = this.getBlock(blockId);
-            this.showBlockSettings(block);
-        },
-        
-        deselectBlock: function() {
-            if (this.selectedBlock) {
-                $('#' + this.selectedBlock).removeClass('selected');
-            }
-            this.selectedBlock = null;
-            $('#block-settings-panel').html('<p class="no-selection">Select a block to edit its settings</p>');
-        },
-        
-        showBlockSettings: function(block) {
-            var $template = $('#' + block.type + '-settings');
-            if (!$template.length) {
-                $template = $('#label-settings'); // fallback
-            }
-            
-            var html = $template.html();
-            $('#block-settings-panel').html(html);
-            
-            // Populate values
-            for (var key in block) {
-                var $input = $('.block-setting[data-setting="' + key + '"]');
-                if ($input.length) {
-                    $input.val(block[key]);
-                }
-            }
-        },
-        
-        getBlock: function(blockId) {
-            return this.blocks.find(function(b) { return b.id === blockId; });
-        },
-        
-        updateBlockPosition: function(blockId, x, y) {
-            var block = this.getBlock(blockId);
-            block.x = x;
-            block.y = y;
-            
-            $('#' + blockId).css({
-                left: x + 'px',
-                top: y + 'px'
-            });
-        },
-        
-        updateBlockSetting: function(blockId, setting, value) {
-            var block = this.getBlock(blockId);
-            var $block = $('#' + blockId);
-            
-            block[setting] = value;
-            
-            // Update visual
-            switch (setting) {
-                case 'color':
-                    if (block.type !== 'label') {
-                        $block.css('backgroundColor', value);
-                    } else {
-                        $block.css('color', value);
-                    }
-                    break;
-                case 'name':
-                case 'label':
-                case 'text':
-                    this.updateBlockLabel($block, block);
+                case 'fontSize':
+                    v = clamp(raw, 8, 72);
                     break;
                 case 'rowCount':
                 case 'seatsPerRow':
-                case 'capacity':
-                    this.updateBlockLabel($block, block);
-                    this.updateCapacity();
-                    break;
-                case 'fontSize':
-                    $block.css('fontSize', value + 'px');
+                case 'startRow':
+                    if (key === 'startRow') b.startRow = /^[A-Z]$/.test(raw) ? raw : 'A';
+                    if (key === 'seatsPerRow') b.seatsPerRow = clamp(raw, 1, 100);
+                    b.rowCount = clamp(key === 'rowCount' ? raw : b.rowCount, 1, 26 - (b.startRow.charCodeAt(0) - 65));
+                    this.pruneSeatTypes(b);
+                    fitRectangle(b);
+                    v = b[key];
                     break;
                 case 'orientation':
-                    if (value === 'vertical') {
-                        var h = block.height;
-                        block.width = 20;
-                        block.height = h > 20 ? h : 200;
-                    } else {
-                        var w = block.width;
-                        block.height = 20;
-                        block.width = w > 20 ? w : 200;
-                    }
-                    $block.css({
-                        width: block.width + 'px',
-                        height: block.height + 'px'
-                    });
+                    var long = Math.max(b.width, b.height, 60);
+                    b.width = raw === 'vertical' ? 20 : long;
+                    b.height = raw === 'vertical' ? long : 20;
                     break;
             }
-        },
-        
-        updateBlockLabel: function($block, block) {
-            var label = '';
-            switch (block.type) {
-                case 'rectangle':
-                    var totalSeats = (block.rowCount || 2) * (block.seatsPerRow || 10);
-                    label = '<div class="block-label">' + (block.name || 'Section') + 
-                            '<div class="block-seats">' + totalSeats + ' seats</div></div>';
-                    break;
-                case 'general_admission':
-                    label = '<div class="block-label">' + (block.name || 'GA') + 
-                            '<div class="block-seats">' + (block.capacity || 0) + ' capacity</div></div>';
-                    break;
-                case 'stage':
-                    label = '<div class="block-label">' + (block.label || 'STAGE') + '</div>';
-                    break;
-                case 'label':
-                    label = '<div class="block-label">' + (block.text || 'Label') + '</div>';
-                    break;
-            }
-            
-            $block.find('.block-label').remove();
-            $block.prepend(label);
-        },
-        
-        deleteBlock: function(blockId) {
-            var index = this.blocks.findIndex(function(b) { return b.id === blockId; });
-            if (index > -1) {
-                this.blocks.splice(index, 1);
-            }
-            
-            $('#' + blockId).remove();
-            this.deselectBlock();
+            b[key] = v;
+            this.render(b);
+            this.refreshSeatTools();
             this.updateCapacity();
+            this.dirty = true;
         },
-        
-        updateCapacity: function() {
-            var total = 0;
-            
-            this.blocks.forEach(function(block) {
-                if (block.type === 'rectangle') {
-                    total += (block.rowCount || 0) * (block.seatsPerRow || 0);
-                } else if (block.type === 'general_admission') {
-                    total += block.capacity || 0;
+
+        pruneSeatTypes: function(b) {
+            var keep = {};
+            rowLabels(b).forEach(function(r) {
+                for (var n = 1; n <= b.seatsPerRow; n++) {
+                    if (b.seatTypes[r + '-' + n]) keep[r + '-' + n] = b.seatTypes[r + '-' + n];
                 }
             });
-            
-            $('#total-capacity').text(total);
+            b.seatTypes = keep;
         },
-        
-        setZoom: function(level) {
-            this.zoom = Math.max(0.5, Math.min(2, level));
-            this.canvas.css('transform', 'scale(' + this.zoom + ')');
-            $('#zoom-level').text(Math.round(this.zoom * 100) + '%');
+
+        add: function(type, x, y) {
+            var b = this.normalise({ type: type });
+            if (type === 'rectangle') fitRectangle(b);
+            b.x = snap(Math.max(0, Math.min(x - b.width / 2, this.canvasW - b.width)));
+            b.y = snap(Math.max(0, Math.min(y - b.height / 2, this.canvasH - b.height)));
+            this.blocks.push(b);
+            this.render(b);
+            this.select(b.id);
+            this.updateCapacity();
+            this.dirty = true;
         },
-        
-        getLayoutJSON: function() {
-            var layout = {
-                canvas: {
-                    width: parseInt($('#canvas-width').val()) || 800,
-                    height: parseInt($('#canvas-height').val()) || 600
-                },
-                blocks: []
-            };
-            
-            this.blocks.forEach(function(block) {
-                var cleanBlock = $.extend({}, block);
-                delete cleanBlock.id; // Remove internal ID
-                layout.blocks.push(cleanBlock);
-            });
-            
-            return JSON.stringify(layout);
+
+        duplicate: function() {
+            var src = this.get(this.selectedId);
+            if (!src) return;
+            var b = $.extend(true, {}, src, { id: newId() });
+            b.x = Math.min(src.x + 20, this.canvasW - b.width);
+            b.y = Math.min(src.y + 20, this.canvasH - b.height);
+            if (b.name) b.name = b.name + ' (copy)';
+            this.blocks.push(b);
+            this.render(b);
+            this.select(b.id);
+            this.updateCapacity();
+            this.dirty = true;
         },
-        
-        saveVenue: function() {
-            var self = this;
-            var $btn = $('#save-venue');
-            var originalText = $btn.html();
-            var venueId = this.canvas.data('venueId') || 0;
-            
-            // Validate name for new venues
-            if (!venueId && !$('#venue-name').val().trim()) {
-                alert('Please enter a venue name');
-                $('#venue-name').focus();
+
+        remove: function() {
+            var b = this.get(this.selectedId);
+            if (!b) return;
+            if (SELLABLE.indexOf(b.type) !== -1 &&
+                !window.confirm('Delete "' + b.name + '"? Performances using this venue will stop selling these seats. Tickets already sold are kept, but the seats will no longer appear on the map.')) {
                 return;
             }
-            
-            $btn.prop('disabled', true).html('<span class="dashicons dashicons-update spin"></span> Saving...');
-            
-            // Use azureTicketsDesigner if available, fall back to azureTickets
-            var ticketsData = (typeof azureTicketsDesigner !== 'undefined') ? azureTicketsDesigner : azureTickets;
-            
+            this.blocks = this.blocks.filter(function(x) { return x.id !== b.id; });
+            $('#vb-' + b.id).remove();
+            this.selectedId = null;
+            this.showSettings();
+            this.updateCapacity();
+            this.dirty = true;
+        },
+
+        paint: function(b, key) {
+            var g = this.gesture;
+            if (!g.paintType) {
+                g.paintType = (b.seatTypes[key] === this.tool || this.tool === 'normal') ? 'normal' : this.tool;
+            }
+            if (g.painted[key]) return;
+            g.painted[key] = true;
+            if (g.paintType === 'normal') {
+                delete b.seatTypes[key];
+            } else {
+                b.seatTypes[key] = g.paintType;
+            }
+            $('#vb-' + b.id + ' .seat-cell[data-key="' + key + '"]')
+                .removeClass('is-accessible is-none')
+                .addClass(g.paintType === 'normal' ? '' : 'is-' + g.paintType);
+            this.dirty = true;
+        },
+
+        // ── Pointer gestures (mouse, pen and touch) ────────────────────
+
+        pointerDown: function(e) {
+            var $target = $(e.target);
+            var $block = $target.closest('.venue-block');
+            if (!$block.length) {
+                if (e.target === this.$canvas[0]) this.select(null);
+                return;
+            }
+            var b = this.get($block.attr('data-id'));
+            if (!b) return;
+            e.preventDefault();
+            if (b.id !== this.selectedId) this.select(b.id);
+
+            if (this.tool !== 'move' && b.type === 'rectangle' && $target.hasClass('seat-cell')) {
+                this.gesture = { kind: 'paint', block: b, painted: {}, paintType: null };
+                this.paint(b, $target.data('key'));
+                return;
+            }
+            this.gesture = {
+                kind: $target.hasClass('resize-handle') ? 'resize' : 'move',
+                block: b,
+                startX: e.clientX,
+                startY: e.clientY,
+                x: b.x, y: b.y, w: b.width, h: b.height
+            };
+        },
+
+        pointerMove: function(e) {
+            var g = this.gesture;
+            if (!g) return;
+            if (g.kind === 'paint') {
+                var el = document.elementFromPoint(e.clientX, e.clientY);
+                if (el && el.classList.contains('seat-cell') && $(el).closest('.venue-block').attr('data-id') === g.block.id) {
+                    this.paint(g.block, el.getAttribute('data-key'));
+                }
+                return;
+            }
+            var dx = (e.clientX - g.startX) / this.zoom;
+            var dy = (e.clientY - g.startY) / this.zoom;
+            var b = g.block;
+            if (g.kind === 'move') {
+                b.x = snap(Math.max(0, Math.min(g.x + dx, this.canvasW - b.width)));
+                b.y = snap(Math.max(0, Math.min(g.y + dy, this.canvasH - b.height)));
+            } else {
+                b.width = Math.max(20, snap(Math.min(g.w + dx, this.canvasW - b.x)));
+                b.height = Math.max(20, snap(Math.min(g.h + dy, this.canvasH - b.y)));
+            }
+            $('#vb-' + b.id).css({ left: b.x + 'px', top: b.y + 'px', width: b.width + 'px', height: b.height + 'px' });
+            this.dirty = true;
+        },
+
+        pointerUp: function() {
+            if (this.gesture && this.gesture.kind === 'paint') {
+                this.render(this.gesture.block);
+                this.refreshSeatTools();
+                this.updateCapacity();
+            }
+            this.gesture = null;
+        },
+
+        // ── Wiring ─────────────────────────────────────────────────────
+
+        bind: function() {
+            var self = this;
+            var canvasEl = this.$canvas[0];
+
+            canvasEl.addEventListener('pointerdown', function(e) { self.pointerDown(e); });
+            document.addEventListener('pointermove', function(e) { self.pointerMove(e); });
+            document.addEventListener('pointerup', function() { self.pointerUp(); });
+            document.addEventListener('pointercancel', function() { self.pointerUp(); });
+
+            $('.block-item').on('click', function(e) {
+                e.preventDefault();
+                var $c = $('.designer-canvas-container');
+                var cx = ($c.scrollLeft() + $c.innerWidth() / 2 - self.$sizer.position().left) / self.zoom;
+                var cy = ($c.scrollTop() + $c.innerHeight() / 2 - self.$sizer.position().top) / self.zoom;
+                self.add($(this).data('type'), cx || self.canvasW / 2, cy || self.canvasH / 2);
+            });
+            document.querySelectorAll('.block-item').forEach(function(item) {
+                item.addEventListener('dragstart', function(e) {
+                    e.dataTransfer.setData('text/plain', item.getAttribute('data-type'));
+                    e.dataTransfer.effectAllowed = 'copy';
+                });
+            });
+            canvasEl.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            });
+            canvasEl.addEventListener('drop', function(e) {
+                e.preventDefault();
+                var type = e.dataTransfer.getData('text/plain');
+                if (!DEFAULTS[type]) return;
+                var r = canvasEl.getBoundingClientRect();
+                self.add(type, (e.clientX - r.left) / self.zoom, (e.clientY - r.top) / self.zoom);
+            });
+
+            $(document).on('input change', '#block-settings-panel .block-setting', function() {
+                self.change($(this).data('setting'), $(this).val());
+            });
+            $(document).on('click', '#block-settings-panel .seat-tool', function() {
+                self.tool = $(this).data('tool');
+                self.render(self.get(self.selectedId));
+                self.refreshSeatTools();
+            });
+            $(document).on('click', '#block-settings-panel .duplicate-block', function() { self.duplicate(); });
+            $(document).on('click', '#block-settings-panel .delete-block', function() { self.remove(); });
+
+            $('#canvas-width, #canvas-height').on('change', function() {
+                self.setCanvasSize($('#canvas-width').val(), $('#canvas-height').val());
+                self.dirty = true;
+            });
+            $('#zoom-in').on('click', function() { self.setZoom(self.zoom + 0.1); });
+            $('#zoom-out').on('click', function() { self.setZoom(self.zoom - 0.1); });
+            $('#zoom-reset').on('click', function() { self.setZoom(1); });
+            $('#save-venue').on('click', function() { self.save(); });
+
+            $(document).on('keydown', function(e) {
+                if ($(e.target).is('input, textarea, select') || !self.selectedId) return;
+                var b = self.get(self.selectedId);
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    self.remove();
+                } else if (e.key === 'Escape') {
+                    self.select(null);
+                } else if (e.key.indexOf('Arrow') === 0) {
+                    e.preventDefault();
+                    var step = e.shiftKey ? GRID : 1;
+                    if (e.key === 'ArrowUp') b.y = Math.max(0, b.y - step);
+                    if (e.key === 'ArrowDown') b.y = Math.min(self.canvasH - b.height, b.y + step);
+                    if (e.key === 'ArrowLeft') b.x = Math.max(0, b.x - step);
+                    if (e.key === 'ArrowRight') b.x = Math.min(self.canvasW - b.width, b.x + step);
+                    self.render(b);
+                    self.dirty = true;
+                }
+            });
+
+            window.addEventListener('beforeunload', function(e) {
+                if (self.dirty) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
+        },
+
+        layoutJson: function() {
+            return JSON.stringify({
+                canvas: { width: this.canvasW, height: this.canvasH },
+                blocks: this.blocks
+            });
+        },
+
+        save: function() {
+            var self = this;
+            var $btn = $('#save-venue');
+            var label = $btn.html();
+            var venueId = parseInt(this.$canvas.attr('data-venue-id'), 10) || 0;
+            if (!venueId && !$.trim($('#venue-name').val())) {
+                window.alert('Please enter a venue name.');
+                $('#venue-name').trigger('focus');
+                return;
+            }
             var data = {
                 action: 'azure_tickets_save_venue',
-                nonce: ticketsData.nonce,
+                nonce: azureTicketsDesigner.nonce,
                 venue_id: venueId,
-                layout_json: this.getLayoutJSON()
+                layout_json: this.layoutJson()
             };
-            
-            // Include venue details only for new venues (pta_venue creation)
             if (!venueId) {
-                data.name = $('#venue-name').val().trim();
-                data.address = $('#venue-address').val().trim();
-                data.city = $('#venue-city').val().trim();
+                data.name = $.trim($('#venue-name').val());
+                data.address = $.trim($('#venue-address').val());
+                data.city = $.trim($('#venue-city').val());
             }
-            
-            console.log('[VenueDesigner] Saving venue:', data);
-            
-            $.ajax({
-                url: ajaxurl,
-                type: 'POST',
-                data: data,
-                success: function(response) {
-                    console.log('[VenueDesigner] Save response:', response);
-                    $btn.prop('disabled', false);
-                    
-                    if (response.success) {
-                        $btn.html('<span class="dashicons dashicons-yes"></span> Saved!');
-                        
-                        // Update venue ID for future saves
-                        self.canvas.data('venueId', response.data.venue_id);
-                        
-                        // Update URL if new venue - redirect to edit mode
-                        if (!venueId && response.data.venue_id) {
-                            var baseUrl = window.location.pathname + window.location.search;
-                            // Replace action=new with action=edit and add venue_id
-                            var newUrl = baseUrl.replace('action=new', 'action=edit') + '&venue_id=' + response.data.venue_id;
-                            window.location.href = newUrl;
-                            return;
-                        }
-                        
-                        setTimeout(function() {
-                            $btn.html(originalText);
-                        }, 2000);
-                    } else {
-                        $btn.html('<span class="dashicons dashicons-no"></span> Error');
-                        alert(response.data ? response.data.message : 'Save failed');
-                        setTimeout(function() {
-                            $btn.html(originalText);
-                        }, 2000);
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('[VenueDesigner] Save error:', status, error);
-                    $btn.prop('disabled', false).html(originalText);
-                    alert('Network error. Please try again.');
+            $btn.prop('disabled', true).text('Saving…');
+            $.post(azureTicketsDesigner.ajaxUrl, data).done(function(res) {
+                if (!res || !res.success) {
+                    window.alert((res && res.data && res.data.message) || 'Save failed.');
+                    return;
                 }
+                self.dirty = false;
+                if (!venueId) {
+                    window.location.href = window.location.href.replace('action=new', 'action=edit') + '&venue_id=' + res.data.venue_id;
+                    return;
+                }
+                var keep = self.selectedId;
+                self.load(res.data.layout);
+                if (keep && self.get(keep)) self.select(keep);
+                $btn.text('Saved ✓');
+            }).fail(function() {
+                window.alert('Network error. Your changes are not saved yet; please try again.');
+            }).always(function() {
+                $btn.prop('disabled', false);
+                setTimeout(function() { $btn.html(label); }, 1500);
             });
         }
     };
-    
-    // Initialize
-    $(document).ready(function() {
-        VenueDesigner.init();
-    });
-    
-})(jQuery);
 
+    $(function() { Designer.init(); });
+
+})(jQuery);

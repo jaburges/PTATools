@@ -12,30 +12,9 @@ Last reviewed: 2026-04-29 (plugin v3.59).
 
 ---
 
-## 1. Tickets module — unused, never wired into the main plugin
+## 1. Tickets module — no longer dead
 
-The `enable_tickets` toggle was added to the default settings but the corresponding `init_tickets_components($ctx)` was never written. None of these files are loaded by `azure-plugin.php` or by any other module. Combined size ~150 KB.
-
-Files:
-- `includes/class-tickets-module.php` (~38 KB) — references the others below
-- `includes/class-tickets-product-type.php`
-- `includes/class-tickets-generator.php`
-- `includes/class-tickets-apple-wallet.php`
-- `includes/class-tickets-checkin.php`
-- `includes/class-tickets-venue.php` *(referenced by `class-tickets-module.php` but file does not exist)*
-- `admin/tickets-page.php`
-- `admin/tickets-settings.php`
-- `admin/tickets-checkin.php`
-
-Setting key to clean up after deletion:
-- `enable_tickets` (default: `false`) in `class-settings.php` activate defaults
-- Module card UI in `admin/main-page.php` lines 168–305 (`data-module="tickets"`)
-- Custom cron event registration `azure_tickets_cleanup_reservations` (currently inside `class-tickets-module.php` line 70 — already orphan because the file is never required)
-
-Verification before deletion:
-- [ ] Confirm `wp_options.azure_plugin_settings['enable_tickets']` is `false` on both production sites
-- [ ] Search the database for any rows with `meta_key` LIKE `_ticket_%` (per-product ticket metadata)
-- [ ] Confirm no `azure_tickets_cleanup_reservations` event in `wp_options.cron`
+Wired into `azure-plugin.php` (`init_tickets_components`) in v3.147.184 and in use. Do not delete.
 
 ---
 
@@ -90,14 +69,9 @@ For reference — these were removed as part of the cron centralization refactor
 
 ---
 
-## 6. Orphaned settings keys (cleanup for `enable_tickets`)
+## 6. Orphaned settings keys
 
-If item #1 is deleted, also remove:
-
-- The `'enable_tickets' => false` line from the default settings array in `class-settings.php` (line ~292)
-- The "Tickets" module-card div in `admin/main-page.php` (lines ~168–185)
-- The `<input type="hidden" name="enable_tickets" …>` near line ~300 of `admin/main-page.php`
-- Any `wp_options` rows where `azure_plugin_settings['enable_tickets']` was set non-default by an admin (a one-shot DB cleanup query is fine — `enable_tickets` is the only key)
+None — `enable_tickets` is live again (see item #1).
 
 ---
 

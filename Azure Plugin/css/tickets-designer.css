@@ -590,3 +590,98 @@
     }
 }
 
+
+/* ── Designer v2: seat grid, seat tools, area block ── */
+.designer-canvas .venue-block {
+    background-image: none;
+    touch-action: none;
+    overflow: hidden;
+}
+
+.designer-canvas .venue-block.type-rectangle {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 2px 4px 4px;
+}
+
+.designer-canvas .venue-block .block-head {
+    font-size: 11px;
+    line-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+.designer-canvas .venue-block .block-head .block-seats {
+    display: inline;
+    font-weight: 400;
+}
+
+.designer-canvas .seat-grid {
+    flex: 1;
+    display: grid;
+    gap: 2px;
+    align-content: stretch;
+    min-height: 0;
+}
+
+.designer-canvas .seat-grid .row-label {
+    font-size: 9px;
+    line-height: 1;
+    align-self: center;
+    padding-right: 2px;
+    opacity: 0.85;
+}
+
+.designer-canvas .seat-cell {
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 3px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.designer-canvas .seat-cell.is-accessible {
+    background: #1565c0;
+    box-shadow: inset 0 0 0 2px #fff;
+}
+
+.designer-canvas .seat-cell.is-none {
+    background: transparent;
+    outline: 1px dashed rgba(255, 255, 255, 0.5);
+}
+
+.designer-canvas .venue-block.is-painting {
+    cursor: crosshair;
+}
+
+.designer-canvas .venue-block.is-painting .seat-cell:hover {
+    outline: 2px solid #ffeb3b;
+}
+
+.designer-canvas .venue-block.type-area {
+    color: #3c3c3c;
+    text-shadow: none;
+    border: 2px dashed rgba(0, 0, 0, 0.25);
+    background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.25) 0 8px, transparent 8px 16px);
+}
+
+.designer-canvas .venue-block.type-aisle {
+    background-image: repeating-linear-gradient(45deg, #f0f0f1 0 5px, #e5e5e5 5px 10px);
+}
+
+.seat-tool-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.seat-tool-buttons .button {
+    justify-content: center;
+}
+
+.settings-actions {
+    display: flex;
+    gap: 8px;
+}

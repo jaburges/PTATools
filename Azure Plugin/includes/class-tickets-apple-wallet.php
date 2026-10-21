@@ -82,9 +82,7 @@ class Azure_Tickets_Apple_Wallet {
      * Create pass.json content
      */
     private function create_pass_json($ticket, $event_name, $event_date) {
-        $seat_info = $ticket->row_letter ? 
-            'Row ' . $ticket->row_letter . ', Seat ' . $ticket->seat_number : 
-            'General Admission';
+        $seat_info = Azure_Tickets_Config::ticket_seat_label($ticket);
         
         $org_name = Azure_Settings::get_setting('org_name', get_bloginfo('name'));
         

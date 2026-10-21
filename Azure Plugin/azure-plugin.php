@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.183
+ * Version: 3.147.184
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.183');
+define('AZURE_PLUGIN_VERSION', '3.147.184');
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -1025,6 +1025,11 @@ class AzurePlugin {
                 $this->init_auction_components($ctx);
             }
 
+            if (!empty($settings['enable_tickets'])) {
+                PTA_Trace::module('tickets');
+                $this->init_tickets_components($ctx);
+            }
+
             // Orders Reports is always on when WooCommerce is active.
             // Page access is gated by the manage_woocommerce capability
             // on the Selling > Reports tab; no per-module enable toggle
@@ -1717,6 +1722,22 @@ class AzurePlugin {
         } catch (\Throwable $e) {
             Azure_Logger::error('Auction init failed: ' . $e->getMessage(), array('module' => 'Auction', 'file' => $e->getFile(), 'line' => $e->getLine()));
             error_log('Azure Plugin: Auction init error - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Tickets module: seat-map ticket products, holds, QR tickets, check-in.
+     * Its own init() loads the supporting classes.
+     */
+    private function init_tickets_components($ctx) {
+        try {
+            $this->require_module_files(array('class-tickets-module.php'));
+            if (class_exists('Azure_Tickets_Module')) {
+                Azure_Tickets_Module::get_instance();
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('Tickets init failed: ' . $e->getMessage(), array('module' => 'Tickets', 'file' => $e->getFile(), 'line' => $e->getLine()));
+            error_log('Azure Plugin: Tickets init error - ' . $e->getMessage());
         }
     }
 

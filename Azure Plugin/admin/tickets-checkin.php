@@ -98,7 +98,7 @@ $settings = Azure_Settings::get_all_settings();
                     <div class="manual-entry">
                         <label for="manual-code"><?php _e('Enter Ticket Code:', 'azure-plugin'); ?></label>
                         <div class="input-group">
-                            <input type="text" id="manual-code" placeholder="XXXXXXXX" maxlength="8" 
+                            <input type="text" id="manual-code" placeholder="XXXXXXXXXX" maxlength="20" 
                                    autocomplete="off" autocapitalize="characters">
                             <button type="button" id="check-manual" class="button button-primary">
                                 <?php _e('Check In', 'azure-plugin'); ?>
@@ -486,17 +486,9 @@ jQuery(document).ready(function($) {
         }
     });
     
-    // Process ticket from QR data
+    // The server reads bare codes and the older JSON QR formats.
     function processTicket(qrData) {
-        try {
-            var data = JSON.parse(qrData);
-            if (data.code) {
-                processTicketCode(data.code);
-            }
-        } catch (e) {
-            // Maybe it's just a code
-            processTicketCode(qrData);
-        }
+        processTicketCode(qrData);
     }
     
     // Process ticket code

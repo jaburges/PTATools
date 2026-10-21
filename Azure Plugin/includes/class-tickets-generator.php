@@ -1,8 +1,7 @@
 <?php
 /**
- * Tickets Module - Ticket Generator
- * 
- * Generates QR codes and handles ticket email delivery
+ * Tickets Module - ticket lookup and email delivery.
+ * Tickets are created by Azure_Tickets_Module when the order is paid.
  */
 
 if (!defined('ABSPATH')) {
@@ -10,146 +9,6 @@ if (!defined('ABSPATH')) {
 }
 
 class Azure_Tickets_Generator {
-    
-    /**
-     * Generate QR code image for a ticket
-     * 
-     * @param string $data The data to encode in QR
-     * @param int $size Size of the QR code image
-     * @return string Base64 encoded PNG image
-     */
-    public function generate_qr_code($data, $size = 200) {
-        // Use Google Charts API as fallback (simple, no dependencies)
-        // In production, consider using a local library like phpqrcode or endroid/qr-code
-        $qr_url = 'https://chart.googleapis.com/chart?chs=' . $size . 'x' . $size . 
-                  '&cht=qr&chl=' . urlencode($data) . '&choe=UTF-8';
-        
-        $response = wp_remote_get($qr_url, array('timeout' => 30));
-        
-        if (is_wp_error($response)) {
-            // Fallback: generate simple placeholder
-            return $this->generate_placeholder_qr($size);
-        }
-        
-        $image_data = wp_remote_retrieve_body($response);
-        return 'data:image/png;base64,' . base64_encode($image_data);
-    }
-    
-    /**
-     * Generate placeholder QR when API fails
-     */
-    private function generate_placeholder_qr($size) {
-        // Create a simple placeholder image
-        $img = imagecreatetruecolor($size, $size);
-        $white = imagecolorallocate($img, 255, 255, 255);
-        $black = imagecolorallocate($img, 0, 0, 0);
-        
-        imagefill($img, 0, 0, $white);
-        
-        // Draw border
-        imagerectangle($img, 0, 0, $size - 1, $size - 1, $black);
-        
-        // Draw "QR" text
-        $font_size = 3;
-        $text = 'QR';
-        $text_width = imagefontwidth($font_size) * strlen($text);
-        $text_height = imagefontheight($font_size);
-        $x = ($size - $text_width) / 2;
-        $y = ($size - $text_height) / 2;
-        imagestring($img, $font_size, $x, $y, $text, $black);
-        
-        ob_start();
-        imagepng($img);
-        $data = ob_get_clean();
-        imagedestroy($img);
-        
-        return 'data:image/png;base64,' . base64_encode($data);
-    }
-    
-    /**
-     * Generate tickets for an order
-     * 
-     * @param int $order_id WooCommerce order ID
-     * @return array Array of generated ticket IDs
-     */
-    public function generate_tickets_for_order($order_id) {
-        global $wpdb;
-        $tickets_table = $wpdb->prefix . 'azure_tickets';
-        
-        $order = wc_get_order($order_id);
-        if (!$order) {
-            return array();
-        }
-        
-        $ticket_ids = array();
-        
-        foreach ($order->get_items() as $item) {
-            $product = $item->get_product();
-            if (!$product || $product->get_type() !== 'ticket') {
-                continue;
-            }
-            
-            $seat_data = $item->get_meta('_ticket_seats');
-            if (!is_array($seat_data)) {
-                $seat_data = array();
-            }
-            
-            $product_id = $item->get_product_id();
-            $event_id = get_post_meta($product_id, '_ticket_event_id', true);
-            $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
-            
-            foreach ($seat_data as $index => $seat) {
-                $ticket_code = $this->generate_ticket_code();
-                
-                $qr_data = json_encode(array(
-                    'v' => 1, // Version
-                    'c' => $ticket_code,
-                    'o' => $order_id,
-                    'p' => $product_id,
-                    'cs' => substr(hash('sha256', $ticket_code . $order_id . AUTH_SALT), 0, 8)
-                ));
-                
-                $wpdb->insert($tickets_table, array(
-                    'order_id' => $order_id,
-                    'product_id' => $product_id,
-                    'event_id' => $event_id ?: null,
-                    'venue_id' => $venue_id ?: null,
-                    'section_id' => $seat['section_id'] ?? null,
-                    'row_letter' => $seat['row'] ?? null,
-                    'seat_number' => is_numeric($seat['seat'] ?? null) ? intval($seat['seat']) : null,
-                    'attendee_name' => sanitize_text_field($seat['attendee_name'] ?? ''),
-                    'attendee_email' => $order->get_billing_email(),
-                    'ticket_code' => $ticket_code,
-                    'qr_data' => $qr_data,
-                    'status' => 'active',
-                    'created_at' => current_time('mysql')
-                ));
-                
-                $ticket_id = $wpdb->insert_id;
-                
-                // Update QR data with ticket ID
-                $qr_data = json_encode(array(
-                    'v' => 1,
-                    't' => $ticket_id,
-                    'c' => $ticket_code,
-                    'cs' => substr(hash('sha256', $ticket_code . $ticket_id . AUTH_SALT), 0, 8)
-                ));
-                
-                $wpdb->update($tickets_table, array('qr_data' => $qr_data), array('id' => $ticket_id));
-                
-                $ticket_ids[] = $ticket_id;
-            }
-        }
-        
-        return $ticket_ids;
-    }
-    
-    /**
-     * Generate unique ticket code
-     */
-    public function generate_ticket_code() {
-        return strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 8));
-    }
     
     /**
      * Get tickets for an order
@@ -316,16 +175,13 @@ class Azure_Tickets_Generator {
                     <div class="event-info">
                         <h2 style="margin-top: 0;"><?php echo esc_html($product ? $product->get_name() : 'Event'); ?></h2>
                         <?php if ($event_date): ?>
-                        <p><strong>📅 Date:</strong> <?php echo date('l, F j, Y \a\t g:i A', strtotime($event_date)); ?></p>
+                        <p><strong>📅 Date:</strong> <?php echo esc_html(date_i18n('l, F j, Y \a\t g:i A', strtotime($event_date))); ?></p>
                         <?php endif; ?>
                         <p><strong>🎟️ Tickets:</strong> <?php echo count($product_tickets); ?></p>
                     </div>
                     
                     <?php foreach ($product_tickets as $ticket): 
-                        $qr_image = $this->generate_qr_code($ticket->qr_data, 150);
-                        $seat_info = $ticket->row_letter ? 
-                            'Row ' . $ticket->row_letter . ', Seat ' . $ticket->seat_number : 
-                            'General Admission';
+                        $seat_info = Azure_Tickets_Config::ticket_seat_label($ticket);
                     ?>
                     <div class="ticket-card">
                         <div class="ticket-header">
@@ -333,14 +189,14 @@ class Azure_Tickets_Generator {
                         </div>
                         <div class="ticket-body">
                             <div class="ticket-qr">
-                                <img src="<?php echo $qr_image; ?>" alt="QR Code">
+                                <img src="<?php echo esc_url(Azure_Tickets_QR::url($ticket->ticket_code)); ?>" width="120" height="120" alt="<?php echo esc_attr($ticket->ticket_code); ?>">
                                 <p class="ticket-code"><?php echo esc_html($ticket->ticket_code); ?></p>
                             </div>
                             <div class="ticket-details">
                                 <?php if ($ticket->attendee_name): ?>
                                 <p><strong>Attendee:</strong> <?php echo esc_html($ticket->attendee_name); ?></p>
                                 <?php endif; ?>
-                                <p><strong>Order:</strong> #<?php echo $order->get_order_number(); ?></p>
+                                <p><strong>Order:</strong> #<?php echo esc_html($order->get_order_number()); ?></p>
                                 <p style="font-size: 12px; color: #666;">Present this QR code at the entrance for check-in.</p>
                             </div>
                         </div>
@@ -350,7 +206,7 @@ class Azure_Tickets_Generator {
                     <?php endforeach; ?>
                     
                     <div style="text-align: center; margin-top: 30px;">
-                        <a href="<?php echo $order->get_view_order_url(); ?>" class="btn">View Order Details</a>
+                        <a href="<?php echo esc_url($order->get_view_order_url()); ?>" class="btn">View Order Details</a>
                     </div>
                     
                     <p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 13px;">

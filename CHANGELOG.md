@@ -2,6 +2,18 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.184 — Seated event tickets
+
+### Added
+
+- **Event Tickets works end to end.** Turning on Event Tickets in PTA Tools now loads the module; before this the switch did nothing. Draw a seating plan once under **Tickets → Venues**, then sell each performance as a WooCommerce product of type Ticket that uses it.
+- **Seating plan designer.** Add seated sections, a stage and labels, plus **Area (not sold)** blocks for things like a floor mat. Each seated section shows its seats as you set rows and seats per row; paint seats as accessible (♿) or no seat to leave gaps. Drag, resize, duplicate, nudge with the arrow keys, and zoom. Sections keep their identity when you rename or move them, so prices and sold seats stay attached.
+- **Prices and limits per section.** On the product's **Seating & Prices** tab each section has its own price, a seat limit, an on-sale switch and who may buy (everyone or eligible families), with a count of seats already taken. **Release unsold accessible seats** opens accessible seats to anyone near the show; until then buyers confirm they need one.
+- **Family-only sections.** Choose who counts as an eligible family: paste or upload a list of emails, and/or pick products (for example a cast or crew registration) bought since a date, matched by account or billing email. Set a per-family ticket limit. Families who aren't signed in see a sign-in link; others see the section as locked.
+- **Seat map for buyers.** Buyers pick seats on a map that fits the screen, with zoom for phones (tapping a seat that is too small zooms in first). Seats show as available, taken, yours, accessible, locked or off sale. Sections without seat numbers use a − / + count. Optional or required names per ticket, and a per-order limit. Seats are held for 15 minutes while in the cart, become yours at checkout and are released if the order is cancelled, fails or is refunded. Other performances of the same show are linked at the top.
+- **QR codes on tickets.** Each ticket gets a 10-character code and a QR code made on the site (no outside service). The ticket email shows the section, row and seat for every ticket in one message.
+- **Check-in.** The check-in page accepts a scanned QR or a typed code, and a second scan of the same ticket is refused as already used.
+
 ## 3.147.183 — PTA Products three across in a sidebar
 
 ### Fixed
