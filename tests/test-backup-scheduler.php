@@ -21,6 +21,12 @@ define('AZURE_PLUGIN_PATH', __DIR__ . '/../Azure Plugin/');
 require __DIR__ . '/../Azure Plugin/includes/class-pta-cron.php';
 require __DIR__ . '/../Azure Plugin/includes/class-backup-scheduler.php';
 
+// Real requests build the scheduler from inside the plugin's init callback;
+// tests opt into that with $GLOBALS['scheduler_test_in_init'].
+if (!function_exists('did_action')) {
+    function did_action($hook) { return $hook === 'init' && !empty($GLOBALS['scheduler_test_in_init']) ? 1 : 0; }
+}
+
 $t = new TestRunner('Azure_Backup_Scheduler');
 
 /** Build a scheduler with the given settings. */
@@ -200,5 +206,19 @@ $t->check(wp_next_scheduled('azure_backup_scheduled') !== $before, 'changing the
 wp_clear_scheduled_hook('azure_backup_scheduled');
 $s->setup_schedules();
 $t->check(wp_next_scheduled('azure_backup_scheduled') !== false, 'an externally cleared event is re-armed');
+
+// ---------------------------------------------------------------------------
+// 8. Built while init is running (how the plugin loads the Backup module)
+// ---------------------------------------------------------------------------
+
+$GLOBALS['scheduler_test_in_init'] = true;
+make_scheduler(array(
+    'backup_schedule_enabled'   => true,
+    'backup_schedule_frequency' => 'daily',
+    'backup_schedule_time'      => '02:00',
+));
+$GLOBALS['scheduler_test_in_init'] = false;
+$t->check(wp_next_scheduled('azure_backup_scheduled') !== false, 'built during init, the scheduler still queues the backup event');
+$t->check(wp_next_scheduled('azure_backup_cleanup') !== false, 'built during init, the scheduler still queues the cleanup event');
 
 exit($t->finish() > 0 ? 1 : 0);

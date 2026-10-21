@@ -23,8 +23,14 @@ class Azure_Backup_Scheduler {
             add_action('azure_backup_scheduled', array($this, 'run_scheduled_backup'));
             add_action('azure_backup_cleanup', array($this, 'cleanup_old_backups'));
             
-            // Setup schedules on init
-            add_action('init', array($this, 'setup_schedules'));
+            // The plugin builds this module from inside its own init callback,
+            // and a callback added to a hook while it runs at the same priority
+            // never fires, so the backup and cleanup events were never queued.
+            if (did_action('init')) {
+                $this->setup_schedules();
+            } else {
+                add_action('init', array($this, 'setup_schedules'));
+            }
             
             // AJAX actions
             add_action('wp_ajax_azure_schedule_backup', array($this, 'ajax_schedule_backup'));
