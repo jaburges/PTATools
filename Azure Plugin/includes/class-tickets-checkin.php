@@ -96,9 +96,10 @@ class Azure_Tickets_Checkin {
      * 
      * @param int|string $ticket_id_or_code Ticket ID (int) or scanned code (string)
      * @param int $user_id User performing check-in
-     * @return array Result
+     * @param int $product_id Performance being scanned at the door; a ticket for another one is refused. 0 = any.
+     * @return array Result. Every outcome except not_found carries `ticket` (see ticket_payload()).
      */
-    public function check_in($ticket_id_or_code, $user_id = null) {
+    public function check_in($ticket_id_or_code, $user_id = null, $product_id = 0) {
         global $wpdb;
         $tickets_table = $wpdb->prefix . 'azure_tickets';
         $checkins_table = $wpdb->prefix . 'azure_ticket_checkins';
@@ -124,12 +125,23 @@ class Azure_Tickets_Checkin {
             );
         }
         
+        if ($product_id && (int) $ticket->product_id !== (int) $product_id) {
+            $payload = $this->ticket_payload($ticket);
+            return array(
+                'success' => false,
+                'status' => 'wrong_performance',
+                'message' => sprintf(__('This ticket is for %s', 'azure-plugin'), $payload['event']),
+                'ticket' => $payload
+            );
+        }
+
         if ($ticket->status === 'used') {
             return array(
                 'success' => false,
                 'status' => 'already_used',
                 'message' => __('Ticket already used', 'azure-plugin'),
-                'checked_in_at' => $ticket->checked_in_at
+                'checked_in_at' => $ticket->checked_in_at,
+                'ticket' => $this->ticket_payload($ticket)
             );
         }
         
@@ -137,7 +149,10 @@ class Azure_Tickets_Checkin {
             return array(
                 'success' => false,
                 'status' => 'invalid',
-                'message' => __('Ticket is not valid for check-in', 'azure-plugin')
+                'message' => $ticket->status === 'cancelled'
+                    ? __('Ticket has been cancelled', 'azure-plugin')
+                    : __('Ticket is not valid for check-in', 'azure-plugin'),
+                'ticket' => $this->ticket_payload($ticket)
             );
         }
         
@@ -156,10 +171,13 @@ class Azure_Tickets_Checkin {
         );
         
         if ($updated === 0) {
+            $ticket = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tickets_table} WHERE id = %d", $ticket->id));
             return array(
                 'success' => false,
                 'status' => 'already_used',
-                'message' => __('Ticket already used', 'azure-plugin')
+                'message' => __('Ticket already used', 'azure-plugin'),
+                'checked_in_at' => $ticket->checked_in_at,
+                'ticket' => $this->ticket_payload($ticket)
             );
         }
         
@@ -180,25 +198,58 @@ class Azure_Tickets_Checkin {
             'created_at' => $check_in_time
         ));
         
-        // Get ticket details for response
-        $product = wc_get_product($ticket->product_id);
-        $event_name = $product ? $product->get_name() : 'Unknown Event';
-        
-        $seat_info = Azure_Tickets_Config::ticket_seat_label($ticket);
-        
+        $ticket->status = 'used';
+        $ticket->checked_in_at = $check_in_time;
+        $ticket->checked_in_by = $user_id;
+
         return array(
             'success' => true,
             'status' => 'success',
             'message' => __('Check-in successful!', 'azure-plugin'),
-            'ticket' => array(
-                'id' => $ticket->id,
-                'code' => $ticket->ticket_code,
-                'attendee' => $ticket->attendee_name ?: 'Guest',
-                'event' => $event_name,
-                'seat' => $seat_info
-            ),
+            'ticket' => $this->ticket_payload($ticket),
             'checked_in_at' => $check_in_time
         );
+    }
+
+    /**
+     * What the door needs to see about a ticket.
+     *
+     * @param object $ticket Row from the azure_tickets table.
+     * @return array{id:int,code:string,attendee:string,event:string,product_id:int,seat:string,status:string,checked_in_at:string,checked_in_time:string,checked_in_by:string}
+     */
+    public function ticket_payload($ticket) {
+        $product = function_exists('wc_get_product') ? wc_get_product($ticket->product_id) : null;
+        $by = !empty($ticket->checked_in_by) && function_exists('get_userdata') ? get_userdata((int) $ticket->checked_in_by) : null;
+        $at = (string) ($ticket->checked_in_at ?? '');
+        $at_ts = $at !== '' ? date_create($at, wp_timezone()) : false;
+        return array(
+            'id' => (int) $ticket->id,
+            'code' => (string) $ticket->ticket_code,
+            'attendee' => $ticket->attendee_name ?: __('Guest', 'azure-plugin'),
+            'event' => $product ? $product->get_name() : __('Unknown Event', 'azure-plugin'),
+            'product_id' => (int) $ticket->product_id,
+            'seat' => Azure_Tickets_Config::ticket_seat_label($ticket),
+            'status' => (string) $ticket->status,
+            'checked_in_at' => $at,
+            'checked_in_time' => $at_ts ? $at_ts->format('g:ia') : '',
+            'checked_in_by' => $by ? (string) $by->display_name : ''
+        );
+    }
+
+    /**
+     * Every ticket sold for a performance, for the door list: active and
+     * checked-in ones by row and seat, cancelled ones left out.
+     *
+     * @return array[] ticket_payload() rows.
+     */
+    public function performance_tickets($product_id) {
+        global $wpdb;
+        $tickets_table = $wpdb->prefix . 'azure_tickets';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$tickets_table} WHERE product_id = %d AND status IN ('active', 'used') ORDER BY row_letter, seat_number, id",
+            $product_id
+        ));
+        return array_map(array($this, 'ticket_payload'), (array) $rows);
     }
     
     /**

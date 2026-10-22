@@ -221,6 +221,9 @@ class Azure_PTSA_REST_API {
         register_rest_route($ns, '/orders-reports/(?P<id>\d+)/export', array(
             'methods' => 'GET', 'callback' => array($this, 'export_orders_report'), 'permission_callback' => $auth,
         ));
+
+        require_once AZURE_PLUGIN_PATH . 'includes/class-ptsa-rest-tickets.php';
+        Azure_PTSA_REST_Tickets::register($ns, $auth);
     }
 
     /* =================================================================

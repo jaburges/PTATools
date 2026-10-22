@@ -2,6 +2,16 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.187 — Door check-in from the PTSA Tools app
+
+### Added
+
+- **Ticket scanning in the PTSA Tools iPhone app.** New app endpoints under `ptsa/v1/tickets` list upcoming performances with sold and checked-in counts, return a performance's door list by seat, check in a scanned or typed code, and undo a check-in. Anyone who can sign in to the app can use them. Event Tickets must be turned on.
+
+### Fixed
+
+- **A ticket for another night is refused at the door.** Scanning in the app checks the ticket against the chosen performance and names the right night. "Already scanned" now says when and by whom, and a cancelled ticket says it was cancelled.
+
 ## 3.147.186 — Theater tickets: wheelchair spaces, cast & crew seats, extras, Apple Wallet
 
 ### Added
