@@ -63,7 +63,8 @@ button.pta-tickets__performance:disabled {
     color: #fff;
 }
 
-.pta-seatmap {
+.pta-seatmap,
+.pta-tickets__legend {
     --pta-taken: #c3c4c7;
     --pta-selected: #ff6d00;
     --pta-accent: #2271b1;
@@ -119,11 +120,94 @@ button.pta-tickets__performance:disabled {
     gap: 6px;
 }
 
+.pta-tickets-stage {
+    clear: both;
+    margin: 0 0 32px;
+}
+
+.pta-sections {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 2px 0 8px;
+}
+
+.pta-sections__chip {
+    flex: none;
+    margin: 0;
+    padding: 8px 14px;
+    border: 1px solid #c3c4c7;
+    border-radius: 999px;
+    background: #fff;
+    color: #1d2327;
+    font: inherit;
+    font-size: 0.9em;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: none;
+}
+
+.pta-sections__chip.is-off {
+    color: var(--pta-off-text);
+}
+
+.pta-sections__chip.is-current {
+    background: #1d2327;
+    border-color: #1d2327;
+    color: #fff;
+}
+
+.pta-seatmap__frame {
+    position: relative;
+}
+
+.pta-seatmap__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+}
+
 .pta-seatmap__tools {
     display: flex;
-    justify-content: flex-end;
     gap: 4px;
-    margin-bottom: 4px;
+    margin-left: auto;
+}
+
+.pta-seatmap__back {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: none;
+    min-height: 36px;
+    margin: 0;
+    padding: 0 12px;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    background: #fff;
+    color: #1d2327;
+    font: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: none;
+}
+
+.pta-seatmap.is-zoomed .pta-seatmap__back,
+.pta-seatmap.is-section .pta-seatmap__back {
+    display: block;
+}
+
+.pta-seatmap__hint {
+    display: none;
+    margin: 0;
+    font-size: 0.85em;
+    color: #50575e;
+}
+
+.pta-seatmap.is-small:not(.is-section) .pta-seatmap__hint {
+    display: block;
 }
 
 .pta-seatmap__zoom {
@@ -150,6 +234,7 @@ button.pta-tickets__performance:disabled {
 
 .pta-seatmap__sizer {
     position: relative;
+    margin: 0 auto;
 }
 
 .pta-seatmap__canvas {
@@ -276,13 +361,22 @@ button.pta-tickets__performance:disabled {
     position: relative;
     box-shadow: none;
     font-size: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: none;
 }
 
-.pta-seat:hover:not(:disabled),
 .pta-seat:focus-visible {
     outline: 2px solid #1d2327;
     outline-offset: 1px;
     z-index: 1;
+}
+
+@media (hover: hover) {
+    .pta-seat:hover:not(:disabled) {
+        outline: 2px solid #1d2327;
+        outline-offset: 1px;
+        z-index: 1;
+    }
 }
 
 .pta-seat.is-selected {
@@ -663,4 +757,8 @@ body.has-pta-hold {
     width: 100%;
     min-height: 48px;
     font-size: 1.05em;
+}
+
+.pta-seatmap.is-small:not(.is-section) .pta-block--seats {
+    cursor: zoom-in;
 }

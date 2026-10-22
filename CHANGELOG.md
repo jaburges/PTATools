@@ -2,6 +2,14 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.189 — Full-width seat map with a section selector
+
+### Changed
+
+- **The seat map uses the full page width** below the product image and details. The date, performance chooser and legend stay beside the image.
+- **Choose a section, then seats.** Buttons above the map (All sections, Front left, Front right, Left, Right) zoom to a section. On a phone, tapping a section on the map zooms in, and "‹ All sections" in the corner zooms back out. A block with hidden seat numbers counts as part of the section above it, so Row C goes with Front left or Front right.
+- Zoom buttons sit below the map instead of over it. Seats no longer flash grey or keep a hover outline when tapped on a phone.
+
 ## 3.147.188 — Ticket performances as variations, cleaner seat map, 10-minute seat holds
 
 ### Added

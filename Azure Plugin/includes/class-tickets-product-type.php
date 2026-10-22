@@ -586,13 +586,17 @@ function azure_tickets_performance_label($performance_id) {
     return get_the_title($performance_id);
 }
 
-add_action('woocommerce_single_product_summary', function() {
-    global $product;
-    
-    if (!$product || $product->get_type() !== 'ticket') {
-        return;
-    }
+/**
+ * The performances listed on a ticket product page and the one shown.
+ *
+ * @return array{listed:int[], open:int[], chosen:int, performances:int[]}
+ */
+function azure_tickets_page_state($product) {
+    static $cache = array();
     $product_id = $product->get_id();
+    if (isset($cache[$product_id])) {
+        return $cache[$product_id];
+    }
     $now = Azure_Tickets_Config::now();
     $performances = Azure_Tickets_Config::performances($product_id);
     $listed = array_values(array_filter($performances, function ($p) use ($now) {
@@ -608,6 +612,21 @@ add_action('woocommerce_single_product_summary', function() {
     } else {
         $chosen = $open[0] ?? 0;
     }
+    return $cache[$product_id] = array('listed' => $listed, 'open' => $open, 'chosen' => $chosen, 'performances' => $performances);
+}
+
+// Beside the product image: date, performance chooser and the seat map's legend.
+add_action('woocommerce_single_product_summary', function() {
+    global $product;
+    
+    if (!$product || $product->get_type() !== 'ticket') {
+        return;
+    }
+    $product_id = $product->get_id();
+    $state = azure_tickets_page_state($product);
+    $listed = $state['listed'];
+    $open = $state['open'];
+    $chosen = $state['chosen'];
     $full_date = function ($p) {
         $ts = Azure_Tickets_Config::event_ts($p);
         return $ts ? wp_date('l, F j, Y \a\t g:i A', $ts) : '';
@@ -641,19 +660,36 @@ add_action('woocommerce_single_product_summary', function() {
         <?php endif; ?>
 
         <?php if (!$chosen): ?>
-        <p class="pta-tickets__unavailable"><?php echo (count($listed) > 1 && !in_array($product_id, $performances, true)) ? esc_html__('Online sales for these performances have closed.', 'azure-plugin') : esc_html__('Online sales for this performance have closed.', 'azure-plugin'); ?></p>
+        <p class="pta-tickets__unavailable"><?php echo (count($listed) > 1 && !in_array($product_id, $state['performances'], true)) ? esc_html__('Online sales for these performances have closed.', 'azure-plugin') : esc_html__('Online sales for this performance have closed.', 'azure-plugin'); ?></p>
         <?php elseif (Azure_Tickets_Config::sections($chosen)): ?>
-        <div class="pta-seatmap" data-product-id="<?php echo esc_attr($chosen); ?>" data-require-names="<?php echo Azure_Tickets_Config::require_names($chosen) ? '1' : '0'; ?>">
-            <p class="pta-seatmap__loading"><?php esc_html_e('Loading seating chart…', 'azure-plugin'); ?></p>
-            <noscript><?php esc_html_e('Please turn on JavaScript to choose seats.', 'azure-plugin'); ?></noscript>
-        </div>
-        <?php echo azure_tickets_extras_html($product_id, 'step'); ?>
+        <div class="pta-tickets__legend"></div>
         <?php else: ?>
         <p class="pta-tickets__unavailable"><?php esc_html_e('Tickets for this performance aren\'t on sale yet.', 'azure-plugin'); ?></p>
         <?php endif; ?>
     </div>
     <?php
 }, 35);
+
+// Below the image and summary, full width: the seat map and the extras step.
+add_action('woocommerce_after_single_product_summary', function() {
+    global $product;
+    if (!$product || $product->get_type() !== 'ticket') {
+        return;
+    }
+    $chosen = azure_tickets_page_state($product)['chosen'];
+    if (!$chosen || !Azure_Tickets_Config::sections($chosen)) {
+        return;
+    }
+    ?>
+    <div class="pta-tickets-stage">
+        <div class="pta-seatmap" data-product-id="<?php echo esc_attr($chosen); ?>" data-require-names="<?php echo Azure_Tickets_Config::require_names($chosen) ? '1' : '0'; ?>">
+            <p class="pta-seatmap__loading"><?php esc_html_e('Loading seating chart…', 'azure-plugin'); ?></p>
+            <noscript><?php esc_html_e('Please turn on JavaScript to choose seats.', 'azure-plugin'); ?></noscript>
+        </div>
+        <?php echo azure_tickets_extras_html($product->get_id(), 'step'); ?>
+    </div>
+    <?php
+}, 5);
 
 /**
  * The extras offered with a performance, as PTA Products cards with their

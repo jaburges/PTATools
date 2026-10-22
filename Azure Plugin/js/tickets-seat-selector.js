@@ -10,7 +10,8 @@
     'use strict';
 
     var cfg = window.azureTicketsFrontend || {};
-    var MIN_TAP = 22;
+    // Smallest seat, in pixels, that can be chosen without zooming in first.
+    var MIN_TAP = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 22 : 12;
 
     function esc(s) {
         return $('<div>').text(s == null ? '' : String(s)).html();
@@ -64,6 +65,50 @@
     function hasType(b, type) {
         var types = b.seatTypes || {};
         return Object.keys(types).some(function(k) { return types[k] === type; });
+    }
+
+    /** A block's bounding box on the canvas, allowing for its angle. */
+    function blockBox(b) {
+        var a = (Number(b.angle) || 0) * Math.PI / 180, cos = Math.abs(Math.cos(a)), sin = Math.abs(Math.sin(a));
+        var w = b.width * cos + b.height * sin, h = b.width * sin + b.height * cos;
+        return { x: b.x + b.width / 2 - w / 2, y: b.y + b.height / 2 - h / 2, w: w, h: h };
+    }
+
+    /**
+     * The sections a buyer chooses between before picking seats. A block with
+     * hidden seat numbers carries on from the block above it (its row C under
+     * rows A–B), so it joins that block's section.
+     */
+    function sectionGroups(blocks, sections) {
+        var sellable = blocks.filter(function(b) { return sections[b.id]; });
+        var above = function(b) {
+            var best = null;
+            sellable.forEach(function(o) {
+                if (o === b || o.y + o.height > b.y + 10 || o.x >= b.x + b.width || b.x >= o.x + o.width) return;
+                if (!best || o.y + o.height > best.y + best.height) best = o;
+            });
+            return best;
+        };
+        var root = function(b) {
+            for (var guard = 0, p; b.hideNumbers && guard < 10 && (p = above(b)); guard++) b = p;
+            return b;
+        };
+        var groups = [], byRoot = {};
+        sellable.forEach(function(b) {
+            var r = root(b);
+            if (!byRoot[r.id]) {
+                byRoot[r.id] = { name: r.name, ids: [], onSale: false, box: null };
+                groups.push(byRoot[r.id]);
+            }
+            var g = byRoot[r.id], bb = blockBox(b);
+            g.ids.push(b.id);
+            g.onSale = g.onSale || !!sections[b.id].on_sale;
+            g.box = !g.box ? bb : (function(a) {
+                var x = Math.min(a.x, bb.x), y = Math.min(a.y, bb.y);
+                return { x: x, y: y, w: Math.max(a.x + a.w, bb.x + bb.w) - x, h: Math.max(a.y + a.h, bb.y + bb.h) - y };
+            })(g.box);
+        });
+        return groups;
     }
 
     function SeatMap($root) {
@@ -177,20 +222,36 @@
                 return '<span><i class="pta-seat is-demo" style="--seat:' + esc(c) + '"></i>Available · ' +
                     (p.length > 1 ? 'from ' : '') + money(p[0]) + '</span>';
             }).join('') : '<span><i class="pta-seat is-demo"></i>Available</span>';
-            html.push('<div class="pta-seatmap__legend">' + available +
+            var legend = '<div class="pta-seatmap__legend">' + available +
                 '<span><i class="pta-seat is-demo is-selected"></i>Your choice</span>' +
                 '<span><i class="pta-seat is-demo is-taken"></i>Taken</span>' +
                 (hasAccessible ? '<span><i class="pta-seat is-demo is-accessible is-wide"></i>ADA space</span>' : '') +
                 (hasCompanion ? '<span><i class="pta-seat is-demo is-companion"></i>ADA companion seat</span>' : '') +
-                '</div>');
-            html.push('<div class="pta-seatmap__tools">' +
-                '<button type="button" class="pta-seatmap__zoom" data-zoom="out" aria-label="Zoom out">−</button>' +
-                '<button type="button" class="pta-seatmap__zoom" data-zoom="fit">Fit</button>' +
-                '<button type="button" class="pta-seatmap__zoom" data-zoom="in" aria-label="Zoom in">+</button>' +
-                '</div>');
-            html.push('<div class="pta-seatmap__viewport"><div class="pta-seatmap__sizer"><div class="pta-seatmap__canvas" style="width:' + d.layout.canvas.width + 'px;height:' + d.layout.canvas.height + 'px">');
+                '</div>';
+            // The product page keeps the legend beside the image; elsewhere it sits above the map.
+            this.$legend = $('.pta-tickets__legend').first();
+            if (this.$legend.length) this.$legend.html(legend);
+            else html.push(legend);
+
+            this.groups = sectionGroups(d.layout.blocks, d.sections);
+            if (this.groups.length > 1) {
+                html.push('<div class="pta-sections" role="group" aria-label="Sections">' +
+                    '<button type="button" class="pta-sections__chip is-current" data-group="all" aria-pressed="true">All sections</button>' +
+                    this.groups.map(function(g, i) {
+                        return '<button type="button" class="pta-sections__chip' + (g.onSale ? '' : ' is-off') + '" data-group="' + i + '" aria-pressed="false">' + esc(g.name) + '</button>';
+                    }).join('') + '</div>');
+            }
+            html.push('<div class="pta-seatmap__frame">' +
+                '<div class="pta-seatmap__viewport"><div class="pta-seatmap__sizer"><div class="pta-seatmap__canvas" style="width:' + d.layout.canvas.width + 'px;height:' + d.layout.canvas.height + 'px">');
             d.layout.blocks.forEach(function(b) { html.push(self.blockHtml(b)); });
-            html.push('</div></div></div>');
+            html.push('</div></div></div>' +
+                '<button type="button" class="pta-seatmap__back" data-group="all">‹ All sections</button></div>');
+            html.push('<div class="pta-seatmap__bar">' +
+                (this.groups.length > 1 ? '<p class="pta-seatmap__hint">Tap a section to zoom in, then tap your seats.</p>' : '') +
+                '<span class="pta-seatmap__tools">' +
+                    '<button type="button" class="pta-seatmap__zoom" data-zoom="out" aria-label="Zoom out">−</button>' +
+                    '<button type="button" class="pta-seatmap__zoom" data-zoom="in" aria-label="Zoom in">+</button>' +
+                '</span></div>');
             html.push('<div class="pta-seatmap__general"></div>');
             html.push('<div class="pta-seatmap__summary"></div>');
             this.$root.html(html.join(''));
@@ -237,7 +298,7 @@
             if (b.angle) style += 'transform:rotate(' + Number(b.angle) + 'deg);';
             // Sections not on sale take their grey from the stylesheet.
             if (!off) style += '--seat:' + esc(b.color) + ';';
-            parts.push('<div class="' + cls + '" style="' + style + '">');
+            parts.push('<div class="' + cls + '" data-block="' + esc(b.id) + '" style="' + style + '">');
             parts.push('<div class="pta-rows" style="--n:' + b.seatsPerRow + '">');
             if (!b.hideNumbers) {
                 parts.push('<div class="pta-rowline pta-nums' + (b.stagger ? ' stagger-a' : '') + '" aria-hidden="true"><span class="pta-row"></span><span class="pta-cells">');
@@ -273,10 +334,46 @@
 
         // ── Zoom ───────────────────────────────────────────────────────
 
+        maxHeight: function() {
+            return Math.max(260, window.innerHeight * 0.75);
+        },
+
+        /** Fits the whole map, then notes whether seats are too small to tap there. */
         fit: function() {
-            var w = this.$viewport.innerWidth() || 320;
-            this.fitScale = Math.min(1.5, w / this.data.layout.canvas.width);
-            this.setScale(this.fitScale);
+            var w = this.$viewport.innerWidth() || 320, canvas = this.data.layout.canvas;
+            this.fitScale = Math.min(1.5, w / canvas.width, this.maxHeight() / canvas.height);
+            this.showGroup(this.current === undefined ? 'all' : this.current);
+            var seat = this.$canvas.find('.pta-seat:not(:disabled)')[0] || this.$canvas.find('.pta-seat')[0];
+            this.small = !!seat && seat.getBoundingClientRect().width / (this.scale / this.fitScale) < MIN_TAP;
+            this.$root.toggleClass('is-small', this.small);
+        },
+
+        /** Zooms to a section, or to the whole map for "all". */
+        showGroup: function(which) {
+            var vp = this.$viewport[0];
+            var g = which === 'all' ? null : this.groups[which];
+            if (g) {
+                var pad = 16, bb = g.box;
+                this.setScale(Math.min(vp.clientWidth / (bb.w + pad * 2), this.maxHeight() / (bb.h + pad * 2)));
+                vp.scrollLeft = (bb.x + bb.w / 2) * this.scale - vp.clientWidth / 2;
+                vp.scrollTop = (bb.y + bb.h / 2) * this.scale - vp.clientHeight / 2;
+            } else {
+                this.setScale(this.fitScale);
+            }
+            this.current = g ? Number(which) : 'all';
+            var current = String(this.current);
+            this.$root.toggleClass('is-section', !!g);
+            this.$root.find('.pta-sections__chip').each(function() {
+                var on = $(this).attr('data-group') === current;
+                $(this).toggleClass('is-current', on).attr('aria-pressed', on ? 'true' : 'false');
+            });
+        },
+
+        groupOf: function(blockId) {
+            for (var i = 0; i < this.groups.length; i++) {
+                if (this.groups[i].ids.indexOf(blockId) !== -1) return i;
+            }
+            return -1;
         },
 
         setScale: function(s, cx, cy) {
@@ -289,7 +386,7 @@
             var lw = this.data.layout.canvas.width, lh = this.data.layout.canvas.height;
             this.$canvas.css('transform', 'scale(' + this.scale + ')');
             this.$sizer.css({ width: lw * this.scale + 'px', height: lh * this.scale + 'px' });
-            this.$viewport.css('height', Math.min(lh * this.scale, Math.max(260, window.innerHeight * 0.7)) + 'px');
+            this.$viewport.css('height', Math.min(lh * this.scale, this.maxHeight()) + 'px');
             vp.scrollLeft = px * this.scale - cx;
             vp.scrollTop = py * this.scale - cy;
             this.$root.toggleClass('is-zoomed', this.scale > this.fitScale + 0.01);
@@ -536,7 +633,7 @@
                     var $extras = self.$root.parent().find('.pta-extras--step');
                     if (self.data.extras && $extras.length) {
                         self.$root.prop('hidden', true);
-                        self.$root.siblings('.pta-tickets__performances').prop('hidden', true);
+                        $('.pta-tickets__performances, .pta-tickets__legend').prop('hidden', true);
                         $extras.prop('hidden', false);
                         $extras[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
                         if (window.ptaHoldTimer) window.ptaHoldTimer(res.data.hold_left);
@@ -566,10 +663,21 @@
             this.$root.on('click.pta', '.pta-seat:not(.is-demo)', function() {
                 if (this.disabled) return;
                 if (this.getBoundingClientRect().width < MIN_TAP && self.scale < 4) {
-                    self.zoomToSeat(this);
+                    var g = self.groupOf(this.getAttribute('data-s'));
+                    if (self.current === 'all' && g !== -1 && self.groups.length > 1) self.showGroup(g);
+                    else self.zoomToSeat(this);
                     return;
                 }
                 self.toggleSeat(this);
+            });
+            this.$root.on('click.pta', '.pta-block--seats', function(e) {
+                if (!self.small || self.current !== 'all' || $(e.target).closest('.pta-seat').length) return;
+                var g = self.groupOf($(this).attr('data-block'));
+                if (g !== -1) self.showGroup(g);
+            });
+            this.$root.on('click.pta', '.pta-sections__chip, .pta-seatmap__back', function() {
+                var g = $(this).attr('data-group');
+                self.showGroup(g === 'all' ? 'all' : parseInt(g, 10));
             });
             this.$root.on('click.pta', '[data-ga]', function() {
                 var $row = self.$root.find('[data-ga-row="' + $(this).attr('data-ga') + '"]');
@@ -584,9 +692,7 @@
                 self.stepGeneral($(this).attr('data-sid'), parseInt($(this).attr('data-step'), 10));
             });
             this.$root.on('click.pta', '.pta-seatmap__zoom', function() {
-                var z = $(this).data('zoom');
-                if (z === 'fit') self.setScale(self.fitScale);
-                else self.setScale(self.scale * (z === 'in' ? 1.5 : 1 / 1.5));
+                self.setScale(self.scale * ($(this).data('zoom') === 'in' ? 1.5 : 1 / 1.5));
             });
             this.$root.on('input.pta', '.pta-summary__name', function() {
                 var ref = String($(this).data('ref'));
@@ -609,14 +715,15 @@
             });
             this.$root.on('click.pta', '.pta-summary__add', function() { self.submit($(this)); });
 
-            var resizeTimer;
+            // Phones resize the window as the address bar slides while scrolling,
+            // so only a change of width refits the map.
+            var resizeTimer, width = window.innerWidth;
             $(window).off('resize.pta' + this.productId).on('resize.pta' + this.productId, function() {
                 clearTimeout(resizeTimer);
                 resizeTimer = setTimeout(function() {
-                    var wasFit = self.scale <= self.fitScale + 0.01;
-                    var w = self.$viewport.innerWidth() || 320;
-                    self.fitScale = Math.min(1.5, w / self.data.layout.canvas.width);
-                    self.setScale(wasFit ? self.fitScale : self.scale);
+                    if (window.innerWidth === width) return;
+                    width = window.innerWidth;
+                    self.fit();
                 }, 150);
             });
         }
@@ -626,7 +733,7 @@
     // held until "Add to cart", so the current selection is simply dropped.
     function choosePerformance($btn) {
         var $wrap = $btn.closest('.pta-tickets');
-        var $old = $wrap.find('.pta-seatmap');
+        var $old = $('.pta-seatmap').first();
         var id = String($btn.attr('data-performance'));
         if (!$old.length || String($old.attr('data-product-id')) === id) return;
         $(window).off('resize.pta' + $old.attr('data-product-id'));
