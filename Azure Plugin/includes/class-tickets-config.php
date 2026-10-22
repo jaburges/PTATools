@@ -1,10 +1,16 @@
 <?php
 /**
- * What a ticket product (one performance) sells from its venue layout:
- * per-section price, limit, on/off sale, opening time and who may buy, plus
- * the accessible-seat release switch, the ADA price, when online sales
- * close, the eligible-family rules, seat-assignment (VIP) products and the
- * extras offered after choosing seats.
+ * What a ticket product sells from its venue layout: per-section price,
+ * limit, on/off sale, opening time and who may buy, plus the accessible-seat
+ * release switch, the ADA price, the eligible-family rules, seat-assignment
+ * (VIP) products and the extras offered after choosing seats.
+ *
+ * A ticket product is a variable product and each variation is one
+ * performance, with its own linked event, date and online sales close. Every
+ * other setting is on the product and shared by its performances. Seats,
+ * holds and tickets belong to the performance, so methods here take a
+ * performance id: a variation, or the product itself for a ticket product
+ * without variations (one performance, as they were before variations).
  *
  * The layout supplies each section's default price; a blank price here
  * means "use the layout's". Times are entered in the site's timezone.
@@ -45,11 +51,132 @@ class Azure_Tickets_Config {
 
     /** @var array<int,array> */
     private static $layouts = array();
+    /** @var array<int,int> performance id => product holding its settings */
+    private static $owners = array();
     /** @var int|null Fixed "now" for tests. */
     public static $now = null;
 
     public static function now() {
         return self::$now ?? time();
+    }
+
+    /**
+     * The product holding a performance's shared settings: the parent of a
+     * variation, otherwise the id itself.
+     */
+    public static function owner($performance_id) {
+        $id = (int) $performance_id;
+        if (!isset(self::$owners[$id])) {
+            $parent = (function_exists('get_post_type') && get_post_type($id) === 'product_variation') ? (int) wp_get_post_parent_id($id) : 0;
+            self::$owners[$id] = $parent ?: $id;
+        }
+        return self::$owners[$id];
+    }
+
+    /**
+     * An Event Ticket product, or a performance (variation) of one.
+     *
+     * @param WC_Product|false|null $product
+     */
+    public static function is_ticket_product($product) {
+        if (!$product || !is_object($product) || !method_exists($product, 'get_type')) {
+            return false;
+        }
+        if ($product->get_type() === 'ticket') {
+            return true;
+        }
+        if ($product->get_type() !== 'variation' || !method_exists($product, 'get_parent_id')) {
+            return false;
+        }
+        $parent = (int) $product->get_parent_id();
+        if (class_exists('WC_Product_Factory') && method_exists('WC_Product_Factory', 'get_product_type')) {
+            return WC_Product_Factory::get_product_type($parent) === 'ticket';
+        }
+        $p = function_exists('wc_get_product') ? wc_get_product($parent) : null;
+        return $p && $p->get_type() === 'ticket';
+    }
+
+    /**
+     * The performances of a ticket product, earliest first. With variations
+     * these are its enabled variations; without, the product itself, plus any
+     * other ticket products linked to the same event (how several
+     * performances were set up before variations).
+     *
+     * @param int $id The product or any of its performances.
+     * @return int[]
+     */
+    public static function performances($id) {
+        $owner = self::owner($id);
+        $product = function_exists('wc_get_product') ? wc_get_product($owner) : null;
+        $ids = ($product && method_exists($product, 'get_visible_children')) ? array_map('intval', (array) $product->get_visible_children()) : array();
+        if (!$ids) {
+            $ids = self::linked_products($owner);
+        }
+        usort($ids, function ($a, $b) {
+            $da = self::event_date($a);
+            $db = self::event_date($b);
+            if ($da === '' || $db === '') {
+                return ($da === '') <=> ($db === '') ?: $a - $b;
+            }
+            return strcmp($da, $db) ?: $a - $b;
+        });
+        return $ids;
+    }
+
+    /**
+     * Whether this id is something seats are sold for: a performance
+     * variation, or a ticket product without variations.
+     */
+    public static function is_performance($id) {
+        $id = (int) $id;
+        $product = $id > 0 && function_exists('wc_get_product') ? wc_get_product($id) : null;
+        return self::is_ticket_product($product) && in_array($id, self::performances($id), true);
+    }
+
+    /**
+     * @return int[] Performances whose online sales are still open.
+     */
+    public static function open_performances($id) {
+        return array_values(array_filter(self::performances($id), function ($p) {
+            return !self::sales_closed($p);
+        }));
+    }
+
+    /**
+     * "2026-11-13T19:00" as entered for the performance, or ''.
+     */
+    public static function event_date($performance_id) {
+        return (string) get_post_meta((int) $performance_id, self::META_EVENT_DATE, true);
+    }
+
+    public static function event_ts($performance_id) {
+        return self::local_ts(self::event_date($performance_id));
+    }
+
+    /**
+     * @return int The calendar event the performance is linked to, or 0.
+     */
+    public static function event_id($performance_id) {
+        return (int) get_post_meta((int) $performance_id, self::META_EVENT_ID, true);
+    }
+
+    /**
+     * @return int[] A product without variations and the other ticket products linked to its event.
+     */
+    private static function linked_products($product_id) {
+        $event = self::event_id($product_id);
+        if (!$event || !function_exists('wc_get_products')) {
+            return array((int) $product_id);
+        }
+        $ids = wc_get_products(array(
+            'type'       => 'ticket',
+            'status'     => 'publish',
+            'limit'      => 20,
+            'return'     => 'ids',
+            'meta_key'   => self::META_EVENT_ID,
+            'meta_value' => (string) $event,
+        ));
+        return array_values(array_unique(array_merge(array((int) $product_id), array_map('intval', (array) $ids))));
     }
 
     /**
@@ -77,7 +204,7 @@ class Azure_Tickets_Config {
     }
 
     public static function venue_id($product_id) {
-        return (int) get_post_meta((int) $product_id, self::META_VENUE, true);
+        return (int) get_post_meta(self::owner($product_id), self::META_VENUE, true);
     }
 
     public static function layout($product_id) {
@@ -91,6 +218,7 @@ class Azure_Tickets_Config {
 
     public static function flush() {
         self::$layouts = array();
+        self::$owners = array();
     }
 
     /**
@@ -102,7 +230,7 @@ class Azure_Tickets_Config {
      * @return array<string,array{id:string,type:string,name:string,price:float,default_price:float,limit:int,enabled:bool,on_sale:bool,from:string,opens_at:int,access:string,capacity:int,block:array}>
      */
     public static function sections($product_id) {
-        $stored = json_decode((string) get_post_meta((int) $product_id, self::META_SECTIONS, true), true);
+        $stored = json_decode((string) get_post_meta(self::owner($product_id), self::META_SECTIONS, true), true);
         $stored = is_array($stored) ? $stored : array();
         $closed = self::sales_closed($product_id);
         $now = self::now();
@@ -146,7 +274,7 @@ class Azure_Tickets_Config {
     }
 
     public static function ada_price($product_id) {
-        $v = get_post_meta((int) $product_id, self::META_ADA_PRICE, true);
+        $v = get_post_meta(self::owner($product_id), self::META_ADA_PRICE, true);
         return ($v === '' || $v === null || $v === false) ? null : round(max(0, (float) $v), 2);
     }
 
@@ -155,7 +283,7 @@ class Azure_Tickets_Config {
     }
 
     /**
-     * When online sales stop: the time set on the product, else midnight at
+     * When online sales stop: the time set on the performance, else midnight at
      * the start of the performance day, else never (0).
      */
     public static function sales_close_ts($product_id) {
@@ -163,7 +291,7 @@ class Azure_Tickets_Config {
         if ($set) {
             return $set;
         }
-        $date = (string) get_post_meta((int) $product_id, self::META_EVENT_DATE, true);
+        $date = self::event_date($product_id);
         return $date !== '' ? self::local_ts(substr(str_replace('T', ' ', $date), 0, 10)) : 0;
     }
 
@@ -179,7 +307,7 @@ class Azure_Tickets_Config {
      * @return int[]
      */
     public static function vip_products($product_id) {
-        return array_values(array_filter(array_map('intval', (array) get_post_meta((int) $product_id, self::META_VIP_PRODUCTS, true))));
+        return array_values(array_filter(array_map('intval', (array) get_post_meta(self::owner($product_id), self::META_VIP_PRODUCTS, true))));
     }
 
     /**
@@ -232,11 +360,11 @@ class Azure_Tickets_Config {
      * @return int[] Products offered on the extras step after choosing seats.
      */
     public static function extras($product_id) {
-        return array_values(array_filter(array_map('intval', (array) get_post_meta((int) $product_id, self::META_EXTRAS, true))));
+        return array_values(array_filter(array_map('intval', (array) get_post_meta(self::owner($product_id), self::META_EXTRAS, true))));
     }
 
     public static function extras_heading($product_id) {
-        $h = trim((string) get_post_meta((int) $product_id, self::META_EXTRAS_HEADING, true));
+        $h = trim((string) get_post_meta(self::owner($product_id), self::META_EXTRAS_HEADING, true));
         return $h !== '' ? $h : __('Jazz up your theater experience', 'azure-plugin');
     }
 
@@ -261,15 +389,15 @@ class Azure_Tickets_Config {
     }
 
     public static function release_accessible($product_id) {
-        return get_post_meta((int) $product_id, self::META_RELEASE_ACCESSIBLE, true) === 'yes';
+        return get_post_meta(self::owner($product_id), self::META_RELEASE_ACCESSIBLE, true) === 'yes';
     }
 
     public static function require_names($product_id) {
-        return get_post_meta((int) $product_id, self::META_REQUIRE_NAMES, true) === 'yes';
+        return get_post_meta(self::owner($product_id), self::META_REQUIRE_NAMES, true) === 'yes';
     }
 
     public static function order_limit($product_id) {
-        $n = (int) get_post_meta((int) $product_id, self::META_ORDER_LIMIT, true);
+        $n = (int) get_post_meta(self::owner($product_id), self::META_ORDER_LIMIT, true);
         return $n > 0 ? $n : self::DEFAULT_ORDER_LIMIT;
     }
 
@@ -277,7 +405,7 @@ class Azure_Tickets_Config {
      * @return array{emails:string[],products:int[],since:string,limit:int}
      */
     public static function family_rules($product_id) {
-        $product_id = (int) $product_id;
+        $product_id = self::owner($product_id);
         $since = (string) get_post_meta($product_id, self::META_FAMILY_SINCE, true);
         return array(
             'emails'   => self::parse_emails((string) get_post_meta($product_id, self::META_FAMILY_EMAILS, true)),
@@ -332,12 +460,12 @@ class Azure_Tickets_Config {
 
     /**
      * Price range for the shop listing: switched-on sections, including
-     * those that open later, while online sales are open.
+     * those that open later, while online sales for any performance are open.
      *
      * @return float[]|null
      */
     public static function listed_price_range($product_id) {
-        if (self::sales_closed($product_id)) {
+        if (!self::open_performances($product_id)) {
             return null;
         }
         $prices = array();
@@ -347,31 +475,6 @@ class Azure_Tickets_Config {
             }
         }
         return $prices ? array(min($prices), max($prices)) : null;
-    }
-
-    /**
-     * Other performances: ticket products linked to the same event.
-     *
-     * @return int[] Product ids, earliest performance first, including $product_id.
-     */
-    public static function performances($product_id) {
-        $event = (int) get_post_meta((int) $product_id, self::META_EVENT_ID, true);
-        if (!$event || !function_exists('wc_get_products')) {
-            return array((int) $product_id);
-        }
-        $ids = wc_get_products(array(
-            'type'       => 'ticket',
-            'status'     => 'publish',
-            'limit'      => 20,
-            'return'     => 'ids',
-            'meta_key'   => self::META_EVENT_ID,
-            'meta_value' => (string) $event,
-        ));
-        $ids = array_values(array_unique(array_merge(array((int) $product_id), array_map('intval', (array) $ids))));
-        usort($ids, function ($a, $b) {
-            return strcmp((string) get_post_meta($a, self::META_EVENT_DATE, true), (string) get_post_meta($b, self::META_EVENT_DATE, true)) ?: $a - $b;
-        });
-        return $ids;
     }
 
     /**

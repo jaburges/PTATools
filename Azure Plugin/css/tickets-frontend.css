@@ -38,6 +38,25 @@
     line-height: 1.3;
 }
 
+button.pta-tickets__performance {
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+    margin: 0;
+}
+
+button.pta-tickets__performance:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.pta-tickets__performance small {
+    display: block;
+    font-size: 0.8em;
+}
+
 .pta-tickets__performance.is-current {
     background: #1d2327;
     border-color: #1d2327;
@@ -46,8 +65,11 @@
 
 .pta-seatmap {
     --pta-taken: #c3c4c7;
-    --pta-selected: #1d2327;
+    --pta-selected: #ff6d00;
     --pta-accent: #2271b1;
+    --pta-off: #dcdcde;
+    --pta-off-fill: #f6f7f7;
+    --pta-off-text: #a7aaad;
 }
 
 .pta-seatmap__loading,
@@ -172,22 +194,12 @@
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
-    border: 1px solid;
     padding: 2px 4px 4px;
+    overflow: visible;
 }
 
-.pta-block__head {
-    font-size: 11px;
-    font-weight: 700;
-    color: #1d2327;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 16px;
-}
-
-.pta-block__head span {
-    font-weight: 400;
+.pta-block--seats.is-off {
+    --seat: var(--pta-off-text);
 }
 
 .pta-rows {
@@ -222,10 +234,26 @@
 
 .pta-row {
     flex: 0 0 10px;
-    font-size: 8px;
+    font-size: 9px;
+    font-weight: 700;
     align-self: center;
     padding-right: 2px;
-    color: #50575e;
+    color: var(--seat, #50575e);
+}
+
+.pta-rowline.pta-nums {
+    flex: 0 0 11px;
+}
+
+.pta-num {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 8px;
+    font-weight: 600;
+    line-height: 11px;
+    text-align: center;
+    color: var(--seat, #50575e);
+    white-space: nowrap;
 }
 
 .pta-seat,
@@ -237,12 +265,13 @@
 
 .pta-seat {
     display: block;
+    box-sizing: border-box;
     height: 100%;
     margin: 0;
     padding: 0;
-    border: 0;
+    border: 1.5px solid var(--seat, var(--pta-accent));
     border-radius: 3px 3px 5px 5px;
-    background: var(--seat, var(--pta-accent));
+    background: #fff;
     cursor: pointer;
     position: relative;
     box-shadow: none;
@@ -258,6 +287,7 @@
 
 .pta-seat.is-selected {
     background: var(--pta-selected);
+    border-color: var(--pta-selected);
 }
 
 .pta-seat.is-selected::after {
@@ -274,6 +304,7 @@
 
 .pta-seat.is-accessible {
     background: #1565c0;
+    border-color: #1565c0;
     border-radius: 50%;
 }
 
@@ -283,11 +314,13 @@
 
 .pta-seat.is-companion {
     background: #90caf9;
-    box-shadow: inset 0 0 0 2px #1565c0;
+    border-color: #1565c0;
 }
 
+.pta-seat.is-accessible.is-selected,
 .pta-seat.is-companion.is-selected {
     background: var(--pta-selected);
+    border-color: var(--pta-selected);
 }
 
 .pta-seat.is-accessible:not(.is-selected)::after {
@@ -305,7 +338,18 @@
 .pta-seat.is-taken,
 .pta-seat.is-mine {
     background: var(--pta-taken);
+    border-color: var(--pta-taken);
     cursor: not-allowed;
+}
+
+.pta-seat.is-off {
+    background: var(--pta-off-fill);
+    border-color: var(--pta-off);
+    cursor: not-allowed;
+}
+
+.pta-seat.is-accessible.is-off::after {
+    color: var(--pta-off-text);
 }
 
 .pta-seat.is-mine {
@@ -316,10 +360,6 @@
     opacity: 0.45;
 }
 
-.pta-block.is-off {
-    opacity: 0.6;
-}
-
 .pta-seat.is-demo {
     display: inline-block;
     flex: none;
@@ -328,12 +368,38 @@
     cursor: default;
 }
 
-.pta-seatmap__opens {
-    padding: 10px 14px;
-    background: #f0f6fc;
-    border-left: 4px solid var(--pta-accent);
-    border-radius: 6px;
-    font-size: 0.95em;
+.pta-seat.is-demo.is-wide {
+    width: 28px;
+}
+
+.pta-hold {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    padding: 10px 16px;
+    background: #1d2327;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.pta-hold__clock {
+    font-variant-numeric: tabular-nums;
+}
+
+.pta-hold.is-ending {
+    background: #b32d2e;
+}
+
+.pta-hold.is-ended {
+    background: #50575e;
+}
+
+body.has-pta-hold {
+    padding-bottom: 64px;
 }
 
 .pta-counts {

@@ -72,23 +72,73 @@ class Azure_Tickets_Assign {
         $items = $wpdb->prefix . 'woocommerce_order_items';
         $meta = $wpdb->prefix . 'woocommerce_order_itemmeta';
         $rows = (array) $wpdb->get_results(
-            "SELECT i.order_id, SUM(q.meta_value) AS qty FROM {$items} i
-             JOIN {$meta} q ON q.order_item_id = i.order_item_id AND q.meta_key = '_qty'
+            "SELECT i.order_id,
+                    MAX(CASE WHEN m.meta_key = '_qty' THEN m.meta_value END) AS qty,
+                    MAX(CASE WHEN m.meta_key = '_variation_id' THEN m.meta_value END) AS variation_id
+             FROM {$items} i
+             JOIN {$meta} m ON m.order_item_id = i.order_item_id AND m.meta_key IN ('_qty', '_variation_id')
              WHERE i.order_item_type = 'line_item' AND EXISTS (
                  SELECT 1 FROM {$meta} p WHERE p.order_item_id = i.order_item_id
                  AND p.meta_key IN ('_product_id', '_variation_id') AND p.meta_value IN ({$in})
              )
-             GROUP BY i.order_id ORDER BY i.order_id",
+             GROUP BY i.order_item_id, i.order_id ORDER BY i.order_id",
             ARRAY_A
         );
+        $performances = Azure_Tickets_Config::performances($product_id);
         $out = array();
         foreach ($rows as $r) {
+            if (!in_array((int) $product_id, self::line_performances((int) $r['variation_id'], $performances), true)) {
+                continue;
+            }
             $order = wc_get_order((int) $r['order_id']);
             if ($order && in_array($order->get_status(), self::PAID, true)) {
-                $out[(int) $r['order_id']] = (int) $r['qty'];
+                $out[(int) $r['order_id']] = ($out[(int) $r['order_id']] ?? 0) + (int) $r['qty'];
             }
         }
         return $out;
+    }
+
+    /**
+     * Which performances a VIP line is for. A VIP variation goes to the
+     * performances with the same option (both "Friday"), else to those on
+     * the weekday its option names ("Friday 7pm"); a VIP product without
+     * variations, or an option that matches none, goes to all of them.
+     *
+     * @param int[] $performances
+     * @return int[]
+     */
+    public static function line_performances($vip_variation_id, array $performances) {
+        $mine = $vip_variation_id ? self::options($vip_variation_id) : array();
+        if (!$mine) {
+            return $performances;
+        }
+        $exact = array_values(array_filter($performances, function ($p) use ($mine) {
+            return (bool) array_intersect($mine, self::options($p));
+        }));
+        if ($exact) {
+            return $exact;
+        }
+        $words = array();
+        foreach ($mine as $option) {
+            $words = array_merge($words, explode('-', $option));
+        }
+        $by_day = array_values(array_filter($performances, function ($p) use ($words) {
+            $ts = Azure_Tickets_Config::event_ts($p);
+            return $ts && in_array(strtolower(wp_date('l', $ts)), $words, true);
+        }));
+        return $by_day ?: $performances;
+    }
+
+    /**
+     * @return string[] A variation's attribute values as slugs; empty for anything else.
+     */
+    private static function options($variation_id) {
+        if (!function_exists('wc_get_product_variation_attributes') || get_post_type((int) $variation_id) !== 'product_variation') {
+            return array();
+        }
+        return array_values(array_filter(array_map(function ($v) {
+            return sanitize_title((string) $v);
+        }, (array) wc_get_product_variation_attributes((int) $variation_id))));
     }
 
     /**

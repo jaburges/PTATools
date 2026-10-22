@@ -366,10 +366,10 @@ class Azure_Tickets_Apple_Wallet {
                 $section = (string) $block['name'];
             }
         }
-        $venue_id = (int) get_post_meta($pid, Azure_Tickets_Config::META_VENUE, true);
+        $venue_id = Azure_Tickets_Config::venue_id($pid);
         return array(
             'event'   => $product ? $product->get_name() : __('Event', 'azure-plugin'),
-            'starts'  => Azure_Tickets_Config::local_ts(get_post_meta($pid, Azure_Tickets_Config::META_EVENT_DATE, true)),
+            'starts'  => Azure_Tickets_Config::event_ts($pid),
             'section' => $section,
             'venue'   => $venue_id ? get_the_title($venue_id) : '',
             'org'     => (string) Azure_Settings::get_setting('org_name', get_bloginfo('name')),

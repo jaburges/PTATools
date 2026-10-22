@@ -215,9 +215,10 @@ class Azure_Tickets_Module {
      * Enqueue frontend assets
      */
     public function enqueue_frontend_assets() {
-        if (is_cart()) {
-            // For the extras reminder under the cart.
+        if (is_cart() || is_checkout()) {
+            // The extras reminder under the cart, and the seat hold countdown.
             wp_enqueue_style('azure-tickets-frontend', AZURE_PLUGIN_URL . 'css/tickets-frontend.css', array(), AZURE_PLUGIN_VERSION);
+            wp_enqueue_script('azure-tickets-hold-timer', AZURE_PLUGIN_URL . 'js/tickets-hold-timer.js', array(), AZURE_PLUGIN_VERSION, true);
             return;
         }
         if (!is_product()) {
@@ -233,10 +234,11 @@ class Azure_Tickets_Module {
                 AZURE_PLUGIN_VERSION
             );
             
+            wp_enqueue_script('azure-tickets-hold-timer', AZURE_PLUGIN_URL . 'js/tickets-hold-timer.js', array(), AZURE_PLUGIN_VERSION, true);
             wp_enqueue_script(
                 'azure-tickets-seat-selector',
                 AZURE_PLUGIN_URL . 'js/tickets-seat-selector.js',
-                array('jquery'),
+                array('jquery', 'azure-tickets-hold-timer'),
                 AZURE_PLUGIN_VERSION,
                 true
             );
@@ -275,8 +277,7 @@ class Azure_Tickets_Module {
         }
 
         foreach ($order->get_items() as $item) {
-            $product = $item->get_product();
-            if ($product && $product->get_type() === 'ticket') {
+            if (Azure_Tickets_Config::is_ticket_product($item->get_product())) {
                 $this->create_tickets_for_item($order, $item);
             }
         }
@@ -296,19 +297,20 @@ class Azure_Tickets_Module {
             return;
         }
         foreach ($seats as $seat) {
-            self::insert_ticket($order, $item->get_product_id(), $seat);
+            self::insert_ticket($order, Azure_Tickets_Cart::item_performance($item), $seat);
         }
     }
 
     /**
      * @param WC_Order $order
+     * @param int $product_id The performance: a variation, or a ticket product without variations.
      * @param array $seat section_id, seat_key, name
      */
     public static function insert_ticket($order, $product_id, array $seat) {
         global $wpdb;
         $reserved = preg_match('/^([A-Z])-(\d+)$/', (string) ($seat['seat_key'] ?? ''), $m);
-        $event_id = get_post_meta($product_id, '_ticket_event_id', true);
-        $venue_id = get_post_meta($product_id, '_ticket_venue_id', true);
+        $event_id = Azure_Tickets_Config::event_id($product_id);
+        $venue_id = Azure_Tickets_Config::venue_id($product_id);
         $ticket_code = self::generate_ticket_code();
         return $wpdb->insert($wpdb->prefix . 'azure_tickets', array(
             'order_id' => $order->get_id(),

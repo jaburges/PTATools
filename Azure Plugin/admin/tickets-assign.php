@@ -16,9 +16,13 @@ if (!class_exists('WooCommerce') || !class_exists('Azure_Tickets_Assign')) {
 $can_edit = current_user_can('manage_woocommerce');
 $performances = array();
 foreach ((array) wc_get_products(array('type' => 'ticket', 'status' => array('publish', 'private', 'draft'), 'limit' => 200)) as $p) {
-    if (Azure_Tickets_Config::vip_products($p->get_id())) {
-        $date = get_post_meta($p->get_id(), Azure_Tickets_Config::META_EVENT_DATE, true);
-        $performances[$p->get_id()] = $p->get_name() . ($date ? ' — ' . date_i18n('D j M, g:ia', strtotime($date)) : '');
+    if (!Azure_Tickets_Config::vip_products($p->get_id())) {
+        continue;
+    }
+    foreach (Azure_Tickets_Config::performances($p->get_id()) as $pid) {
+        $performance = $pid === $p->get_id() ? $p : wc_get_product($pid);
+        $ts = Azure_Tickets_Config::event_ts($pid);
+        $performances[$pid] = ($performance ? $performance->get_name() : $p->get_name()) . ($ts ? ' — ' . wp_date('D j M, g:ia', $ts) : '');
     }
 }
 $product_id = isset($_GET['product']) ? absint($_GET['product']) : 0;

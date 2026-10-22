@@ -46,15 +46,18 @@ class Azure_PTSA_REST_Tickets {
         $cutoff = Azure_Tickets_Config::now() - self::PAST_GRACE;
         $out = array();
         foreach ((array) $ids as $id) {
-            if (!self::is_performance((int) $id)) {
-                continue;
+            foreach (Azure_Tickets_Config::performances((int) $id) as $performance) {
+                if (isset($out[$performance]) || !Azure_Tickets_Config::is_performance($performance)) {
+                    continue;
+                }
+                $row = self::performance($performance);
+                if ($row['starts_at'] && $row['starts_at'] < $cutoff) {
+                    continue;
+                }
+                $out[$performance] = $row;
             }
-            $row = self::performance((int) $id);
-            if ($row['starts_at'] && $row['starts_at'] < $cutoff) {
-                continue;
-            }
-            $out[] = $row;
         }
+        $out = array_values($out);
         usort($out, function ($a, $b) {
             return ($a['starts_at'] ?: PHP_INT_MAX) <=> ($b['starts_at'] ?: PHP_INT_MAX) ?: $a['id'] <=> $b['id'];
         });
@@ -66,7 +69,7 @@ class Azure_PTSA_REST_Tickets {
             return $off;
         }
         $id = (int) $req['id'];
-        if (!self::is_performance($id)) {
+        if (!Azure_Tickets_Config::is_performance($id)) {
             return self::not_found();
         }
         $row = self::performance($id);
@@ -85,7 +88,7 @@ class Azure_PTSA_REST_Tickets {
         }
         $body = $req->get_json_params() ?: array();
         $product_id = (int) ($body['product_id'] ?? 0);
-        if (!self::is_performance($product_id)) {
+        if (!Azure_Tickets_Config::is_performance($product_id)) {
             return new WP_Error('ptsa_tickets_performance', 'Choose a performance first.', array('status' => 400));
         }
         $code = Azure_Tickets_Module::scanned_code((string) ($body['code'] ?? ''));
@@ -122,8 +125,7 @@ class Azure_PTSA_REST_Tickets {
      */
     public static function performance($product_id) {
         $product = wc_get_product($product_id);
-        $local = (string) get_post_meta($product_id, Azure_Tickets_Config::META_EVENT_DATE, true);
-        $ts = Azure_Tickets_Config::local_ts($local);
+        $ts = Azure_Tickets_Config::event_ts($product_id);
         $venue_id = Azure_Tickets_Config::venue_id($product_id);
         return array(
             'id'        => (int) $product_id,
@@ -145,11 +147,6 @@ class Azure_PTSA_REST_Tickets {
             'sold'       => $s['active'] + $s['checked_in'],
             'checked_in' => $s['checked_in'],
         );
-    }
-
-    private static function is_performance($product_id) {
-        $product = $product_id > 0 ? wc_get_product($product_id) : null;
-        return $product && $product->get_type() === 'ticket';
     }
 
     private static function module_off() {

@@ -4,10 +4,11 @@
  * product page container. Cart, pricing and seat holds are in
  * Azure_Tickets_Cart; the seat map itself is js/tickets-seat-selector.js.
  *
- * One ticket product is one performance. For several performances of the
- * same show, set one up and use WooCommerce's Duplicate, then change the
- * date: duplicates share the linked event, which is what puts the
- * "Other performances" links on the product page.
+ * An Event Ticket is a variable product: add an attribute such as
+ * "Performance" used for variations, and each variation is one performance
+ * with its own date, online sales close and linked event. The venue, section
+ * prices and the other settings are on the product and shared. A ticket
+ * product without variations is a single performance, dated on the Event tab.
  */
 
 if (!defined('ABSPATH')) {
@@ -19,14 +20,23 @@ add_filter('product_type_selector', function($types) {
     return $types;
 });
 
-if (class_exists('WC_Product')) {
+if (class_exists('WC_Product_Variable')) {
     
-    class WC_Product_Ticket extends WC_Product {
+    class WC_Product_Ticket extends WC_Product_Variable {
         
         protected $product_type = 'ticket';
         
         public function get_type() {
             return 'ticket';
+        }
+
+        // A variable product with no variations counts as out of stock; a
+        // ticket product without variations is a single performance.
+        public function validate_props() {
+            parent::validate_props();
+            if (!$this->get_children()) {
+                $this->set_stock_status('instock');
+            }
         }
         
         public function is_virtual() {
@@ -58,9 +68,17 @@ if (class_exists('WC_Product')) {
         }
         return $classname;
     }, 10, 2);
+
+    add_filter('woocommerce_data_stores', function($stores) {
+        $stores['product-ticket'] = 'WC_Product_Variable_Data_Store_CPT';
+        return $stores;
+    });
 }
 
 add_filter('woocommerce_product_data_tabs', function($tabs) {
+    if (isset($tabs['variations'])) {
+        $tabs['variations']['class'][] = 'show_if_ticket';
+    }
     $tabs['ticket_event'] = array(
         'label' => __('Event', 'azure-plugin'),
         'target' => 'ticket_event_options',
@@ -119,6 +137,9 @@ function azure_tickets_seating_panel($product_id) {
     $rules = Azure_Tickets_Config::family_rules($product_id);
     $raw_since = (string) get_post_meta($product_id, Azure_Tickets_Config::META_FAMILY_SINCE, true);
     $currency = get_woocommerce_currency_symbol();
+    $own_performances = array_filter(Azure_Tickets_Config::performances($product_id), function ($p) use ($product_id) {
+        return Azure_Tickets_Config::owner($p) === $product_id;
+    });
     ?>
     <div class="pta-tickets-admin">
         <p>
@@ -136,7 +157,7 @@ function azure_tickets_seating_panel($product_id) {
                     <th><?php esc_html_e('On sale', 'azure-plugin'); ?></th>
                     <th><?php esc_html_e('Opens', 'azure-plugin'); ?> <span class="woocommerce-help-tip" data-tip="<?php esc_attr_e('Optional. The section is shown but can\'t be bought until this time (site timezone), e.g. rows held for cast and crew.', 'azure-plugin'); ?>"></span></th>
                     <th><?php esc_html_e('Who can buy', 'azure-plugin'); ?></th>
-                    <th><?php esc_html_e('Taken', 'azure-plugin'); ?> <span class="woocommerce-help-tip" data-tip="<?php esc_attr_e('Sold, awaiting payment, or held in a cart right now.', 'azure-plugin'); ?>"></span></th>
+                    <th><?php esc_html_e('Taken', 'azure-plugin'); ?> <span class="woocommerce-help-tip" data-tip="<?php esc_attr_e('Sold, awaiting payment, or held in a cart right now, across all performances.', 'azure-plugin'); ?>"></span></th>
                 </tr>
             </thead>
             <tbody>
@@ -159,7 +180,13 @@ function azure_tickets_seating_panel($product_id) {
                             <option value="families" <?php selected($s['access'], 'families'); ?>><?php esc_html_e('Eligible families only', 'azure-plugin'); ?></option>
                         </select>
                     </td>
-                    <td><?php echo (int) Azure_Tickets_Inventory::count_taken($product_id, array($sid)); ?></td>
+                    <td><?php
+                    $taken = 0;
+                    foreach ($own_performances as $performance) {
+                        $taken += Azure_Tickets_Inventory::count_taken($performance, array($sid));
+                    }
+                    echo (int) $taken;
+                    ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
@@ -186,7 +213,7 @@ function azure_tickets_seating_panel($product_id) {
         <?php endif; ?>
 
         <h4><?php esc_html_e('Cast & crew (VIP) seat assignment', 'azure-plugin'); ?></h4>
-        <p class="description"><?php esc_html_e('Orders for these products get their seats assigned by hand on the Assign seats screen, which then emails each family their seats and QR tickets. Pick the product, or the variation for this performance.', 'azure-plugin'); ?></p>
+        <p class="description"><?php esc_html_e('Orders for these products get their seats assigned by hand on the Assign seats screen, which then emails each family their seats and QR tickets. Pick the product, or its variations; a variation with the same option as a performance (e.g. "Friday") is assigned seats for that performance.', 'azure-plugin'); ?></p>
         <p>
             <select class="wc-product-search" multiple="multiple" style="width:100%" name="pta_ticket_vip_products[]" data-placeholder="<?php esc_attr_e('e.g. VIP Cast & Crew ticket', 'azure-plugin'); ?>" data-action="woocommerce_json_search_products_and_variations">
                 <?php foreach ($vip as $pid):
@@ -256,6 +283,42 @@ function azure_tickets_seating_panel($product_id) {
     <?php
 }
 
+/**
+ * Upcoming calendar events to link a performance to, plus $keep (already linked) if older.
+ *
+ * @return array<int|string,string>
+ */
+function azure_tickets_event_options($keep = 0) {
+    static $events = null;
+    if ($events === null) {
+        $events = get_posts(array(
+            'post_type'      => 'pta_event',
+            'posts_per_page' => 50,
+            'orderby'        => 'meta_value',
+            'meta_key'       => '_EventStartDate',
+            'order'          => 'ASC',
+            'meta_query'     => array(array(
+                'key'     => '_EventStartDate',
+                'value'   => date('Y-m-d'),
+                'compare' => '>=',
+                'type'    => 'DATE',
+            )),
+        ));
+    }
+    $list = $events;
+    $keep = (int) $keep;
+    if ($keep && !in_array($keep, wp_list_pluck($list, 'ID'), true) && ($e = get_post($keep))) {
+        $list[] = $e;
+    }
+    $options = array('' => __('-- None --', 'azure-plugin'));
+    foreach ($list as $event) {
+        $start_date = get_post_meta($event->ID, '_EventStartDate', true);
+        $date_label = $start_date ? date_i18n('M j, Y', strtotime($start_date)) : '';
+        $options[$event->ID] = $event->post_title . ($date_label ? ' (' . $date_label . ')' : '');
+    }
+    return $options;
+}
+
 add_action('woocommerce_product_data_panels', function() {
     global $post;
 
@@ -266,41 +329,21 @@ add_action('woocommerce_product_data_panels', function() {
         'order'          => 'ASC',
         'post_status'    => 'publish',
     ));
-
-    $events = get_posts(array(
-        'post_type'      => 'pta_event',
-        'posts_per_page' => 50,
-        'orderby'        => 'meta_value',
-        'meta_key'       => '_EventStartDate',
-        'order'          => 'ASC',
-        'meta_query'     => array(array(
-            'key'     => '_EventStartDate',
-            'value'   => date('Y-m-d'),
-            'compare' => '>=',
-            'type'    => 'DATE',
-        )),
-    ));
-    $linked = (int) get_post_meta($post->ID, '_ticket_event_id', true);
-    if ($linked && !in_array($linked, wp_list_pluck($events, 'ID'), true) && ($e = get_post($linked))) {
-        $events[] = $e;
-    }
+    $product = wc_get_product($post->ID);
+    $has_variations = $product && $product->get_type() === 'ticket' && $product->get_children();
 
     ?>
     <div id="ticket_event_options" class="panel woocommerce_options_panel">
         <div class="options_group">
+            <?php if ($has_variations): ?>
+            <p class="form-field"><?php esc_html_e('Each variation is a performance: set its date, online sales close and linked event on the Variations tab. The venue and everything on Seating & Prices are shared by all performances.', 'azure-plugin'); ?></p>
+            <?php else: ?>
+            <p class="form-field"><?php esc_html_e('For several performances, add an attribute such as "Performance" (tick "Used for variations") and create a variation for each one; their dates are then set on the Variations tab. For a single performance, set it here.', 'azure-plugin'); ?></p>
             <?php
-            $event_options = array('' => __('-- None --', 'azure-plugin'));
-            foreach ($events as $event) {
-                $start_date = get_post_meta($event->ID, '_EventStartDate', true);
-                $date_label = $start_date ? date_i18n('M j, Y', strtotime($start_date)) : '';
-                $event_options[$event->ID] = $event->post_title . ($date_label ? ' (' . $date_label . ')' : '');
-            }
             woocommerce_wp_select(array(
                 'id' => '_ticket_event_id',
                 'label' => __('Link to Event', 'azure-plugin'),
-                'description' => __('Performances linked to the same event link to each other on the product page.', 'azure-plugin'),
-                'desc_tip' => true,
-                'options' => $event_options
+                'options' => azure_tickets_event_options(get_post_meta($post->ID, '_ticket_event_id', true))
             ));
 
             woocommerce_wp_text_input(array(
@@ -318,6 +361,7 @@ add_action('woocommerce_product_data_panels', function() {
                 'desc_tip' => true,
                 'type' => 'datetime-local'
             ));
+            endif;
             
             $venue_options = array('' => __('-- Select Venue --', 'azure-plugin'));
             foreach ($venue_posts as $venue) {
@@ -368,6 +412,11 @@ add_action('woocommerce_product_data_panels', function() {
         .show_if_ticket { display: none; }
         .product-type-ticket .show_if_ticket { display: block; }
         .product-type-ticket .hide_if_ticket { display: none; }
+        .pta-ticket-variation { display: none; clear: both; }
+        #woocommerce-product-data.pta-is-ticket .enable_variation,
+        #woocommerce-product-data.pta-is-ticket .pta-ticket-variation { display: block !important; }
+        #woocommerce-product-data.pta-is-ticket .woocommerce_variation .variable_pricing { display: none !important; }
+        .pta-ticket-variation .pta-ticket-variation__title { margin: 8px 0 0; }
         #ticket_seating_options .pta-tickets-sections td, #ticket_seating_options .pta-tickets-sections th { vertical-align: middle; padding: 6px 8px; }
         #ticket_seating_options .pta-tickets-sections input, #ticket_seating_options .pta-tickets-sections select { float: none; margin: 0; }
         #ticket_seating_options textarea, #ticket_seating_options input[type=date], #ticket_seating_options input[type=text], #ticket_seating_options input[type=datetime-local] { float: none; }
@@ -382,6 +431,7 @@ add_action('woocommerce_product_data_panels', function() {
         function toggleTicketFields() {
             var isTicket = $('#product-type').val() === 'ticket';
             $('.show_if_ticket').toggle(isTicket);
+            $('#woocommerce-product-data').toggleClass('pta-is-ticket', isTicket);
             if (isTicket) {
                 $('.hide_if_ticket').hide();
             }
@@ -464,6 +514,49 @@ add_action('woocommerce_process_product_meta', function($post_id) {
     }
 }, 10);
 
+/**
+ * Per performance (variation): date, online sales close, linked event.
+ * Shown only while the product type is Event Ticket.
+ */
+add_action('woocommerce_product_after_variable_attributes', function($loop, $variation_data, $variation) {
+    $id = (int) $variation->ID;
+    $loop = (int) $loop;
+    ?>
+    <div class="pta-ticket-variation">
+        <p class="form-row form-row-full pta-ticket-variation__title">
+            <strong><?php esc_html_e('Performance', 'azure-plugin'); ?></strong> &mdash;
+            <?php esc_html_e('prices come from Seating & Prices, so no price is needed here.', 'azure-plugin'); ?>
+        </p>
+        <p class="form-row form-row-first">
+            <label for="pta_ticket_event_date_<?php echo $loop; ?>"><?php esc_html_e('Performance date', 'azure-plugin'); ?></label>
+            <input type="datetime-local" id="pta_ticket_event_date_<?php echo $loop; ?>" name="pta_ticket_event_date[<?php echo $loop; ?>]" value="<?php echo esc_attr(Azure_Tickets_Config::clean_local(Azure_Tickets_Config::event_date($id))); ?>">
+        </p>
+        <p class="form-row form-row-last">
+            <label for="pta_ticket_sales_close_<?php echo $loop; ?>"><?php esc_html_e('Online sales close', 'azure-plugin'); ?></label>
+            <?php echo wc_help_tip(__('Blank = midnight at the start of the performance day.', 'azure-plugin')); ?>
+            <input type="datetime-local" id="pta_ticket_sales_close_<?php echo $loop; ?>" name="pta_ticket_sales_close[<?php echo $loop; ?>]" value="<?php echo esc_attr((string) get_post_meta($id, Azure_Tickets_Config::META_SALES_CLOSE, true)); ?>">
+        </p>
+        <p class="form-row form-row-full">
+            <label for="pta_ticket_event_id_<?php echo $loop; ?>"><?php esc_html_e('Linked event', 'azure-plugin'); ?></label>
+            <select id="pta_ticket_event_id_<?php echo $loop; ?>" name="pta_ticket_event_id[<?php echo $loop; ?>]" style="width:100%">
+                <?php foreach (azure_tickets_event_options(Azure_Tickets_Config::event_id($id)) as $value => $label): ?>
+                <option value="<?php echo esc_attr($value); ?>" <?php selected((string) $value, (string) (Azure_Tickets_Config::event_id($id) ?: '')); ?>><?php echo esc_html($label); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </p>
+    </div>
+    <?php
+}, 10, 3);
+
+add_action('woocommerce_save_product_variation', function($variation_id, $i) {
+    if (!isset($_POST['pta_ticket_event_date'][$i])) {
+        return;
+    }
+    update_post_meta($variation_id, Azure_Tickets_Config::META_EVENT_DATE, Azure_Tickets_Config::clean_local(wp_unslash($_POST['pta_ticket_event_date'][$i])));
+    update_post_meta($variation_id, Azure_Tickets_Config::META_SALES_CLOSE, Azure_Tickets_Config::clean_local(wp_unslash($_POST['pta_ticket_sales_close'][$i] ?? '')));
+    update_post_meta($variation_id, Azure_Tickets_Config::META_EVENT_ID, absint($_POST['pta_ticket_event_id'][$i] ?? 0) ?: '');
+}, 10, 2);
+
 // After WooCommerce has saved the product type and status.
 add_action('woocommerce_process_product_meta', function($post_id) {
     if (($_POST['product-type'] ?? '') === 'ticket') {
@@ -478,6 +571,21 @@ add_action('woocommerce_single_product_summary', function() {
     }
 }, 5);
 
+/**
+ * Short label for a performance in the chooser: its date, else its variation option.
+ */
+function azure_tickets_performance_label($performance_id) {
+    $ts = Azure_Tickets_Config::event_ts($performance_id);
+    if ($ts) {
+        return wp_date('D j M, g:i a', $ts);
+    }
+    $p = wc_get_product($performance_id);
+    if ($p && $p->get_type() === 'variation' && method_exists($p, 'get_attribute_summary') && $p->get_attribute_summary() !== '') {
+        return wp_strip_all_tags($p->get_attribute_summary());
+    }
+    return get_the_title($performance_id);
+}
+
 add_action('woocommerce_single_product_summary', function() {
     global $product;
     
@@ -485,36 +593,57 @@ add_action('woocommerce_single_product_summary', function() {
         return;
     }
     $product_id = $product->get_id();
-    $event_date = get_post_meta($product_id, '_ticket_event_date', true);
+    $now = Azure_Tickets_Config::now();
     $performances = Azure_Tickets_Config::performances($product_id);
+    $listed = array_values(array_filter($performances, function ($p) use ($now) {
+        $ts = Azure_Tickets_Config::event_ts($p);
+        return !$ts || $ts > $now;
+    })) ?: $performances;
+    $open = array_values(array_intersect($listed, Azure_Tickets_Config::open_performances($product_id)));
+    $wanted = isset($_GET['performance']) ? absint($_GET['performance']) : 0;
+    if (in_array($product_id, $open, true)) {
+        $chosen = $product_id;
+    } elseif (in_array($wanted, $open, true)) {
+        $chosen = $wanted;
+    } else {
+        $chosen = $open[0] ?? 0;
+    }
+    $full_date = function ($p) {
+        $ts = Azure_Tickets_Config::event_ts($p);
+        return $ts ? wp_date('l, F j, Y \a\t g:i A', $ts) : '';
+    };
+    $date = $chosen ? $full_date($chosen) : (count($listed) === 1 ? $full_date($listed[0]) : '');
     ?>
     <div class="pta-tickets">
-        <?php if ($event_date): ?>
-        <p class="pta-tickets__date">
+        <p class="pta-tickets__date"<?php echo $date === '' ? ' hidden' : ''; ?>>
             <span class="dashicons dashicons-calendar-alt" aria-hidden="true"></span>
-            <?php echo esc_html(date_i18n('l, F j, Y \a\t g:i A', strtotime($event_date))); ?>
+            <span class="pta-tickets__date-text"><?php echo esc_html($date); ?></span>
         </p>
-        <?php endif; ?>
 
-        <?php if (count($performances) > 1): ?>
+        <?php if (count($listed) > 1): ?>
         <nav class="pta-tickets__performances" aria-label="<?php esc_attr_e('Performances', 'azure-plugin'); ?>">
             <span class="pta-tickets__performances-label"><?php esc_html_e('Choose a performance:', 'azure-plugin'); ?></span>
-            <?php foreach ($performances as $pid):
-                $date = get_post_meta($pid, '_ticket_event_date', true);
-                $label = $date ? date_i18n('D j M, g:i a', strtotime($date)) : get_the_title($pid);
-                if ($pid === $product_id): ?>
+            <?php foreach ($listed as $pid):
+                $label = azure_tickets_performance_label($pid);
+                $is_open = in_array($pid, $open, true);
+                if (Azure_Tickets_Config::owner($pid) !== $product_id): ?>
+                <a class="pta-tickets__performance" href="<?php echo esc_url(get_permalink($pid)); ?>"><?php echo esc_html($label); ?></a>
+                <?php elseif ($pid === $product_id): ?>
                 <span class="pta-tickets__performance is-current" aria-current="page"><?php echo esc_html($label); ?></span>
                 <?php else: ?>
-                <a class="pta-tickets__performance" href="<?php echo esc_url(get_permalink($pid)); ?>"><?php echo esc_html($label); ?></a>
+                <button type="button" class="pta-tickets__performance<?php echo $pid === $chosen ? ' is-current' : ''; ?>" data-performance="<?php echo (int) $pid; ?>" data-date="<?php echo esc_attr($full_date($pid)); ?>" aria-pressed="<?php echo $pid === $chosen ? 'true' : 'false'; ?>"<?php disabled(!$is_open); ?>>
+                    <?php echo esc_html($label); ?>
+                    <?php if (!$is_open): ?><small><?php esc_html_e('Sales closed', 'azure-plugin'); ?></small><?php endif; ?>
+                </button>
                 <?php endif;
             endforeach; ?>
         </nav>
         <?php endif; ?>
 
-        <?php if (Azure_Tickets_Config::sales_closed($product_id)): ?>
-        <p class="pta-tickets__unavailable"><?php esc_html_e('Online sales for this performance have closed.', 'azure-plugin'); ?></p>
-        <?php elseif (Azure_Tickets_Config::sections($product_id)): ?>
-        <div class="pta-seatmap" data-product-id="<?php echo esc_attr($product_id); ?>" data-require-names="<?php echo Azure_Tickets_Config::require_names($product_id) ? '1' : '0'; ?>">
+        <?php if (!$chosen): ?>
+        <p class="pta-tickets__unavailable"><?php echo (count($listed) > 1 && !in_array($product_id, $performances, true)) ? esc_html__('Online sales for these performances have closed.', 'azure-plugin') : esc_html__('Online sales for this performance have closed.', 'azure-plugin'); ?></p>
+        <?php elseif (Azure_Tickets_Config::sections($chosen)): ?>
+        <div class="pta-seatmap" data-product-id="<?php echo esc_attr($chosen); ?>" data-require-names="<?php echo Azure_Tickets_Config::require_names($chosen) ? '1' : '0'; ?>">
             <p class="pta-seatmap__loading"><?php esc_html_e('Loading seating chart…', 'azure-plugin'); ?></p>
             <noscript><?php esc_html_e('Please turn on JavaScript to choose seats.', 'azure-plugin'); ?></noscript>
         </div>

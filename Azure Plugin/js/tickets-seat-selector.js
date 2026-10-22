@@ -149,38 +149,39 @@
             var d = this.data;
             var html = [];
             var lockedNames = [];
-            var opening = {};
             var hasAccessible = false, hasCompanion = false;
-            var sampleColor = '';
+            var colors = [], prices = {};
             var self = this;
             Object.keys(d.sections).forEach(function(sid) {
                 var b = self.blocks[sid], sec = d.sections[sid];
-                if (!sampleColor && b.type === 'rectangle' && !sec.locked) sampleColor = b.color;
                 if (sec.locked && sec.on_sale) lockedNames.push(b.name);
-                if (!sec.on_sale && sec.opens) (opening[sec.opens] = opening[sec.opens] || []).push(b.name);
-                if (b.type === 'rectangle') {
-                    hasAccessible = hasAccessible || hasType(b, 'accessible');
-                    hasCompanion = hasCompanion || hasType(b, 'companion');
+                if (b.type !== 'rectangle') return;
+                if (sec.on_sale && !sec.locked) {
+                    if (!prices[b.color]) { prices[b.color] = []; colors.push(b.color); }
+                    if (prices[b.color].indexOf(sec.price) === -1) prices[b.color].push(sec.price);
                 }
+                hasAccessible = hasAccessible || hasType(b, 'accessible');
+                hasCompanion = hasCompanion || hasType(b, 'companion');
             });
 
             html.push('<div class="pta-seatmap__notice" role="status" aria-live="polite"></div>');
-            Object.keys(opening).forEach(function(when) {
-                html.push('<p class="pta-seatmap__opens">🕒 <strong>' + esc(opening[when].join(', ')) + '</strong> ' +
-                    (opening[when].length > 1 ? 'go' : 'goes') + ' on sale ' + esc(when) + '.</p>');
-            });
             if (lockedNames.length) {
                 html.push('<p class="pta-seatmap__family">🔒 <strong>' + esc(lockedNames.join(', ')) + '</strong> ' +
                     (d.signed_in
                         ? 'is reserved for cast and crew families. Your account isn\'t on the list for this show; if you think it should be, please contact the PTSA.'
                         : 'is reserved for cast and crew families. <a href="' + esc(cfg.loginUrl) + '">Sign in</a> to buy seats there.') + '</p>');
             }
-            html.push('<div class="pta-seatmap__legend">' +
-                '<span><i class="pta-seat is-demo"' + (sampleColor ? ' style="--seat:' + esc(sampleColor) + '"' : '') + '></i>Available</span>' +
+            // Blocks carry no titles, so the legend is where each colour's price shows.
+            var available = colors.length ? colors.map(function(c) {
+                var p = prices[c].slice().sort(function(a, b) { return a - b; });
+                return '<span><i class="pta-seat is-demo" style="--seat:' + esc(c) + '"></i>Available · ' +
+                    (p.length > 1 ? 'from ' : '') + money(p[0]) + '</span>';
+            }).join('') : '<span><i class="pta-seat is-demo"></i>Available</span>';
+            html.push('<div class="pta-seatmap__legend">' + available +
                 '<span><i class="pta-seat is-demo is-selected"></i>Your choice</span>' +
                 '<span><i class="pta-seat is-demo is-taken"></i>Taken</span>' +
-                (hasAccessible ? '<span><i class="pta-seat is-demo is-accessible"></i>Wheelchair space (ADA)</span>' : '') +
-                (hasCompanion ? '<span><i class="pta-seat is-demo is-companion"></i>Companion seat</span>' : '') +
+                (hasAccessible ? '<span><i class="pta-seat is-demo is-accessible is-wide"></i>ADA space</span>' : '') +
+                (hasCompanion ? '<span><i class="pta-seat is-demo is-companion"></i>ADA companion seat</span>' : '') +
                 '</div>');
             html.push('<div class="pta-seatmap__tools">' +
                 '<button type="button" class="pta-seatmap__zoom" data-zoom="out" aria-label="Zoom out">−</button>' +
@@ -230,15 +231,22 @@
         rectangleHtml: function(b, sec, style) {
             var self = this;
             var parts = [];
-            var cls = 'pta-block pta-block--seats' + (!sec.on_sale ? ' is-off' : '') + (sec.locked ? ' is-locked' : '');
-            var nums = seatNumbers(b);
+            var off = !sec.on_sale;
+            var cls = 'pta-block pta-block--seats' + (off ? ' is-off' : '') + (sec.locked ? ' is-locked' : '');
+            var rows = rowLabels(b);
             if (b.angle) style += 'transform:rotate(' + Number(b.angle) + 'deg);';
-            parts.push('<div class="' + cls + '" style="' + style + 'background:' + tint(b.color, 0.12) + ';border-color:' + tint(b.color, 0.6) + '">');
-            parts.push('<div class="pta-block__head">' + esc(b.name) + ' <span>' +
-                (sec.on_sale ? money(sec.price) : (sec.opens ? 'On sale ' + esc(sec.opens) : 'Not on sale')) + (sec.locked ? ' 🔒' : '') +
-                ' · ' + nums[0] + '–' + nums[nums.length - 1] + '</span></div>');
+            // Sections not on sale take their grey from the stylesheet.
+            if (!off) style += '--seat:' + esc(b.color) + ';';
+            parts.push('<div class="' + cls + '" style="' + style + '">');
             parts.push('<div class="pta-rows" style="--n:' + b.seatsPerRow + '">');
-            rowLabels(b).forEach(function(r, i) {
+            if (!b.hideNumbers) {
+                parts.push('<div class="pta-rowline pta-nums' + (b.stagger ? ' stagger-a' : '') + '" aria-hidden="true"><span class="pta-row"></span><span class="pta-cells">');
+                rowCells(b, rows[0]).forEach(function(cell) {
+                    parts.push('<span class="pta-num" style="flex-grow:' + cell.span + '">' + (cell.type === 'none' ? '' : cell.n) + '</span>');
+                });
+                parts.push('</span></div>');
+            }
+            rows.forEach(function(r, i) {
                 parts.push('<div class="pta-rowline' + (b.stagger ? (i % 2 ? ' stagger-b' : ' stagger-a') : '') + '"><span class="pta-row">' + r + '</span><span class="pta-cells">');
                 rowCells(b, r).forEach(function(cell) {
                     if (cell.type === 'none') {
@@ -248,13 +256,14 @@
                     var st = self.state(b.id, cell.key);
                     var c = 'pta-seat' + (cell.type === 'accessible' ? ' is-accessible' : '') + (cell.type === 'companion' ? ' is-companion' : '') + (cell.span > 1 ? ' is-wide' : '');
                     var label = b.name + ', Row ' + r + ', Seat ' + cell.n +
-                        (cell.type === 'accessible' ? ', wheelchair space' : '') + (cell.type === 'companion' ? ', companion seat' : '');
+                        (cell.type === 'accessible' ? ', ADA space' : '') + (cell.type === 'companion' ? ', ADA companion seat' : '');
+                    var title = b.name + ' · Row ' + r + ', Seat ' + cell.n + (off ? '' : ' · ' + money(cell.type === 'accessible' ? sec.ada_price : sec.price));
                     var disabled = false;
-                    if (st === 'taken') { c += ' is-taken'; label += ', taken'; disabled = true; }
+                    if (off) { c += ' is-off'; label += ', not on sale'; disabled = true; }
+                    else if (st === 'taken') { c += ' is-taken'; label += ', taken'; disabled = true; }
                     else if (st === 'mine') { c += ' is-mine'; label += ', in your cart'; disabled = true; }
-                    else if (!sec.on_sale) { c += ' is-taken'; disabled = true; }
-                    parts.push('<button type="button" class="' + c + '" style="--seat:' + esc(b.color) + ';flex-grow:' + cell.span + '" data-s="' + esc(b.id) + '" data-k="' + cell.key + '"' +
-                        ' title="Row ' + r + ', Seat ' + cell.n + '" aria-label="' + esc(label) + '" aria-pressed="false"' + (disabled ? ' disabled' : '') + '></button>');
+                    parts.push('<button type="button" class="' + c + '" style="flex-grow:' + cell.span + '" data-s="' + esc(b.id) + '" data-k="' + cell.key + '"' +
+                        ' title="' + esc(title) + '" aria-label="' + esc(label) + '" aria-pressed="false"' + (disabled ? ' disabled' : '') + '></button>');
                 });
                 parts.push('</span></div>');
             });
@@ -321,7 +330,7 @@
             if (i !== -1) {
                 this.selected.splice(i, 1);
                 this.paintSeat(el);
-                this.notice(type === 'accessible' && restricted && this.dropExtraCompanions() ? 'A companion seat was let go too, as it goes with a wheelchair space.' : '', 'info');
+                this.notice(type === 'accessible' && restricted && this.dropExtraCompanions() ? 'An ADA companion seat was let go too, as it goes with an ADA space.' : '', 'info');
                 this.renderSummary();
                 return;
             }
@@ -334,7 +343,7 @@
                 return;
             }
             if (type === 'companion' && restricted && this.countType('companion') >= this.countType('accessible')) {
-                this.notice('Companion seats are for the companion of someone in a wheelchair space. Choose the wheelchair space first, then its companion seat.', 'info');
+                this.notice('ADA companion seats are for the companion of someone in an ADA space. Choose the ADA space first, then its companion seat.', 'info');
                 return;
             }
             var self = this;
@@ -374,8 +383,8 @@
             var $m = $(
                 '<div class="pta-modal" role="dialog" aria-modal="true" aria-labelledby="pta-ada-title">' +
                     '<div class="pta-modal__box">' +
-                        '<h3 id="pta-ada-title">♿ Wheelchair space</h3>' +
-                        '<p>There are only a few wheelchair spaces, and they are kept for guests who need them. Each has a companion seat beside it for someone in your party.</p>' +
+                        '<h3 id="pta-ada-title">♿ ADA space</h3>' +
+                        '<p>There are only a few ADA spaces, and they are kept for guests who need them. Each has an ADA companion seat beside it for someone in your party.</p>' +
                         '<label class="pta-modal__check"><input type="checkbox" class="pta-modal__ok"> I confirm that someone in my party uses a wheelchair or otherwise needs an accessible space, and meets the criteria for one of these limited seats.</label>' +
                         '<div class="pta-modal__actions">' +
                             '<button type="button" class="button pta-modal__cancel">Cancel</button>' +
@@ -464,7 +473,7 @@
                 if (prices[kind].indexOf(price) === -1) prices[kind].push(price);
                 total += price;
                 items.push(self.itemHtml('seat', i, b.name + ' · Row ' + parts[0] + ', Seat ' + parts[1] +
-                    (type === 'accessible' ? ' ♿' : '') + (type === 'companion' ? ' (companion)' : ''), price, s.name));
+                    (type === 'accessible' ? ' ♿' : '') + (type === 'companion' ? ' (ADA companion)' : ''), price, s.name));
             });
             Object.keys(this.general).forEach(function(sid) {
                 var g = self.general[sid], b = self.blocks[sid], sec = self.section(sid);
@@ -530,6 +539,7 @@
                         self.$root.siblings('.pta-tickets__performances').prop('hidden', true);
                         $extras.prop('hidden', false);
                         $extras[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        if (window.ptaHoldTimer) window.ptaHoldTimer(res.data.hold_left);
                         return;
                     }
                     window.location.href = res.data.cart_url || cfg.cartUrl;
@@ -593,7 +603,7 @@
                 var el = self.$root.find('.pta-seat[data-s="' + s.section_id + '"][data-k="' + s.seat_key + '"]')[0];
                 if (el) self.paintSeat(el);
                 if (!self.data.release_accessible && self.dropExtraCompanions()) {
-                    self.notice('A companion seat was let go too, as it goes with a wheelchair space.', 'info');
+                    self.notice('An ADA companion seat was let go too, as it goes with an ADA space.', 'info');
                 }
                 self.renderSummary();
             });
@@ -612,8 +622,37 @@
         }
     };
 
+    // Performances of the same product swap the seat map in place; nothing is
+    // held until "Add to cart", so the current selection is simply dropped.
+    function choosePerformance($btn) {
+        var $wrap = $btn.closest('.pta-tickets');
+        var $old = $wrap.find('.pta-seatmap');
+        var id = String($btn.attr('data-performance'));
+        if (!$old.length || String($old.attr('data-product-id')) === id) return;
+        $(window).off('resize.pta' + $old.attr('data-product-id'));
+        var $map = $('<div class="pta-seatmap"></div>')
+            .attr({ 'data-product-id': id, 'data-require-names': $old.attr('data-require-names') })
+            .html('<p class="pta-seatmap__loading">Loading seating chart…</p>');
+        $old.replaceWith($map);
+        $wrap.find('.pta-tickets__performance[data-performance]').removeClass('is-current').attr('aria-pressed', 'false');
+        $btn.addClass('is-current').attr('aria-pressed', 'true');
+        var date = $btn.attr('data-date') || '';
+        $wrap.find('.pta-tickets__date-text').text(date);
+        $wrap.find('.pta-tickets__date').prop('hidden', !date);
+        if (window.history && history.replaceState && window.URL) {
+            var url = new URL(window.location.href);
+            url.searchParams.set('performance', id);
+            history.replaceState(null, '', url.toString());
+            cfg.loginUrl = String(cfg.loginUrl).replace(/redirect_to=[^&]*/, 'redirect_to=' + encodeURIComponent(url.toString()));
+        }
+        new SeatMap($map);
+    }
+
     $(function() {
         $('.pta-seatmap').each(function() { new SeatMap($(this)); });
+        $(document).on('click', '.pta-tickets__performance[data-performance]', function() {
+            if (!this.disabled) choosePerformance($(this));
+        });
     });
 
 })(jQuery);

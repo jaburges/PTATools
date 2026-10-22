@@ -69,7 +69,7 @@ $ticket_products = $wpdb->get_results("
     SELECT DISTINCT p.ID, p.post_title 
     FROM {$wpdb->posts} p
     INNER JOIN {$tickets_table} t ON p.ID = t.product_id
-    WHERE p.post_type = 'product'
+    WHERE p.post_type IN ('product', 'product_variation')
     ORDER BY p.post_title
 ");
 ?>

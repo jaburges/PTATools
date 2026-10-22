@@ -13,7 +13,7 @@
     var SELLABLE = ['rectangle', 'general_admission'];
 
     var DEFAULTS = {
-        rectangle: { name: 'Section', price: 10, startRow: 'A', rowCount: 4, seatsPerRow: 10, startSeat: 1, angle: 0, stagger: false, color: '#4caf50', seatTypes: {} },
+        rectangle: { name: 'Section', price: 10, startRow: 'A', rowCount: 4, seatsPerRow: 10, startSeat: 1, angle: 0, stagger: false, hideNumbers: false, color: '#4caf50', seatTypes: {} },
         general_admission: { name: 'General Admission', price: 10, capacity: 50, color: '#ff9800', width: 200, height: 100 },
         area: { label: 'Gym mat – kids floor seating', color: '#d9cdea', width: 260, height: 110 },
         stage: { label: 'STAGE', color: '#333333', width: 400, height: 60 },
@@ -148,6 +148,7 @@
                 b.startSeat = clamp(b.startSeat, 1, 1000 - b.seatsPerRow);
                 b.angle = clamp(b.angle, -45, 45);
                 b.stagger = !!b.stagger;
+                b.hideNumbers = !!b.hideNumbers;
                 if (Array.isArray(b.seatTypes)) b.seatTypes = {};
                 if (!b.width || !b.height) fitRectangle(b);
             }
@@ -180,7 +181,7 @@
                     var counts = seatCounts(b);
                     var last = b.startSeat + b.seatsPerRow - 1;
                     html = '<div class="block-head">' + esc(b.name) + ' <span class="block-seats">' + b.startSeat + '–' + last + ' · ' + counts.total + ' seats' +
-                        (counts.accessible ? ' · ' + counts.accessible + ' ♿' : '') + '</span></div>' + this.gridHtml(b);
+                        (counts.accessible ? ' · ' + counts.accessible + ' ♿' : '') + (b.hideNumbers ? ' · no seat numbers' : '') + '</span></div>' + this.gridHtml(b);
                     break;
                 case 'general_admission':
                     html = '<div class="block-label">' + esc(b.name) + '<div class="block-seats">' + b.capacity + ' places, unnumbered</div></div>';

@@ -28,11 +28,17 @@ $t->check(!$r['ok'] && $r['taken'] === array($seat('reg', 'A-2')), 'a seat alrea
 $t->equals(array('reg' => array('A-1' => 'taken', 'A-2' => 'taken')), $I::taken($FRI, 'cartB'), 'all or nothing: A-3 was not left held by the failed attempt');
 $t->equals(array('reg' => array('A-1' => 'mine', 'A-2' => 'mine')), $I::taken($FRI, 'cartA'), 'the holder sees its own seats as mine');
 $t->check($I::claim($SAT, array($seat('reg', 'A-1')), 'cartB')['ok'], 'the same seat at another performance is separate');
-$t->check($I::claim($FRI, array($seat('reg', 'A-1')), 'cartA')['ok'], 'claiming your own seat again just refreshes it');
+$t->equals($I::$now + $I::HOLD_TTL, $I::hold_expires(array('cartA')), 'the hold runs 10 minutes from when it was taken');
+$t->equals(0, $I::hold_expires(array('nobody')), 'nothing held, no expiry');
+$I::$now += 300;
+$r = $I::claim($FRI, array($seat('reg', 'A-1')), 'cartA');
+$t->check($r['ok'] && $r['renewed'] === 0, 'claiming your own seat again keeps it');
+$t->equals($I::$now - 300 + $I::HOLD_TTL, $I::hold_expires(array('cartA')), 'without extending the hold');
 
 // ── Expiry ─────────────────────────────────────────────────────────────
-$I::$now += $I::HOLD_TTL + 1;
-$t->equals(array(), $I::taken($FRI), 'holds lapse after 15 minutes');
+$I::$now += $I::HOLD_TTL - 300 + 1;
+$t->equals(array(), $I::taken($FRI), 'holds lapse after 10 minutes, however often the cart is seen');
+$t->equals(0, $I::hold_expires(array('cartA')), 'and no longer count down');
 $t->check($I::claim($FRI, array($seat('reg', 'A-2')), 'cartB')['ok'], 'and a lapsed seat can be taken by someone else');
 $r = $I::claim($FRI, array($seat('reg', 'A-1'), $seat('reg', 'A-2')), 'cartA');
 $t->check(!$r['ok'] && $r['taken'] === array($seat('reg', 'A-2')), 'the first cart learns it lost A-2');

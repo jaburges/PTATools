@@ -13,7 +13,9 @@
  *
  * A rectangle's `seatTypes` map marks single seats, keyed "<row>-<number>":
  * "accessible" (wheelchair space), "companion" (the seat beside one) or
- * "none" (no seat there). `angle` and `stagger` only change the drawing.
+ * "none" (no seat there). `angle`, `stagger` and `hideNumbers` (no seat
+ * numbers above the first row, for a block continuing the one above) only
+ * change the drawing.
  *
  * Section ids are part of every hold, sale and ticket, so sanitize() keeps
  * them exactly as saved and only invents one for a block that has none.
@@ -104,6 +106,7 @@ class Azure_Tickets_Layout {
                     $block['startSeat'] = self::clamp($b['startSeat'] ?? 1, 1, self::MAX_SEAT_NUMBER - $block['seatsPerRow'] + 1);
                     $block['angle'] = self::clamp($b['angle'] ?? 0, -self::MAX_ANGLE, self::MAX_ANGLE);
                     $block['stagger'] = !empty($b['stagger']);
+                    $block['hideNumbers'] = !empty($b['hideNumbers']);
                     $block['seatTypes'] = self::seat_types($b['seatTypes'] ?? array(), $block);
                     break;
                 case 'general_admission':

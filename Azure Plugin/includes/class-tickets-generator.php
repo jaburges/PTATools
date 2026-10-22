@@ -170,7 +170,7 @@ class Azure_Tickets_Generator {
                     
                     <?php foreach ($tickets_by_product as $product_id => $product_tickets): 
                         $product = wc_get_product($product_id);
-                        $event_date = get_post_meta($product_id, '_ticket_event_date', true);
+                        $event_date = Azure_Tickets_Config::event_date($product_id);
                     ?>
                     
                     <div class="event-info">

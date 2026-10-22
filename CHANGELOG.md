@@ -2,6 +2,20 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.188 — Ticket performances as variations, cleaner seat map, 10-minute seat holds
+
+### Added
+
+- **One ticket product, several performances.** The Ticket product type is now a variable product. Add a variation per performance (for example Friday 7pm, Saturday 2pm), each with its own date, online sales close and linked event. The venue, sections, prices and extras are shared. The product page shows a performance chooser above the seat map. Ticket products without variations keep working as one performance.
+- **Countdown for held seats.** A bar on the cart, the checkout and the extras step shows how long the seats are held. If the hold runs out on the cart page and the seats are still free, they are held again; if someone else took one, the seats are removed with an explanation.
+- **"Hide seat numbers" for a section.** Tick it in the layout designer for a block that carries on from the one above, such as a row with an extra seat.
+
+### Changed
+
+- **Seat holds last a fixed 10 minutes** from "Add to cart". Revisiting the cart no longer extends them (it was 15 minutes, extended on every visit).
+- **Seat map look.** Sections have no fill or title. Seats are outlined in the section colour, row letters use the same colour, and seat numbers sit above the first row. The legend shows each colour's price. Your choice is orange. Wheelchair and companion seats are called "ADA space" and "ADA companion seat".
+- **Sections not on sale yet are greyed out**, without an "on sale" note.
+
 ## 3.147.187 — Door check-in from the PTSA Tools app
 
 ### Added

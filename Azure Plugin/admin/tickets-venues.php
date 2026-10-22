@@ -201,6 +201,10 @@ $pta_venues = get_posts(array(
                     <label><input type="checkbox" class="block-setting" data-setting="stagger"> <?php _e('Stagger rows (every other row shifted half a seat)', 'azure-plugin'); ?></label>
                 </div>
                 <div class="settings-group">
+                    <label><input type="checkbox" class="block-setting" data-setting="hideNumbers"> <?php _e('Hide seat numbers (line up with the block above)', 'azure-plugin'); ?></label>
+                    <p class="description"><?php _e('Buyers see seat numbers above the first row of each block. Tick this for a block that carries on from the one above it, such as a row with an extra seat.', 'azure-plugin'); ?></p>
+                </div>
+                <div class="settings-group">
                     <label><?php _e('Section Color', 'azure-plugin'); ?></label>
                     <input type="color" class="block-setting" data-setting="color" value="#4CAF50">
                 </div>

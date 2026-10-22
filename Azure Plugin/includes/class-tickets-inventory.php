@@ -6,7 +6,8 @@
  * stops two people getting the same seat: claiming is an INSERT IGNORE, so
  * of two simultaneous buyers exactly one row wins.
  *
- *   held     in someone's cart; gone after HOLD_TTL unless refreshed
+ *   held     in someone's cart; gone HOLD_TTL after it was taken. Seeing
+ *            the cart again does not extend it, so a hold is a fixed window.
  *   ordered  on an order awaiting payment; resolved by cleanup()
  *   sold     paid
  *
@@ -21,7 +22,7 @@ if (!defined('ABSPATH')) {
 
 class Azure_Tickets_Inventory {
 
-    const HOLD_TTL = 900;
+    const HOLD_TTL = 600;
     const ORDER_TTL = 3600;
     const DB_VERSION = '1';
     const DB_VERSION_OPTION = 'azure_tickets_inventory_db';
@@ -68,10 +69,11 @@ class Azure_Tickets_Inventory {
     /**
      * Hold places for a cart. All or nothing: if any place is taken by
      * someone else, nothing new is held. Places this hold key already has
-     * are refreshed, which is also how a cart keeps its seats.
+     * keep their original expiry; a lapsed one is held afresh if still free.
      *
      * @param array $places list of ['section_id' => string, 'seat_key' => string]
-     * @return array{ok:bool, taken:array} taken lists the places someone else has.
+     * @return array{ok:bool, taken:array, renewed:int} taken lists the places
+     *         someone else has; renewed counts places newly held.
      */
     public static function claim($product_id, array $places, $hold_key, $user_id = 0, $ttl = self::HOLD_TTL) {
         global $wpdb;
@@ -93,13 +95,7 @@ class Azure_Tickets_Inventory {
                 $inserted[] = $p;
                 continue;
             }
-            $refreshed = $wpdb->query($wpdb->prepare(
-                "UPDATE {$table} SET expires_at = %s WHERE product_id = %d AND section_id = %s AND seat_key = %s AND status = 'held' AND hold_key = %s",
-                $expires, $product_id, $section, $seat, $hold_key
-            ));
-            // MySQL counts rows changed, so a refresh within the same second
-            // reports 0 even though the hold is ours.
-            if (!$refreshed && !$wpdb->get_var($wpdb->prepare(
+            if (!$wpdb->get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM {$table} WHERE product_id = %d AND section_id = %s AND seat_key = %s AND status = 'held' AND hold_key = %s",
                 $product_id, $section, $seat, $hold_key
             ))) {
@@ -108,9 +104,29 @@ class Azure_Tickets_Inventory {
         }
         if ($taken) {
             self::delete_places($product_id, $inserted, $hold_key);
-            return array('ok' => false, 'taken' => $taken);
+            return array('ok' => false, 'taken' => $taken, 'renewed' => 0);
         }
-        return array('ok' => true, 'taken' => array());
+        return array('ok' => true, 'taken' => array(), 'renewed' => count($inserted));
+    }
+
+    /**
+     * When the earliest live hold of these hold keys runs out.
+     *
+     * @param string[] $hold_keys
+     * @return int Unix time, or 0 when nothing is held.
+     */
+    public static function hold_expires(array $hold_keys) {
+        $hold_keys = array_values(array_unique(array_filter(array_map('strval', $hold_keys))));
+        if (!$hold_keys) {
+            return 0;
+        }
+        global $wpdb;
+        $in = implode(', ', array_fill(0, count($hold_keys), '%s'));
+        $at = $wpdb->get_var($wpdb->prepare(
+            "SELECT MIN(expires_at) FROM " . self::table() . " WHERE status = 'held' AND expires_at >= %s AND hold_key IN ({$in})",
+            array_merge(array(self::now()), $hold_keys)
+        ));
+        return $at ? (int) strtotime($at . ' UTC') : 0;
     }
 
     /**

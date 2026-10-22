@@ -8,9 +8,11 @@
  * hold key, its quantity can't be edited, and its price is set here from
  * the section, never from the browser.
  *
- * Holds are refreshed whenever the cart is checked (cart page, checkout,
- * placing the order), move onto the order when it is placed, become sold
- * when it is paid, and are released if it fails, is cancelled or refunded.
+ * A hold lasts a fixed HOLD_TTL from "Add to cart", counted down on the cart
+ * and checkout pages. Whenever the cart is checked (cart page, checkout,
+ * placing the order) a lapsed hold is taken back if the seat is still free.
+ * Holds move onto the order when it is placed, become sold when it is paid,
+ * and are released if it fails, is cancelled or refunded.
  *
  * @package AzurePlugin
  */
@@ -27,6 +29,7 @@ class Azure_Tickets_Cart {
     const ITEM_KIND = '_ticket_kind';
     const ITEM_ATTEST = '_ticket_accessible_attested';
     const ORDER_ATTACHED = '_ticket_holds_attached';
+    const ITEM_ADDED = '_ticket_added';
 
     /** @var self|null */
     private static $instance = null;
@@ -56,6 +59,8 @@ class Azure_Tickets_Cart {
         add_filter('woocommerce_get_item_data', array($this, 'item_data'), 10, 2);
         add_action('woocommerce_cart_item_removed', array($this, 'line_removed'), 10, 2);
         add_action('woocommerce_check_cart_items', array($this, 'check_cart'));
+        add_action('template_redirect', array($this, 'check_cart_page'));
+        add_action('wp_footer', array($this, 'hold_banner'));
         add_filter('woocommerce_get_price_html', array($this, 'price_html'), 10, 2);
 
         add_action('woocommerce_checkout_create_order_line_item', array($this, 'copy_to_order_item'), 10, 3);
@@ -291,7 +296,18 @@ class Azure_Tickets_Cart {
     }
 
     public static function is_ticket($product) {
-        return $product && is_object($product) && method_exists($product, 'get_type') && $product->get_type() === 'ticket';
+        return Azure_Tickets_Config::is_ticket_product($product);
+    }
+
+    /**
+     * The performance a cart line (array) or order item is for: its
+     * variation, or the product for a ticket product without variations.
+     */
+    public static function item_performance($item) {
+        if (is_object($item)) {
+            return (int) $item->get_variation_id() ?: (int) $item->get_product_id();
+        }
+        return (int) ($item['variation_id'] ?? 0) ?: (int) ($item['product_id'] ?? 0);
     }
 
     // ── AJAX ───────────────────────────────────────────────────────────
@@ -309,7 +325,7 @@ class Azure_Tickets_Cart {
     private static function in_cart($product_id) {
         $n = 0;
         foreach (WC()->cart ? WC()->cart->get_cart() : array() as $item) {
-            if ((int) $item['product_id'] === (int) $product_id && !empty($item[self::ITEM_SEATS])) {
+            if (self::item_performance($item) === (int) $product_id && !empty($item[self::ITEM_SEATS])) {
                 $n += count($item[self::ITEM_SEATS]);
             }
         }
@@ -359,7 +375,7 @@ class Azure_Tickets_Cart {
 
     public function ajax_seat_map() {
         $product_id = (int) ($_POST['product_id'] ?? 0);
-        if (!self::is_ticket(wc_get_product($product_id))) {
+        if (!Azure_Tickets_Config::is_performance($product_id)) {
             wp_send_json_error(array('message' => __('Tickets aren\'t available for this item.', 'azure-plugin')));
         }
         nocache_headers();
@@ -369,7 +385,7 @@ class Azure_Tickets_Cart {
     public function ajax_add_to_cart() {
         $product_id = (int) ($_POST['product_id'] ?? 0);
         $product = wc_get_product($product_id);
-        if (!self::is_ticket($product) || !$product->is_purchasable()) {
+        if (!Azure_Tickets_Config::is_performance($product_id) || !$product->is_purchasable()) {
             wp_send_json_error(array('message' => __('Tickets aren\'t on sale for this performance.', 'azure-plugin')));
         }
         $request = array(
@@ -385,21 +401,25 @@ class Azure_Tickets_Cart {
         if (!$result['ok']) {
             wp_send_json_error(array('message' => $result['error'], 'login' => !empty($result['login']), 'reload' => !empty($result['taken'])));
         }
+        $owner = Azure_Tickets_Config::owner($product_id);
+        $variation_id = $owner !== $product_id ? $product_id : 0;
+        $attributes = $variation_id ? wc_get_product_variation_attributes($variation_id) : array();
         self::$adding = true;
         foreach ($result['lines'] as $line) {
-            $key = WC()->cart->add_to_cart($product_id, count($line['seats']), 0, array(), array(
+            $key = WC()->cart->add_to_cart($owner, count($line['seats']), $variation_id, $attributes, array(
                 self::ITEM_SEATS   => $line['seats'],
                 self::ITEM_HOLD    => $hold_key,
                 self::ITEM_SECTION => $line['section_id'],
                 self::ITEM_KIND    => $line['kind'],
                 self::ITEM_ATTEST  => $line['attested'],
+                self::ITEM_ADDED   => Azure_Tickets_Inventory::$now ?? time(),
             ));
             if (!$key) {
                 Azure_Tickets_Inventory::release($hold_key, $product_id, self::places_of($line['seats']));
             }
         }
         self::$adding = false;
-        wp_send_json_success(array('cart_url' => wc_get_cart_url()));
+        wp_send_json_success(array('cart_url' => wc_get_cart_url(), 'hold_left' => self::hold_state()['left']));
     }
 
     // ── Cart ───────────────────────────────────────────────────────────
@@ -416,11 +436,38 @@ class Azure_Tickets_Cart {
         if (!self::is_ticket($product)) {
             return $purchasable && !self::vip_closed($product);
         }
-        return $product->get_status() === 'publish' && Azure_Tickets_Config::price_range($product->get_id()) !== null;
+        return self::sellable($product);
     }
 
+    /**
+     * WooCommerce hides variations without a price; performances are priced
+     * by section, so they get the same answer as the product.
+     */
     public function vip_purchasable($purchasable, $variation) {
+        if (self::is_ticket($variation)) {
+            return self::sellable($variation);
+        }
         return $purchasable && !self::vip_closed($variation);
+    }
+
+    /**
+     * Published, and a performance (this one, or any of the product's) has a
+     * section on sale with online sales open.
+     */
+    private static function sellable($product) {
+        $id = (int) $product->get_id();
+        $owner = Azure_Tickets_Config::owner($id);
+        if ($product->get_status() !== 'publish' || ($owner !== $id && get_post_status($owner) !== 'publish')) {
+            return false;
+        }
+        $performances = Azure_Tickets_Config::performances($id);
+        $check = ($owner !== $id || in_array($id, $performances, true)) ? array($id) : $performances;
+        foreach ($check as $performance) {
+            if (Azure_Tickets_Config::price_range($performance) !== null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -441,11 +488,12 @@ class Azure_Tickets_Cart {
             if (empty($item[self::ITEM_SEATS]) || !self::is_ticket($item['data'])) {
                 continue;
             }
-            $sections = Azure_Tickets_Config::sections($item['product_id']);
+            $performance = self::item_performance($item);
+            $sections = Azure_Tickets_Config::sections($performance);
             $sid = $item[self::ITEM_SECTION] ?? '';
             if (isset($sections[$sid])) {
                 $kind = ($item[self::ITEM_KIND] ?? '') === Azure_Tickets_Config::KIND_ADA ? Azure_Tickets_Config::KIND_ADA : Azure_Tickets_Config::KIND_REGULAR;
-                $item['data']->set_price(Azure_Tickets_Config::seat_price($item['product_id'], $sections[$sid], $kind));
+                $item['data']->set_price(Azure_Tickets_Config::seat_price($performance, $sections[$sid], $kind));
             }
         }
     }
@@ -465,15 +513,15 @@ class Azure_Tickets_Cart {
     }
 
     /**
-     * @return int A ticket product in the cart that has extras, or 0.
+     * @return int A performance in the cart whose product has extras, or 0.
      */
     private static function cart_extras_product() {
         if (!function_exists('WC') || !WC()->cart) {
             return 0;
         }
         foreach (WC()->cart->get_cart() as $item) {
-            if (!empty($item[self::ITEM_SEATS]) && Azure_Tickets_Config::extras($item['product_id'])) {
-                return (int) $item['product_id'];
+            if (!empty($item[self::ITEM_SEATS]) && Azure_Tickets_Config::extras(self::item_performance($item))) {
+                return self::item_performance($item);
             }
         }
         return 0;
@@ -511,9 +559,9 @@ class Azure_Tickets_Cart {
         if (empty($item[self::ITEM_SEATS])) {
             return $data;
         }
-        $date = get_post_meta($item['product_id'], Azure_Tickets_Config::META_EVENT_DATE, true);
+        $date = Azure_Tickets_Config::event_date(self::item_performance($item));
         if ($date) {
-            $data[] = array('name' => __('Performance', 'azure-plugin'), 'value' => date_i18n('D j M, g:ia', strtotime($date)));
+            $data[] = array('name' => empty($item['variation_id']) ? __('Performance', 'azure-plugin') : __('Date', 'azure-plugin'), 'value' => date_i18n('D j M, g:ia', strtotime($date)));
         }
         $data[] = array('name' => __('Ticket type', 'azure-plugin'), 'value' => self::kind_label($item[self::ITEM_KIND] ?? ''));
         foreach ($item[self::ITEM_SEATS] as $s) {
@@ -525,7 +573,7 @@ class Azure_Tickets_Cart {
     public function line_removed($key, $cart) {
         $item = $cart->removed_cart_contents[$key] ?? null;
         if ($item && !empty($item[self::ITEM_SEATS])) {
-            Azure_Tickets_Inventory::release($item[self::ITEM_HOLD], $item['product_id'], self::places_of($item[self::ITEM_SEATS]));
+            Azure_Tickets_Inventory::release($item[self::ITEM_HOLD], self::item_performance($item), self::places_of($item[self::ITEM_SEATS]));
         }
     }
 
@@ -538,12 +586,74 @@ class Azure_Tickets_Cart {
             if (empty($item[self::ITEM_SEATS])) {
                 continue;
             }
-            $problem = self::refresh($item['product_id'], $item[self::ITEM_SEATS], $item[self::ITEM_HOLD], get_current_user_id());
+            $problem = self::refresh(self::item_performance($item), $item[self::ITEM_SEATS], $item[self::ITEM_HOLD], get_current_user_id());
             if ($problem !== '') {
                 $cart->remove_cart_item($key);
                 wc_add_notice($problem, 'error');
             }
         }
+    }
+
+    /**
+     * The block cart and checkout only check the cart from the browser, after
+     * the page (and its countdown bar) has been drawn, so check seats first.
+     */
+    public function check_cart_page() {
+        if (function_exists('is_cart') && (is_cart() || is_checkout()) && !is_order_received_page()) {
+            $this->check_cart();
+        }
+    }
+
+    /**
+     * The earliest seat hold in the cart.
+     *
+     * @return array{left:int, renewed:bool} Seconds left (0 when nothing is
+     *         held), and whether that hold was taken again after it lapsed.
+     */
+    public static function hold_state() {
+        $keys = array();
+        $added = 0;
+        foreach (WC()->cart ? WC()->cart->get_cart() : array() as $item) {
+            if (!empty($item[self::ITEM_SEATS]) && !empty($item[self::ITEM_HOLD])) {
+                $keys[] = $item[self::ITEM_HOLD];
+                $at = (int) ($item[self::ITEM_ADDED] ?? 0);
+                $added = $added && $at ? min($added, $at) : ($added ?: $at);
+            }
+        }
+        $expires = Azure_Tickets_Inventory::hold_expires($keys);
+        if (!$expires) {
+            return array('left' => 0, 'renewed' => false);
+        }
+        $now = Azure_Tickets_Inventory::$now ?? time();
+        return array(
+            'left'    => max(0, $expires - $now),
+            'renewed' => $added > 0 && $expires - Azure_Tickets_Inventory::HOLD_TTL > $added + 5,
+        );
+    }
+
+    /**
+     * The countdown bar on the cart and checkout pages. These pages are never
+     * page-cached, so the server's figure is safe to print.
+     */
+    public function hold_banner() {
+        if (!function_exists('is_cart') || !(is_cart() || is_checkout()) || is_order_received_page()) {
+            return;
+        }
+        $hold = self::hold_state();
+        $left = $hold['left'];
+        if ($left <= 0) {
+            return;
+        }
+        $text = $hold['renewed']
+            ? __('Your seat hold ran out, but your seats were still free, so they are held again for', 'azure-plugin')
+            : __('Your seats are held for', 'azure-plugin');
+        printf(
+            '<div class="pta-hold" data-left="%d" data-reload="%d" role="timer" aria-live="off"><span class="pta-hold__text">%s <strong class="pta-hold__clock">%s</strong></span></div>',
+            (int) $left,
+            is_cart() ? 1 : 0,
+            esc_html($text),
+            esc_html(sprintf('%d:%02d', intdiv($left, 60), $left % 60))
+        );
     }
 
     public static function kind_label($kind) {
@@ -591,7 +701,7 @@ class Azure_Tickets_Cart {
         foreach ($order->get_items() as $item) {
             $seats = $item->get_meta(self::ITEM_SEATS);
             if (is_array($seats) && $seats) {
-                $pid = (int) $item->get_product_id();
+                $pid = self::item_performance($item);
                 $by_product[$pid] = array_merge($by_product[$pid] ?? array(), self::places_of($seats));
             }
         }
@@ -610,7 +720,7 @@ class Azure_Tickets_Cart {
                 continue;
             }
             $places = self::places_of($seats);
-            $moved = Azure_Tickets_Inventory::attach_order($order->get_id(), (string) $item->get_meta(self::ITEM_HOLD), $item->get_product_id(), $places);
+            $moved = Azure_Tickets_Inventory::attach_order($order->get_id(), (string) $item->get_meta(self::ITEM_HOLD), self::item_performance($item), $places);
             $short += count($places) - $moved;
         }
         $order->update_meta_data(self::ORDER_ATTACHED, 1);

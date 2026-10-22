@@ -17,7 +17,7 @@ $events = $wpdb->get_results("
            SUM(CASE WHEN t.status = 'used' THEN 1 ELSE 0 END) as checked_in
     FROM {$wpdb->posts} p
     INNER JOIN {$tickets_table} t ON p.ID = t.product_id
-    WHERE p.post_type = 'product'
+    WHERE p.post_type IN ('product', 'product_variation')
     GROUP BY p.ID
     ORDER BY p.post_title
 ");
