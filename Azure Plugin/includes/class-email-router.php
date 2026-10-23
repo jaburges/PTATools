@@ -395,7 +395,7 @@ class Azure_Email_Router {
      * isn't accessible from PHP.
      */
     private static function current_log_tail_marker() {
-        $path = defined('AZURE_PLUGIN_PATH') ? AZURE_PLUGIN_PATH . 'logs.txt' : '';
+        $path = class_exists('Azure_Private_Storage') ? Azure_Private_Storage::dir('logs') . '/logs.txt' : '';
         if ($path === '' || !is_readable($path)) {
             return null;
         }
@@ -412,7 +412,7 @@ class Azure_Email_Router {
      * @return string           Error message, or empty string when none.
      */
     private static function extract_recent_email_error($marker) {
-        $path = defined('AZURE_PLUGIN_PATH') ? AZURE_PLUGIN_PATH . 'logs.txt' : '';
+        $path = class_exists('Azure_Private_Storage') ? Azure_Private_Storage::dir('logs') . '/logs.txt' : '';
         if ($path === '' || !is_readable($path)) {
             return '';
         }

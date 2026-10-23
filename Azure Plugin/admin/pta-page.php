@@ -667,6 +667,26 @@ jQuery(document).ready(function($) {
      * list after an edit keep the chosen filter instead of snapping back. */
     var ptaPeopleRoleFilter = ptaDefaultRoleFilter;
 
+    /* Client-side esc_html()/esc_attr(). Display names come from the public
+     * newsletter signup and registration forms, and WordPress stores them with
+     * double quotes intact, so anything concatenated into markup goes through
+     * these. Existing entities are left alone, as esc_html() does, because core
+     * already stores "&" in display names as "&amp;". */
+    function ptaEscHtml(value) {
+        return String(value === null || value === undefined ? '' : value)
+            .replace(/&(?!(?:[a-zA-Z][a-zA-Z0-9]*|#[0-9]+|#x[0-9a-fA-F]+);)/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+    var ptaEscAttr = ptaEscHtml;
+
+    function ptaEscUrl(value) {
+        var url = String(value === null || value === undefined ? '' : value).trim();
+        return /^https?:\/\//i.test(url) ? ptaEscAttr(url) : '';
+    }
+
     function openUserPhotoPicker(userId, displayName, onSaved) {
         if (typeof wp === 'undefined' || !wp.media) {
             alert('The media library is not available. Refresh this page and try again.');
@@ -1108,31 +1128,33 @@ jQuery(document).ready(function($) {
                 
                 response.data.forEach(function(user) {
                     var isUnassigned = !user.roles;
-                    var rolesList = user.roles || '<em style="color: #999;">No roles assigned</em>';
+                    var userId = ptaEscAttr(user.ID);
+                    var userName = ptaEscAttr(user.display_name);
+                    var rolesList = user.roles ? ptaEscHtml(user.roles) : '<em style="color: #999;">No roles assigned</em>';
                     var azureStatus = user.is_azure_user ? 
                         '<span style="color: green;">✓ Azure AD</span>' : 
                         '<span style="color: orange;">⚠ Local Only</span>';
                     
-                    var jobTitle = user.job_title || '<em style="color: #999;">Not set</em>';
+                    var jobTitle = user.job_title ? ptaEscHtml(user.job_title) : '<em style="color: #999;">Not set</em>';
                     var lastLogin = user.last_login ? 
-                        new Date(user.last_login).toLocaleDateString() : 
+                        ptaEscHtml(new Date(user.last_login).toLocaleDateString()) : 
                         '<em style="color: #999;">Never</em>';
                     
-                    var actions = '<button type="button" class="button button-small assign-role-btn" data-user-id="' + user.ID + '">Assign Role</button>';
+                    var actions = '<button type="button" class="button button-small assign-role-btn" data-user-id="' + userId + '">Assign Role</button>';
                     // Show Unassign Role button only if user has roles
                     if (!isUnassigned && user.roles && user.roles.length > 0) {
-                        actions += ' <button type="button" class="button button-small unassign-role-btn" data-user-id="' + user.ID + '" data-user-name="' + user.display_name + '">Unassign Role</button>';
+                        actions += ' <button type="button" class="button button-small unassign-role-btn" data-user-id="' + userId + '" data-user-name="' + userName + '">Unassign Role</button>';
                     }
                     if (isUnassigned) {
-                        actions += ' <button type="button" class="button button-small button-link-delete delete-user-btn" data-user-id="' + user.ID + '" data-user-name="' + user.display_name + '">Delete</button>';
+                        actions += ' <button type="button" class="button button-small button-link-delete delete-user-btn" data-user-id="' + userId + '" data-user-name="' + userName + '">Delete</button>';
                     }
-                    actions += ' <button type="button" class="button button-small edit-user-btn" data-user-id="' + user.ID + '" data-photo-url="' + (user.photo_url || '') + '">Details</button>';
+                    actions += ' <button type="button" class="button button-small edit-user-btn" data-user-id="' + userId + '" data-photo-url="' + ptaEscUrl(user.photo_url) + '">Details</button>';
                     
                     var rowClass = isUnassigned ? ' class="unassigned-user-row" style="background-color: #fff2cc;"' : '';
                     var row = $('<tr' + rowClass + '>' +
-                        '<td><input type="checkbox" class="user-checkbox" value="' + user.ID + '"></td>' +
-                        '<td><strong>' + user.display_name + '</strong><br><small>' + user.user_login + '</small></td>' +
-                        '<td>' + user.user_email + '</td>' +
+                        '<td><input type="checkbox" class="user-checkbox" value="' + userId + '"></td>' +
+                        '<td><strong>' + ptaEscHtml(user.display_name) + '</strong><br><small>' + ptaEscHtml(user.user_login) + '</small></td>' +
+                        '<td>' + ptaEscHtml(user.user_email) + '</td>' +
                         '<td>' + azureStatus + '</td>' +
                         '<td>' + rolesList + '</td>' +
                         '<td>' + jobTitle + '</td>' +
@@ -1180,7 +1202,7 @@ jQuery(document).ready(function($) {
                     var available = role.max_occupants - assignedCount;
                     var statusText = available > 0 ? ' (' + available + ' available)' : ' (FULL)';
                     var disabled = available <= 0 ? 'disabled' : '';
-                    bulkRoleSelect.append('<option value="' + role.id + '" ' + disabled + '>' + role.name + statusText + '</option>');
+                    bulkRoleSelect.append('<option value="' + ptaEscAttr(role.id) + '" ' + disabled + '>' + ptaEscHtml(role.name) + statusText + '</option>');
                 });
             }
         });
@@ -1444,7 +1466,7 @@ jQuery(document).ready(function($) {
                     var assignedCount = role.assigned_count || 0;
                     var available = role.max_occupants - assignedCount;
                     var disabled = available <= 0 ? 'disabled' : '';
-                    roleSelect.append('<option value="' + role.id + '" ' + disabled + '>' + role.name + ' (' + available + ' available)</option>');
+                    roleSelect.append('<option value="' + ptaEscAttr(role.id) + '" ' + disabled + '>' + ptaEscHtml(role.name) + ' (' + available + ' available)</option>');
                 });
             }
         });
@@ -1853,7 +1875,7 @@ jQuery(document).ready(function($) {
     // Show Unassign Role Modal
     function showUnassignRoleModal(userId, userName) {
         $('#unassign-user-id').val(userId);
-        $('#unassign-user-info').html('Unassigning roles from: <strong>' + userName + '</strong>');
+        $('#unassign-user-info').html('Unassigning roles from: <strong>' + ptaEscHtml(userName) + '</strong>');
         $('#unassign-roles-list').html('<p class="loading">Loading roles...</p>');
         $('#unassign-select-all').prop('checked', false);
         
@@ -1872,8 +1894,8 @@ jQuery(document).ready(function($) {
                     var primaryBadge = assignment.is_primary ? ' <span style="color: #0073aa; font-weight: bold;">(Primary)</span>' : '';
                     rolesHtml += '<div class="unassign-role-item" style="padding: 8px; border-bottom: 1px solid #eee;">';
                     rolesHtml += '<label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">';
-                    rolesHtml += '<input type="checkbox" class="unassign-role-checkbox" value="' + assignment.role_id + '" data-role-name="' + assignment.role_name + '">';
-                    rolesHtml += '<span><strong>' + assignment.role_name + '</strong>' + primaryBadge + '<br><small style="color: #666;">' + (assignment.department_name || 'No Department') + '</small></span>';
+                    rolesHtml += '<input type="checkbox" class="unassign-role-checkbox" value="' + ptaEscAttr(assignment.role_id) + '" data-role-name="' + ptaEscAttr(assignment.role_name) + '">';
+                    rolesHtml += '<span><strong>' + ptaEscHtml(assignment.role_name) + '</strong>' + primaryBadge + '<br><small style="color: #666;">' + ptaEscHtml(assignment.department_name || 'No Department') + '</small></span>';
                     rolesHtml += '</label>';
                     rolesHtml += '</div>';
                 });
@@ -1988,11 +2010,11 @@ jQuery(document).ready(function($) {
                     return String($(this).data('user-id')) === String(userId);
                 }).data('photo-url')) || '';
 
-                var detailsHtml = '<div id="user-details-modal" class="modal"><div class="modal-content modal-wide"><div class="modal-header"><h3>User Details: ' + userName + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
+                var detailsHtml = '<div id="user-details-modal" class="modal"><div class="modal-content modal-wide"><div class="modal-header"><h3>User Details: ' + ptaEscHtml(userName) + '</h3><button type="button" class="modal-close">&times;</button></div><div class="modal-body">';
                 detailsHtml += '<div class="pta-user-photo-block" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;">';
                 detailsHtml += '<div class="pta-user-photo-preview">';
-                if (photoUrl) {
-                    detailsHtml += '<img src="' + photoUrl + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">';
+                if (ptaEscUrl(photoUrl)) {
+                    detailsHtml += '<img src="' + ptaEscUrl(photoUrl) + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">';
                 } else {
                     detailsHtml += '<div style="width:72px;height:72px;border-radius:50%;background:#e0e0e0;"></div>';
                 }
@@ -2001,15 +2023,15 @@ jQuery(document).ready(function($) {
                 detailsHtml += '<button type="button" class="button" id="pta-user-photo-remove">Remove</button>';
                 detailsHtml += '<p class="description" style="margin:6px 0 0;">This person\'s photo. Roles do not have photos — only people do. Used on the board when they hold a seat.</p>';
                 detailsHtml += '</div></div>';
-                detailsHtml += '<p><strong>Email:</strong> ' + userEmail + '</p>';
+                detailsHtml += '<p><strong>Email:</strong> ' + ptaEscHtml(userEmail) + '</p>';
                 detailsHtml += '<h4>Role Assignments:</h4>';
                 
                 if (assignments && assignments.length > 0) {
                     detailsHtml += '<table class="wp-list-table widefat fixed striped"><thead><tr><th>Role</th><th>Department</th><th>Primary</th><th>Actions</th></tr></thead><tbody>';
                     assignments.forEach(function(assignment) {
                         var primaryBadge = assignment.is_primary ? '<span style="color: green;">✓ Primary</span>' : '';
-                        detailsHtml += '<tr><td>' + assignment.role_name + '</td><td>' + assignment.department_name + '</td><td>' + primaryBadge + '</td>';
-                        detailsHtml += '<td><button type="button" class="button button-small button-link-delete remove-assignment-btn" data-user-id="' + userId + '" data-role-id="' + assignment.role_id + '">Remove</button></td></tr>';
+                        detailsHtml += '<tr><td>' + ptaEscHtml(assignment.role_name) + '</td><td>' + ptaEscHtml(assignment.department_name) + '</td><td>' + primaryBadge + '</td>';
+                        detailsHtml += '<td><button type="button" class="button button-small button-link-delete remove-assignment-btn" data-user-id="' + ptaEscAttr(userId) + '" data-role-id="' + ptaEscAttr(assignment.role_id) + '">Remove</button></td></tr>';
                     });
                     detailsHtml += '</tbody></table>';
                 } else {
@@ -2028,8 +2050,8 @@ jQuery(document).ready(function($) {
                 $('#pta-user-photo-choose').on('click', function() {
                     openUserPhotoPicker(userId, userName, function(url) {
                         var $preview = $('#user-details-modal .pta-user-photo-preview');
-                        if (url) {
-                            $preview.html('<img src="' + url + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">');
+                        if (ptaEscUrl(url)) {
+                            $preview.html('<img src="' + ptaEscUrl(url) + '" alt="" width="72" height="72" style="border-radius:50%;object-fit:cover;">');
                         }
                         $('#users-table-body .edit-user-btn').filter(function() {
                             return String($(this).data('user-id')) === String(userId);
