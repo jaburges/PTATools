@@ -1,11 +1,6 @@
 <?php
 /**
- * SendGrid and SES (SNS) webhooks must be signed.
- *
- * Both routes are public and record bounces/complaints, which block an
- * address from every future newsletter. Neither verified the sender, so
- * anyone could forge a complaint for every parent. The SES route also
- * fetched the posted SubscribeURL server-side (SSRF).
+ * SendGrid and SES (SNS) webhooks must be signed, like Mailgun's.
  *
  * Run: php tests/test-newsletter-webhook-signatures.php
  */
