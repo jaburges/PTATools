@@ -103,7 +103,7 @@ Live DB changes needed once the code change is deployed:
 5. **Clean settings:** delete the 9 `tec_*` option keys, delete `enable_tec_integration`, delete `pta_calendar_data_source` (no longer needed), set `pta_calendar_owner = 'pta'`.
 6. **Unschedule TEC cron hooks:** `wp_clear_scheduled_hook( 'azure_tec_sync_run' )` and similar.
 
-The migration MU-plugin is delivered in `infra/ops/retire-tec.php` and is **not auto-deployed** — the user runs it once after the code change ships.
+The migration was a one-off MU-plugin that was **not auto-deployed** — the user ran it once after the code change shipped. It has since been removed from the repository.
 
 ## Bucket E — Documentation (UPDATE)
 
