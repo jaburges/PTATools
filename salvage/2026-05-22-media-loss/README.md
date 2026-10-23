@@ -41,7 +41,7 @@ We investigated every backup path:
 
 1. **Inventory** (this folder) — full audit of all 1,465 lost files saved as JSON/CSV/markdown for the PTA team's community re-collection effort.
 
-2. **Cleanup of orphan attachment posts** — at user's explicit direction, deleted all 1,465 orphan `wp_posts` rows + cascade-deleted associated `wp_postmeta`, `wp_term_relationships`, and child posts. Done via `infra/ops/cleanup-orphan-attachments.php` (slow per-post via `wp_delete_post`) and `infra/ops/fast-cleanup-orphan-attachments.php` (fast direct SQL).
+2. **Cleanup of orphan attachment posts** — at user's explicit direction, deleted all 1,465 orphan `wp_posts` rows + cascade-deleted associated `wp_postmeta`, `wp_term_relationships`, and child posts. Done via two one-off cleanup scripts (slow per-post via `wp_delete_post`, and fast direct SQL), since removed from the repository.
 
    **Post-cleanup state (verified 2026-05-22 11:30 PT):**
    - Total attachment posts in DB: **83** (down from 1,548)
