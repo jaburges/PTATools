@@ -141,7 +141,7 @@ Azure Plugin/includes/class-backup-azure-storage.php(37 KB) — blob upload
 Azure Plugin/includes/class-backup-scheduler.php    (14 KB) — WP-Cron wiring + cleanup
 Azure Plugin/includes/class-backup-restore.php      (40 KB) — restore logic
 Azure Plugin/admin/backup-page.php                  (63 KB) — admin UI
-infra/ops/backup-probe.php                          —       — diagnostic (uploaded then removed)
+backup diagnostic MU-plugin                         —       — one-off (uploaded then removed; no longer in the repo)
 ```
 
 ## Smoke-test artifact remains in blob storage
