@@ -79,12 +79,20 @@ if [[ -d "$CONTEXT/wp-content/wp-content" ]]; then
   rmdir "$CONTEXT/wp-content/wp-content"
 fi
 
-for d in themes plugins mu-plugins; do
+for d in themes plugins; do
   if [[ ! -d "$CONTEXT/wp-content/$d" ]]; then
     echo "    creating empty $d (absent from export)"
     mkdir -p "$CONTEXT/wp-content/$d"
   fi
 done
+
+# Exported mu-plugins are never shipped: WordPress loads every file there with no
+# activation step, and one-off scripts dropped onto the live site end up in the
+# export. Only infra/wp-image/mu-plugins from this repository goes into the image.
+if [[ -d "$CONTEXT/wp-content/mu-plugins" ]]; then
+  echo "==> discarding mu-plugins from the export (only the repository's ship)"
+  rm -rf "$CONTEXT/wp-content/mu-plugins"
+fi
 
 if [[ -d "$CONTEXT/wp-content/uploads" ]]; then
   echo "==> discarding uploads from the image (they belong on the file share)"
@@ -108,10 +116,13 @@ cp "$HERE/Dockerfile" "$HERE/php-opcache.ini" "$HERE/php-wordpress.ini" \
    "$HERE/apache-wp.conf" "$HERE/healthz.php" "$CONTEXT/"
 cp -R "$HERE/mu-plugins" "$CONTEXT/mu-plugins"
 
+echo "==> checking for retired one-off ops scripts"
+bash "$HERE/check-no-ops-scripts.sh" "$CONTEXT"
+
 echo "==> contents going into the image"
 printf '    themes    : %s\n' "$(ls -1 "$CONTEXT/wp-content/themes"    2>/dev/null | tr '\n' ' ')"
 printf '    plugins   : %s\n' "$(ls -1 "$CONTEXT/wp-content/plugins"   2>/dev/null | wc -l | tr -d ' ') directories"
-printf '    mu-plugins: %s\n' "$(ls -1 "$CONTEXT/wp-content/mu-plugins" 2>/dev/null | wc -l | tr -d ' ') entries"
+printf '    mu-plugins: %s\n' "$(ls -1 "$CONTEXT/mu-plugins" 2>/dev/null | tr '\n' ' ')"
 
 BUILD_ARGS=(--platform "$PLATFORM" -t "$IMAGE:$TAG" -t "$IMAGE:latest" -f "$CONTEXT/Dockerfile" "$CONTEXT")
 if [[ "$PUSH" -eq 1 ]]; then
