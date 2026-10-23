@@ -28,11 +28,13 @@ if (isset($_POST['save_newsletter_settings']) && wp_verify_nonce($_POST['_wpnonc
         
         // SendGrid settings
         'newsletter_sendgrid_api_key' => sanitize_text_field($_POST['newsletter_sendgrid_api_key'] ?? ''),
+        'newsletter_sendgrid_webhook_public_key' => sanitize_textarea_field(wp_unslash($_POST['newsletter_sendgrid_webhook_public_key'] ?? '')),
         
         // Amazon SES settings
         'newsletter_ses_access_key' => sanitize_text_field($_POST['newsletter_ses_access_key'] ?? ''),
         'newsletter_ses_secret_key' => sanitize_text_field($_POST['newsletter_ses_secret_key'] ?? ''),
         'newsletter_ses_region' => sanitize_text_field($_POST['newsletter_ses_region'] ?? 'us-east-1'),
+        'newsletter_ses_sns_topic_arn' => sanitize_text_field($_POST['newsletter_ses_sns_topic_arn'] ?? ''),
         
         // Custom SMTP settings
         'newsletter_smtp_host' => sanitize_text_field($_POST['newsletter_smtp_host'] ?? ''),
@@ -149,10 +151,17 @@ $from_addresses = $settings['newsletter_from_addresses'] ?? array();
                                value="<?php echo esc_attr($settings['newsletter_sendgrid_api_key'] ?? ''); ?>" class="regular-text">
                     </td>
                 </tr>
+                <tr>
+                    <th><label><?php _e('Event Webhook Verification Key', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <textarea name="newsletter_sendgrid_webhook_public_key" rows="3" class="large-text code"><?php echo esc_textarea($settings['newsletter_sendgrid_webhook_public_key'] ?? ''); ?></textarea>
+                        <p class="description"><?php _e('Required. Found in SendGrid → Settings → Mail Settings → Event Webhook after enabling Signed Event Webhook Requests. Webhooks are rejected until this is set.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
             </table>
             <p class="webhook-url">
                 <strong><?php _e('Webhook URL:', 'azure-plugin'); ?></strong><br>
-                <code><?php echo rest_url('azure-plugin/v1/newsletter/webhook/sendgrid'); ?></code>
+                <code><?php echo esc_html(rest_url('azure-plugin/v1/newsletter/webhook/sendgrid')); ?></code>
             </p>
         </div>
         
@@ -184,7 +193,33 @@ $from_addresses = $settings['newsletter_from_addresses'] ?? array();
                         </select>
                     </td>
                 </tr>
+                <tr>
+                    <th><label><?php _e('SNS Topic ARN', 'azure-plugin'); ?></label></th>
+                    <td>
+                        <input type="text" name="newsletter_ses_sns_topic_arn" 
+                               value="<?php echo esc_attr($settings['newsletter_ses_sns_topic_arn'] ?? ''); ?>" class="large-text code"
+                               placeholder="arn:aws:sns:us-east-1:123456789012:ses-bounces">
+                        <p class="description"><?php _e('Required. The SNS topic SES publishes bounces and complaints to. Signed messages from any other topic are rejected.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
             </table>
+            <p class="webhook-url">
+                <strong><?php _e('Webhook URL (SNS HTTPS subscription):', 'azure-plugin'); ?></strong><br>
+                <code><?php echo esc_html(rest_url('azure-plugin/v1/newsletter/webhook/ses')); ?></code>
+            </p>
+            <?php $ses_pending = get_option('azure_newsletter_ses_pending_subscription'); ?>
+            <?php if (!empty($ses_pending['subscribe_url']) && class_exists('Azure_Newsletter_Tracking') && Azure_Newsletter_Tracking::is_sns_url($ses_pending['subscribe_url'], false)): ?>
+                <div class="notice notice-warning inline">
+                    <p>
+                        <?php printf(
+                            esc_html__('SNS subscription pending for %1$s (received %2$s). The site never confirms it automatically; open this link to confirm:', 'azure-plugin'),
+                            '<code>' . esc_html($ses_pending['topic_arn'] ?? '') . '</code>',
+                            esc_html($ses_pending['received_at'] ?? '')
+                        ); ?>
+                        <a href="<?php echo esc_url($ses_pending['subscribe_url']); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e('Confirm subscription', 'azure-plugin'); ?></a>
+                    </p>
+                </div>
+            <?php endif; ?>
         </div>
         
         <!-- Custom SMTP Settings -->

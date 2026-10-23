@@ -140,6 +140,11 @@ class Azure_Newsletter_Tracking {
      * Process SendGrid webhook
      */
     public function process_sendgrid_webhook($request) {
+        if (!$this->verify_sendgrid_signature($request)) {
+            Azure_Logger::warning('SendGrid webhook: Invalid signature');
+            return new WP_REST_Response(array('error' => 'Invalid signature'), 403);
+        }
+        
         $body = $request->get_body();
         $events = json_decode($body, true);
         
@@ -165,14 +170,33 @@ class Azure_Newsletter_Tracking {
         $body = $request->get_body();
         $data = json_decode($body, true);
         
-        // Handle SNS subscription confirmation
-        if (isset($data['Type']) && $data['Type'] === 'SubscriptionConfirmation') {
-            wp_remote_get($data['SubscribeURL']);
-            return new WP_REST_Response(array('status' => 'subscribed'), 200);
+        if (!is_array($data) || !$this->verify_sns_message($data)) {
+            Azure_Logger::warning('SES webhook: Invalid SNS signature');
+            return new WP_REST_Response(array('error' => 'Invalid signature'), 403);
         }
         
-        // Handle notifications
-        if (isset($data['Type']) && $data['Type'] === 'Notification') {
+        // The SubscribeURL is never fetched server-side. A verified request
+        // from the configured topic is parked for an admin to confirm from
+        // their own browser (or the AWS console).
+        if ($data['Type'] === 'SubscriptionConfirmation') {
+            update_option('azure_newsletter_ses_pending_subscription', array(
+                'topic_arn' => $data['TopicArn'],
+                'subscribe_url' => $data['SubscribeURL'],
+                'received_at' => current_time('mysql'),
+            ));
+            Azure_Logger::info('SES webhook: SNS subscription confirmation received; confirm it from Newsletter Settings or the AWS console');
+            return new WP_REST_Response(array('status' => 'pending_confirmation'), 200);
+        }
+        
+        if ($data['Type'] === 'Notification') {
+            // A captured, validly signed message must not be replayable to
+            // inflate bounce counts past the soft-bounce block threshold.
+            $seen_key = 'azure_sns_msg_' . md5($data['MessageId']);
+            if (get_transient($seen_key)) {
+                return new WP_REST_Response(array('status' => 'duplicate'), 200);
+            }
+            set_transient($seen_key, 1, DAY_IN_SECONDS);
+            
             $message = json_decode($data['Message'], true);
             
             $notification_type = $message['notificationType'] ?? '';
@@ -439,6 +463,216 @@ class Azure_Newsletter_Tracking {
         $expected = hash_hmac('sha256', $timestamp . $token, $signing_key);
         
         return hash_equals($expected, $sig);
+    }
+    
+    /**
+     * Verify a SendGrid Event Webhook signature
+     * 
+     * SendGrid signs timestamp + raw body with ECDSA (P-256, SHA-256) and
+     * sends the base64 DER signature in a header. The verification key is
+     * shown in SendGrid → Settings → Mail Settings → Event Webhook once
+     * Signed Event Webhook Requests is enabled.
+     */
+    private function verify_sendgrid_signature($request) {
+        $settings = Azure_Settings::get_all_settings();
+        $public_key = self::sendgrid_public_key_pem($settings['newsletter_sendgrid_webhook_public_key'] ?? '');
+        
+        if (!$public_key) {
+            Azure_Logger::error('SendGrid webhook: no verification key configured; rejecting webhook');
+            return false;
+        }
+        
+        $sig = (string) $request->get_header('x-twilio-email-event-webhook-signature');
+        $timestamp = (string) $request->get_header('x-twilio-email-event-webhook-timestamp');
+        
+        if ($sig === '' || $timestamp === '' || !ctype_digit($timestamp)) {
+            Azure_Logger::debug_module('Newsletter', 'SendGrid webhook: Missing signature headers');
+            return false;
+        }
+        
+        if (abs(time() - intval($timestamp)) > 600) {
+            Azure_Logger::debug_module('Newsletter', 'SendGrid webhook: Timestamp outside tolerance');
+            return false;
+        }
+        
+        $decoded_sig = base64_decode($sig, true);
+        if ($decoded_sig === false || $decoded_sig === '') {
+            return false;
+        }
+        
+        $key = openssl_pkey_get_public($public_key);
+        if ($key === false) {
+            Azure_Logger::error('SendGrid webhook: configured verification key is not a valid public key');
+            return false;
+        }
+        
+        return openssl_verify($timestamp . $request->get_body(), $decoded_sig, $key, OPENSSL_ALGO_SHA256) === 1;
+    }
+    
+    /**
+     * Normalize the SendGrid verification key to PEM.
+     * 
+     * SendGrid displays the key as bare base64 DER; a pasted PEM block (or one
+     * whose newlines were collapsed by sanitize_text_field) is accepted too.
+     */
+    public static function sendgrid_public_key_pem($raw) {
+        $b64 = preg_replace('/-----(BEGIN|END) PUBLIC KEY-----|\s+/', '', (string) $raw);
+        if ($b64 === '' || !preg_match('#^[A-Za-z0-9+/]+={0,2}$#', $b64) || base64_decode($b64, true) === false) {
+            return null;
+        }
+        return "-----BEGIN PUBLIC KEY-----\n" . chunk_split($b64, 64, "\n") . "-----END PUBLIC KEY-----\n";
+    }
+    
+    /**
+     * Verify an Amazon SNS message (used for SES bounce/complaint delivery)
+     * 
+     * Checks, in order: the topic is the one configured in settings, any URL
+     * in the message points at an amazonaws.com SNS host over HTTPS, and the
+     * signature validates against the certificate at SigningCertURL. That
+     * certificate is the only URL ever fetched.
+     */
+    private function verify_sns_message($data) {
+        $settings = Azure_Settings::get_all_settings();
+        $expected_topic = trim((string) ($settings['newsletter_ses_sns_topic_arn'] ?? ''));
+        
+        if ($expected_topic === '') {
+            Azure_Logger::error('SES webhook: no SNS topic ARN configured; rejecting webhook');
+            return false;
+        }
+        
+        $type = $data['Type'] ?? '';
+        if ($type === 'Notification') {
+            $fields = array('Message', 'MessageId', 'Subject', 'Timestamp', 'TopicArn', 'Type');
+            $required = array('Message', 'MessageId', 'Timestamp', 'TopicArn', 'Type');
+        } elseif ($type === 'SubscriptionConfirmation' || $type === 'UnsubscribeConfirmation') {
+            $fields = array('Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type');
+            $required = $fields;
+        } else {
+            return false;
+        }
+        
+        foreach (array_merge($required, array('Signature', 'SigningCertURL', 'SignatureVersion')) as $field) {
+            if (!isset($data[$field]) || !is_string($data[$field]) || $data[$field] === '') {
+                Azure_Logger::debug_module('Newsletter', "SES webhook: Missing SNS field {$field}");
+                return false;
+            }
+        }
+        
+        if (!hash_equals($expected_topic, $data['TopicArn'])) {
+            Azure_Logger::warning('SES webhook: Message from unexpected SNS topic', array('topic' => $data['TopicArn']));
+            return false;
+        }
+        
+        if (!self::is_sns_url($data['SigningCertURL'], true)) {
+            Azure_Logger::warning('SES webhook: Untrusted SigningCertURL', array('url' => $data['SigningCertURL']));
+            return false;
+        }
+        
+        if (isset($data['SubscribeURL']) && !self::is_sns_url($data['SubscribeURL'], false)) {
+            Azure_Logger::warning('SES webhook: Untrusted SubscribeURL');
+            return false;
+        }
+        
+        if ($data['SignatureVersion'] === '1') {
+            $algo = OPENSSL_ALGO_SHA1;
+        } elseif ($data['SignatureVersion'] === '2') {
+            $algo = OPENSSL_ALGO_SHA256;
+        } else {
+            return false;
+        }
+        
+        $signature = base64_decode($data['Signature'], true);
+        if ($signature === false || $signature === '') {
+            return false;
+        }
+        
+        $cert = $this->get_sns_certificate($data['SigningCertURL']);
+        if (!$cert) {
+            return false;
+        }
+        
+        $string_to_sign = '';
+        foreach ($fields as $field) {
+            if (isset($data[$field])) {
+                $string_to_sign .= $field . "\n" . $data[$field] . "\n";
+            }
+        }
+        
+        $key = openssl_pkey_get_public($cert);
+        if ($key === false) {
+            return false;
+        }
+        
+        return openssl_verify($string_to_sign, $signature, $key, $algo) === 1;
+    }
+    
+    /**
+     * True for an HTTPS URL on an SNS endpoint (sns.<region>.amazonaws.com)
+     * with no credentials or non-standard port. Certificate URLs must also
+     * point at a .pem file.
+     */
+    public static function is_sns_url($url, $is_cert) {
+        if (!is_string($url) || $url === '') {
+            return false;
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return false;
+        }
+        if (strtolower($parts['scheme'] ?? '') !== 'https') {
+            return false;
+        }
+        if (isset($parts['user']) || isset($parts['pass']) || (isset($parts['port']) && (int) $parts['port'] !== 443)) {
+            return false;
+        }
+        if (!preg_match('/^sns\.[a-z0-9-]+\.amazonaws\.com$/', $parts['host'] ?? '')) {
+            return false;
+        }
+        if ($is_cert) {
+            if (isset($parts['query']) || isset($parts['fragment'])) {
+                return false;
+            }
+            if (!preg_match('#^/[A-Za-z0-9._-]+\.pem$#', $parts['path'] ?? '')) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    /**
+     * Fetch (and cache) the SNS signing certificate. Only called with a URL
+     * that already passed is_sns_url(); redirects are not followed.
+     */
+    private function get_sns_certificate($url) {
+        $cache_key = 'azure_sns_cert_' . md5($url);
+        $cert = get_transient($cache_key);
+        $fetched = false;
+        
+        if (!is_string($cert) || $cert === '') {
+            $fetched = true;
+            $response = wp_remote_get($url, array(
+                'timeout' => 10,
+                'redirection' => 0,
+                'sslverify' => true,
+            ));
+            if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+                Azure_Logger::warning('SES webhook: Could not fetch SNS signing certificate');
+                return null;
+            }
+            $cert = wp_remote_retrieve_body($response);
+        }
+        
+        $parsed = openssl_x509_parse($cert);
+        if (!$parsed || time() < ($parsed['validFrom_time_t'] ?? PHP_INT_MAX) || time() > ($parsed['validTo_time_t'] ?? 0)) {
+            Azure_Logger::warning('SES webhook: SNS signing certificate is invalid or expired');
+            delete_transient($cache_key);
+            return null;
+        }
+        
+        if ($fetched) {
+            set_transient($cache_key, $cert, DAY_IN_SECONDS);
+        }
+        return $cert;
     }
     
     /**
