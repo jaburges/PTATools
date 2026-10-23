@@ -44,6 +44,7 @@ $raw_sinks = array(
     "data-role-name=\"' + assignment.role_name" => 'role name attribute in the unassign modal',
     "'<tr><td>' + assignment.role_name"        => 'role name in the details modal',
     "'>' + role.name + statusText"             => 'role name in the bulk role select',
+    "'>' + role.name + ' ('"                   => 'role name in the assign-role select',
 );
 foreach ($raw_sinks as $needle => $label) {
     $t->check(strpos($src, $needle) === false, "no raw concatenation: {$label}");

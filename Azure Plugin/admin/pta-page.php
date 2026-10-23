@@ -1466,7 +1466,7 @@ jQuery(document).ready(function($) {
                     var assignedCount = role.assigned_count || 0;
                     var available = role.max_occupants - assignedCount;
                     var disabled = available <= 0 ? 'disabled' : '';
-                    roleSelect.append('<option value="' + role.id + '" ' + disabled + '>' + role.name + ' (' + available + ' available)</option>');
+                    roleSelect.append('<option value="' + ptaEscAttr(role.id) + '" ' + disabled + '>' + ptaEscHtml(role.name) + ' (' + available + ' available)</option>');
                 });
             }
         });
