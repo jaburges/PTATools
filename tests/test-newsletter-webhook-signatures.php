@@ -236,6 +236,8 @@ $bad_cert_urls = array(
     'https://sns.us-east-1.amazonaws.com.evil.com/SimpleNotificationService-abc123.pem',
     'https://evil.com/sns.us-east-1.amazonaws.com/cert.pem',
     'https://s3.amazonaws.com/attacker-bucket/cert.pem',
+    'https://sns.s3.amazonaws.com/cert.pem',
+    'https://sns.s3-us-west-2.amazonaws.com/cert.pem',
     'https://user@sns.us-east-1.amazonaws.com/SimpleNotificationService-abc123.pem',
     'https://sns.us-east-1.amazonaws.com:8443/SimpleNotificationService-abc123.pem',
     'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-abc123.pem?x=1',

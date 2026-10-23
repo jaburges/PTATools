@@ -625,14 +625,16 @@ class Azure_Newsletter_Tracking {
         if (isset($parts['user']) || isset($parts['pass']) || (isset($parts['port']) && (int) $parts['port'] !== 443)) {
             return false;
         }
-        if (!preg_match('/^sns\.[a-z0-9-]+\.amazonaws\.com$/', $parts['host'] ?? '')) {
+        // The middle label must look like a region (us-east-1, us-gov-west-1):
+        // S3 virtual-hosted buckets also live under sns.<x>.amazonaws.com.
+        if (!preg_match('/^sns\.[a-z]{2}(?:-[a-z]+)+-[0-9]+\.amazonaws\.com$/D', $parts['host'] ?? '')) {
             return false;
         }
         if ($is_cert) {
             if (isset($parts['query']) || isset($parts['fragment'])) {
                 return false;
             }
-            if (!preg_match('#^/[A-Za-z0-9._-]+\.pem$#', $parts['path'] ?? '')) {
+            if (!preg_match('#^/[A-Za-z0-9._-]+\.pem$#D', $parts['path'] ?? '')) {
                 return false;
             }
         }
