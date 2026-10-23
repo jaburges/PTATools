@@ -533,7 +533,18 @@ class Azure_Backup {
     }
 
     private function get_backup_directory($backup_id) {
-        return AZURE_PLUGIN_PATH . 'backups/temp_' . $backup_id;
+        return Azure_Private_Storage::temp_dir('backups') . '/temp_' . $backup_id;
+    }
+
+    /**
+     * Staging directories, current first. The plugin directory is where older
+     * versions staged backups; it is still swept so leftovers get removed.
+     */
+    private function backup_staging_directories() {
+        return array(
+            Azure_Private_Storage::temp_dir('backups') . '/',
+            AZURE_PLUGIN_PATH . 'backups/',
+        );
     }
 
     // ------------------------------------------------------------------
@@ -708,10 +719,15 @@ class Azure_Backup {
             wp_send_json_error('Unauthorized');
         }
 
-        $dir = AZURE_PLUGIN_PATH . 'backups/';
-        $before = $this->count_items($dir);
+        $before = 0;
+        foreach ($this->backup_staging_directories() as $dir) {
+            $before += $this->count_items($dir);
+        }
         $this->cleanup_stale_temp_directories(true);
-        $after = $this->count_items($dir);
+        $after = 0;
+        foreach ($this->backup_staging_directories() as $dir) {
+            $after += $this->count_items($dir);
+        }
         $cleaned = $before - $after;
 
         wp_send_json_success(array(
@@ -965,22 +981,23 @@ class Azure_Backup {
     // ------------------------------------------------------------------
 
     private function cleanup_stale_temp_directories($force = false) {
-        $dir = AZURE_PLUGIN_PATH . 'backups/';
-        if (!is_dir($dir)) return;
+        foreach ($this->backup_staging_directories() as $dir) {
+            if (!is_dir($dir)) continue;
 
-        $items = @scandir($dir);
-        if (!$items) return;
+            $items = @scandir($dir);
+            if (!$items) continue;
 
-        foreach ($items as $item) {
-            if ($item === '.' || $item === '..' || $item === '.htaccess') continue;
-            $path = $dir . $item;
+            foreach ($items as $item) {
+                if ($item === '.' || $item === '..' || $item === '.htaccess') continue;
+                $path = $dir . $item;
 
-            if (is_dir($path) && strpos($item, 'temp_') === 0) {
-                $this->remove_directory($path);
-            }
-            if (is_file($path) && preg_match('/\.(zip|gz)$/i', $item)) {
-                if ($force || (time() - filemtime($path)) > 3600) {
-                    @unlink($path);
+                if (is_dir($path) && strpos($item, 'temp_') === 0) {
+                    $this->remove_directory($path);
+                }
+                if (is_file($path) && preg_match('/\.(zip|gz)$/i', $item)) {
+                    if ($force || (time() - filemtime($path)) > 3600) {
+                        @unlink($path);
+                    }
                 }
             }
         }

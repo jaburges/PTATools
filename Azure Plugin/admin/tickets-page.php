@@ -48,17 +48,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tickets_settings_nonc
         
         // Handle certificate upload
         if (!empty($_FILES['apple_wallet_certificate']['tmp_name'])) {
-            $upload_dir = wp_upload_dir();
-            $cert_dir = $upload_dir['basedir'] . '/azure-plugin/certificates/';
-            
-            if (!file_exists($cert_dir)) {
-                wp_mkdir_p($cert_dir);
-                file_put_contents($cert_dir . '.htaccess', 'deny from all');
+            if (!class_exists('Azure_Tickets_Apple_Wallet')) {
+                require_once AZURE_PLUGIN_PATH . 'includes/class-tickets-apple-wallet.php';
             }
-            
-            $cert_path = $cert_dir . 'apple-wallet.p12';
-            move_uploaded_file($_FILES['apple_wallet_certificate']['tmp_name'], $cert_path);
-            Azure_Settings::update_setting('tickets_apple_cert_path', $cert_path);
+            $cert_path = Azure_Tickets_Apple_Wallet::certificate_path();
+            if (move_uploaded_file($_FILES['apple_wallet_certificate']['tmp_name'], $cert_path)) {
+                @chmod($cert_path, 0640);
+                Azure_Settings::update_setting('tickets_apple_cert_path', $cert_path);
+            }
         }
         
         if (isset($_POST['apple_wallet_cert_password'])) {
