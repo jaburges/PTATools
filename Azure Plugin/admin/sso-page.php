@@ -5,8 +5,9 @@ if (!defined('ABSPATH')) {
 
 // Debug logging for SSO page
 function sso_debug_log($message) {
-    $log_file = AZURE_PLUGIN_PATH . 'logs.txt';
+    $log_file = Azure_Private_Storage::dir('logs') . '/logs.txt';
     $timestamp = date('Y-m-d H:i:s');
+    $message = Azure_Private_Storage::mask_emails($message);
     $log_entry = "[{$timestamp}] SSO DEBUG: {$message}\n";
     file_put_contents($log_file, $log_entry, FILE_APPEND | LOCK_EX);
 }

@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.181
+ * Version: 3.147.182
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,9 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.181');
+define('AZURE_PLUGIN_VERSION', '3.147.182');
+
+require_once AZURE_PLUGIN_PATH . 'includes/class-private-storage.php';
 
 /**
  * Defensive permission helper for retrofitted gates.
@@ -1882,7 +1884,7 @@ class AzurePlugin {
      */
     public function activate() {
         // Create debug log file immediately
-        $log_file = AZURE_PLUGIN_PATH . 'logs.md';
+        $log_file = Azure_Private_Storage::dir('logs') . '/activation.md';
         $timestamp = date('Y-m-d H:i:s');
         $header = file_exists($log_file) ? '' : "# Azure Plugin Activation Debug Logs\n\n";
         
@@ -2103,15 +2105,9 @@ class AzurePlugin {
             }
             
             $write_log("⏳ **[STEP 8]** Creating backup directory");
-            // Create backup directory
-            $backup_dir = AZURE_PLUGIN_PATH . 'backups/';
+            $backup_dir = Azure_Private_Storage::temp_dir('backups');
             if (!is_dir($backup_dir)) {
-                if (!wp_mkdir_p($backup_dir)) {
-                    throw new Exception("Failed to create backup directory: {$backup_dir}");
-                }
-                // Add .htaccess for security
-                $htaccess_content = "Order deny,allow\nDeny from all\n";
-                file_put_contents($backup_dir . '.htaccess', $htaccess_content);
+                throw new Exception("Failed to create backup directory");
             }
             $write_log("✅ **[STEP 8]** Backup directory ready");
             

@@ -1393,7 +1393,7 @@ define('WP_DEBUG_DISPLAY', false);
 1. Go to **Azure Plugin** → **Main Settings**
 2. Enable **Debug Mode**
 3. Select specific modules to debug
-4. Check `wp-content/plugins/Azure Plugin/logs.md`
+4. Check the plugin's **Logs** page
 
 ### **Performance Optimization Roadmap**
 
@@ -1493,7 +1493,7 @@ define('WP_DEBUG_DISPLAY', false);
 
 **Where to Find Logs:**
 - WordPress errors: `wp-content/debug.log`
-- Plugin logs: `wp-content/plugins/Azure Plugin/logs.md`
+- Plugin logs: the plugin's **Logs** page (the file is kept in private storage; set `AZURE_PLUGIN_PRIVATE_DIR` in `wp-config.php` to choose the folder)
 - PHP errors: Check server error logs
 
 **⚠️ Important:** 
@@ -1518,7 +1518,7 @@ Each module has a **Test Connection** button to verify:
    - Uncheck **Debug Mode**
 
 2. **Check Log File Size**
-   - View `wp-content/plugins/Azure Plugin/logs.md`
+   - Check the log size on the plugin's **Logs** page
    - Should be under 20MB (auto-rotates at 20MB)
    - If oversized, delete or move the file
 

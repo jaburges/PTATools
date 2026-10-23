@@ -2,6 +2,13 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.182 — File-access hardening
+
+### Changed
+
+- **Plugin working files are kept private.** Logs, the Apple Wallet signing certificate and backup working files now live in private storage instead of alongside public files, and existing ones are moved there on the first request after the update. Set `AZURE_PLUGIN_PRIVATE_DIR` in `wp-config.php` to keep them in a folder of your choice outside the web root. The container image's web server also refuses these locations directly.
+- **Logs no longer record full email addresses.** Addresses are shortened to the first letter and the domain (`j***@example.com`), including in logs carried over from earlier versions.
+
 ## 3.147.181 — Breathing room around newsletter emails
 
 ### Changed
