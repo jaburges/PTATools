@@ -99,6 +99,10 @@ $t->check($C::is_performance($SINGLE) && $C::performances($SINGLE) === array($SI
 $t->check($C::venue_id($FRI) === $VENUE && $C::sections($SAT)['reg']['price'] === 15.0 && $C::order_limit($FRI) === 4, 'venue, section prices and the order limit come from the product');
 $t->check($C::event_date($FRI) === '2026-11-13T19:00' && $C::event_id($SAT) === 4101, 'date and linked event are the variation\'s own');
 $t->equals('', $C::event_date($OFF), 'a variation without a date does not borrow the product\'s');
+$t->check(!$C::has_sponsors($FRI), 'no sponsors sidebar unless Has Sponsors is ticked');
+WP_Shim::$post_meta[$SHOW][$C::META_HAS_SPONSORS] = 'yes';
+$t->check($C::has_sponsors($FRI) && $C::has_sponsors($SHOW), 'Has Sponsors on the product applies to every performance');
+unset(WP_Shim::$post_meta[$SHOW][$C::META_HAS_SPONSORS]);
 
 // ── Seats belong to the performance ────────────────────────────────────
 $r = Azure_Tickets_Cart::prepare($FRI, array('seats' => array($seat('A-1'))), 9, 'cartFri');

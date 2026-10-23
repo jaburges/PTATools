@@ -41,6 +41,7 @@ class Azure_Tickets_Config {
     const META_VIP_CLOSE = '_ticket_vip_close';
     const META_EXTRAS = '_ticket_extras';
     const META_EXTRAS_HEADING = '_ticket_extras_heading';
+    const META_HAS_SPONSORS = '_ticket_has_sponsors';
     const VIP_CLOSE_OPTION = 'azure_tickets_vip_close';
 
     const ACCESS_ALL = 'all';
@@ -394,6 +395,10 @@ class Azure_Tickets_Config {
 
     public static function require_names($product_id) {
         return get_post_meta(self::owner($product_id), self::META_REQUIRE_NAMES, true) === 'yes';
+    }
+
+    public static function has_sponsors($product_id) {
+        return get_post_meta(self::owner($product_id), self::META_HAS_SPONSORS, true) === 'yes';
     }
 
     public static function order_limit($product_id) {

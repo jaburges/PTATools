@@ -404,6 +404,15 @@ add_action('woocommerce_product_data_panels', function() {
                 'label' => __('Require Attendee Names', 'azure-plugin'),
                 'description' => __('Ask for a name for every ticket when choosing seats.', 'azure-plugin')
             ));
+            woocommerce_wp_checkbox(array(
+                'id' => Azure_Tickets_Config::META_HAS_SPONSORS,
+                'label' => __('Has Sponsors', 'azure-plugin'),
+                'description' => sprintf(
+                    /* translators: %s: link to Appearance > Widgets */
+                    __('Show the Ticket sponsors sidebar instead of the regular one. Edit it in %s.', 'azure-plugin'),
+                    '<a href="' . esc_url(admin_url('widgets.php')) . '">' . esc_html__('Appearance → Widgets', 'azure-plugin') . '</a>'
+                )
+            ));
             ?>
         </div>
     </div>
@@ -485,6 +494,7 @@ add_action('woocommerce_process_product_meta', function($post_id) {
         update_post_meta($post_id, '_tickets_per_order_limit', $limit ?: '');
     }
     update_post_meta($post_id, '_ticket_require_names', isset($_POST['_ticket_require_names']) ? 'yes' : 'no');
+    update_post_meta($post_id, Azure_Tickets_Config::META_HAS_SPONSORS, isset($_POST[Azure_Tickets_Config::META_HAS_SPONSORS]) ? 'yes' : 'no');
 
     // The section rows on screen belong to the venue the page was loaded
     // with; after a venue change they don't apply, so wait for the reload.
@@ -719,3 +729,37 @@ function azure_tickets_extras_html($product_id, $where) {
         . '<p class="pta-extras__next"><a class="button alt wp-element-button pta-extras__continue" href="' . esc_url(wc_get_cart_url()) . '">' . esc_html__('Continue to cart', 'azure-plugin') . '</a></p>'
         . '</section>';
 }
+
+/**
+ * "Ticket sponsors" widget area. On a ticket product with Has Sponsors ticked
+ * its widgets stand in for the theme's main sidebar, so the theme still draws
+ * the sidebar wrapper and layout. Empty area = the regular sidebar stays.
+ */
+const AZURE_TICKETS_SPONSOR_SIDEBAR = 'pta-ticket-sponsors';
+const AZURE_TICKETS_MAIN_SIDEBAR = 'sidebar-1';
+
+function azure_tickets_register_sponsor_sidebar() {
+    register_sidebar(array(
+        'id'          => AZURE_TICKETS_SPONSOR_SIDEBAR,
+        'name'        => __('Ticket sponsors', 'azure-plugin'),
+        'description' => __('Replaces the main sidebar on ticket products with "Has Sponsors" ticked in Ticket settings.', 'azure-plugin'),
+    ));
+}
+// The module loads during `init`, after `widgets_init` has already run.
+if (did_action('widgets_init')) {
+    azure_tickets_register_sponsor_sidebar();
+} else {
+    add_action('widgets_init', 'azure_tickets_register_sponsor_sidebar');
+}
+
+add_filter('sidebars_widgets', function($sidebars) {
+    // Conditional tags need the main query, and the widget editor must see the real lists.
+    if (is_admin() || !did_action('wp') || empty($sidebars[AZURE_TICKETS_SPONSOR_SIDEBAR]) || !is_singular('product')) {
+        return $sidebars;
+    }
+    $product = wc_get_product(get_queried_object_id());
+    if ($product && $product->get_type() === 'ticket' && Azure_Tickets_Config::has_sponsors($product->get_id())) {
+        $sidebars[AZURE_TICKETS_MAIN_SIDEBAR] = $sidebars[AZURE_TICKETS_SPONSOR_SIDEBAR];
+    }
+    return $sidebars;
+});

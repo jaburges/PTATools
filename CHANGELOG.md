@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.190 — Ticket sponsors sidebar
+
+### Added
+
+- **Ticket sponsors widget area** (Appearance → Widgets). On a ticket product with **Has Sponsors** ticked in Ticket settings, its widgets replace the regular sidebar, keeping the theme's sidebar styling. The setting covers every performance of the product. Other pages keep the regular sidebar, and so does a ticked product while the sponsor area is empty.
+
 ## 3.147.189 — Full-width seat map with a section selector
 
 ### Changed
