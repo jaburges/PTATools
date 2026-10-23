@@ -23,7 +23,7 @@ None of these were in the central `wp_azure_product_fields` registry, so the Sel
 
 ### Part 1 — One-off backfill MU-plugin (data)
 
-`infra/ops/backfill-child-names.php` (token-gated, dry-run + commit modes, self-deletes on commit).
+A one-off backfill MU-plugin (dry-run + commit modes, self-deletes on commit). It has since been removed from the repository.
 
 For each order item with one of the five legacy meta keys, resolve the parent and decide:
 

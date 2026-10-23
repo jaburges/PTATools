@@ -57,8 +57,8 @@ expressed in the engine's defaults file), so the engine **falls back to its PHP
 `$wpdb` chunked dump** — which works because `$wpdb` is already authenticated.
 
 A **database-only** backup job was triggered headlessly by uploading a
-token-gated one-shot MU-plugin via the Kudu VFS API (same pattern as
-`infra/ops/*.php`), invoking `Azure_Backup::create_backup_job(['database'])` +
+one-shot MU-plugin via the Kudu VFS API (the retired ops-script pattern, since
+removed from the repository), invoking `Azure_Backup::create_backup_job(['database'])` +
 `schedule_next_resume()`, then polling the `wp_azure_backup_jobs` table. The
 MU-plugin was **deleted afterward** (confirmed 404; the trigger token now
 returns the normal homepage).
