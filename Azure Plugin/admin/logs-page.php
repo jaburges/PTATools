@@ -305,7 +305,7 @@ if ($activity_table) {
                         <li><strong>Version:</strong> <?php echo AZURE_PLUGIN_VERSION; ?></li>
                         <li><strong>Path:</strong> <code><?php echo AZURE_PLUGIN_PATH; ?></code></li>
                         <li><strong>URL:</strong> <code><?php echo AZURE_PLUGIN_URL; ?></code></li>
-                        <li><strong>Log File:</strong> <?php echo file_exists(AZURE_PLUGIN_PATH . 'logs.md') ? 'Exists' : 'Not Found'; ?></li>
+                        <li><strong>Log File:</strong> <?php echo file_exists(Azure_Logger::get_log_file_path()) ? 'Exists' : 'Not Found'; ?></li>
                     </ul>
                 </div>
                 

@@ -23,9 +23,43 @@ class Azure_Tickets_Apple_Wallet {
         $this->cert_path = Azure_Settings::get_setting('tickets_apple_cert_path', '');
         $this->cert_password = Azure_Settings::get_setting('tickets_apple_cert_password', '');
         
+        $this->cert_path = self::migrate_legacy_certificate($this->cert_path);
+
         // WWDR (Apple Worldwide Developer Relations) certificate
+        $this->wwdr_cert_path = Azure_Private_Storage::dir('certificates') . '/AppleWWDRCA.pem';
+    }
+
+    /**
+     * Where an uploaded signing certificate is stored.
+     */
+    public static function certificate_path() {
+        return Azure_Private_Storage::dir('certificates') . '/apple-wallet.p12';
+    }
+
+    /**
+     * Older versions kept the signing certificate under uploads. Move it into
+     * private storage and repoint the setting.
+     *
+     * @param string $cert_path Path currently stored in settings.
+     * @return string Path to use from now on.
+     */
+    public static function migrate_legacy_certificate($cert_path) {
+        if (empty($cert_path) || !file_exists($cert_path)) {
+            return $cert_path;
+        }
         $upload_dir = wp_upload_dir();
-        $this->wwdr_cert_path = $upload_dir['basedir'] . '/azure-plugin/certificates/AppleWWDRCA.pem';
+        $legacy_dir = rtrim($upload_dir['basedir'], '/\\') . '/azure-plugin/certificates/';
+        if (strpos($cert_path, $legacy_dir) !== 0) {
+            return $cert_path;
+        }
+        $target = self::certificate_path();
+        if (file_exists($target) || !@rename($cert_path, $target)) {
+            return $cert_path;
+        }
+        @chmod($target, 0640);
+        Azure_Settings::update_setting('tickets_apple_cert_path', $target);
+        Azure_Logger::info('Tickets: Moved the Apple Wallet signing certificate into private storage');
+        return $target;
     }
     
     /**
@@ -177,8 +211,8 @@ class Azure_Tickets_Apple_Wallet {
      */
     private function create_pass_package($ticket, $pass_json) {
         // Create temp directory
-        $upload_dir = wp_upload_dir();
-        $temp_dir = $upload_dir['basedir'] . '/azure-plugin/temp/pass-' . $ticket->id . '-' . time();
+        // Signing writes key material here, so keep it out of the web root.
+        $temp_dir = Azure_Private_Storage::temp_dir('passes') . '/pass-' . $ticket->id . '-' . bin2hex(random_bytes(8));
         
         if (!wp_mkdir_p($temp_dir)) {
             Azure_Logger::error('Tickets: Could not create temp directory for pass');
@@ -203,7 +237,7 @@ class Azure_Tickets_Apple_Wallet {
         }
         
         // Create .pkpass (ZIP file)
-        $pkpass_path = $upload_dir['basedir'] . '/azure-plugin/passes/ticket-' . $ticket->id . '.pkpass';
+        $pkpass_path = Azure_Private_Storage::temp_dir('passes') . '/ticket-' . $ticket->id . '.pkpass';
         wp_mkdir_p(dirname($pkpass_path));
         
         if (!$this->create_pkpass($temp_dir, $pkpass_path)) {
@@ -403,22 +437,14 @@ class Azure_Tickets_Apple_Wallet {
     }
     
     /**
-     * Get URL for downloading pass
-     * 
+     * Passes are not published at a public URL; they carry the ticket's QR
+     * code and attendee name. Use serve_pass() behind an access check instead.
+     *
      * @param int $ticket_id
-     * @return string|false
+     * @return false
      */
     public function get_pass_url($ticket_id) {
-        $pass_path = $this->generate_pass($ticket_id);
-        
-        if (!$pass_path || !file_exists($pass_path)) {
-            return false;
-        }
-        
-        $upload_dir = wp_upload_dir();
-        $relative_path = str_replace($upload_dir['basedir'], '', $pass_path);
-        
-        return $upload_dir['baseurl'] . $relative_path;
+        return false;
     }
     
     /**
