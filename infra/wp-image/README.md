@@ -141,8 +141,12 @@ theme changes go through `build.sh`.
 ## What is in the image
 
 - `wordpress:6.9.4-php8.3-apache` as the base.
-- The theme, plugins and mu-plugins from the migration export, with the
-  `Azure Plugin` overlaid from this repository so the released version wins.
+- The theme and plugins from the migration export, with the `Azure Plugin`
+  overlaid from this repository so the released version wins.
+- mu-plugins from `mu-plugins/` in this directory only. The export's
+  mu-plugins are discarded, and `check-no-ops-scripts.sh` fails the build if a
+  retired one-off ops script turns up anywhere in the build context. An
+  mu-plugin the site needs has to be committed here.
 - `twentytwentyfive`, kept purely as a fallback so a fatal error in the active
   theme still leaves a route into wp-admin.
 - `phpredis` plus the Redis Object Cache drop-in at

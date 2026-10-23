@@ -887,7 +887,7 @@ column that left every queued manager sync without a manager.
   shortcode, Calendar Sync, and the Tickets/seating module all read and
   write directly to `pta_event`. Existing `tribe_events`/`tribe_venue`/
   `tribe_organizer` posts are migrated in place via a one-shot script
-  (`infra/ops/retire-tec.php`) without postmeta rewrites \u2014 the schema
+  (since removed from the repository) without postmeta rewrites \u2014 the schema
   was kept identical between TEC and pta_event throughout the migration.
 - 12 retired source files removed (`class-tec-*.php`, `tec-admin.js`,
   `admin/tec-integration-page.php`, etc.) and 3 retired DB tables dropped
