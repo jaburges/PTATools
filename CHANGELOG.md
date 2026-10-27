@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.191 — Anti-spam no longer blocks joined-name email addresses
+
+### Fixed
+
+- **Real parents could be refused at registration** with "Your response could not be accepted". The gibberish check flagged any email address with two runs of three consonants, so addresses that join first and last names (`hendricksonbreanne@`, `andrewschmidt@`) were treated as bot-made. Email addresses are now flagged only for mixed-case gibberish or six or more consonants in a row. Usernames and throwaway-domain checks are unchanged, and every address from the June spam wave is still blocked.
+
 ## 3.147.190 — Ticket sponsors sidebar
 
 ### Added

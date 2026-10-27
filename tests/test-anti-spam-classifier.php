@@ -49,6 +49,9 @@ $cases = array(
     array('christopherson', 'christopherson@gmail.com', false, 'pre-existing control case (long real surname)'),
     array('', 'jamie.burgess@examplepta.org', false, 'organization domain on a normal TLD'),
     array('', 'parent@exampleschools.org', false, 'school district domain on a normal TLD'),
+    array('', 'hendricksonbreanne@gmail.com', false, 'surname + first name joined (blocked a real parent, 3.147.191)'),
+    array('', 'andrewschmidt@gmail.com', false, 'first + last name joined'),
+    array('', 'kristenblackburn@gmail.com', false, 'first + last name joined'),
 );
 
 $failures = 0;

@@ -321,9 +321,12 @@ class Azure_Anti_Spam {
             // `kciifslahgonfglorgeuar_x9`). Each segment is
             // independently classified — if ANY token looks random,
             // we treat the whole address as bot-generated.
+            // Signal 2 (multiple consonant runs) is skipped here: real
+            // addresses often join first and last names without a
+            // separator (`hendricksonbreanne`, `andrewschmidt`).
             $segments = preg_split('/[.\-_+0-9]+/', $local);
             foreach ((array) $segments as $seg) {
-                if ($seg !== '' && self::looks_like_random_string($seg)) {
+                if ($seg !== '' && self::looks_like_random_string($seg, false)) {
                     return 'email_local_pattern_random';
                 }
             }
@@ -558,7 +561,9 @@ class Azure_Anti_Spam {
      *   2. MULTIPLE CONSONANT RUNS — ≥2 consonant runs of length ≥3
      *      in a long alpha-only string (catches lowercased gibberish
      *      like `kciifslahgonfglorgeuar` which has runs `fsl`, `nfgl`,
-     *      and slips past the case-transition rule).
+     *      and slips past the case-transition rule). Off when
+     *      $count_runs is false, as for email local parts, where
+     *      joined names like `hendricksonbreanne` trip it.
      *
      *   3. EXTREME CONSONANT RUN — any single consonant run of
      *      length ≥6 (catches all-consonant strings like
@@ -569,7 +574,7 @@ class Azure_Anti_Spam {
      * vowel/consonant cadence found in real names (`jordanhalpern`,
      * `sharonkumarus`, `christopherson`).
      */
-    private static function looks_like_random_string($s) {
+    private static function looks_like_random_string($s, $count_runs = true) {
         if ($s === '') {
             return false;
         }
@@ -619,7 +624,7 @@ class Azure_Anti_Spam {
         if ($current >= 3) {
             $long_runs++;
         }
-        if ($long_runs >= 2) {
+        if ($count_runs && $long_runs >= 2) {
             return true;
         }
         if ($max_run >= 6) {
