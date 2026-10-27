@@ -78,11 +78,12 @@ $lists = $wpdb->get_results("SELECT * FROM {$lists_table} ORDER BY name ASC");
 
 // Get WordPress user count (all subscribers)
 $total_users = count_users();
-$all_users_count = $total_users['total_users'];
+$all_users_count = Azure_Teen_Volunteer::newsletter_user_count();
 
 // Get WordPress roles
 $wp_roles = wp_roles();
 $roles = $wp_roles->get_names();
+unset($roles[Azure_Teen_Volunteer::ROLE]);
 ?>
 
 <div class="newsletter-lists-page">

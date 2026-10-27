@@ -343,7 +343,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                             <div class="recipient-checkboxes">
                                 <?php
                                 // Get count of all WordPress users
-                                $all_users_count = count_users()['total_users'];
+                                $all_users_count = Azure_Teen_Volunteer::newsletter_user_count();
                                 ?>
                                 <label class="recipient-checkbox">
                                     <input type="checkbox" name="newsletter_lists[]" value="all" data-count="<?php echo esc_attr($all_users_count); ?>" <?php checked(in_array('all', $saved_lists)); ?>>
@@ -376,7 +376,7 @@ if ($newsletter && !empty($newsletter->recipient_lists)) {
                                             }
                                         } elseif ($list->type === 'all_users') {
                                             // For all_users type lists, count all WordPress users
-                                            $list_count = count_users()['total_users'];
+                                            $list_count = Azure_Teen_Volunteer::newsletter_user_count();
                                         }
                                         // Debug output (hidden)
                                         // error_log("Newsletter list {$list->name} (ID:{$list->id}): type={$list->type}, count={$list_count}");

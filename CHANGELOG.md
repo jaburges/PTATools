@@ -2,6 +2,16 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.192 — Teen volunteer sign-ups
+
+### Added
+
+- **Allow Teen Volunteer signups** (per sign-up sheet, under Group Signups). On a sheet with it ticked, a signed-out visitor who clicks **Sign Up** can sign in as before or choose **Teen volunteer**. The teen form asks them to confirm they are 13 or older and have done (or will do) the LWSD volunteer training, plus an email address. A teen always signs up one person, even when group signups are on, and counts toward the activity's spaces straight away. The sheet shows them as "Teen volunteer".
+- **Teen Volunteer accounts.** Each teen gets an account holding only their email: no name, no children, no profile fields, no sign-in, no newsletters (left out of All Users sends, list syncs, counts and the role picker). An email that already belongs to a regular account is asked to sign in instead.
+- **Teen emails.** The confirmation and reminders give the time and location with a private **Cancel my sign-up** link instead of the calendar Subscribe button. The link opens a confirm page and the cancellation itself needs a button press, so mail scanners can't free a spot. Organizers get the usual sign-up and cancellation notices.
+- **End-of-year deletion.** A daily check deletes teen accounts, and their past sign-ups, that have no shift in the current school year. After June 30 that is everyone without a shift booked for the new year.
+- **Teen volunteer questions email** (Volunteer settings box). Shown in the training checkbox; the site admin email until set.
+
 ## 3.147.191 — Anti-spam no longer blocks joined-name email addresses
 
 ### Fixed

@@ -449,6 +449,7 @@ class Azure_Database {
             teacher varchar(191) DEFAULT '',
             status varchar(20) DEFAULT 'open',
             allow_group tinyint(1) NOT NULL DEFAULT 0,
+            allow_teen tinyint(1) NOT NULL DEFAULT 0,
             donate_url varchar(500) DEFAULT '',
             donate_label varchar(191) DEFAULT '',
             donate_amounts varchar(191) DEFAULT '',

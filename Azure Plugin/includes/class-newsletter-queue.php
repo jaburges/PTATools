@@ -223,7 +223,8 @@ class Azure_Newsletter_Queue {
             // All WordPress users with email addresses
             $users = get_users(array(
                 'fields' => array('ID', 'user_email', 'display_name'),
-                'number' => -1
+                'number' => -1,
+                'role__not_in' => array(Azure_Teen_Volunteer::ROLE),
             ));
             
             if (class_exists('Azure_Logger')) {
@@ -268,7 +269,7 @@ class Azure_Newsletter_Queue {
                         $criteria = json_decode($list->criteria, true);
                         error_log("[Newsletter Queue] Criteria: " . json_encode($criteria));
                         if (!empty($criteria['roles'])) {
-                            foreach ($criteria['roles'] as $role) {
+                            foreach (array_diff($criteria['roles'], array(Azure_Teen_Volunteer::ROLE)) as $role) {
                                 $users = get_users(array(
                                     'role' => $role,
                                     'fields' => array('ID', 'user_email', 'display_name')

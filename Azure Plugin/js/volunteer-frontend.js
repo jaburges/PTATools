@@ -173,6 +173,95 @@
         signup($row.data('activity-id'), $row.closest('.azure-volunteer-sheet'), size);
     });
 
+    function modalShell(title, $row, body) {
+        var name = $row.data('activity-name') || '';
+        var time = $row.data('activity-time') || '';
+        return '<div id="azure-vs-confirm-modal" class="azure-vs-modal-overlay">' +
+            '<div class="azure-vs-modal-card" role="dialog" aria-modal="true">' +
+            '<h3>' + esc(title) + '</h3>' +
+            '<p><strong>' + esc($row.data('sheet-title') || '') + '</strong><br />' + esc(name) +
+            (time ? '<br /><span class="azure-vs-modal-time">' + esc(time) + '</span>' : '') + '</p>' +
+            body + '</div></div>';
+    }
+
+    /** Signed out on a sheet that allows teens: choose sign in or teen sign-up. */
+    $(document).on('click', 'a.azure-vs-guest-btn', function(e) {
+        e.preventDefault();
+        closeModal();
+        var $row = $(this).closest('tr');
+        $('body').append(modalShell(i18n.guest_title || 'Sign up to volunteer', $row,
+            '<p>' + esc(i18n.guest_intro || '') + '</p>' +
+            '<div class="azure-vs-modal-actions">' +
+            '<a class="button button-primary" href="' + esc($(this).attr('href')) + '">' + esc(i18n.sign_in || 'Sign in') + '</a>' +
+            '<button type="button" class="button azure-vs-teen-start">' + esc(i18n.teen_btn || 'Teen volunteer') + '</button>' +
+            '<button type="button" class="button azure-vs-confirm-no">' + esc(i18n.cancel || 'Cancel') + '</button>' +
+            '</div>'));
+        $('#azure-vs-confirm-modal').data('row', $row);
+    });
+
+    $(document).on('click', '.azure-vs-teen-start', function() {
+        var $row = $('#azure-vs-confirm-modal').data('row');
+        closeModal();
+        var training = esc(i18n.teen_training || '').replace('%s', '<a href="mailto:' + esc(i18n.teen_contact || '') + '">' + esc(i18n.teen_contact || '') + '</a>');
+        $('body').append(modalShell(i18n.teen_title || 'Teen volunteer sign-up', $row,
+            '<form class="azure-vs-teen-form" novalidate>' +
+            '<label class="azure-vs-teen-check"><input type="checkbox" name="attest_age" value="1" /> <span>' + esc(i18n.teen_age || '') + '</span></label>' +
+            '<label class="azure-vs-teen-check"><input type="checkbox" name="attest_training" value="1" /> <span>' + training + '</span></label>' +
+            '<label class="azure-vs-teen-email">' + esc(i18n.teen_email || 'Email address') +
+            '<input type="email" name="email" autocomplete="email" required /></label>' +
+            '<p class="azure-vs-teen-privacy">' + esc(i18n.teen_privacy || '') + '</p>' +
+            '<p class="azure-vs-teen-error" role="alert" style="display:none;"></p>' +
+            '<div class="azure-vs-modal-actions">' +
+            '<button type="submit" class="button button-primary">' + esc(i18n.teen_submit || 'Sign up') + '</button>' +
+            '<button type="button" class="button azure-vs-confirm-no">' + esc(i18n.cancel || 'Cancel') + '</button>' +
+            '</div></form>'));
+        $('#azure-vs-confirm-modal').data('row', $row).find('input[name="attest_age"]').trigger('focus');
+    });
+
+    $(document).on('submit', '.azure-vs-teen-form', function(e) {
+        e.preventDefault();
+        var $form = $(this);
+        var $row = $('#azure-vs-confirm-modal').data('row');
+        var $err = $form.find('.azure-vs-teen-error');
+        var email = $.trim(String($form.find('input[name="email"]').val()));
+        function fail(text) {
+            $err.text(text).show();
+        }
+        if (!$form.find('input[name="attest_age"]').is(':checked') || !$form.find('input[name="attest_training"]').is(':checked')) {
+            return fail(i18n.teen_ticks || 'Please tick both boxes to sign up.');
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return fail(i18n.teen_bad_email || 'Please enter a valid email address.');
+        }
+        $err.hide();
+        var $submit = $form.find('button[type="submit"]').prop('disabled', true);
+        $.post(azureVolunteer.ajaxurl, {
+            action: 'azure_volunteer_teen_signup',
+            nonce: azureVolunteer.nonce,
+            activity_id: $row.data('activity-id'),
+            email: email,
+            attest_age: 1,
+            attest_training: 1
+        })
+        .done(function(res) {
+            if (res.success) {
+                $form.replaceWith('<p class="azure-vs-teen-done">' + esc(res.data.message || i18n.saved || 'Saved!') + '</p>' +
+                    '<div class="azure-vs-modal-actions"><button type="button" class="button button-primary azure-vs-donate-done">' +
+                    esc(i18n.donate_done || 'Done') + '</button></div>');
+                return;
+            }
+            $submit.prop('disabled', false);
+            fail((res.data && res.data.message) || i18n.error || 'Something went wrong.');
+            if (res.data && res.data.code === 'account_exists') {
+                $err.append(' <a href="' + esc($row.find('a.azure-vs-guest-btn').attr('href') || '') + '">' + esc(i18n.sign_in || 'Sign in') + '</a>');
+            }
+        })
+        .fail(function() {
+            $submit.prop('disabled', false);
+            fail(i18n.error || 'Something went wrong.');
+        });
+    });
+
     $(document).on('click', '.azure-vs-confirm-no, #azure-vs-confirm-modal', function(e) {
         if (e.target === this || $(e.target).hasClass('azure-vs-confirm-no')) {
             closeModal();

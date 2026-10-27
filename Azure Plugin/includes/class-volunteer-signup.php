@@ -24,6 +24,9 @@ class Azure_Volunteer_Signup {
 
     const MESSAGES_OPTION = 'azure_email_messages';
 
+    /** Teen sign-ups allowed per network per hour. */
+    const TEEN_RATE_LIMIT = 5;
+
     public static function get_instance() {
         if (self::$instance === null) {
             self::$instance = new self();
@@ -66,6 +69,7 @@ class Azure_Volunteer_Signup {
         // Guests get a "must login" response
         add_action('wp_ajax_nopriv_azure_volunteer_signup', array($this, 'ajax_login_required'));
         add_action('wp_ajax_nopriv_azure_volunteer_withdraw', array($this, 'ajax_login_required'));
+        add_action('wp_ajax_nopriv_azure_volunteer_teen_signup', array($this, 'ajax_teen_signup'));
 
         // Shortcode
         add_shortcode('volunteer_signup', array($this, 'shortcode_render'));
@@ -227,6 +231,10 @@ class Azure_Volunteer_Signup {
 
     public static function sheet_allows_group($sheet) {
         return is_object($sheet) && !empty($sheet->allow_group);
+    }
+
+    public static function sheet_allows_teen($sheet) {
+        return is_object($sheet) && !empty($sheet->allow_teen);
     }
 
     /** "Jamie" for one person, "Jamie × 4" for a group. */
@@ -564,13 +572,14 @@ class Azure_Volunteer_Signup {
     }
 
     /**
-     * Group signups: sheets.allow_group and signups.party_size. Visitors
-     * reach count_signups() before any admin request runs dbDelta, so the
-     * columns are added here; the option skips SHOW COLUMNS once they exist.
+     * Group and teen signups: sheets.allow_group, sheets.allow_teen and
+     * signups.party_size. Visitors reach count_signups() before any admin
+     * request runs dbDelta, so the columns are added here; the option skips
+     * SHOW COLUMNS once they exist.
      */
     public static function ensure_group_columns() {
         global $wpdb;
-        if (function_exists('get_option') && get_option('azure_volunteer_group_columns') === '1') {
+        if (function_exists('get_option') && get_option('azure_volunteer_group_columns') === '2') {
             return;
         }
         $sheets_t = Azure_Database::get_table_name('volunteer_sheets');
@@ -587,11 +596,14 @@ class Azure_Volunteer_Signup {
         if (!in_array('allow_group', $sheet_cols, true)) {
             $ok = $wpdb->query("ALTER TABLE {$sheets_t} ADD COLUMN allow_group tinyint(1) NOT NULL DEFAULT 0") !== false && $ok;
         }
+        if (!in_array('allow_teen', $sheet_cols, true)) {
+            $ok = $wpdb->query("ALTER TABLE {$sheets_t} ADD COLUMN allow_teen tinyint(1) NOT NULL DEFAULT 0") !== false && $ok;
+        }
         if (!in_array('party_size', $signup_cols, true)) {
             $ok = $wpdb->query("ALTER TABLE {$signups_t} ADD COLUMN party_size smallint(5) UNSIGNED NOT NULL DEFAULT 1 AFTER user_id") !== false && $ok;
         }
         if ($ok && function_exists('update_option')) {
-            update_option('azure_volunteer_group_columns', '1', true);
+            update_option('azure_volunteer_group_columns', '2', true);
         }
     }
 
@@ -1021,6 +1033,7 @@ class Azure_Volunteer_Signup {
             'teacher'             => (string) ($template->teacher ?? ''),
             'status'              => ($template->status ?? 'open') === 'closed' ? 'closed' : 'open',
             'allow_group'         => self::sheet_allows_group($template) ? 1 : 0,
+            'allow_teen'          => self::sheet_allows_teen($template) ? 1 : 0,
             'donate_url'          => (string) ($template->donate_url ?? ''),
             'donate_label'        => (string) ($template->donate_label ?? ''),
             'donate_amounts'      => (string) ($template->donate_amounts ?? ''),
@@ -1246,6 +1259,7 @@ class Azure_Volunteer_Signup {
                 'teacher'        => (string) ($source->teacher ?? ''),
                 'status'         => ($source->status ?? 'open') === 'closed' ? 'closed' : 'open',
                 'allow_group'    => self::sheet_allows_group($source) ? 1 : 0,
+                'allow_teen'     => self::sheet_allows_teen($source) ? 1 : 0,
                 'donate_url'     => (string) ($source->donate_url ?? ''),
                 'donate_label'   => (string) ($source->donate_label ?? ''),
                 'donate_amounts' => (string) ($source->donate_amounts ?? ''),
@@ -1912,7 +1926,7 @@ class Azure_Volunteer_Signup {
      */
     public static function calendar_subscribe_url($user_id) {
         $user_id = (int) $user_id;
-        if ($user_id <= 0 || !function_exists('home_url')) {
+        if ($user_id <= 0 || !function_exists('home_url') || self::is_teen_user($user_id)) {
             return '';
         }
         $token = self::calendar_token_for_user($user_id);
@@ -1974,6 +1988,10 @@ class Azure_Volunteer_Signup {
                 . '<a href="' . $safe_sub . '" style="display:inline-block;padding:14px 28px;background:#0078d4;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">Subscribe</a>'
                 . '</p>'
                 . '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">Subscribe once. Your calendar checks this private link and adds or drops shifts when you sign up or cancel.</p>';
+        } elseif (self::is_teen_user($user_id)) {
+            // Teens have no account page, so the button slot carries their cancel link instead.
+            $user_name = __('there', 'azure-plugin');
+            $subscribe_button = self::teen_cancel_links($user_id, $activities);
         }
 
         return array(
@@ -1992,6 +2010,33 @@ class Azure_Volunteer_Signup {
 
     private static function email_text($value) {
         return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    }
+
+    public static function is_teen_user($user_id) {
+        return class_exists('Azure_Teen_Volunteer') && Azure_Teen_Volunteer::is_teen_id($user_id);
+    }
+
+    /**
+     * @param object[] $activities
+     */
+    private static function teen_cancel_links($user_id, $activities) {
+        $acts = array_values(array_filter((array) $activities, function ($a) {
+            return is_object($a) && !empty($a->id);
+        }));
+        if (!$acts) {
+            return '';
+        }
+        $out = '';
+        foreach ($acts as $act) {
+            $label = count($acts) > 1
+                /* translators: %s: activity name */
+                ? sprintf(__('Cancel %s', 'azure-plugin'), (string) $act->name)
+                : __('Cancel my sign-up', 'azure-plugin');
+            $out .= '<p style="text-align:center;margin:24px 0;">'
+                . '<a href="' . self::email_text(Azure_Teen_Volunteer::cancel_url($user_id, (int) $act->id)) . '" style="display:inline-block;padding:14px 28px;background:#ffffff;color:#b32d2e;border:1px solid #b32d2e;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">' . self::email_text($label) . '</a>'
+                . '</p>';
+        }
+        return $out . '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;color:#3c434a;">' . self::email_text(__('Can\'t make it? Use this link to free up your spot for someone else. Please keep it private.', 'azure-plugin')) . '</p>';
     }
 
     public static function volunteer_notice($user_name, $intro, $sheet, $activities, $event_title = '', $event_url = '', $user_id = 0) {
@@ -2579,6 +2624,7 @@ class Azure_Volunteer_Signup {
             'teacher'        => $teacher,
             'status'         => $status,
             'allow_group'    => empty($_POST['allow_group']) ? 0 : 1,
+            'allow_teen'     => empty($_POST['allow_teen']) ? 0 : 1,
             'donate_url'     => self::sanitize_donate_url(wp_unslash($_POST['donate_url'] ?? '')),
             'donate_label'   => sanitize_text_field(wp_unslash($_POST['donate_label'] ?? '')),
             'donate_amounts' => implode(',', self::parse_donate_amounts(sanitize_text_field(wp_unslash($_POST['donate_amounts'] ?? '')))),
@@ -3113,6 +3159,17 @@ class Azure_Volunteer_Signup {
             wp_send_json_error(array('message' => __('Invalid activity.', 'azure-plugin')));
         }
 
+        $this->withdraw($user_id, $activity_id);
+        wp_send_json_success(array('message' => __('You have withdrawn from this activity.', 'azure-plugin')));
+    }
+
+    /**
+     * Removes a person's sign-up for an activity and tells the organizer.
+     *
+     * @return bool Whether there was a sign-up to remove.
+     */
+    public function withdraw($user_id, $activity_id) {
+        global $wpdb;
         $signups_t = Azure_Database::get_table_name('volunteer_signups');
         $activities_t = Azure_Database::get_table_name('volunteer_activities');
         $existing = $wpdb->get_row($wpdb->prepare(
@@ -3129,8 +3186,91 @@ class Azure_Volunteer_Signup {
             }
         }
         $this->touch_upcoming_cache();
+        return (bool) ($existing && $removed);
+    }
 
-        wp_send_json_success(array('message' => __('You have withdrawn from this activity.', 'azure-plugin')));
+    /** "Setup crew — Friday, October 30, 4:00–6:00 PM (Fall Festival)" */
+    public static function shift_summary($activity_id) {
+        global $wpdb;
+        $t = Azure_Database::get_table_name('volunteer_activities');
+        $act = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id = %d", $activity_id));
+        $sheet = $act ? self::get_sheet((int) $act->sheet_id) : null;
+        if (!$act || !$sheet) {
+            return '';
+        }
+        $when = trim(self::slot_date_label($sheet, $act) . ', ' . self::slot_time_label($sheet, $act), ', ');
+        $out = (string) $act->name;
+        if ($when !== '') {
+            $out .= ' — ' . $when;
+        }
+        return $out . ' (' . (string) $sheet->title . ')';
+    }
+
+    /**
+     * Signed-out sign-up on a sheet that allows teen volunteers: one person,
+     * identified only by email, with both attestations ticked.
+     */
+    public function ajax_teen_signup() {
+        if (!check_ajax_referer('azure_volunteer_front', 'nonce', false)) {
+            wp_send_json_error(array('message' => __('This page is out of date. Please refresh it and try again.', 'azure-plugin')));
+        }
+        if (empty($_POST['attest_age']) || empty($_POST['attest_training'])) {
+            wp_send_json_error(array('message' => __('Please tick both boxes to sign up.', 'azure-plugin')));
+        }
+        $email = sanitize_email(wp_unslash($_POST['email'] ?? ''));
+        if ($email === '' || !is_email($email)) {
+            wp_send_json_error(array('message' => __('Please enter a valid email address.', 'azure-plugin')));
+        }
+
+        global $wpdb;
+        $activities_t = Azure_Database::get_table_name('volunteer_activities');
+        $signups_t = Azure_Database::get_table_name('volunteer_signups');
+        $act = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$activities_t} WHERE id = %d", absint($_POST['activity_id'] ?? 0)));
+        $sheet = $act ? self::get_sheet((int) $act->sheet_id) : null;
+        if (!$sheet || !self::sheet_allows_teen($sheet) || in_array((string) ($sheet->status ?? ''), array('closed', 'trashed'), true) || !empty($sheet->is_template)) {
+            wp_send_json_error(array('message' => __('Teen volunteer sign-ups aren\'t open for this activity.', 'azure-plugin')));
+        }
+
+        $ip = class_exists('Azure_Forms_Module') ? Azure_Forms_Module::client_ip() : (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $rate_key = 'pta_teen_rate_' . md5($ip);
+        $count = (int) get_transient($rate_key);
+        if ($count >= self::TEEN_RATE_LIMIT) {
+            wp_send_json_error(array('message' => __('Too many sign-ups from your network. Please try again later.', 'azure-plugin')));
+        }
+        set_transient($rate_key, $count + 1, HOUR_IN_SECONDS);
+
+        if (class_exists('Azure_Anti_Spam') && Azure_Anti_Spam::check_signup('', $email, '') !== null) {
+            wp_send_json_error(array('message' => __('Your response could not be accepted. Please contact us if you think this is a mistake.', 'azure-plugin')));
+        }
+
+        $user_id = Azure_Teen_Volunteer::find_or_create($email);
+        if (is_wp_error($user_id)) {
+            wp_send_json_error(array('message' => $user_id->get_error_message(), 'code' => $user_id->get_error_code()));
+        }
+        if (self::user_signed_up((int) $act->id, $user_id)) {
+            wp_send_json_error(array('message' => __('That email is already signed up for this activity.', 'azure-plugin')));
+        }
+        if (self::max_party_size((int) $act->spots_needed, self::count_signups((int) $act->id)) < 1) {
+            wp_send_json_error(array('message' => __('Sorry, this activity just filled up.', 'azure-plugin')));
+        }
+        $saved = $wpdb->insert($signups_t, array(
+            'activity_id' => (int) $act->id,
+            'user_id'     => $user_id,
+            'party_size'  => 1,
+        ));
+        if ($saved === false) {
+            wp_send_json_error(array('message' => __('Could not sign up — spots may already be full.', 'azure-plugin')));
+        }
+
+        $act->party_size = 1;
+        $this->send_confirmation_email($user_id, (int) $sheet->id, array($act));
+        $this->notify_organizer('volunteer_organizer_signup', $user_id, $sheet, array($act));
+        $this->touch_upcoming_cache();
+
+        wp_send_json_success(array(
+            /* translators: 1: activity name, 2: email address */
+            'message' => sprintf(__('You\'re signed up for %1$s. We\'ve emailed a confirmation to %2$s, with a link to cancel if you can\'t make it.', 'azure-plugin'), $act->name, $email),
+        ));
     }
 
     /**
@@ -3375,6 +3515,12 @@ class Azure_Volunteer_Signup {
         }
     }
 
+    /** Where teens send questions about volunteer training; the admin email until set. */
+    public static function teen_contact_email() {
+        $email = class_exists('Azure_Settings') ? (string) Azure_Settings::get_setting('volunteer_teen_contact', '') : '';
+        return $email !== '' ? $email : (string) get_option('admin_email');
+    }
+
     public function save_reminder_settings() {
         if (empty($_POST['azure_volunteer_reminder_settings'])) {
             return;
@@ -3408,6 +3554,7 @@ class Azure_Volunteer_Signup {
         if (class_exists('Azure_Settings')) {
             Azure_Settings::update_setting('volunteer_reminder_enabled', $enabled);
             Azure_Settings::update_setting('volunteer_reminder_schedule', wp_json_encode($stored));
+            Azure_Settings::update_setting('volunteer_teen_contact', sanitize_email(wp_unslash($_POST['volunteer_teen_contact'] ?? '')));
         }
 
         $redirect = wp_get_referer();
@@ -3495,6 +3642,7 @@ class Azure_Volunteer_Signup {
                     <tbody>
                     <?php
                     $allow_group = self::sheet_allows_group($sheet);
+                    $allow_teen = !$user_id && self::sheet_allows_teen($sheet);
                     foreach ($activities as $act):
                         $filled = self::count_signups($act->id);
                         $total  = (int) $act->spots_needed;
@@ -3565,7 +3713,7 @@ class Azure_Volunteer_Signup {
                                         <?php esc_html_e('Sign Up', 'azure-plugin'); ?>
                                     </button>
                                 <?php else: ?>
-                                    <a class="button azure-vs-signup-btn" href="<?php echo esc_url($login_url); ?>">
+                                    <a class="button azure-vs-signup-btn<?php echo $allow_teen ? ' azure-vs-guest-btn' : ''; ?>" href="<?php echo esc_url($login_url); ?>">
                                         <?php esc_html_e('Sign Up', 'azure-plugin'); ?>
                                     </a>
                                 <?php endif; ?>
@@ -3582,7 +3730,10 @@ class Azure_Volunteer_Signup {
                         __('Please %ssign in%s with your usual WordPress account to volunteer.', 'azure-plugin'),
                         '<a href="' . esc_url($login_url) . '">',
                         '</a>'
-                    ); ?></p>
+                    ); ?>
+                    <?php if ($allow_teen): ?>
+                        <?php esc_html_e('Teen volunteers (13 or older) can sign up with just an email address: click Sign Up.', 'azure-plugin'); ?>
+                    <?php endif; ?></p>
                 </div>
             <?php endif; ?>
 
@@ -4100,6 +4251,20 @@ class Azure_Volunteer_Signup {
                 'party_same' => __('You are already signed up for %d. Change the number, then press Update.', 'azure-plugin'),
                 'donate_intro' => __('Thanks for signing up! You chose to donate. Pick an amount:', 'azure-plugin'),
                 'donate_done' => __('Done', 'azure-plugin'),
+                'guest_title' => __('Sign up to volunteer', 'azure-plugin'),
+                'guest_intro' => __('Sign in with your account, or sign up as a teen volunteer.', 'azure-plugin'),
+                'sign_in' => __('Sign in', 'azure-plugin'),
+                'teen_btn' => __('Teen volunteer', 'azure-plugin'),
+                'teen_title' => __('Teen volunteer sign-up', 'azure-plugin'),
+                'teen_age' => __('I attest I am 13 years or older', 'azure-plugin'),
+                /* translators: %s: contact email address */
+                'teen_training' => __('I have completed or will complete the LWSD volunteer training (email %s with questions)', 'azure-plugin'),
+                'teen_contact' => self::teen_contact_email(),
+                'teen_email' => __('Email address', 'azure-plugin'),
+                'teen_privacy' => __('We only keep your email address, to confirm and remind you about this shift. It is deleted after June 30 and never added to newsletters.', 'azure-plugin'),
+                'teen_submit' => __('Sign up', 'azure-plugin'),
+                'teen_ticks' => __('Please tick both boxes to sign up.', 'azure-plugin'),
+                'teen_bad_email' => __('Please enter a valid email address.', 'azure-plugin'),
             ),
         ));
     }

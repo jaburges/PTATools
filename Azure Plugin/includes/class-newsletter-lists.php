@@ -394,7 +394,7 @@ class Azure_Newsletter_Lists {
         
         switch ($list->type) {
             case 'all_users':
-                $users = get_users(array('fields' => array('ID', 'user_email', 'display_name')));
+                $users = get_users(array('fields' => array('ID', 'user_email', 'display_name'), 'role__not_in' => array(Azure_Teen_Volunteer::ROLE)));
                 foreach ($users as $user) {
                     $subscribers[] = array(
                         'user_id' => $user->ID,
@@ -408,7 +408,7 @@ class Azure_Newsletter_Lists {
                 $criteria = json_decode($list->criteria, true);
                 $roles = $criteria['roles'] ?? array();
                 
-                foreach ($roles as $role) {
+                foreach (array_diff($roles, array(Azure_Teen_Volunteer::ROLE)) as $role) {
                     $users = get_users(array(
                         'role' => $role,
                         'fields' => array('ID', 'user_email', 'display_name')
@@ -585,7 +585,7 @@ class Azure_Newsletter_Lists {
         }
         
         // Get all users
-        $users = get_users(array('fields' => array('ID', 'user_email', 'display_name')));
+        $users = get_users(array('fields' => array('ID', 'user_email', 'display_name'), 'role__not_in' => array(Azure_Teen_Volunteer::ROLE)));
         
         $synced = 0;
         

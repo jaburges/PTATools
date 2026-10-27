@@ -254,7 +254,7 @@ class Azure_Newsletter_Ajax {
         if (!empty($saved_lists)) {
             foreach ($saved_lists as $list_id) {
                 if ($list_id === 'all') {
-                    $count = count_users()['total_users'];
+                    $count = Azure_Teen_Volunteer::newsletter_user_count();
                     $recipients['lists'][] = array('name' => 'All WordPress Subscribers', 'count' => $count);
                     $recipients['total'] += $count;
                 } else {
@@ -399,6 +399,7 @@ class Azure_Newsletter_Ajax {
         $users = get_users(array(
             'search' => '*' . $query . '*',
             'search_columns' => array('user_login', 'user_email', 'display_name'),
+            'role__not_in' => array(Azure_Teen_Volunteer::ROLE),
             'number' => 20,
             'orderby' => 'display_name',
             'order' => 'ASC'
@@ -1646,7 +1647,7 @@ class Azure_Newsletter_Ajax {
         $type = 'unknown';
         
         if ($list_id === 'all') {
-            $count = count_users()['total_users'];
+            $count = Azure_Teen_Volunteer::newsletter_user_count();
             $type = 'all_wordpress_users';
         } else {
             global $wpdb;
@@ -1676,7 +1677,7 @@ class Azure_Newsletter_Ajax {
                     intval($list_id)
                 ));
             } elseif ($list->type === 'all_users') {
-                $count = count_users()['total_users'];
+                $count = Azure_Teen_Volunteer::newsletter_user_count();
             }
         }
         

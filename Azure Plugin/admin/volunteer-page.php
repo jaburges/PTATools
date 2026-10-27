@@ -59,6 +59,13 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
             </div>
             <button type="button" class="button" id="azure-vs-reminder-add"><?php esc_html_e('Add reminder', 'azure-plugin'); ?></button>
         </div>
+        <p style="margin:12px 0 0;">
+            <label for="azure-vs-teen-contact" style="font-weight:600;"><?php esc_html_e('Teen volunteer questions email', 'azure-plugin'); ?></label><br />
+            <input type="email" class="regular-text" name="volunteer_teen_contact" id="azure-vs-teen-contact"
+                value="<?php echo esc_attr(class_exists('Azure_Settings') ? (string) Azure_Settings::get_setting('volunteer_teen_contact', '') : ''); ?>"
+                placeholder="<?php echo esc_attr(get_option('admin_email')); ?>" />
+            <span class="description"><?php esc_html_e('Shown next to the training checkbox on teen sign-ups. Leave blank to use the site admin email.', 'azure-plugin'); ?></span>
+        </p>
         <button type="submit" class="button button-primary" style="margin-top:8px;"><?php esc_html_e('Save', 'azure-plugin'); ?></button>
     </form>
     <p class="description" style="margin:8px 0 0;">
@@ -475,6 +482,16 @@ if (!empty($_GET['volunteer_reminder']) && $_GET['volunteer_reminder'] === 'save
                     </td>
                 </tr>
                 <tr>
+                    <th><?php _e('Teen Volunteers', 'azure-plugin'); ?></th>
+                    <td>
+                        <label for="azure-vs-allow-teen">
+                            <input type="checkbox" id="azure-vs-allow-teen" value="1" />
+                            <?php _e('Allow Teen Volunteer signups', 'azure-plugin'); ?>
+                        </label>
+                        <p class="description"><?php _e('Visitors who aren\'t signed in can sign up as a teen volunteer with just an email address, after confirming they are 13 or older and will complete the LWSD volunteer training. Each teen signs up only themselves, even with group signups on. Their email is kept until June 30 and never added to newsletters.', 'azure-plugin'); ?></p>
+                    </td>
+                </tr>
+                <tr>
                     <th><label for="azure-vs-donate-url"><?php _e('Donate after sign-up', 'azure-plugin'); ?></label></th>
                     <td>
                         <input type="url" id="azure-vs-donate-url" class="regular-text" placeholder="https://" />
@@ -597,6 +614,7 @@ jQuery(function($) {
         $('#azure-vs-event-location').val('');
         $('#azure-vs-status').val('open');
         $('#azure-vs-allow-group').prop('checked', false);
+        $('#azure-vs-allow-teen').prop('checked', false);
         $('#azure-vs-donate-url, #azure-vs-donate-label, #azure-vs-donate-amounts').val('');
         setRecurringMode(!!recurring);
         var newTitle = recurring
@@ -635,6 +653,7 @@ jQuery(function($) {
                 $('#azure-vs-event-location').val(s.event_location || '');
                 $('#azure-vs-status').val(s.status);
                 $('#azure-vs-allow-group').prop('checked', parseInt(s.allow_group, 10) === 1);
+                $('#azure-vs-allow-teen').prop('checked', parseInt(s.allow_teen, 10) === 1);
                 $('#azure-vs-donate-url').val(s.donate_url || '');
                 $('#azure-vs-donate-label').val(s.donate_label || '');
                 $('#azure-vs-donate-amounts').val(s.donate_amounts || '');
@@ -775,6 +794,7 @@ jQuery(function($) {
             event_location: $('#azure-vs-event-location').val(),
             status: $('#azure-vs-status').val(),
             allow_group: $('#azure-vs-allow-group').is(':checked') ? 1 : 0,
+            allow_teen: $('#azure-vs-allow-teen').is(':checked') ? 1 : 0,
             donate_url: $('#azure-vs-donate-url').val(),
             donate_label: $('#azure-vs-donate-label').val(),
             donate_amounts: $('#azure-vs-donate-amounts').val(),

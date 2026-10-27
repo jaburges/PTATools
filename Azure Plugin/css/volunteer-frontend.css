@@ -354,9 +354,55 @@
 
 .azure-vs-modal-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-end;
     margin-top: 16px;
+}
+
+.azure-vs-modal-card {
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+}
+
+.azure-vs-teen-check {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 0 0 10px;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.azure-vs-teen-check input {
+    margin-top: 3px;
+    flex: none;
+}
+
+.azure-vs-teen-email {
+    display: block;
+    margin: 12px 0 0;
+    font-weight: 600;
+}
+
+.azure-vs-teen-email input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 4px;
+    padding: 8px;
+    font-weight: normal;
+}
+
+.azure-vs-teen-privacy {
+    margin: 10px 0 0;
+    font-size: 13px;
+    color: #50575e;
+}
+
+.azure-vs-teen-error {
+    margin: 10px 0 0;
+    color: #b32d2e;
 }
 
 .pta-event-volunteer-signups {
