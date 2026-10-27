@@ -4254,6 +4254,7 @@ class Azure_Volunteer_Signup {
                 'guest_title' => __('Sign up to volunteer', 'azure-plugin'),
                 'guest_intro' => __('Sign in with your account, or sign up as a teen volunteer.', 'azure-plugin'),
                 'sign_in' => __('Sign in', 'azure-plugin'),
+                'parent_sign_in' => __('Parent Sign In', 'azure-plugin'),
                 'teen_btn' => __('Teen volunteer', 'azure-plugin'),
                 'teen_title' => __('Teen volunteer sign-up', 'azure-plugin'),
                 'teen_age' => __('I attest I am 13 years or older', 'azure-plugin'),

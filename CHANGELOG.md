@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.193 — Parent Sign In button
+
+### Changed
+
+- **Volunteer sign-up chooser:** the sign-in option now reads **Parent Sign In** and is a button styled like **Teen volunteer** and **Cancel**, instead of a plain link.
+
 ## 3.147.192 — Teen volunteer sign-ups
 
 ### Added

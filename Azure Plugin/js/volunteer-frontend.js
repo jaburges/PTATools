@@ -192,11 +192,15 @@
         $('body').append(modalShell(i18n.guest_title || 'Sign up to volunteer', $row,
             '<p>' + esc(i18n.guest_intro || '') + '</p>' +
             '<div class="azure-vs-modal-actions">' +
-            '<a class="button button-primary" href="' + esc($(this).attr('href')) + '">' + esc(i18n.sign_in || 'Sign in') + '</a>' +
+            '<button type="button" class="button button-primary azure-vs-parent-signin" data-href="' + esc($(this).attr('href')) + '">' + esc(i18n.parent_sign_in || 'Parent Sign In') + '</button>' +
             '<button type="button" class="button azure-vs-teen-start">' + esc(i18n.teen_btn || 'Teen volunteer') + '</button>' +
             '<button type="button" class="button azure-vs-confirm-no">' + esc(i18n.cancel || 'Cancel') + '</button>' +
             '</div>'));
         $('#azure-vs-confirm-modal').data('row', $row);
+    });
+
+    $(document).on('click', '.azure-vs-parent-signin', function() {
+        window.location.href = $(this).data('href');
     });
 
     $(document).on('click', '.azure-vs-teen-start', function() {
