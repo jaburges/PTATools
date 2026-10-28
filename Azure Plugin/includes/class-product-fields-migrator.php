@@ -82,7 +82,8 @@ class Azure_Product_Fields_Migrator {
     }
 
     /**
-     * Return the canonical field definitions admin can map TO.
+     * Return the canonical field definitions admin can map TO. Order-scope
+     * fields have no profile to copy into, so they are not targets.
      */
     public function get_canonical_fields() {
         global $wpdb;
@@ -92,7 +93,7 @@ class Azure_Product_Fields_Migrator {
         }
         $rows = $wpdb->get_results(
             "SELECT id, label, field_key, scope FROM {$fld_table}
-             WHERE field_key <> ''
+             WHERE field_key <> '' AND scope <> 'order'
              ORDER BY scope, label ASC"
         );
         return is_array($rows) ? $rows : array();

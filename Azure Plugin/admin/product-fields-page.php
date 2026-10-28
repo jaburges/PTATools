@@ -7,6 +7,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once AZURE_PLUGIN_PATH . 'includes/class-product-fields-module.php';
+
 $settings = Azure_Settings::get_all_settings();
 $module_enabled = !empty($settings['enable_product_fields']);
 
@@ -245,8 +247,9 @@ if (is_wp_error($product_tags)) {
                             <option value="child">Child profile (saved per child)</option>
                             <option value="parent">Parent profile (saved on the user account)</option>
                             <option value="family">Family profile (shared between co-parents on the same account)</option>
+                            <option value="order">Order (no profile) — collected on this order only</option>
                         </select>
-                        <br><small>Determines where the value is read from on the product page and saved to after checkout.</small>
+                        <br><small>Determines where the value is read from on the product page and saved to after checkout. Order fields show as plain inputs with no child picker and are never read from or saved to a profile.</small>
                     </p>
                     <p>
                         <label><strong>Type</strong></label><br>
@@ -271,7 +274,7 @@ if (is_wp_error($product_tags)) {
                     <p>
                         <label><input type="checkbox" name="required" id="azure-pf-field-required" value="1" /> <strong>Required</strong></label>
                     </p>
-                    <p>
+                    <p id="azure-pf-save-profile-wrap">
                         <label><input type="checkbox" name="save_to_profile" id="azure-pf-field-save-profile" value="1" /> <strong>Save to user profile</strong></label>
                         <br><small>Saves the value to the user's account and auto-fills it on their next purchase.</small>
                     </p>
@@ -303,8 +306,20 @@ jQuery(function($) {
 
     // ── Show/hide meta key when save-to-profile checked ──
     $('#azure-pf-field-save-profile').on('change', function() {
-        $('#azure-pf-meta-key-wrap').toggle($(this).is(':checked'));
+        $('#azure-pf-meta-key-wrap').toggle($(this).is(':checked') && $('#azure-pf-field-scope').val() !== 'order');
     });
+
+    // ── Order scope never touches a profile ──
+    $('#azure-pf-field-scope').on('change', function() {
+        var isOrder = $(this).val() === 'order';
+        $('#azure-pf-save-profile-wrap').toggle(!isOrder);
+        if (isOrder) {
+            $('#azure-pf-field-save-profile').prop('checked', false);
+        }
+        $('#azure-pf-field-save-profile').trigger('change');
+    });
+
+    var scopeLabels = <?php echo wp_json_encode(Azure_Product_Fields_Module::scope_labels()); ?>;
 
     // ── New Group ──
     $('#azure-pf-add-group').on('click', function() {
@@ -421,7 +436,7 @@ jQuery(function($) {
             return;
         }
         fields.forEach(function(f) {
-            var scopeLabel = (f.scope === 'parent') ? 'Parent' : (f.scope === 'family' ? 'Family' : 'Child');
+            var scopeLabel = scopeLabels[f.scope] || scopeLabels.child;
             $body.append(
                 '<tr data-field-id="' + f.id + '">' +
                 '<td><span class="dashicons dashicons-move" style="cursor:grab;color:#999;"></span></td>' +
@@ -467,7 +482,7 @@ jQuery(function($) {
             $('#azure-pf-field-label').val(field.label);
             $('#azure-pf-field-key').val(field.field_key || '').prop('readonly', !!field.field_key);
             $('#azure-pf-field-key-hint').text(field.field_key ? 'Locked: this slug is referenced by existing orders and child profiles.' : 'Auto-generated from the label on first save and immutable thereafter.');
-            $('#azure-pf-field-scope').val(field.scope || 'child');
+            $('#azure-pf-field-scope').val(field.scope || 'child').trigger('change');
             $('#azure-pf-field-type').val(field.field_type).trigger('change');
             $('#azure-pf-field-placeholder').val(field.placeholder);
             $('#azure-pf-field-required').prop('checked', field.required == 1);
@@ -547,7 +562,7 @@ jQuery(function($) {
         $('#azure-pf-field-label').val('');
         $('#azure-pf-field-key').val('').prop('readonly', false);
         $('#azure-pf-field-key-hint').text('Auto-generated from the label on first save and immutable thereafter.');
-        $('#azure-pf-field-scope').val('child');
+        $('#azure-pf-field-scope').val('child').trigger('change');
         $('#azure-pf-field-type').val('text').trigger('change');
         $('#azure-pf-field-placeholder').val('');
         $('#azure-pf-field-options').val('');

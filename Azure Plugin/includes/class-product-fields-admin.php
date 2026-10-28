@@ -57,8 +57,8 @@ class Azure_Product_Fields_Admin {
         }
 
         $id          = intval($_POST['id'] ?? 0);
-        $name        = sanitize_text_field($_POST['name'] ?? '');
-        $description = sanitize_textarea_field($_POST['description'] ?? '');
+        $name        = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
+        $description = sanitize_textarea_field(wp_unslash($_POST['description'] ?? ''));
         $is_active   = intval($_POST['is_active'] ?? 1);
         $categories  = array_map('intval', (array)($_POST['categories'] ?? array()));
 
@@ -160,18 +160,22 @@ class Azure_Product_Fields_Admin {
 
         $id              = intval($_POST['id'] ?? 0);
         $group_id        = intval($_POST['group_id'] ?? 0);
-        $label           = sanitize_text_field($_POST['label'] ?? '');
-        $field_type      = sanitize_text_field($_POST['field_type'] ?? 'text');
-        $placeholder     = sanitize_text_field($_POST['placeholder'] ?? '');
+        $label           = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
+        $field_type      = sanitize_text_field(wp_unslash($_POST['field_type'] ?? 'text'));
+        $placeholder     = sanitize_text_field(wp_unslash($_POST['placeholder'] ?? ''));
         $required        = intval($_POST['required'] ?? 0);
         $save_to_profile = intval($_POST['save_to_profile'] ?? 0);
-        $user_meta_key   = sanitize_key($_POST['user_meta_key'] ?? '');
-        $scope           = sanitize_text_field($_POST['scope'] ?? 'child');
-        $requested_key   = sanitize_key($_POST['field_key'] ?? '');
+        $user_meta_key   = sanitize_key(wp_unslash($_POST['user_meta_key'] ?? ''));
+        $scope           = sanitize_text_field(wp_unslash($_POST['scope'] ?? 'child'));
+        $requested_key   = sanitize_key(wp_unslash($_POST['field_key'] ?? ''));
         $options_json    = '';
 
-        if (!in_array($scope, array('parent', 'child', 'family'), true)) {
+        if (!array_key_exists($scope, Azure_Product_Fields_Module::scope_labels())) {
             $scope = 'child';
+        }
+        if ($scope === 'order') {
+            $save_to_profile = 0;
+            $user_meta_key = '';
         }
 
         if (empty($label) || !$group_id) {
@@ -184,7 +188,7 @@ class Azure_Product_Fields_Admin {
         }
 
         if ($field_type === 'select' && !empty($_POST['options'])) {
-            $options = array_filter(array_map('trim', explode("\n", sanitize_textarea_field($_POST['options']))));
+            $options = array_filter(array_map('trim', explode("\n", sanitize_textarea_field(wp_unslash($_POST['options'])))));
             $options_json = wp_json_encode(array_values($options));
         }
 

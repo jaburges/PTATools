@@ -31,6 +31,7 @@ function get_permalink($id) { return 'https://example.test/product/p' . (int) $i
 function wc_add_notice($msg, $type = 'success') { PF_State::$notices[] = array($type, $msg); }
 function wp_strip_all_tags($s) { return trim(strip_tags((string) $s)); }
 function sanitize_text_field($s) { return trim(strip_tags((string) $s)); }
+function wp_unslash($v) { return is_array($v) ? array_map('wp_unslash', $v) : stripslashes((string) $v); }
 function wp_is_serving_rest_request() { return PF_State::$rest; }
 function wp_doing_ajax() { return false; }
 function get_current_user_id() { return 0; }
