@@ -2,6 +2,22 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.194 — Order-only product fields, file-access hardening
+
+### Added
+
+- **Order (no profile) field scope.** Product Fields has a fourth scope next to Child, Parent and Family. Order fields show as plain inputs on the product page with no Child's Name picker, are never pre-filled from or saved to the buyer's profile (Save to user profile is turned off for them), and still honour Required, type, placeholder and dropdown options. They are checked on Add to cart, shown in the cart and at checkout, and saved to the order line like the other scopes. An Order field whose label mentions a child's name is not used to find or create a child.
+
+### Fixed
+
+- **Apostrophes in field labels.** Labels such as "Actor's Name" were saved as "Actor\'s Name". Field labels, placeholders, dropdown options and group names and descriptions are now saved as typed; re-save an affected field to clean up its label. Values customers type with an apostrophe (O'Brien) are no longer saved with a backslash either.
+
+### Changed
+
+- **Child profile data stays off pages without the picker.** The Child's Name picker still shows only when a field on the product uses Child scope; product pages that do not show it no longer carry the buyer's saved child details.
+- **Plugin working files are kept private.** Logs and backup working files now live in private storage instead of alongside public files, and existing ones are moved there on the first request after the update. Set `AZURE_PLUGIN_PRIVATE_DIR` in `wp-config.php` to keep them in a folder of your choice outside the web root. The container image's web server also refuses these locations directly.
+- **Logs no longer record full email addresses.** Addresses are shortened to the first letter and the domain (`j***@example.com`), including in logs carried over from earlier versions.
+
 ## 3.147.193 — Parent Sign In button
 
 ### Changed

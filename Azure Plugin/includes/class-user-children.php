@@ -859,6 +859,9 @@ class Azure_User_Children {
      * the child's name (`field_key === 'child_name'` or label match).
      */
     private function extract_child_name($raw) {
+        $raw = array_filter((array) $raw, function ($field) {
+            return !isset($field['scope']) || $field['scope'] !== 'order';
+        });
         foreach ($raw as $field) {
             $key = isset($field['field_key']) ? strtolower($field['field_key']) : '';
             if ($key === 'child_name') {

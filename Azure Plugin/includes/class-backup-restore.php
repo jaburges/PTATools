@@ -108,7 +108,7 @@ class Azure_Backup_Restore {
                 }
             }
 
-            $tmp = AZURE_PLUGIN_PATH . 'backups/tmp_manifest_' . uniqid() . '.json';
+            $tmp = Azure_Private_Storage::temp_dir('backups') . '/tmp_manifest_' . uniqid() . '.json';
             wp_mkdir_p(dirname($tmp));
             $this->storage->download_backup($manifest_blob, $tmp);
 
@@ -239,7 +239,7 @@ class Azure_Backup_Restore {
             }
         }
 
-        $restore_dir = AZURE_PLUGIN_PATH . 'backups/restore_' . uniqid();
+        $restore_dir = Azure_Private_Storage::temp_dir('backups') . '/restore_' . uniqid();
         wp_mkdir_p($restore_dir);
 
         try {

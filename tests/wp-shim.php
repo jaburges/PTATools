@@ -258,6 +258,14 @@ function update_option($name, $value, $autoload = null) {
     return true;
 }
 
+function add_option($name, $value = '', $deprecated = '', $autoload = 'yes') {
+    if (array_key_exists($name, WP_Shim::$options)) {
+        return false;
+    }
+    WP_Shim::$options[$name] = $value;
+    return true;
+}
+
 function delete_option($name) {
     unset(WP_Shim::$options[$name]);
     return true;

@@ -7,6 +7,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once __DIR__ . '/class-private-storage.php';
+
 class Azure_Logger {
     
     private static $log_file = '';
@@ -25,19 +27,13 @@ class Azure_Logger {
             return;
         }
         
-        // Store logs in wp-content/uploads to avoid plugin update issues
-        $upload_dir = wp_upload_dir();
-        $log_dir = $upload_dir['basedir'] . '/azure-plugin';
-        
-        // Create log directory if it doesn't exist
-        if (!file_exists($log_dir)) {
-            wp_mkdir_p($log_dir);
-            // Add .htaccess to protect logs
-            file_put_contents($log_dir . '/.htaccess', 'Deny from all');
-        }
-        
+        // Outside the plugin directory so updates keep the history, and in
+        // private storage so the web server never serves it.
+        $log_dir = Azure_Private_Storage::dir('logs');
         self::$log_file = $log_dir . '/logs.md';
         self::$initialized = true;
+
+        self::migrate_legacy_logs($log_dir);
         
         // Create log file header if it doesn't exist
         if (!file_exists(self::$log_file)) {
@@ -53,6 +49,45 @@ class Azure_Logger {
         
         // Check file size and rotate if needed
         self::rotate_log_if_needed();
+    }
+
+    /**
+     * Move logs written by older versions into private storage, masking the
+     * email addresses they recorded on the way.
+     */
+    private static function migrate_legacy_logs($log_dir) {
+        $upload_dir = wp_upload_dir();
+        $legacy_dir = rtrim($upload_dir['basedir'], '/\\') . '/azure-plugin';
+        if ($legacy_dir === $log_dir || !is_dir($legacy_dir)) {
+            return;
+        }
+
+        $legacy_files = glob($legacy_dir . '/logs-backup-*.md') ?: array();
+        if (file_exists($legacy_dir . '/logs.md')) {
+            $legacy_files[] = $legacy_dir . '/logs.md';
+        }
+
+        foreach ($legacy_files as $legacy_file) {
+            $name = basename($legacy_file);
+            $target = $log_dir . '/' . $name;
+            if ($name === 'logs.md' && file_exists($target)) {
+                $target = $log_dir . '/logs-backup-' . date('Y-m-d-H-i-s', (int) @filemtime($legacy_file)) . '-legacy.md';
+            }
+            if (file_exists($target) || !@rename($legacy_file, $target)) {
+                continue;
+            }
+            $contents = @file_get_contents($target);
+            if (is_string($contents)) {
+                @file_put_contents($target, Azure_Private_Storage::mask_emails($contents), LOCK_EX);
+            }
+        }
+    }
+
+    /**
+     * Mask email addresses before they reach any log sink.
+     */
+    public static function mask_emails($text) {
+        return Azure_Private_Storage::mask_emails($text);
     }
     
     /**
@@ -82,6 +117,27 @@ class Azure_Logger {
         }
     }
     
+    /**
+     * Mask email addresses in every string inside a context array, keys included.
+     */
+    private static function mask_context($context) {
+        if (!is_array($context)) {
+            return is_string($context) ? self::mask_emails($context) : $context;
+        }
+        $masked = array();
+        foreach ($context as $key => $value) {
+            $key = is_string($key) ? self::mask_emails($key) : $key;
+            if (is_array($value)) {
+                $masked[$key] = self::mask_context($value);
+            } elseif (is_object($value)) {
+                $masked[$key] = self::mask_context(json_decode(json_encode($value), true));
+            } else {
+                $masked[$key] = is_string($value) ? self::mask_emails($value) : $value;
+            }
+        }
+        return $masked;
+    }
+
     /**
      * Normalize context parameter to always be an array
      * Handles backward compatibility where context was passed as a string (module name)
@@ -143,6 +199,8 @@ class Azure_Logger {
         }
         
         $timestamp = date('m-d-Y H:i:s');
+        $message = self::mask_emails((string) $message);
+        $context = self::mask_context($context);
         $context_str = !empty($context) ? ' - Context: ' . json_encode($context) : '';
         
         // Extract module name from the message (e.g., "SSO: message" -> "[SSO]")
@@ -174,6 +232,7 @@ class Azure_Logger {
         }
         
         $timestamp = date('Y-m-d H:i:s');
+        $message = self::mask_emails((string) $message);
         
         // Format: **2025-09-18 03:47:36** 🎉 **[SUCCESS]** Message
         $log_entry = "**{$timestamp}** {$emoji} **{$category}** {$message}  \n";
