@@ -2,6 +2,20 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.183 — Product fields that stay on the order
+
+### Added
+
+- **Order (no profile) field scope.** Product Fields has a fourth scope next to Child, Parent and Family. Order fields show as plain inputs on the product page with no Child's Name picker, are never pre-filled from or saved to the buyer's profile (Save to user profile is turned off for them), and still honour Required, type, placeholder and dropdown options. They are checked on Add to cart, shown in the cart and at checkout, and saved to the order line like the other scopes. An Order field whose label mentions a child's name is not used to find or create a child.
+
+### Fixed
+
+- **Apostrophes in field labels.** Labels such as "Actor's Name" were saved as "Actor\'s Name". Field labels, placeholders, dropdown options and group names and descriptions are now saved as typed; re-save an affected field to clean up its label. Values customers type with an apostrophe (O'Brien) are no longer saved with a backslash either.
+
+### Changed
+
+- **Child profile data stays off pages without the picker.** The Child's Name picker still shows only when a field on the product uses Child scope; product pages that do not show it no longer carry the buyer's saved child details.
+
 ## 3.147.182 — File-access hardening
 
 ### Changed
