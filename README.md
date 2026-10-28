@@ -1147,6 +1147,7 @@ Custom WooCommerce checkout fields that are saved to user accounts and auto-popu
 - **User Meta Storage**: Field values saved to user accounts for auto-population
 - **Checkout Integration**: Fields appear on checkout for applicable products
 - **Order Meta**: Field values saved to order line items
+- **Field Scopes**: *Child* (saved per child; shows the Child's Name picker), *Parent* (saved on the user account), *Family* (shared between co-parents), or *Order (no profile)* — a plain input kept on the order only, never pre-filled from or saved to a profile
 
 ### **Configuration**
 

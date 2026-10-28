@@ -14,7 +14,7 @@ jQuery(function ($) {
     function childFieldInputs($form) {
         return $form.find('.azure-pf-field').filter(function () {
             var scope = $(this).attr('data-field-scope');
-            return scope !== 'parent' && scope !== 'family' && !$(this).hasClass('azure-pf-child-selector');
+            return scope !== 'parent' && scope !== 'family' && scope !== 'order' && !$(this).hasClass('azure-pf-child-selector');
         }).find('input, select, textarea');
     }
 

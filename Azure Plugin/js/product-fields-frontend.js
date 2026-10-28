@@ -12,6 +12,7 @@
  *
  * Parent- and family-scope fields are pre-filled server-side and ignored by
  * the swap (family-scope is shared between co-parents, not per-child).
+ * Order-scope fields belong to the order alone and are never touched.
  *
  * Payload shape (set by class-product-fields-module.php):
  *   window.azurePtaProductFields = {
@@ -53,7 +54,7 @@ jQuery(function ($) {
         $('.azure-product-fields .azure-pf-field').each(function () {
             var $field = $(this);
             var scope = $field.attr('data-field-scope');
-            if (scope === 'parent' || scope === 'family') {
+            if (scope === 'parent' || scope === 'family' || scope === 'order') {
                 return;
             }
 
@@ -113,7 +114,7 @@ jQuery(function ($) {
         $('.azure-product-fields .azure-pf-field').each(function () {
             var $field = $(this);
             var scope = $field.attr('data-field-scope');
-            if (scope === 'parent' || scope === 'family') {
+            if (scope === 'parent' || scope === 'family' || scope === 'order') {
                 return;
             }
             var $input = $field.find('input, textarea, select').first();

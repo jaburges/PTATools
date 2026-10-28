@@ -14,6 +14,8 @@
  *       parent → user meta `pta_pf_<field_key>`
  *       child  → `azure_user_children_meta` row keyed by `pta_pf_<field_key>`
  *                for the child id selected on the product page.
+ *       family → `azure_connected_family_meta` row keyed by `pta_pf_<field_key>`.
+ *       order  → nowhere; the value lives on the order line item only.
  *
  * Admin AJAX lives in `class-product-fields-admin.php`.
  */
@@ -758,10 +760,49 @@ class Azure_Product_Fields_Module {
     }
 
     /**
+     * Admin labels for every scope a field can have, keyed by the stored
+     * `scope` value. Rows with an empty scope are treated as child.
+     *
+     * @return array<string,string>
+     */
+    public static function scope_labels() {
+        return array(
+            'child'  => __('Child', 'azure-plugin'),
+            'parent' => __('Parent', 'azure-plugin'),
+            'family' => __('Family', 'azure-plugin'),
+            'order'  => __('Order (no profile)', 'azure-plugin'),
+        );
+    }
+
+    /**
+     * Stored scope of a field definition or a cart/order raw entry.
+     *
+     * @param object|array $field
+     */
+    public static function field_scope($field) {
+        $scope = is_array($field) ? ($field['scope'] ?? '') : ($field->scope ?? '');
+        return $scope !== '' && $scope !== null ? (string) $scope : 'child';
+    }
+
+    /**
+     * Order-scope fields are collected per order line only: no picker, no
+     * profile pre-fill and no profile write-back.
+     *
+     * @param object|array $field
+     */
+    public static function is_order_scope($field) {
+        return self::field_scope($field) === 'order';
+    }
+
+    /**
      * Whether a field's label semantically refers to the child's name.
      * Used to decide which value identifies the child during auto-save.
+     * Order-scope fields never identify a child, whatever their label.
      */
     public static function is_child_name_field($field) {
+        if (self::is_order_scope($field)) {
+            return false;
+        }
         if (!empty($field->field_key)) {
             $k = strtolower($field->field_key);
             if ($k === 'child_name' || strpos($k, 'child') !== false && strpos($k, 'name') !== false) {
@@ -1004,7 +1045,8 @@ class Azure_Product_Fields_Module {
 
     /**
      * True when assigned groups include at least one child-scope field.
-     * Parent-only products (carnival, events) must not show Child's Name.
+     * Parent-, family- and order-only products (carnival, events, shows)
+     * must not show Child's Name.
      */
     public static function groups_need_child_selector($groups) {
         foreach ((array) $groups as $group) {
@@ -1237,7 +1279,7 @@ class Azure_Product_Fields_Module {
         // co-parents (emergency contact, etc.) — pre-filled like parent.
         $parent_defaults = $this->build_parent_defaults($user_id, $groups);
         $family_defaults = $this->build_family_defaults($family, $groups);
-        $child_data      = $this->build_children_data($children);
+        $child_data      = ($this->family_children_mode || $need_child_selector) ? $this->build_children_data($children) : array();
 
         echo '<div class="azure-product-fields">';
         echo '<input type="hidden" name="azure_pf_form" value="1" />';
@@ -1780,7 +1822,7 @@ class Azure_Product_Fields_Module {
                 }
 
                 $key = 'azure_pf_' . $field->id;
-                $val = isset($_POST[$key]) ? sanitize_text_field($_POST[$key]) : '';
+                $val = isset($_POST[$key]) ? sanitize_text_field(wp_unslash($_POST[$key])) : '';
                 if ($val === '') {
                     wc_add_notice(sprintf(__('"%s" is a required field.', 'azure-plugin'), $field->label), 'error');
                     $passed = false;
@@ -1863,10 +1905,10 @@ class Azure_Product_Fields_Module {
                 if (isset($_POST[$key])) {
                     $field_values[$field->id] = array(
                         'field_key'       => isset($field->field_key) ? $field->field_key : '',
-                        'scope'           => !empty($field->scope) ? $field->scope : 'child',
+                        'scope'           => self::field_scope($field),
                         'label'           => $field->label,
-                        'value'           => sanitize_text_field($_POST[$key]),
-                        'save_to_profile' => (bool) $field->save_to_profile,
+                        'value'           => sanitize_text_field(wp_unslash($_POST[$key])),
+                        'save_to_profile' => !self::is_order_scope($field) && (bool) $field->save_to_profile,
                         'user_meta_key'   => isset($field->user_meta_key) ? $field->user_meta_key : '',
                     );
                 }
@@ -2091,11 +2133,12 @@ class Azure_Product_Fields_Module {
                     continue;
                 }
 
-                $scope = !empty($field['scope']) ? $field['scope'] : 'child';
-                if ($scope === 'child' || $scope === 'family') {
+                $scope = self::field_scope($field);
+                if ($scope === 'child' || $scope === 'family' || $scope === 'order') {
                     // Child + family scope writes are owned by
                     // Azure_User_Children — child needs the child row, and
                     // family writes go to azure_connected_family_meta.
+                    // Order scope is never written to a profile.
                     continue;
                 }
 
