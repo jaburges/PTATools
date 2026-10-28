@@ -9,6 +9,9 @@ if (!defined('ABSPATH')) {
 
 require_once AZURE_PLUGIN_PATH . 'includes/class-product-fields-module.php';
 
+// Printed in the admin footer, before the DOM-ready handler below runs.
+wp_enqueue_script('jquery-ui-sortable');
+
 $settings = Azure_Settings::get_all_settings();
 $module_enabled = !empty($settings['enable_product_fields']);
 
@@ -501,6 +504,41 @@ jQuery(function($) {
         });
     });
 
+    // ── Reorder Fields ──
+    if ($.fn.sortable) {
+        $('#azure-pf-fields-body').sortable({
+            items: 'tr[data-field-id]',
+            handle: '.dashicons-move',
+            axis: 'y',
+            cursor: 'grabbing',
+            placeholder: 'azure-pf-sort-placeholder',
+            helper: function(e, $row) {
+                $row.children().each(function() { $(this).width($(this).width()); });
+                return $row;
+            },
+            start: function(e, ui) {
+                ui.placeholder.html('<td colspan="8">&nbsp;</td>');
+            },
+            stop: function(e, ui) {
+                ui.item.children().css('width', '');
+            },
+            update: function() {
+                var order = $('#azure-pf-fields-body tr[data-field-id]').map(function() {
+                    return $(this).data('field-id');
+                }).get();
+                $.post(ajaxUrl, { action: 'azure_pf_reorder_fields', nonce: nonce, order: order })
+                    .done(function(res) {
+                        if (!res.success) {
+                            alert('The new order could not be saved. Please reload and try again.');
+                        }
+                    })
+                    .fail(function() {
+                        alert('The new order could not be saved. Please reload and try again.');
+                    });
+            }
+        });
+    }
+
     // ── Delete Field ──
     $(document).on('click', '.azure-pf-delete-field', function() {
         var row = $(this).closest('tr');
@@ -603,5 +641,13 @@ jQuery(function($) {
 }
 #azure-pf-fields-table .dashicons-move:hover {
     color: #0073aa !important;
+}
+#azure-pf-fields-table .azure-pf-sort-placeholder td {
+    background: #f0f6fc;
+    border: 1px dashed #72aee6;
+}
+#azure-pf-fields-table tr.ui-sortable-helper {
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 </style>

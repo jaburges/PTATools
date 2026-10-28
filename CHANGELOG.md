@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.195 — Reorder product fields by dragging
+
+### Fixed
+
+- **The move handles in Product Fields now work.** Drag a field by the handle on the left of its row to change the order fields appear in on the product page; the new order saves as soon as you drop the row.
+
 ## 3.147.194 — Order-only product fields, file-access hardening
 
 ### Added
