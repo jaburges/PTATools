@@ -2,6 +2,22 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.196 — AI Connectors
+
+### Added
+
+- **AI Connectors module** (PTA Tools dashboard, off until switched on). Anyone with an account can connect an AI assistant (Claude, ChatGPT, Gemini, Microsoft Copilot, Grok, or any MCP client) to the site from **Users > AI Connectors**. The assistant acts as that person, with exactly their WordPress permissions, and only sees the tools their account can use.
+- **Sign in with the site.** Assistants that support MCP sign-in find everything from the server URL (`/wp-json/pta-tools/v1/mcp`), send the person to the normal sign-in page (Microsoft sign-in included), and show a consent screen listing what the assistant will be able to do. Untick **Allow changes** for a read-only connection. Connections stay signed in for 30 days of use and can be revoked at any time.
+- **Personal access tokens** for assistants that cannot sign in that way: named, with an expiry of up to a year, optionally read-only, shown once and stored only as a hash.
+- **First tools:** who am I; list, read, create, update and trash pages and posts; list calendar events and run the Outlook sync (admins); list and read products and update them; list and read orders; list and create coupons; export a saved Selling > Reports report as a CSV download link. Admins can also list and switch modules.
+- **Safeguards.** Accounts on the Azure AD User role can only read and update through AI connections, never delete or use admin tools, even though the role can delete in wp-admin. Trashing a page or switching a module needs the assistant to confirm with you first, and deleting only ever moves to the trash. Every tool call is recorded in **PTA Tools > AI Connectors > Audit log** (kept 90 days by default), with secrets and long text left out.
+- **Skill file.** Users > AI Connectors has a **Download skill file** button: a SKILL.md for this site with the server URL, how to connect each assistant, the rules, and every tool, marked with the ones you can use.
+- **Admin page** (PTA Tools > AI Connectors): everyone's connections with Revoke, the audit log, registered apps, the tool list with what each needs, and settings for the Entra rule, token lifetimes, rate limit and browser origins.
+
+### Changed
+
+- The Calendar Sync **Sync now** button and the AI calendar sync tool run the same code.
+
 ## 3.147.195 — Reorder product fields by dragging
 
 ### Fixed

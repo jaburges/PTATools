@@ -78,6 +78,11 @@
 |--------|-------------|
 | **[OneDrive Media](https://github.com/jaburges/PTATools/wiki/OneDrive-Module)** | Store media in OneDrive/SharePoint with recursive sync, cloud serving, and Repair Missing Media tool |
 
+### 🤖 AI
+| Module | Description |
+|--------|-------------|
+| **AI Connectors** | Remote MCP server with OAuth 2.1 sign-in and personal access tokens, so Claude, ChatGPT, Gemini, Copilot or any MCP client can work on the site as the signed-in user, with that user's permissions, an audit log and a downloadable skill file |
+
 ---
 
 ## 📋 Requirements
@@ -322,6 +327,19 @@ Credentials: Required (OAuth flow)
 - Repair Missing Media tool (re-downloads files after backup restore)
 - Sharing link and thumbnail URL generation
 - CDN optimization via Microsoft's global network
+
+### AI Connectors
+```
+Location: PTA Tools → AI Connectors (admins), Users → AI Connectors (everyone)
+Credentials: None (the site is its own OAuth server)
+Endpoint: /wp-json/pta-tools/v1/mcp
+```
+- MCP Streamable HTTP server; OAuth 2.1 + PKCE with discovery and dynamic client registration, sign-in through the normal WordPress (and Entra SSO) login and a consent screen
+- Personal access tokens as a fallback: named, optional expiry, read-only option, shown once and stored hashed
+- Every tool runs as the connected user and checks their capabilities at call time; Entra (Azure AD User) accounts only get read and update tools
+- Destructive tools need `confirm=true`; deleting moves to the trash
+- Audit log of every tool call with a retention setting; per-connection rate limit
+- Other modules add tools on the `pta_ai_connectors_register_tools` action (see `includes/class-ai-connectors-registry.php`)
 
 ---
 
