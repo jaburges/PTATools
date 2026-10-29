@@ -231,6 +231,7 @@ class Azure_AI_Connectors_Tokens {
             'name'       => mb_substr((string) $client->client_name, 0, 190),
             'scope'      => $scope,
             'resource'   => (string) $resource,
+            'expires_at' => self::at(self::CODE_TTL),
         ));
         if (!$grant_row) {
             return new WP_Error('server_error', 'Could not save the connection.');
@@ -276,17 +277,19 @@ class Azure_AI_Connectors_Tokens {
             self::revoke_grant($row->grant_id);
             return new WP_Error('invalid_grant', 'The authorization code has already been used.');
         }
+        $failure = null;
         if (self::is_expired($row)) {
-            return new WP_Error('invalid_grant', 'The authorization code has expired.');
+            $failure = new WP_Error('invalid_grant', 'The authorization code has expired.');
+        } elseif ((string) $row->redirect_uri !== (string) $redirect_uri) {
+            $failure = new WP_Error('invalid_grant', 'redirect_uri does not match the authorization request.');
+        } elseif (!self::pkce_verify((string) $code_verifier, (string) $row->code_challenge)) {
+            $failure = new WP_Error('invalid_grant', 'PKCE verification failed.');
+        } elseif ($resource !== '' && (string) $row->resource !== '' && !self::same_resource($resource, $row->resource)) {
+            $failure = new WP_Error('invalid_target', 'The resource does not match the authorization request.');
         }
-        if ((string) $row->redirect_uri !== (string) $redirect_uri) {
-            return new WP_Error('invalid_grant', 'redirect_uri does not match the authorization request.');
-        }
-        if (!self::pkce_verify((string) $code_verifier, (string) $row->code_challenge)) {
-            return new WP_Error('invalid_grant', 'PKCE verification failed.');
-        }
-        if ($resource !== '' && (string) $row->resource !== '' && !self::same_resource($resource, $row->resource)) {
-            return new WP_Error('invalid_target', 'The resource does not match the authorization request.');
+        if ($failure) {
+            self::revoke_grant($row->grant_id);
+            return $failure;
         }
         $grant = self::get_grant($row->grant_id);
         if (!$grant || !empty($grant->revoked_at) || !get_userdata((int) $row->user_id)) {
@@ -367,6 +370,14 @@ class Azure_AI_Connectors_Tokens {
         if (!$a || !$r) {
             return new WP_Error('server_error', 'Could not save the tokens.');
         }
+        // The connection lives as long as its newest refresh token.
+        global $wpdb;
+        $wpdb->query($wpdb->prepare(
+            'UPDATE ' . self::table() . ' SET expires_at = %s WHERE grant_id = %s AND token_type = %s',
+            self::at($refresh_ttl),
+            (string) $grant_id,
+            self::TYPE_GRANT
+        ));
         return array(
             'access_token'  => $access,
             'token_type'    => 'Bearer',
@@ -467,17 +478,8 @@ class Azure_AI_Connectors_Tokens {
         global $wpdb;
         $cutoff = gmdate('Y-m-d H:i:s', time() - 30 * DAY_IN_SECONDS);
         $wpdb->query($wpdb->prepare(
-            'DELETE FROM ' . self::table() . ' WHERE token_type IN (%s, %s, %s) AND ((expires_at IS NOT NULL AND expires_at < %s) OR (revoked_at IS NOT NULL AND revoked_at < %s))',
-            self::TYPE_CODE,
-            self::TYPE_ACCESS,
-            self::TYPE_REFRESH,
+            'DELETE FROM ' . self::table() . ' WHERE (expires_at IS NOT NULL AND expires_at < %s) OR (revoked_at IS NOT NULL AND revoked_at < %s)',
             $cutoff,
-            $cutoff
-        ));
-        $wpdb->query($wpdb->prepare(
-            'DELETE FROM ' . self::table() . ' WHERE token_type IN (%s, %s) AND revoked_at IS NOT NULL AND revoked_at < %s',
-            self::TYPE_PAT,
-            self::TYPE_GRANT,
             $cutoff
         ));
         $wpdb->query($wpdb->prepare(

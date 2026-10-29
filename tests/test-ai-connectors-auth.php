@@ -217,6 +217,30 @@ $t->check(is_wp_error(Azure_AI_Connectors_Tokens::authenticate($pair['access_tok
 Azure_AI_Connectors_Tokens::revoke_all_for_user(1);
 $t->equals(0, count(Azure_AI_Connectors_Tokens::list_connections(1)), 'revoking everything for a user empties their list');
 
+// ─── Connection lifecycle ────────────────────────────────────────────
+
+$grants = function () {
+    return array_values(array_filter(Azure_AI_Connectors_Tokens::list_connections(1), function ($r) { return $r->token_type === 'grant'; }));
+};
+$abandoned = Azure_AI_Connectors_Tokens::create_authorization(1, $client, array('pta:read'), $base['redirect_uri'], $challenge, $base['resource']);
+$t->equals(1, count($grants()), 'an approved connection is listed while its code is fresh');
+$GLOBALS['wpdb']->query("UPDATE wp_azure_ai_tokens SET expires_at = '2000-01-01 00:00:00' WHERE token_type IN ('grant', 'code')");
+$t->equals(0, count($grants()), 'a connection whose code was never exchanged drops off the list');
+
+$failed = Azure_AI_Connectors_Tokens::create_authorization(1, $client, array('pta:read'), $base['redirect_uri'], $challenge, $base['resource']);
+Azure_AI_Connectors_Tokens::exchange_code($failed, $reg['client_id'], $base['redirect_uri'], str_repeat('b', 43));
+$t->equals(0, count($grants()), 'a failed code exchange does not leave a connection behind');
+
+$good = Azure_AI_Connectors_Tokens::create_authorization(1, $client, array('pta:read'), $base['redirect_uri'], $challenge, $base['resource']);
+Azure_AI_Connectors_Tokens::exchange_code($good, $reg['client_id'], $base['redirect_uri'], $verifier);
+$listed_grant = $grants();
+$t->check(count($listed_grant) === 1 && strtotime($listed_grant[0]->expires_at . ' UTC') > time() + 29 * DAY_IN_SECONDS, 'a completed connection lasts as long as its refresh token');
+
+$before = count(token_rows());
+Azure_AI_Connectors_Tokens::purge_expired();
+$t->check(count(token_rows()) < $before, 'the daily purge removes long-expired rows');
+$t->equals(1, count($grants()), 'and keeps live connections');
+
 // ─── PKCE and discovery ──────────────────────────────────────────────
 
 // RFC 7636 appendix B test vector.

@@ -302,7 +302,7 @@ class Azure_AI_Connectors_Module {
         }
 
         $limit = (int) Azure_AI_Connectors_Settings::value('rate_limit_per_minute');
-        if (!self::rate_limit('mcp_' . (int) $token->id, $limit, MINUTE_IN_SECONDS)) {
+        if (!self::rate_limit('mcp_' . $token->token_hash, $limit, MINUTE_IN_SECONDS)) {
             $response = $this->http_error(429, 'rate_limited', sprintf('More than %d requests a minute on this connection. Wait a minute and try again.', $limit));
             $response->header('Retry-After', '60');
             return $response;
