@@ -32,7 +32,7 @@ class Azure_AI_Connectors_Settings {
             'rate_limit_per_minute'     => 60,
             'audit_retention_days'      => 90,
             'allow_dynamic_registration' => true,
-            'allowed_origins'           => array(),
+            'allowed_origins'           => array('https://claude.ai', 'https://chatgpt.com', 'https://chat.openai.com'),
             'pat_max_days'              => 365,
             'entra_restricted_roles'    => array('azuread'),
             'entra_restrict_sso_linked' => false,

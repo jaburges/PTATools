@@ -283,6 +283,10 @@ $t->equals(array('https://inspector.example:6274'), $clean['allowed_origins'], '
 $t->equals(1000, $clean['rate_limit_per_minute'], 'the rate limit is capped');
 $t->equals(300, $clean['access_token_ttl'], 'access tokens last at least five minutes');
 
+delete_option(Azure_AI_Connectors_Settings::OPTION);
+Azure_AI_Connectors_Settings::reset_cache();
+$t->check(Azure_AI_Connectors_Module::origin_allowed('https://claude.ai'), 'assistant web origins are allowed out of the box');
+
 Azure_AI_Connectors_Settings::save(array('allowed_origins' => 'https://inspector.example:6274'));
 $t->check(Azure_AI_Connectors_Module::origin_allowed('https://example.test'), 'the site\'s own origin is allowed');
 $t->check(Azure_AI_Connectors_Module::origin_allowed('https://inspector.example:6274'), 'a configured origin is allowed');
