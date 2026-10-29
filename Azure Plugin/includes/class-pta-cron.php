@@ -194,6 +194,11 @@ class Azure_PTA_Cron {
                 self::ensure('azure_forms_purge_entries', 'daily', time() + HOUR_IN_SECONDS);
             }
 
+            // ── AI Connectors (expired tokens, audit retention, exports) ──
+            if (!empty($settings['enable_ai_connectors'])) {
+                self::ensure('azure_ai_connectors_purge', 'daily', time() + HOUR_IN_SECONDS);
+            }
+
             // ── Auction (orphan sweep) ────────────────────────────────────
             // Per-auction finalize is a one-shot event scheduled at the
             // bidding-end timestamp by Azure_Auction_Product_Type. This daily
@@ -283,6 +288,9 @@ class Azure_PTA_Cron {
             ),
             'enable_forms' => array(
                 'azure_forms_purge_entries',
+            ),
+            'enable_ai_connectors' => array(
+                'azure_ai_connectors_purge',
             ),
         );
 

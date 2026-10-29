@@ -271,6 +271,7 @@ class Azure_Settings {
             'enable_newsletter' => false,
             'enable_tickets' => false,
             'enable_forms' => false,
+            'enable_ai_connectors' => false,
             'enable_auction' => false,
             'auction_display_live' => false,
             'auction_display_card_scale'    => 80,

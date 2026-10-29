@@ -1077,6 +1077,11 @@ class AzurePlugin {
                 $this->init_forms_components($ctx);
             }
 
+            if (!empty($settings['enable_ai_connectors'])) {
+                PTA_Trace::module('ai_connectors');
+                $this->init_ai_connectors_components($ctx);
+            }
+
             // Centralized "ensure scheduled" pass for all module cron events.
             // Skipped on frontend pageloads — only the WP-Cron daemon, admin,
             // and AJAX requests need to verify event registrations. Idempotent;
@@ -1807,6 +1812,24 @@ class AzurePlugin {
     }
 
     /**
+     * AI Connectors: MCP server + OAuth for AI assistants. REST routes,
+     * the root /.well-known/ discovery documents and the admin-post consent
+     * screen all have to be hooked on every request type; the constructor
+     * only adds hooks and loads the rest on the requests that use it.
+     */
+    private function init_ai_connectors_components($ctx) {
+        try {
+            $this->require_module_files(array('class-ai-connectors-module.php'));
+            if (class_exists('Azure_AI_Connectors_Module')) {
+                Azure_AI_Connectors_Module::get_instance();
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('AI Connectors init failed: ' . $e->getMessage(), array('module' => 'AIConnectors', 'file' => $e->getFile(), 'line' => $e->getLine()));
+            error_log('Azure Plugin: AI Connectors init error - ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Product Fields & User Children: WC filters that affect front-end product
      * display, cart, and the My Account tab. Load on every request.
      */
@@ -2187,6 +2210,7 @@ class AzurePlugin {
         wp_clear_scheduled_hook('azure_sso_scheduled_sync');
         wp_clear_scheduled_hook('azure_volunteer_send_reminders');
         wp_clear_scheduled_hook('azure_parent_activation_cleanup');
+        wp_clear_scheduled_hook('azure_ai_connectors_purge');
 
         // Disable the AcyMailing dynamic-text add-on in AcyMailing's
         // plugin registry so it stops appearing in the Dynamic text

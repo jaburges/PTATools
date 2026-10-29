@@ -578,6 +578,68 @@ class Azure_Database {
             KEY created_at (created_at)
         ) $charset_collate;";
 
+        $table_ai_tokens = $wpdb->prefix . 'azure_ai_tokens';
+        $sql_ai_tokens = "CREATE TABLE $table_ai_tokens (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            token_hash char(64) NOT NULL,
+            token_type varchar(16) NOT NULL,
+            token_hint varchar(16) NOT NULL DEFAULT '',
+            user_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            client_id varchar(100) NOT NULL DEFAULT '',
+            grant_id varchar(64) NOT NULL DEFAULT '',
+            name varchar(190) NOT NULL DEFAULT '',
+            scope varchar(255) NOT NULL DEFAULT '',
+            resource varchar(255) NOT NULL DEFAULT '',
+            redirect_uri text,
+            code_challenge varchar(128) NOT NULL DEFAULT '',
+            created_at datetime DEFAULT NULL,
+            expires_at datetime DEFAULT NULL,
+            last_used_at datetime DEFAULT NULL,
+            revoked_at datetime DEFAULT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY token_hash (token_hash),
+            KEY user_type (user_id, token_type),
+            KEY grant_id (grant_id),
+            KEY client_id (client_id),
+            KEY expires_at (expires_at)
+        ) $charset_collate;";
+
+        $table_ai_clients = $wpdb->prefix . 'azure_ai_clients';
+        $sql_ai_clients = "CREATE TABLE $table_ai_clients (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            client_id varchar(100) NOT NULL,
+            client_secret_hash char(64) NOT NULL DEFAULT '',
+            client_name varchar(190) NOT NULL DEFAULT '',
+            redirect_uris text,
+            grant_types varchar(255) NOT NULL DEFAULT '',
+            token_endpoint_auth_method varchar(40) NOT NULL DEFAULT 'none',
+            client_uri varchar(255) NOT NULL DEFAULT '',
+            software_id varchar(190) NOT NULL DEFAULT '',
+            created_at datetime DEFAULT NULL,
+            last_used_at datetime DEFAULT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY client_id (client_id)
+        ) $charset_collate;";
+
+        $table_ai_audit = $wpdb->prefix . 'azure_ai_audit';
+        $sql_ai_audit = "CREATE TABLE $table_ai_audit (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            created_at datetime DEFAULT NULL,
+            user_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            token_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+            client_label varchar(190) NOT NULL DEFAULT '',
+            tool varchar(100) NOT NULL DEFAULT '',
+            args_summary text,
+            status varchar(20) NOT NULL DEFAULT '',
+            message varchar(255) NOT NULL DEFAULT '',
+            duration_ms int(11) NOT NULL DEFAULT 0,
+            ip_hash char(64) NOT NULL DEFAULT '',
+            PRIMARY KEY (id),
+            KEY created_at (created_at),
+            KEY user_id (user_id),
+            KEY tool (tool)
+        ) $charset_collate;";
+
         $table_push_subscriptions = $wpdb->prefix . 'azure_push_subscriptions';
         $sql_push_subscriptions = "CREATE TABLE $table_push_subscriptions (
             id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -647,6 +709,9 @@ class Azure_Database {
         dbDelta($sql_form_entries);
         dbDelta($sql_push_subscriptions);
         dbDelta($sql_push_notifications);
+        dbDelta($sql_ai_tokens);
+        dbDelta($sql_ai_clients);
+        dbDelta($sql_ai_audit);
 
         self::migrate_calendar_mapping_mailboxes();
         self::migrate_calendar_mapping_display_name();
@@ -1420,6 +1485,9 @@ class Azure_Database {
             'order_rules' => $wpdb->prefix . 'azure_order_rules',
             'forms' => $wpdb->prefix . 'azure_forms',
             'form_entries' => $wpdb->prefix . 'azure_form_entries',
+            'ai_tokens' => $wpdb->prefix . 'azure_ai_tokens',
+            'ai_clients' => $wpdb->prefix . 'azure_ai_clients',
+            'ai_audit' => $wpdb->prefix . 'azure_ai_audit',
         );
         
         return isset($tables[$table]) ? $tables[$table] : false;

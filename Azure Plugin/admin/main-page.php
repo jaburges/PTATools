@@ -181,6 +181,22 @@ if (!defined('ABSPATH')) {
                     </div>
                 </div>
 
+                <div class="module-card <?php echo ($settings['enable_ai_connectors'] ?? false) ? 'enabled' : 'disabled'; ?>">
+                    <div class="module-header">
+                        <h3><span class="dashicons dashicons-superhero"></span> AI Connectors</h3>
+                        <div class="module-controls">
+                            <label class="switch">
+                                <input type="checkbox" class="module-toggle" data-module="ai_connectors" <?php checked($settings['enable_ai_connectors'] ?? false); ?> />
+                                <span class="slider"></span>
+                            </label>
+                            <a href="<?php echo admin_url('admin.php?page=azure-plugin-ai-connectors'); ?>" class="button button-configure">Configure</a>
+                        </div>
+                    </div>
+                    <div class="module-description">
+                        <p>Let people connect Claude, ChatGPT, Gemini, Copilot or any MCP assistant to the site. It acts with their own permissions, with an audit log.</p>
+                    </div>
+                </div>
+
                 <div class="module-card <?php echo ($settings['enable_home_screen'] ?? false) ? 'enabled' : 'disabled'; ?>">
                     <div class="module-header">
                         <h3><span class="dashicons dashicons-smartphone"></span> Home Screen</h3>
@@ -385,6 +401,7 @@ if (!defined('ABSPATH')) {
                 <input type="hidden" name="enable_rsvp" id="hidden_enable_rsvp" value="<?php echo ($settings['enable_rsvp'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_donations" id="hidden_enable_donations" value="<?php echo ($settings['enable_donations'] ?? false) ? '1' : '0'; ?>" />
                 <input type="hidden" name="enable_forms" id="hidden_enable_forms" value="<?php echo ($settings['enable_forms'] ?? false) ? '1' : '0'; ?>" />
+                <input type="hidden" name="enable_ai_connectors" id="hidden_enable_ai_connectors" value="<?php echo ($settings['enable_ai_connectors'] ?? false) ? '1' : '0'; ?>" />
                 
                 <div class="credentials-section">
                     <h2>Azure Credentials</h2>
