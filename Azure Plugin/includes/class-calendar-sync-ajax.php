@@ -419,17 +419,42 @@ class Azure_Calendar_Sync_Ajax {
     public function ajax_manual_sync() {
         if (!$this->guard()) return;
 
-        if (!class_exists('Azure_Calendar_Sync_Engine')) {
-            wp_send_json_error('Sync engine not available');
+        $results = self::run_manual_sync();
+        if (is_wp_error($results)) {
+            wp_send_json_error($results->get_error_message());
             return;
+        }
+
+        if (!empty($results['success'])) {
+            wp_send_json_success(array(
+                'calendars_synced'     => $results['total_calendars']      ?? 0,
+                'total_events_synced'  => $results['total_events_synced']  ?? 0,
+                'total_events_deleted' => $results['total_events_deleted'] ?? 0,
+                'total_errors'         => $results['total_errors']         ?? 0,
+                'calendar_results'     => $results['calendar_results']     ?? array(),
+            ));
+        } else {
+            wp_send_json_error($results['message'] ?? 'Sync failed');
+        }
+    }
+
+    /**
+     * Sync every enabled mapping now, as the Calendar Sync tab's button does.
+     * Shared with the AI Connectors calendar sync tool. Callers check
+     * capabilities; this only runs the sync and records it in the activity log.
+     *
+     * @return array|WP_Error Engine results from sync_all_enabled_calendars().
+     */
+    public static function run_manual_sync() {
+        if (!class_exists('Azure_Calendar_Sync_Engine')) {
+            return new WP_Error('azure_calendar_sync_unavailable', 'Sync engine not available');
         }
 
         $user_email    = class_exists('Azure_Calendar_Connections') ? Azure_Calendar_Connections::user_email() : '';
         $mailbox_email = class_exists('Azure_Calendar_Connections') ? Azure_Calendar_Connections::primary_mailbox() : '';
 
         if (empty($user_email) || empty($mailbox_email)) {
-            wp_send_json_error('Calendar mailbox is not configured on the Config page.');
-            return;
+            return new WP_Error('azure_calendar_sync_not_configured', 'Calendar mailbox is not configured on the Config page.');
         }
 
         $settings       = class_exists('Azure_Settings') ? Azure_Settings::get_all_settings() : array();
@@ -443,8 +468,7 @@ class Azure_Calendar_Sync_Ajax {
             $results = $engine->sync_all_enabled_calendars($start, $end, $user_email, $mailbox_email);
         } catch (\Throwable $e) {
             Azure_Logger::error('Calendar Sync AJAX: manual sync threw - ' . $e->getMessage(), 'Calendar');
-            wp_send_json_error('Sync error: ' . $e->getMessage());
-            return;
+            return new WP_Error('azure_calendar_sync_failed', 'Sync error: ' . $e->getMessage());
         }
 
         if (class_exists('Azure_Database')) {
@@ -463,17 +487,7 @@ class Azure_Calendar_Sync_Ajax {
             );
         }
 
-        if (!empty($results['success'])) {
-            wp_send_json_success(array(
-                'calendars_synced'     => $results['total_calendars']      ?? 0,
-                'total_events_synced'  => $results['total_events_synced']  ?? 0,
-                'total_events_deleted' => $results['total_events_deleted'] ?? 0,
-                'total_errors'         => $results['total_errors']         ?? 0,
-                'calendar_results'     => $results['calendar_results']     ?? array(),
-            ));
-        } else {
-            wp_send_json_error($results['message'] ?? 'Sync failed');
-        }
+        return $results;
     }
 
     public function ajax_get_sync_history() {
