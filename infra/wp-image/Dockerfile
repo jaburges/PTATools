@@ -1,7 +1,7 @@
 # Production WordPress image for wilderptsa.net on Azure Container Apps.
 #
 # The image is immutable: WordPress core comes from the official base, and
-# wp-content (theme, plugins, mu-plugins) is baked in at build time. Uploads are
+# wp-content (theme, plugins, repository mu-plugins) is baked in at build time. Uploads are
 # NOT in the image — they live on an Azure Files share mounted at
 # wp-content/uploads, because the blob media offload on App Service was a
 # platform feature with no equivalent in a plain container.
@@ -55,14 +55,13 @@ COPY php-wordpress.ini /usr/local/etc/php/conf.d/zz-wordpress.ini
 COPY apache-wp.conf /etc/apache2/conf-enabled/zz-wordpress.conf
 
 # wp-content is supplied by the build (see build.sh, which unpacks the export
-# from the migration container). Only themes, plugins and mu-plugins — uploads
-# are excluded deliberately.
+# from the migration container). Only themes and plugins — uploads and the
+# export's mu-plugins are excluded deliberately.
 COPY --chown=www-data:www-data wp-content/themes/     /var/www/html/wp-content/themes/
 COPY --chown=www-data:www-data wp-content/plugins/    /var/www/html/wp-content/plugins/
-COPY --chown=www-data:www-data wp-content/mu-plugins/ /var/www/html/wp-content/mu-plugins/
 
-# Hides the core update offer and explains why. Copied after the export so it
-# cannot be shadowed by a stale copy from the source site.
+# mu-plugins come only from infra/wp-image/mu-plugins in the repository. WordPress
+# loads everything in that directory, so nothing from the live site goes in.
 COPY --chown=www-data:www-data mu-plugins/ /var/www/html/wp-content/mu-plugins/
 
 # The plugin ships from this repository rather than from the exported site, so

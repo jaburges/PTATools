@@ -157,8 +157,12 @@ theme changes go through `build.sh`.
 ## What is in the image
 
 - `wordpress:6.9.4-php8.3-apache` as the base.
-- The theme, plugins and mu-plugins from the migration export, with the
-  `Azure Plugin` overlaid from this repository so the released version wins.
+- The theme and plugins from the migration export, with the `Azure Plugin`
+  overlaid from this repository so the released version wins.
+- mu-plugins from `mu-plugins/` in this directory only. The export's
+  mu-plugins are discarded, and `check-no-ops-scripts.sh` fails the build if a
+  retired one-off ops script turns up anywhere in the build context. An
+  mu-plugin the site needs has to be committed here.
 - WooCommerce Stripe, Redis Cache, and Multiple Roles from
   `required-plugins.conf` (fetched at assemble time if the export omitted
   them). `build.sh` prints the plugin **names** and refuses to ship if any
