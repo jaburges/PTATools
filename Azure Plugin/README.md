@@ -336,8 +336,8 @@ Endpoint: /wp-json/pta-tools/v1/mcp
 ```
 - MCP Streamable HTTP server; OAuth 2.1 + PKCE with discovery and dynamic client registration, sign-in through the normal WordPress (and Entra SSO) login and a consent screen
 - Personal access tokens as a fallback: named, optional expiry, read-only option, shown once and stored hashed
-- Every tool runs as the connected user and checks their capabilities at call time; Entra (Azure AD User) accounts only get read and update tools
-- Destructive tools need `confirm=true`; deleting moves to the trash
+- Every tool runs as the connected user and checks their capabilities at call time; Entra (Azure AD User) accounts only get read and update tools, and shop managers only read and update pages and posts (both configurable)
+- Destructive tools need `confirm=true`; deleting moves to the trash; report download links are single-use and expire after 15 minutes
 - Audit log of every tool call with a retention setting; per-connection rate limit
 - Other modules add tools on the `pta_ai_connectors_register_tools` action (see `includes/class-ai-connectors-registry.php`)
 
