@@ -15,6 +15,7 @@ $mcp_url = Azure_AI_Connectors_Module::mcp_url();
 $connections = Azure_AI_Connectors_Tokens::list_connections((int) $user->ID);
 $tools = Azure_AI_Connectors_Registry::available(Azure_AI_Connectors_Policy::scopes());
 $restricted = Azure_AI_Connectors_Policy::is_entra_restricted($user);
+$content_limited = Azure_AI_Connectors_Policy::is_content_limited($user);
 $max_days = (int) Azure_AI_Connectors_Settings::value('pat_max_days');
 $skill_url = wp_nonce_url(admin_url('admin-post.php?action=pta_ai_skill'), 'pta_ai_skill');
 $secure = Azure_AI_Connectors_Module::is_secure_request();
@@ -38,6 +39,9 @@ $secure = Azure_AI_Connectors_Module::is_secure_request();
     <p><?php esc_html_e('Connect an AI assistant to this site. It acts as you, with exactly your permissions, and everything it does is recorded.', 'azure-plugin'); ?></p>
     <?php if ($restricted) : ?>
         <p class="description"><?php esc_html_e('Your account signs in with Microsoft Entra, so assistants can read and update for you but never delete or use admin tools.', 'azure-plugin'); ?></p>
+    <?php endif; ?>
+    <?php if ($content_limited) : ?>
+        <p class="description"><?php esc_html_e('With your role, assistants can read and update pages and posts but not create or trash them.', 'azure-plugin'); ?></p>
     <?php endif; ?>
 
     <h2><?php esc_html_e('1. Add the server to your assistant', 'azure-plugin'); ?></h2>

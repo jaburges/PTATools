@@ -30,6 +30,7 @@ function setup_site() {
     AI_Test::add_user(4, array('newsletter_editor'), 'writer');
     AI_Test::add_user(5, array('subscriber'), 'parent');
     AI_Test::add_user(6, array('administrator', 'azuread'), 'boardadmin');
+    AI_Test::add_user(7, array('administrator', 'shop_manager'), 'shopadmin');
 }
 
 function tools_for($user_id, array $scopes) {
@@ -52,14 +53,15 @@ $content_all = array('pta_list_content', 'pta_get_content', 'pta_create_content'
 
 setup_site();
 $every = sorted(array_keys(Azure_AI_Connectors_Registry::all()));
-$t->equals(19, count($every), 'the first tool set has 19 tools');
+$t->equals(18, count($every), 'the first tool set has 18 tools');
+$t->check(!in_array('pta_set_module', $every, true), 'there is no tool for switching modules');
 
 $t->equals($every, tools_for(1, $ALL), 'an administrator gets every tool');
 
 $t->equals(
-    sorted(array_merge(array('pta_whoami', 'pta_list_events'), $store_all)),
+    sorted(array_merge(array('pta_whoami', 'pta_list_events', 'pta_list_content', 'pta_get_content', 'pta_update_content'), $store_all)),
     tools_for(2, $ALL),
-    'a shop manager gets products, orders, coupons and report exports, and nothing admin'
+    'a shop manager gets every store tool, read and update for pages and posts, and nothing admin'
 );
 
 $t->equals(
@@ -87,7 +89,7 @@ foreach ($entra_tools as $name) {
 }
 $t->check(!in_array('pta_trash_content', $entra_tools, true), 'no trash tool for Entra, even though the role can delete posts');
 $t->check(!in_array('pta_calendar_sync', $entra_tools, true), 'no calendar sync for Entra, even though the role has manage_options');
-$t->check(!in_array('pta_list_modules', $entra_tools, true) && !in_array('pta_set_module', $entra_tools, true), 'no admin tools for Entra');
+$t->check(!in_array('pta_list_modules', $entra_tools, true), 'no admin tools for Entra');
 $t->check(!Azure_AI_Connectors_Policy::can_administer(3), 'an Entra account cannot administer AI Connectors despite manage_options');
 $t->check(Azure_AI_Connectors_Policy::can_administer(1), 'an administrator can');
 $t->check(!Azure_AI_Connectors_Policy::can_administer(2), 'a shop manager cannot');
@@ -102,7 +104,7 @@ setup_site();
 $t->equals($every, tools_for(6, $ALL), 'an administrator who also has the azuread role is exempt by default');
 Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_exempt_admins' => false)));
 $boardadmin = tools_for(6, $ALL);
-$t->check(!in_array('pta_trash_content', $boardadmin, true) && !in_array('pta_set_module', $boardadmin, true), 'with the exemption off, that administrator loses delete and admin tools');
+$t->check(!in_array('pta_trash_content', $boardadmin, true) && !in_array('pta_calendar_sync', $boardadmin, true), 'with the exemption off, that administrator loses delete and admin tools');
 $t->check(in_array('pta_export_report', $boardadmin, true) && in_array('pta_update_product', $boardadmin, true), 'but keeps read and update tools their caps allow');
 $t->check(!in_array('pta_create_coupon', $boardadmin, true), 'and loses create tools');
 
@@ -119,6 +121,31 @@ setup_site();
 Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_restricted_roles' => array('azuread', 'shop_manager'))));
 $t->check(Azure_AI_Connectors_Policy::is_entra_restricted(2), 'admins can add other roles to the Entra rule');
 $t->check(!in_array('pta_create_coupon', tools_for(2, $ALL), true), 'which then lose create tools');
+
+// ─── Shop managers and pages/posts ───────────────────────────────────
+
+setup_site();
+AI_Test::login(2);
+$t->check(current_user_can('delete_posts') && current_user_can('edit_pages'), 'the shop_manager role really holds editor capabilities');
+$t->check(Azure_AI_Connectors_Policy::is_content_limited(2), 'a shop manager is limited to read and update on pages and posts');
+$shop_tools = tools_for(2, $ALL);
+$t->check(!in_array('pta_create_content', $shop_tools, true) && !in_array('pta_trash_content', $shop_tools, true), 'no create or trash for pages and posts');
+$t->check(in_array('pta_create_coupon', $shop_tools, true) && in_array('pta_update_product', $shop_tools, true), 'store create and update tools are not affected');
+$t->check(!Azure_AI_Connectors_Policy::is_entra_restricted(2), 'the shop manager rule is separate from the Entra rule');
+$t->check(!Azure_AI_Connectors_Policy::is_content_limited(5) && !Azure_AI_Connectors_Policy::is_content_limited(4), 'other roles are not limited by it');
+
+$t->equals($every, tools_for(7, $ALL), 'an administrator who is also a shop manager keeps full tools');
+
+Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('content_limited_roles' => array())));
+$lifted = tools_for(2, $ALL);
+$t->check(in_array('pta_create_content', $lifted, true) && in_array('pta_trash_content', $lifted, true), 'clearing the setting gives shop managers what their capabilities allow');
+
+Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('content_limited_roles' => array('shop_manager', 'newsletter_editor'))));
+$t->check(!in_array('pta_create_content', tools_for(4, $ALL), true) && in_array('pta_update_content', tools_for(4, $ALL), true), 'admins can apply the rule to other roles');
+
+Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_exempt_admins' => false)));
+$shopadmin = tools_for(7, $ALL);
+$t->check(!in_array('pta_create_content', $shopadmin, true) && in_array('pta_create_coupon', $shopadmin, true), 'with the administrator exemption off, the rule applies to an administrator who is also a shop manager');
 
 // ─── Read-only connections ───────────────────────────────────────────
 
@@ -138,8 +165,14 @@ $t->equals('boolean', $trash['input_schema']['properties']['confirm']['type'], '
 $t->check(strpos($trash['description'], 'confirm=true') !== false, 'the description says confirm=true is needed');
 $mcp_trash = Azure_AI_Connectors_Registry::to_mcp($trash);
 $t->check($mcp_trash['annotations']['destructiveHint'] === true && $mcp_trash['annotations']['readOnlyHint'] === false, 'the trash tool is annotated destructive');
-$set_module = Azure_AI_Connectors_Registry::get('pta_set_module');
-$t->check(in_array('confirm', $set_module['input_schema']['required'], true), 'switching modules also needs confirm=true');
+$confirm_admin = Azure_AI_Connectors_Registry::register('test_reset_thing', array(
+    'kind'             => Azure_AI_Connectors_Policy::KIND_ADMIN,
+    'requires_confirm' => true,
+    'permission'       => array('manage_options'),
+    'callback'         => function () { return array(); },
+));
+$t->check($confirm_admin === true && in_array('confirm', Azure_AI_Connectors_Registry::get('test_reset_thing')['input_schema']['required'], true), 'a non-destructive tool can opt in to confirm=true');
+Azure_AI_Connectors_Registry::unregister('test_reset_thing');
 $t->check(Azure_AI_Connectors_Registry::to_mcp(Azure_AI_Connectors_Registry::get('pta_list_events'))['annotations']['readOnlyHint'] === true, 'read tools are annotated read-only');
 
 $removed = 0;
@@ -237,6 +270,13 @@ $res = call_tool(1, 'test_remove_widget', array('id' => 9, 'confirm' => true), $
 $t->check($res['result']['isError'] === true && $removed === 1, 'a read-only connection cannot run a destructive tool');
 $res = call_tool(5, 'pta_calendar_sync', array());
 $t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'permission') !== false, 'a parent calling an admin tool directly is refused');
+$res = call_tool(2, 'pta_trash_content', array('id' => 12, 'confirm' => true));
+$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'not create or trash') !== false, 'a shop manager cannot trash content even with confirm=true, and is told why');
+$res = call_tool(2, 'pta_create_content', array('title' => 'x'));
+$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'not create or trash') !== false, 'a shop manager cannot create content');
+$shop_who = call_tool(2, 'pta_whoami', array())['result']['structuredContent'];
+$t->check($shop_who['restrictions']['content_limited'] === true && $shop_who['restrictions']['entra_account'] === false, 'whoami reports the shop manager rule');
+$t->equals(array('read', 'update'), $shop_who['restrictions']['content_allowed_kinds'], 'whoami lists what a shop manager may do with pages and posts');
 $res = call_tool(1, 'pta_nope', array());
 $t->equals(-32602, $res['error']['code'], 'an unknown tool is an invalid-params error');
 $res = call_tool(1, 'test_remove_widget', array('id' => 'seven', 'confirm' => true));
@@ -314,7 +354,12 @@ foreach (array('### Claude', '### ChatGPT', '### Gemini', '### Microsoft Copilot
 foreach (array_keys(Azure_AI_Connectors_Registry::all()) as $name) {
     $t->check(strpos($skill, '`' . $name . '`') !== false, 'the skill file lists ' . $name);
 }
-$t->check((bool) preg_match('/`pta_trash_content` \(destructive, needs confirm=true; needs delete_posts or delete_pages\) - not available to you/', $skill), 'tools the user cannot use are marked for them');
+$t->check(strpos($skill, '`pta_trash_content` (destructive, needs confirm=true; needs delete_posts or delete_pages, not an Entra account, not a shop manager) - not available to you') !== false, 'tools the user cannot use are marked for them, with the role rules');
+preg_match('/^- `pta_update_content`[^\n]*$/m', $skill, $update_line);
+$t->check(!empty($update_line) && strpos($update_line[0], 'shop manager') === false, 'update tools carry no shop manager note');
+$t->check(strpos($skill, 'Shop managers can read and update pages and posts but not create or trash them') !== false, 'the skill rules explain the shop manager rule');
+$t->check(strpos($skill, 'Each link works once, within 15 minutes') !== false, 'the skill rules say download links are single-use');
+$t->check(strpos($skill, 'pta_set_module') === false, 'the skill file no longer mentions pta_set_module');
 $t->check(strpos($skill, '`pta_whoami` (read; needs read):') !== false, 'tools the user can use are not marked');
 
 exit($t->finish() > 0 ? 1 : 0);

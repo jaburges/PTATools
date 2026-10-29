@@ -241,6 +241,21 @@ Azure_AI_Connectors_Tokens::purge_expired();
 $t->check(count(token_rows()) < $before, 'the daily purge removes long-expired rows');
 $t->equals(1, count($grants()), 'and keeps live connections');
 
+// ─── Single-use download links ───────────────────────────────────────
+
+$dl = Azure_AI_Connectors_Tokens::create_download('/tmp/export-x.csv', 'All orders.csv', 1, 900);
+$t->check(strlen($dl) >= 40, 'a download link secret is created');
+$t->check(strpos(json_encode(token_rows()), $dl) === false, 'the download secret is stored only as a hash');
+$t->check(is_wp_error(Azure_AI_Connectors_Tokens::authenticate($dl)), 'a download secret is never accepted as a bearer token');
+$first = Azure_AI_Connectors_Tokens::claim_download($dl);
+$t->check(!is_wp_error($first) && $first->redirect_uri === '/tmp/export-x.csv' && $first->name === 'All orders.csv', 'the first download claims the link');
+$t->check(is_wp_error(Azure_AI_Connectors_Tokens::claim_download($dl)), 'a second download is refused');
+$t->check(is_wp_error(Azure_AI_Connectors_Tokens::claim_download($dl . 'x')), 'a guessed link is refused');
+$late = Azure_AI_Connectors_Tokens::create_download('/tmp/export-y.csv', 'y.csv', 1, 900);
+$GLOBALS['wpdb']->query("UPDATE wp_azure_ai_tokens SET expires_at = '2000-01-01 00:00:00' WHERE token_type = 'download' AND revoked_at IS NULL");
+$t->check(is_wp_error(Azure_AI_Connectors_Tokens::claim_download($late)), 'an unused link stops working after 15 minutes');
+$t->equals(0, count(array_filter(Azure_AI_Connectors_Tokens::list_connections(1), function ($r) { return $r->token_type === 'download'; })), 'download links are not listed as connections');
+
 // ─── PKCE and discovery ──────────────────────────────────────────────
 
 // RFC 7636 appendix B test vector.

@@ -19,10 +19,10 @@ class Azure_AI_Connectors_Tools {
     const CONTENT_TYPES = array('post', 'page');
     const EDITABLE_STATUSES = array('draft', 'pending', 'publish', 'private');
 
-    /** Modules pta_set_module may switch. AI Connectors itself is left to the dashboard. */
-    const TOGGLEABLE_MODULES = array(
+    /** Modules pta_list_modules reports on. */
+    const MODULES = array(
         'sso', 'backup', 'calendar', 'email', 'pta', 'onedrive_media', 'classes', 'newsletter', 'tickets',
-        'auction', 'product_fields', 'donations', 'volunteer', 'rsvp', 'forms', 'home_screen',
+        'auction', 'product_fields', 'donations', 'volunteer', 'rsvp', 'forms', 'home_screen', 'ai_connectors',
     );
 
     /** @var Azure_PTSA_REST_API|null */
@@ -284,7 +284,7 @@ class Azure_AI_Connectors_Tools {
         $r::register('pta_export_report', array(
             'group'        => 'store',
             'title'        => 'Export an order report as CSV',
-            'description'  => 'Run a saved Selling > Reports report and return a download link valid for 15 minutes. Set include_csv to also get the CSV text (small reports only).',
+            'description'  => 'Run a saved Selling > Reports report and return a single-use download link that expires after 15 minutes. Set include_csv to also get the CSV text (small reports only).',
             'kind'         => $P::KIND_READ,
             'permission'   => array('manage_woocommerce'),
             'available'    => $wc,
@@ -307,20 +307,6 @@ class Azure_AI_Connectors_Tools {
             'permission_callback' => $admin_check,
             'input_schema'        => array('type' => 'object', 'properties' => array()),
             'callback'            => array($self, 'list_modules'),
-        ));
-        $r::register('pta_set_module', array(
-            'group'               => 'admin',
-            'title'               => 'Switch a PTA Tools module on or off',
-            'description'         => 'Turn a PTA Tools module on or off, like the toggles on the PTA Tools dashboard. Turning a module off hides its features from visitors.',
-            'kind'                => $P::KIND_ADMIN,
-            'requires_confirm'    => true,
-            'permission'          => array('manage_options'),
-            'permission_callback' => $admin_check,
-            'input_schema'        => array('type' => 'object', 'required' => array('module', 'enabled'), 'properties' => array(
-                'module'  => array('type' => 'string', 'enum' => self::TOGGLEABLE_MODULES),
-                'enabled' => array('type' => 'boolean'),
-            )),
-            'callback'            => array($self, 'set_module'),
         ));
     }
 
@@ -412,6 +398,14 @@ class Azure_AI_Connectors_Tools {
             );
         }
         $restricted = Azure_AI_Connectors_Policy::is_entra_restricted($user);
+        $content_limited = Azure_AI_Connectors_Policy::is_content_limited($user);
+        $notes = array();
+        if ($restricted) {
+            $notes[] = 'This account signs in with Microsoft Entra, so delete and admin tools are not available to it.';
+        }
+        if ($content_limited) {
+            $notes[] = 'This account\'s role can read and update pages and posts, but not create or trash them.';
+        }
         $token = $context['token'] ?? null;
         return array(
             'site' => array(
@@ -434,11 +428,11 @@ class Azure_AI_Connectors_Tools {
                 'scopes' => $scopes,
             ),
             'restrictions' => array(
-                'entra_account' => $restricted,
-                'allowed_kinds' => $restricted ? Azure_AI_Connectors_Policy::entra_allowed_kinds() : Azure_AI_Connectors_Policy::kinds(),
-                'note'          => $restricted
-                    ? 'This account signs in with Microsoft Entra, so delete and admin tools are not available to it.'
-                    : '',
+                'entra_account'         => $restricted,
+                'allowed_kinds'         => $restricted ? Azure_AI_Connectors_Policy::entra_allowed_kinds() : Azure_AI_Connectors_Policy::kinds(),
+                'content_limited'       => $content_limited,
+                'content_allowed_kinds' => $content_limited ? Azure_AI_Connectors_Policy::content_limited_kinds() : Azure_AI_Connectors_Policy::kinds(),
+                'note'                  => implode(' ', $notes),
             ),
             'tools' => $tools,
         );
@@ -887,7 +881,7 @@ class Azure_AI_Connectors_Tools {
             'filename'     => $filename,
             'download_url' => $link['url'],
             'expires_at'   => gmdate('c', $link['expires']),
-            'note'         => 'The link works for 15 minutes for anyone who has it. Share it only with the user.',
+            'note'         => 'The link works once, within 15 minutes, for whoever opens it first. Share it only with the user.',
         );
         if (!empty($args['include_csv'])) {
             $size = (int) filesize($path);
@@ -906,22 +900,9 @@ class Azure_AI_Connectors_Tools {
     public static function list_modules(array $args) {
         $settings = Azure_Settings::get_all_settings();
         $modules = array();
-        foreach (array_merge(self::TOGGLEABLE_MODULES, array('ai_connectors')) as $module) {
+        foreach (self::MODULES as $module) {
             $modules[] = array('module' => $module, 'enabled' => !empty($settings['enable_' . $module]));
         }
         return array('modules' => $modules);
-    }
-
-    public static function set_module(array $args) {
-        $module = (string) $args['module'];
-        if (!in_array($module, self::TOGGLEABLE_MODULES, true)) {
-            return new WP_Error('pta_ai_bad_args', 'Unknown module.');
-        }
-        $enabled = (bool) $args['enabled'];
-        Azure_Settings::enable_module($module, $enabled);
-        if (class_exists('Azure_Database')) {
-            Azure_Database::log_activity('admin', 'module_toggled', 'module', $module, array('enabled' => $enabled, 'via' => 'ai_connectors'));
-        }
-        return array('module' => $module, 'enabled' => (bool) Azure_Settings::is_module_enabled($module));
     }
 }

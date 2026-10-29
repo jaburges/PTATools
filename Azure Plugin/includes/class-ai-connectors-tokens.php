@@ -9,6 +9,7 @@
  *   code     OAuth authorization code, single use, 5 minutes
  *   access   OAuth access token
  *   refresh  OAuth refresh token, rotated on every use
+ *   download single-use report download link, 15 minutes; never a bearer token
  *
  * Only a SHA-256 of each secret is stored. Secrets are 256 bits of
  * randomness behind a readable prefix, so a plain hash is enough and keeps
@@ -27,6 +28,7 @@ class Azure_AI_Connectors_Tokens {
     const TYPE_CODE    = 'code';
     const TYPE_ACCESS  = 'access';
     const TYPE_REFRESH = 'refresh';
+    const TYPE_DOWNLOAD = 'download';
 
     const CODE_TTL = 300;
 
@@ -385,6 +387,48 @@ class Azure_AI_Connectors_Tokens {
             'refresh_token' => $refresh,
             'scope'         => (string) $scope,
         );
+    }
+
+    // ─── Single-use download links ───────────────────────────────────
+
+    /**
+     * @return string The secret for the download URL.
+     */
+    public static function create_download($path, $filename, $user_id, $ttl) {
+        $secret = self::random_string(32);
+        $id = self::insert(array(
+            'token_hash'   => self::hash($secret),
+            'token_type'   => self::TYPE_DOWNLOAD,
+            'user_id'      => (int) $user_id,
+            'name'         => mb_substr((string) $filename, 0, 190),
+            'redirect_uri' => (string) $path,
+            'expires_at'   => self::at($ttl),
+        ));
+        return $id ? $secret : '';
+    }
+
+    /**
+     * Claim a download link. Only the first claim succeeds, even when two
+     * requests race, because the claim is a conditional UPDATE.
+     *
+     * @return object|WP_Error Row with ->redirect_uri (file path) and ->name (filename).
+     */
+    public static function claim_download($secret) {
+        global $wpdb;
+        $row = self::find_by_secret($secret, array(self::TYPE_DOWNLOAD));
+        if (!$row || !empty($row->revoked_at) || self::is_expired($row)) {
+            return new WP_Error('pta_ai_download_gone', 'This download link has expired or was already used.');
+        }
+        $claimed = $wpdb->query($wpdb->prepare(
+            'UPDATE ' . self::table() . ' SET revoked_at = %s, last_used_at = %s WHERE id = %d AND revoked_at IS NULL',
+            self::now(),
+            self::now(),
+            (int) $row->id
+        ));
+        if ((int) $claimed !== 1) {
+            return new WP_Error('pta_ai_download_gone', 'This download link has expired or was already used.');
+        }
+        return $row;
     }
 
     public static function pkce_verify($verifier, $challenge) {

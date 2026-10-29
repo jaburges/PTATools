@@ -54,7 +54,8 @@ class AI_Test {
         );
         return array(
             'administrator' => array_merge($editor, $shop, array('manage_options' => true, 'list_users' => true, 'access_pta_tools' => true)),
-            'shop_manager'  => $shop,
+            // WooCommerce's shop_manager also carries editor capabilities.
+            'shop_manager'  => array_merge($editor, $shop),
             // Mirrors AzurePlugin::get_azuread_capabilities(): editor + PTA access + manage_options.
             'azuread'       => array_merge($editor, array('access_pta_tools' => true, 'manage_options' => true)),
             'newsletter_editor' => array('read' => true, 'edit_posts' => true),

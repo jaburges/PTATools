@@ -11,7 +11,14 @@
  *   - the user is not an Entra-restricted account, or the tool's kind is one
  *     Entra accounts may use (read and update; create only if an admin
  *     allows it). Destructive and admin tools are never available to them,
- *     whatever their role grants.
+ *     whatever their role grants;
+ *   - for page and post tools (group "content"), the user is not on a
+ *     content-limited role (default: shop_manager), or the tool's kind is
+ *     read or update. WooCommerce gives shop managers editor capabilities,
+ *     so without this rule they could create and trash pages.
+ *
+ * Administrators are exempt from both role rules while entra_exempt_admins
+ * is on (the default).
  */
 
 if (!defined('ABSPATH')) {
@@ -38,6 +45,7 @@ class Azure_AI_Connectors_Settings {
             'entra_restrict_sso_linked' => false,
             'entra_exempt_admins'       => true,
             'entra_allow_create'        => false,
+            'content_limited_roles'     => array('shop_manager'),
         );
     }
 
@@ -74,6 +82,8 @@ class Azure_AI_Connectors_Settings {
 
         $roles = isset($input['entra_restricted_roles']) ? (array) $input['entra_restricted_roles'] : $d['entra_restricted_roles'];
         $roles = array_values(array_unique(array_filter(array_map('sanitize_key', $roles))));
+        $content_roles = isset($input['content_limited_roles']) ? (array) $input['content_limited_roles'] : $d['content_limited_roles'];
+        $content_roles = array_values(array_unique(array_filter(array_map('sanitize_key', $content_roles))));
 
         $origins = isset($input['allowed_origins']) ? $input['allowed_origins'] : array();
         if (is_string($origins)) {
@@ -99,6 +109,7 @@ class Azure_AI_Connectors_Settings {
             'entra_restrict_sso_linked'  => !empty($input['entra_restrict_sso_linked']),
             'entra_exempt_admins'        => !empty($input['entra_exempt_admins']),
             'entra_allow_create'         => !empty($input['entra_allow_create']),
+            'content_limited_roles'      => $content_roles,
         );
     }
 
@@ -134,6 +145,9 @@ class Azure_AI_Connectors_Policy {
     const KIND_UPDATE      = 'update';
     const KIND_DESTRUCTIVE = 'destructive';
     const KIND_ADMIN       = 'admin';
+
+    /** Registry group of the page and post tools the content rule applies to. */
+    const GROUP_CONTENT = 'content';
 
     const SCOPE_READ  = 'pta:read';
     const SCOPE_WRITE = 'pta:write';
@@ -218,6 +232,37 @@ class Azure_AI_Connectors_Policy {
     }
 
     /**
+     * Whether page and post tools are limited to read and update for this
+     * account. WooCommerce's shop_manager role carries editor capabilities
+     * (edit_posts, delete_posts, edit_pages, ...), but shop managers should
+     * only read and update pages and posts through AI connections.
+     *
+     * @param WP_User|int|null $user
+     */
+    public static function is_content_limited($user = null) {
+        $user = self::resolve_user($user);
+        if (!$user || empty($user->ID)) {
+            return false;
+        }
+        $settings = Azure_AI_Connectors_Settings::get();
+        $roles = array_map('strval', (array) $user->roles);
+
+        $limited = false;
+        if (!empty($settings['entra_exempt_admins']) && in_array('administrator', $roles, true)) {
+            $limited = false;
+        } elseif (array_intersect($roles, (array) $settings['content_limited_roles'])) {
+            $limited = true;
+        }
+
+        return (bool) apply_filters('pta_ai_connectors_is_content_limited', $limited, $user);
+    }
+
+    /** Kinds a content-limited account may use on page and post tools. */
+    public static function content_limited_kinds() {
+        return array(self::KIND_READ, self::KIND_UPDATE);
+    }
+
+    /**
      * Who may change AI Connectors settings and see or revoke everyone's
      * connections. manage_options alone is not enough: Entra accounts hold it.
      *
@@ -253,6 +298,12 @@ class Azure_AI_Connectors_Policy {
             return new WP_Error(
                 'pta_ai_entra_restricted',
                 'Accounts that sign in with Microsoft Entra can only read and update through AI Connectors. This tool is not available to your account.'
+            );
+        }
+        if (($tool['group'] ?? '') === self::GROUP_CONTENT && self::is_content_limited($user) && !in_array($kind, self::content_limited_kinds(), true)) {
+            return new WP_Error(
+                'pta_ai_content_limited',
+                'Your role can read and update pages and posts through AI Connectors, but not create or trash them.'
             );
         }
         if (!self::has_permission($tool)) {

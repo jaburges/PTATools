@@ -30,6 +30,8 @@ class Azure_AI_Connectors_Raw_Body {
     public $content_type = '';
     public $file = '';
     public $filename = '';
+    /** Delete $file once it has been sent. */
+    public $delete_after = false;
 
     public function __construct($body = '', $content_type = '') {
         $this->body = (string) $body;
@@ -371,6 +373,9 @@ class Azure_AI_Connectors_Module {
             header('Content-Length: ' . (int) filesize($data->file));
             header('X-Content-Type-Options: nosniff');
             readfile($data->file);
+            if ($data->delete_after) {
+                @unlink($data->file);
+            }
             return true;
         }
         if ($data->body === '') {
@@ -479,31 +484,39 @@ class Azure_AI_Connectors_Module {
     }
 
     /**
+     * A single-use link to an export file, valid for DOWNLOAD_TTL seconds.
+     *
      * @return array{url:string,expires:int}
      */
     public static function create_download($path, $filename, $user_id) {
-        $token = Azure_AI_Connectors_Tokens::random_string(32);
-        $expires = time() + self::DOWNLOAD_TTL;
-        set_transient('pta_ai_dl_' . hash('sha256', $token), array(
-            'path'     => (string) $path,
-            'filename' => (string) $filename,
-            'user_id'  => (int) $user_id,
-            'expires'  => $expires,
-        ), self::DOWNLOAD_TTL);
-        return array('url' => self::rest_base() . 'download/' . $token, 'expires' => $expires);
+        $token = Azure_AI_Connectors_Tokens::create_download($path, $filename, $user_id, self::DOWNLOAD_TTL);
+        return array('url' => self::rest_base() . 'download/' . $token, 'expires' => time() + self::DOWNLOAD_TTL);
     }
 
+    /**
+     * The first GET claims the link and the file is deleted after it is sent,
+     * so a second request gets 404. HEAD requests (link previews) do not
+     * claim it.
+     */
     public function rest_download(WP_REST_Request $request) {
-        $token = (string) $request['token'];
-        $info = get_transient('pta_ai_dl_' . hash('sha256', $token));
+        $gone = $this->http_error(404, 'not_found', 'This download link has expired or was already used. Ask the assistant to export the report again.');
+        $gone->header('Cache-Control', 'private, no-store, max-age=0');
+        if ($request->get_method() === 'HEAD') {
+            return new WP_REST_Response(new Azure_AI_Connectors_Raw_Body(), 200);
+        }
+        $row = Azure_AI_Connectors_Tokens::claim_download((string) $request['token']);
+        if (is_wp_error($row)) {
+            return $gone;
+        }
         $dir = realpath(self::export_dir());
-        $file = is_array($info) ? realpath((string) $info['path']) : false;
-        if (!is_array($info) || (int) $info['expires'] < time() || !$dir || !$file || strpos($file, $dir . DIRECTORY_SEPARATOR) !== 0 || !is_file($file)) {
-            return $this->http_error(404, 'not_found', 'This download link has expired. Ask the assistant to export the report again.');
+        $file = realpath((string) $row->redirect_uri);
+        if (!$dir || !$file || strpos($file, $dir . DIRECTORY_SEPARATOR) !== 0 || !is_file($file)) {
+            return $gone;
         }
         $body = new Azure_AI_Connectors_Raw_Body('', 'text/csv; charset=utf-8');
         $body->file = $file;
-        $body->filename = (string) $info['filename'];
+        $body->filename = (string) $row->name;
+        $body->delete_after = true;
         $response = new WP_REST_Response($body, 200);
         $response->header('Cache-Control', 'private, no-store, max-age=0');
         return $response;

@@ -194,7 +194,7 @@ $s = Azure_AI_Connectors_Settings::get();
     </table>
 
 <?php elseif ($tab === 'tools') : ?>
-    <p class="description"><?php esc_html_e('Every tool on this site and what it needs. A user sees a tool only when their WordPress capabilities allow it; Entra accounts never get destructive or admin tools.', 'azure-plugin'); ?></p>
+    <p class="description"><?php esc_html_e('Every tool on this site and what it needs. A user sees a tool only when their WordPress capabilities allow it; Entra accounts never get destructive or admin tools, and shop managers only read and update pages and posts.', 'azure-plugin'); ?></p>
     <table class="widefat striped">
         <thead><tr>
             <th><?php esc_html_e('Tool', 'azure-plugin'); ?></th>
@@ -238,11 +238,24 @@ $s = Azure_AI_Connectors_Settings::get();
             </tr>
             <tr>
                 <th scope="row"><?php esc_html_e('Administrators', 'azure-plugin'); ?></th>
-                <td><label><input type="checkbox" name="entra_exempt_admins" value="1" <?php checked(!empty($s['entra_exempt_admins'])); ?>> <?php esc_html_e('Accounts with the Administrator role are never treated as Entra accounts', 'azure-plugin'); ?></label></td>
+                <td><label><input type="checkbox" name="entra_exempt_admins" value="1" <?php checked(!empty($s['entra_exempt_admins'])); ?>> <?php esc_html_e('Accounts with the Administrator role keep full tools, whatever other roles they have (applies to both rules on this page)', 'azure-plugin'); ?></label></td>
             </tr>
             <tr>
                 <th scope="row"><?php esc_html_e('Creating', 'azure-plugin'); ?></th>
                 <td><label><input type="checkbox" name="entra_allow_create" value="1" <?php checked(!empty($s['entra_allow_create'])); ?>> <?php esc_html_e('Let Entra accounts create pages, posts and coupons (still never delete)', 'azure-plugin'); ?></label></td>
+            </tr>
+        </table>
+
+        <h2><?php esc_html_e('Pages and posts', 'azure-plugin'); ?></h2>
+        <p class="description"><?php esc_html_e('WooCommerce gives shop managers editor capabilities. Through AI connections, these roles can read and update pages and posts but not create or trash them. Their store tools are not affected.', 'azure-plugin'); ?></p>
+        <table class="form-table" role="presentation">
+            <tr>
+                <th scope="row"><?php esc_html_e('Read and update only', 'azure-plugin'); ?></th>
+                <td>
+                    <?php foreach ($roles as $slug => $label) : ?>
+                        <label style="display:inline-block;min-width:200px"><input type="checkbox" name="content_limited_roles[]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, (array) $s['content_limited_roles'], true)); ?>> <?php echo esc_html(translate_user_role($label)); ?></label>
+                    <?php endforeach; ?>
+                </td>
             </tr>
         </table>
 
