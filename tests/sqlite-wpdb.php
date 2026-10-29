@@ -85,10 +85,14 @@ class Sqlite_WPDB {
         return $this->pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN);
     }
 
+    public $insert_id = 0;
+
     public function insert($table, array $data) {
         $cols = implode(', ', array_keys($data));
         $vals = implode(', ', array_map(array($this, 'literal'), $data));
-        return $this->query("INSERT INTO {$table} ({$cols}) VALUES ({$vals})");
+        $rows = $this->query("INSERT INTO {$table} ({$cols}) VALUES ({$vals})");
+        $this->insert_id = (int) $this->pdo->lastInsertId();
+        return $rows;
     }
 
     public function update($table, array $data, array $where) {
