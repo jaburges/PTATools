@@ -1,8 +1,9 @@
 /**
  * Tickets Module - seat hold countdown.
  *
- * The cart and checkout pages print a .pta-hold bar with the seconds left
- * on the earliest seat hold; the seat map calls ptaHoldTimer(seconds, onEnd)
+ * A .pta-hold bar pinned to the top of the screen. The cart and checkout
+ * pages print it with the seconds left on the earliest seat hold; the seat
+ * map calls ptaHoldTimer(seconds, onEnd)
  * once the buyer holds a seat, again whenever it learns the time left, and
  * ptaHoldTimer(0) when they let every seat go. On the cart page the bar
  * reloads when time is up, so the server removes the seats; on checkout it
@@ -18,13 +19,22 @@
         return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
     }
 
-    function start(bar, onEnd) {
+    // The cart and checkout are pushed down by the bar's height, which grows
+    // when a longer message wraps. On the seat map the bar appears as a seat is
+    // tapped, so it lies over the page rather than moving the map under the
+    // buyer's finger.
+    function start(bar, onEnd, push) {
+        var fit = function() {
+            if (push) document.documentElement.style.setProperty('--pta-hold-height', bar.offsetHeight + 'px');
+        };
         var end = Date.now() + (parseInt(bar.getAttribute('data-left'), 10) || 0) * 1000;
         var clockEl = bar.querySelector('.pta-hold__clock');
         var textEl = bar.querySelector('.pta-hold__text');
         var timer = null;
         var heldText = textEl.innerHTML;
-        document.body.classList.add('has-pta-hold');
+        if (push) document.body.classList.add('has-pta-hold');
+        window.addEventListener('resize', fit);
+        fit();
         var tick = function() {
             var s = Math.max(0, Math.round((end - Date.now()) / 1000));
             if (s > 0) {
@@ -38,15 +48,14 @@
             bar.classList.add('is-ended');
             if (onEnd) {
                 textEl.textContent = onEnd() || 'Your seat hold has ended.';
-                return;
-            }
-            if (bar.getAttribute('data-reload') === '1') {
+            } else if (bar.getAttribute('data-reload') === '1') {
                 textEl.textContent = 'Your seat hold has ended. Checking your seats…';
                 // A moment past the expiry, so the server sees the hold as lapsed.
                 setTimeout(function() { window.location.reload(); }, 2000);
-                return;
+            } else {
+                textEl.textContent = 'Your seat hold has ended, so your seats have been let go. Please go back and choose them again.';
             }
-            textEl.textContent = 'Your seat hold has ended, so your seats have been let go. Please go back and choose them again.';
+            fit();
         };
         var run = function() {
             if (!timer) timer = setInterval(tick, 1000);
@@ -61,13 +70,16 @@
                     bar.classList.remove('is-ended');
                     textEl.innerHTML = heldText;
                     clockEl = textEl.querySelector('.pta-hold__clock');
+                    fit();
                 }
                 run();
             },
             stop: function() {
                 clearInterval(timer);
+                window.removeEventListener('resize', fit);
                 bar.parentNode && bar.parentNode.removeChild(bar);
                 document.body.classList.remove('has-pta-hold');
+                document.documentElement.style.removeProperty('--pta-hold-height');
             }
         };
     }
@@ -91,12 +103,12 @@
         bar.setAttribute('aria-live', 'off');
         bar.innerHTML = '<span class="pta-hold__text">Your seats are held for <strong class="pta-hold__clock">' + clock(seconds) + '</strong></span>';
         document.body.appendChild(bar);
-        current = start(bar, onEnd);
+        current = start(bar, onEnd, false);
     };
 
     function init() {
         var bars = document.querySelectorAll('.pta-hold');
-        for (var i = 0; i < bars.length; i++) start(bars[i]);
+        for (var i = 0; i < bars.length; i++) start(bars[i], null, true);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

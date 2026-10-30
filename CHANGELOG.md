@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.203 — The seat hold countdown sits at the top of the screen
+
+### Changed
+
+- **The "Your seats are held for 9:56" countdown is now a yellow bar pinned to the top of the screen** on the seat map, cart and checkout, so buyers can see how long they have left. It used to be a dark strip along the bottom that was easy to miss and covered part of the *Proceed to checkout* button. It still turns red in the last minute. On the cart and checkout the page moves down to make room for it; on the seat map it lies over the page, so the map doesn't shift when the first seat is tapped.
+
 ## 3.147.202 — Microsoft sign-in no longer dead-ends on "Invalid state parameter"
 
 ### Fixed
