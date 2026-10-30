@@ -2,6 +2,13 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.202 — Microsoft sign-in no longer dead-ends on "Invalid state parameter"
+
+### Fixed
+
+- **Signing in with Microsoft no longer fails when a WordPress session ends or starts mid-sign-in.** The sign-in state was a WordPress nonce, which changes with the visitor's sign-in status, so anyone whose session expired between clicking *Sign in with Microsoft* and returning (or who signed in again while already signed in) saw "Invalid state parameter". The state is now a random code kept on the server for 15 minutes, tied to the browser by a cookie and usable once.
+- **A stale or reused sign-in link sends people somewhere useful.** Someone already signed in carries on to the dashboard; anyone else returns to the login page with the "link expired" notice and a fresh button.
+- **Sign-in buttons are safe on cached pages.** Login links now go through `admin-ajax.php?action=azure_sso_start`, which creates the state on click. The login page also keeps its `redirect_to` destination for Microsoft sign-in.
 ## 3.147.201 — Seats leave the cart when the hold runs out
 
 ### Changed
