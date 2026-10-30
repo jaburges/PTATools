@@ -231,6 +231,248 @@ class Azure_Tickets_Assign {
         return array('ok' => true, 'added' => count($add), 'removed' => count($remove), 'renamed' => $renamed);
     }
 
+    // ── CSV ───────────────────────────────────────────────────────────
+
+    /**
+     * @return array<int,array> order id => number, family, paid, assigned
+     */
+    public static function order_rows($product_id) {
+        $out = array();
+        foreach (self::vip_orders($product_id) as $oid => $qty) {
+            $o = wc_get_order($oid);
+            $out[$oid] = array(
+                'number'   => (string) $o->get_order_number(),
+                'family'   => trim($o->get_billing_first_name() . ' ' . $o->get_billing_last_name()),
+                'paid'     => $qty,
+                'assigned' => self::assigned($oid, $product_id),
+            );
+        }
+        return $out;
+    }
+
+    /** admin-post.php?action=azure_tickets_assign_csv&product=… */
+    public static function download_csv() {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You can\'t download seat assignments.', 'azure-plugin'), '', array('response' => 403));
+        }
+        $product_id = absint($_GET['product'] ?? 0);
+        check_admin_referer('pta_assign_csv_' . $product_id);
+        $ts = Azure_Tickets_Config::event_ts($product_id);
+        nocache_headers();
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="cast-crew-seats-' . ($ts ? wp_date('D-j-M', $ts) : $product_id) . '.csv"');
+        echo self::csv_template(self::order_rows($product_id));
+        exit;
+    }
+
+    const CSV_HEADER = array('Order', 'Family', 'Seat', 'Name');
+
+    /**
+     * The template: one row per ticket bought, the seats already assigned
+     * filled in, then blank seats for the rest. Uploading it unchanged
+     * changes nothing, so it doubles as an export.
+     *
+     * @param array[] $orders each: number, family, paid, assigned (as from assigned())
+     */
+    public static function csv_template(array $orders) {
+        $out = fopen('php://temp', 'r+');
+        fputcsv($out, self::CSV_HEADER, ',', '"', '');
+        foreach ($orders as $o) {
+            $n = 0;
+            foreach ($o['assigned'] as $key => $r) {
+                fputcsv($out, array_map(array(__CLASS__, 'csv_cell'), array($o['number'], $o['family'], str_replace('-', '', $key), $r['attendee_name'])), ',', '"', '');
+                $n++;
+            }
+            for (; $n < $o['paid']; $n++) {
+                fputcsv($out, array_map(array(__CLASS__, 'csv_cell'), array($o['number'], $o['family'], '', $o['family'])), ',', '"', '');
+            }
+        }
+        rewind($out);
+        $csv = stream_get_contents($out);
+        fclose($out);
+        return "\xEF\xBB\xBF" . $csv;
+    }
+
+    /** Spreadsheets run a cell starting with = + - @ as a formula. */
+    private static function csv_cell($value) {
+        $value = (string) $value;
+        return $value !== '' && strpbrk($value[0], "=+-@\t\r") !== false ? "'" . $value : $value;
+    }
+
+    /**
+     * Reads an uploaded sheet: Order and Seat columns, Name optional, any
+     * other columns ignored. Rows with no seat are skipped.
+     *
+     * @param array<string,int> $numbers order number as shown => order id
+     * @return array{orders: array<int, array<string,string>>, errors: string[]} order id => seat key => name
+     */
+    public static function parse_csv($csv, array $numbers) {
+        $csv = preg_replace('/^\xEF\xBB\xBF/', '', (string) $csv);
+        $lines = preg_split('/\R/', $csv);
+        $errors = array();
+        $orders = array();
+        $cols = null;
+        foreach ($lines as $i => $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+            $cells = array_map('trim', str_getcsv($line, ',', '"', ''));
+            if ($cols === null) {
+                $cols = array();
+                foreach ($cells as $c => $h) {
+                    $h = strtolower($h);
+                    if (strpos($h, 'order') !== false) {
+                        $cols['order'] = $c;
+                    } elseif (strpos($h, 'seat') !== false) {
+                        $cols['seat'] = $c;
+                    } elseif ($h === 'name' || strpos($h, 'attendee') !== false) {
+                        $cols['name'] = $c;
+                    }
+                }
+                if (!isset($cols['order'], $cols['seat'])) {
+                    return array('orders' => array(), 'errors' => array(__('The first row must have "Order" and "Seat" columns. Download the template to start from.', 'azure-plugin')));
+                }
+                continue;
+            }
+            $row = $i + 1;
+            $seat = $cells[$cols['seat']] ?? '';
+            if ($seat === '') {
+                continue;
+            }
+            $number = ltrim($cells[$cols['order']] ?? '', '#');
+            if (!isset($numbers[$number])) {
+                /* translators: 1: row number, 2: order number */
+                $errors[] = sprintf(__('Row %1$d: #%2$s isn\'t a paid cast & crew order for this performance.', 'azure-plugin'), $row, $number);
+                continue;
+            }
+            $name = isset($cols['name']) ? (string) ($cells[$cols['name']] ?? '') : '';
+            if (preg_match('/^\'[=+\-@]/', $name)) {
+                $name = substr($name, 1);
+            }
+            $parsed = self::parse($seat);
+            $key = key($parsed['seats']);
+            if ($key === null || count($parsed['seats']) !== 1 || $parsed['seats'][$key] !== '') {
+                /* translators: 1: row number, 2: what was in the seat column */
+                $errors[] = sprintf(__('Row %1$d: "%2$s" isn\'t a seat. Write it like D4.', 'azure-plugin'), $row, $seat);
+                continue;
+            }
+            $oid = $numbers[$number];
+            if (isset($orders[$oid][$key])) {
+                /* translators: 1: row number, 2: seat such as D4, 3: order number */
+                $errors[] = sprintf(__('Row %1$d: %2$s is listed twice for #%3$s.', 'azure-plugin'), $row, str_replace('-', '', $key), $number);
+                continue;
+            }
+            $orders[$oid][$key] = trim(strip_tags($name));
+        }
+        return array('orders' => $orders, 'errors' => $errors);
+    }
+
+    /**
+     * Gives each order in the file exactly the seats listed, checking the
+     * whole file first so that nothing is saved unless all of it can be.
+     * Seats may move between orders in the same file. Never emails.
+     *
+     * @param array<int, array<string,string>> $wanted order id => seat key => name
+     * @param array<int,int> $paid order id => tickets bought, for every cast & crew order of the performance
+     * @param callable $get_order order id => WC_Order
+     * @param array<int,string> $numbers order id => number as shown
+     * @return array{ok:bool, partial?:bool, errors?:string[], orders?:int, added?:int, removed?:int, renamed?:int}
+     *         partial: the file passed its checks but a save then failed part-way.
+     */
+    public static function import($product_id, array $wanted, array $paid, callable $get_order, array $numbers = array()) {
+        $show = function ($oid) use ($numbers) {
+            return '#' . ($numbers[$oid] ?? $oid);
+        };
+        $seat = function ($key) {
+            return str_replace('-', '', $key);
+        };
+        $sections = Azure_Tickets_Config::sections($product_id);
+        $have = array();
+        $owner = array();
+        foreach (array_keys($paid) as $oid) {
+            $have[$oid] = self::assigned($oid, $product_id);
+            foreach ($have[$oid] as $key => $r) {
+                $owner[$key] = $oid;
+            }
+        }
+        $errors = array();
+        $claimed = array();
+        foreach ($wanted as $oid => $seats) {
+            if (!isset($paid[$oid])) {
+                /* translators: %s: order number */
+                $errors[] = sprintf(__('%s isn\'t a paid cast & crew order for this performance.', 'azure-plugin'), $show($oid));
+                continue;
+            }
+            if (count($seats) > $paid[$oid]) {
+                /* translators: 1: order number, 2: tickets bought, 3: seats listed */
+                $errors[] = sprintf(__('%1$s paid for %2$d tickets but %3$d seats are listed.', 'azure-plugin'), $show($oid), $paid[$oid], count($seats));
+            }
+            foreach (array_keys($seats) as $key) {
+                if (isset($claimed[$key])) {
+                    /* translators: 1: seat such as D4, 2: order number, 3: order number */
+                    $errors[] = sprintf(__('%1$s is listed for both %2$s and %3$s.', 'azure-plugin'), $seat($key), $show($claimed[$key]), $show($oid));
+                    continue;
+                }
+                $claimed[$key] = $oid;
+                if (self::locate($sections, $key) === '') {
+                    /* translators: 1: seat such as D4, 2: order number */
+                    $errors[] = sprintf(__('%1$s (%2$s) isn\'t a seat in this venue.', 'azure-plugin'), $seat($key), $show($oid));
+                }
+            }
+        }
+        $taken = Azure_Tickets_Inventory::taken($product_id);
+        foreach ($claimed as $key => $oid) {
+            $sid = self::locate($sections, $key);
+            if ($sid === '' || !isset($taken[$sid][$key])) {
+                continue;
+            }
+            $holder = $owner[$key] ?? 0;
+            if ($holder === $oid || ($holder && isset($wanted[$holder]) && !isset($wanted[$holder][$key]))) {
+                continue;
+            }
+            $errors[] = $holder
+                /* translators: 1: seat such as D4, 2: order number wanting it, 3: order number holding it */
+                ? sprintf(__('%1$s (%2$s) is already assigned to %3$s.', 'azure-plugin'), $seat($key), $show($oid), $show($holder))
+                /* translators: 1: seat such as D4, 2: order number */
+                : sprintf(__('%1$s (%2$s) has already been bought or is in someone\'s cart.', 'azure-plugin'), $seat($key), $show($oid));
+        }
+        if ($errors) {
+            return array('ok' => false, 'errors' => $errors);
+        }
+
+        $as_text = function (array $seats) {
+            $lines = array();
+            foreach ($seats as $key => $name) {
+                $lines[] = trim(str_replace('-', '', $key) . ' ' . $name);
+            }
+            return implode("\n", $lines);
+        };
+        $totals = array('added' => 0, 'removed' => 0, 'renamed' => 0);
+        $tally = function ($r) use (&$totals) {
+            foreach ($totals as $k => $v) {
+                $totals[$k] += $r[$k] ?? 0;
+            }
+        };
+        // Let go of seats first, so a seat moving to another order in the file is free when it gets there.
+        foreach ($wanted as $oid => $seats) {
+            if ($have[$oid]) {
+                $tally(self::save($get_order($oid), $product_id, $as_text(array_intersect_key($seats, $have[$oid])), $paid[$oid]));
+            }
+        }
+        foreach ($wanted as $oid => $seats) {
+            $r = self::save($get_order($oid), $product_id, $as_text($seats), $paid[$oid]);
+            if (!$r['ok']) {
+                $errors[] = $show($oid) . ': ' . implode(' ', $r['errors']);
+                continue;
+            }
+            $tally($r);
+        }
+        if ($errors) {
+            return array('ok' => false, 'partial' => true, 'errors' => array_merge(array(__('Some orders were saved before this went wrong; the rest were not:', 'azure-plugin')), $errors));
+        }
+        return array('ok' => true, 'orders' => count($wanted)) + $totals;
+    }
+
     /**
      * @return array<string, array<string, int[]>> section id => row letter => free seat numbers
      */

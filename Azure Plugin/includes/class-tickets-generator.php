@@ -86,7 +86,22 @@ class Azure_Tickets_Generator {
             $subject = sprintf(__('[Test] %1$s (would go to %2$s)', 'azure-plugin'), $subject, $to);
             $to = $test_to;
         }
-        return wp_mail($to, $subject, $this->email_html($order, $tickets), array('Content-Type: text/html; charset=UTF-8'));
+        $sent = wp_mail($to, $subject, $this->email_html($order, $tickets), array('Content-Type: text/html; charset=UTF-8'));
+        if ($sent && $test_to === '') {
+            $order->update_meta_data(self::EMAILED_META, time());
+            $order->save_meta_data();
+        }
+        return $sent;
+    }
+
+    /** When the tickets were last emailed to the buyer (Unix time). */
+    const EMAILED_META = '_pta_tickets_emailed';
+
+    /**
+     * @return int When the order's tickets were last emailed to the buyer; 0 if never.
+     */
+    public static function emailed_at($order) {
+        return (int) $order->get_meta(self::EMAILED_META);
     }
 
     /**
