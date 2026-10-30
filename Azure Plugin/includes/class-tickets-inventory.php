@@ -155,6 +155,26 @@ class Azure_Tickets_Inventory {
         return $at ? (int) strtotime($at . ' UTC') : 0;
     }
 
+    /**
+     * Whether this hold key still has every one of these places: held with
+     * time left, or already moved onto its order.
+     */
+    public static function still_held($product_id, $hold_key, array $places) {
+        if ((string) $hold_key === '' || !$places) {
+            return false;
+        }
+        global $wpdb;
+        foreach ($places as $p) {
+            if (!$wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM " . self::table() . " WHERE product_id = %d AND section_id = %s AND seat_key = %s AND hold_key = %s AND (status <> 'held' OR expires_at >= %s)",
+                (int) $product_id, (string) $p['section_id'], (string) $p['seat_key'], (string) $hold_key, self::now()
+            ))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static function window_expiry($product_id, $hold_key) {
         $ends = self::window_ends($product_id, $hold_key);
         return $ends ? gmdate('Y-m-d H:i:s', $ends) : self::now(self::hold_ttl());

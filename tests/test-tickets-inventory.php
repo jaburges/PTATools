@@ -60,6 +60,8 @@ $t->equals(2, $I::attach_order(900, 'cartC', $FRI, array($seat('par', 'A-1'), $s
 $t->equals(0, $I::attach_order(901, 'cartZ', $FRI, array($seat('reg', 'A-2'))), 'a cart that does not hold the seat cannot order it');
 $I::$now += $I::HOLD_TTL + 1;
 $t->equals(array('A-1' => 'taken', 'A-2' => 'taken'), $I::taken($FRI)['par'], 'ordered seats stay taken while payment is pending');
+$t->check($I::still_held($FRI, 'cartC', array($seat('par', 'A-1'), $seat('par', 'A-2'))), 'seats on an order still count as the cart\'s after its 10 minutes');
+$t->check(!$I::still_held($FRI, 'cartB', array($seat('reg', 'A-2'))) && !$I::still_held($FRI, 'cartC', array($seat('par', 'A-1'), $seat('reg', 'A-9'))), 'a lapsed hold, or any seat the cart never had, does not');
 $t->equals(array(), $I::mark_sold(900, array($FRI => array($seat('par', 'A-1'), $seat('par', 'A-2')))), 'paying sells them');
 $I::$now += 86400;
 $t->equals(array('A-1' => 'taken', 'A-2' => 'taken'), $I::taken($FRI)['par'], 'sold seats never lapse');

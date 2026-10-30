@@ -215,11 +215,17 @@ unset(WP_Shim::$post_meta[$FRI]['_ticket_require_names']);
 
 // ── Refreshing a cart ──────────────────────────────────────────────────
 $line = $C::prepare($FRI, array('seats' => array($seat('reg', 'E-2'))), 9, 'cartR')['lines'][0]['seats'];
-Azure_Tickets_Inventory::$now += Azure_Tickets_Inventory::HOLD_TTL + 60;
-$t->equals('', $C::refresh($FRI, $line, 'cartR', 9), 'a lapsed hold is taken back if the seat is still free');
+Azure_Tickets_Inventory::$now += Azure_Tickets_Inventory::HOLD_TTL - 60;
+$t->equals('', $C::refresh($FRI, $line, 'cartR', 9), 'a cart line is kept while its hold has time left');
+Azure_Tickets_Inventory::$now += 120;
+$t->equals('Your 10 minutes to check out ran out, so your seats were let go and removed from your cart. Please choose them again.', $C::refresh($FRI, $line, 'cartR', 9),
+    'once the hold runs out the line is removed, even though the seat is still free');
+$t->check(!isset(Azure_Tickets_Inventory::taken($FRI)['reg']['E-2']), 'and the seat is not held again');
+$line = $C::prepare($FRI, array('seats' => array($seat('reg', 'E-2'))), 9, 'cartR2')['lines'][0]['seats'];
 Azure_Tickets_Inventory::$now += Azure_Tickets_Inventory::HOLD_TTL + 60;
 $C::prepare($FRI, array('seats' => array($seat('reg', 'E-2'))), 7, 'cartThief');
-$t->check(strpos($C::refresh($FRI, $line, 'cartR', 9), 'someone else took') !== false, 'a lost seat removes the cart line with an explanation');
+$t->check(strpos($C::refresh($FRI, $line, 'cartR2', 9), 'ran out') !== false && isset(Azure_Tickets_Inventory::taken($FRI, 'cartThief')['reg']['E-2']), 'a lapsed line whose seat someone else took is removed, and they keep it');
+Azure_Tickets_Inventory::release('cartThief', $FRI, array(array('section_id' => 'reg', 'seat_key' => 'E-2')));
 $fam = $C::prepare($FRI, array('seats' => array($seat('par', 'B-2'))), 7, 'cartF')['lines'][0]['seats'];
 WP_Shim::$post_meta[$FRI]['_ticket_family_emails'] = 'bob@example.com';
 Azure_Tickets_Access::flush();

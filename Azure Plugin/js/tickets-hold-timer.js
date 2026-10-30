@@ -5,9 +5,9 @@
  * on the earliest seat hold; the seat map calls ptaHoldTimer(seconds, onEnd)
  * once the buyer holds a seat, again whenever it learns the time left, and
  * ptaHoldTimer(0) when they let every seat go. On the cart page the bar
- * reloads when time is up, so the server can take the seats back (if still
- * free) or remove them; on checkout it only says so, to keep what the buyer
- * has typed; on the seat map onEnd decides, and returns the bar's message.
+ * reloads when time is up, so the server removes the seats; on checkout it
+ * only says so, to keep what the buyer has typed; on the seat map onEnd
+ * decides, and returns the bar's message.
  */
 (function() {
     'use strict';
@@ -46,7 +46,7 @@
                 setTimeout(function() { window.location.reload(); }, 2000);
                 return;
             }
-            textEl.textContent = 'Your seat hold has ended. If your seats are still free they will be held again when you continue; if someone else took one, you will be asked to choose again.';
+            textEl.textContent = 'Your seat hold has ended, so your seats have been let go. Please go back and choose them again.';
         };
         var run = function() {
             if (!timer) timer = setInterval(tick, 1000);
