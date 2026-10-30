@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tickets_settings_nonc
             Azure_Settings::update_setting('tickets_require_names', $_POST['tickets_require_names'] === '1');
         }
         if (isset($_POST['tickets_reservation_timeout'])) {
-            Azure_Settings::update_setting('tickets_reservation_timeout', intval($_POST['tickets_reservation_timeout']));
+            Azure_Settings::update_setting('tickets_reservation_timeout', max(5, min(60, intval($_POST['tickets_reservation_timeout']))));
         }
         
         if ($wallet_error !== '') {

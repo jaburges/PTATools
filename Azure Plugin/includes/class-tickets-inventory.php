@@ -7,7 +7,7 @@
  * of two simultaneous buyers exactly one row wins.
  *
  *   held     tapped on the seat map or in someone's cart. A buyer's holds
- *            for a performance share one window: the first runs HOLD_TTL,
+ *            for a performance share one window: the first runs hold_ttl(),
  *            and seats added while it is open end with it. Seeing the cart
  *            again does not extend it.
  *   ordered  on an order awaiting payment; resolved by cleanup()
@@ -24,6 +24,7 @@ if (!defined('ABSPATH')) {
 
 class Azure_Tickets_Inventory {
 
+    /** Default hold window; Tickets > Settings > Seat Reservation Timeout overrides it. */
     const HOLD_TTL = 600;
     const ORDER_TTL = 3600;
     const DB_VERSION = '1';
@@ -31,6 +32,12 @@ class Azure_Tickets_Inventory {
 
     /** @var int|null Fixed clock for tests. */
     public static $now = null;
+
+    /** Seconds a buyer has from their first seat, 5 to 60 minutes. */
+    public static function hold_ttl() {
+        $minutes = class_exists('Azure_Settings') ? (int) Azure_Settings::get_setting('tickets_reservation_timeout', 0) : 0;
+        return $minutes > 0 ? 60 * max(5, min(60, $minutes)) : self::HOLD_TTL;
+    }
 
     public static function table() {
         global $wpdb;
@@ -150,7 +157,7 @@ class Azure_Tickets_Inventory {
 
     private static function window_expiry($product_id, $hold_key) {
         $ends = self::window_ends($product_id, $hold_key);
-        return $ends ? gmdate('Y-m-d H:i:s', $ends) : self::now(self::HOLD_TTL);
+        return $ends ? gmdate('Y-m-d H:i:s', $ends) : self::now(self::hold_ttl());
     }
 
     /**

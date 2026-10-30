@@ -122,4 +122,16 @@ $t->equals('taken', $I::taken($FRI)['front']['A-5'] ?? '', 'assigned seats survi
 $I::release_order($VIP);
 $t->check(!isset($I::taken($FRI)['front']['A-5']), 'cancelling the VIP order frees its seats');
 
+// ── Seat Reservation Timeout setting ───────────────────────────────────
+$t->equals(600, $I::hold_ttl(), 'unset, a buyer has 10 minutes');
+WP_Shim::$settings['tickets_reservation_timeout'] = 15;
+$t->equals(900, $I::hold_ttl(), 'the setting changes the window');
+$I::claim($SAT, array($seat('reg', 'Z-1')), 'cartT');
+$t->equals($I::$now + 900, $I::window_ends($SAT, 'cartT'), 'and new holds use it');
+WP_Shim::$settings['tickets_reservation_timeout'] = 1;
+$t->equals(300, $I::hold_ttl(), 'never less than 5 minutes');
+WP_Shim::$settings['tickets_reservation_timeout'] = 600;
+$t->equals(3600, $I::hold_ttl(), 'or more than 60');
+WP_Shim::$settings = array();
+
 exit($t->finish() > 0 ? 1 : 0);

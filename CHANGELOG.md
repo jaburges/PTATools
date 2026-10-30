@@ -7,7 +7,7 @@ Release notes for PTA Tools, newest first. Earlier versions are on the [wiki cha
 ### Changed
 
 - **Tapping a seat on a ticket seat map now holds it straight away**, before Add to cart, so a buyer can no longer pick seats that someone else takes while they are filling in names. If the seat has just gone, the buyer is told at once and the seat greys out. Tapping it again lets it go.
-- **One 10-minute window per buyer per performance**, starting at their first seat. A countdown shows on the map and carries on into the cart and checkout. When it runs out the seats are let go, the map clears the selection and asks them to choose again. Reloading the page keeps the seats and the countdown.
+- **One window per buyer per performance** (10 minutes unless **Tickets > Settings > Seat Reservation Timeout** says otherwise, 5 to 60), starting at their first seat. That setting was previously saved but unused. A countdown shows on the map and carries on into the cart and checkout. When it runs out the seats are let go, the map clears the selection and asks them to choose again. Reloading the page keeps the seats and the countdown.
 - **Seat maps stay current while open.** Every 15 seconds (only while the tab is visible) the map picks up seats others have taken or let go. That refresh is the same for every buyer and is fetched without cookies (`/?pta_seat_state=<performance>`), so Front Door can answer it for up to 5 seconds without reaching the site.
 - Switching performance, removing a seat from the summary, or seats becoming unavailable lets those holds go at once instead of waiting for them to lapse.
 

@@ -10,7 +10,7 @@
  * hold key, its quantity can't be edited, and its price is set here from
  * the section, never from the browser.
  *
- * A buyer gets HOLD_TTL from the first seat they tap to check out, counted
+ * A buyer gets hold_ttl() from the first seat they tap to check out, counted
  * down on the seat map, cart and checkout pages; when it runs out the map
  * lets their seats go. Whenever the cart is checked (cart page, checkout,
  * placing the order) a lapsed hold is taken back if the seat is still free.
@@ -850,7 +850,7 @@ class Azure_Tickets_Cart {
         $now = Azure_Tickets_Inventory::$now ?? time();
         return array(
             'left'    => max(0, $expires - $now),
-            'renewed' => $added > 0 && $expires - Azure_Tickets_Inventory::HOLD_TTL > $added + 5,
+            'renewed' => $added > 0 && $expires - Azure_Tickets_Inventory::hold_ttl() > $added + 5,
         );
     }
 

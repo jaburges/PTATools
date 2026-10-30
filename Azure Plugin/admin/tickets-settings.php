@@ -39,9 +39,9 @@ $settings = Azure_Settings::get_all_settings();
                     </th>
                     <td>
                         <input type="number" name="tickets_reservation_timeout" id="tickets_reservation_timeout" 
-                               value="<?php echo esc_attr($settings['tickets_reservation_timeout'] ?? 15); ?>" 
+                               value="<?php echo esc_attr($settings['tickets_reservation_timeout'] ?? Azure_Tickets_Inventory::HOLD_TTL / 60); ?>" 
                                min="5" max="60" class="small-text"> <?php _e('minutes', 'azure-plugin'); ?>
-                        <p class="description"><?php _e('How long seats are held during checkout before being released.', 'azure-plugin'); ?></p>
+                        <p class="description"><?php _e('How long a buyer has to check out, counted from the first seat they tap. When it runs out their seats are let go and they choose again.', 'azure-plugin'); ?></p>
                     </td>
                 </tr>
             </table>
