@@ -123,6 +123,11 @@ $t->equals('https://example.test/wp-json/pta-tickets/v1/wallet-order/4001/501/0?
 $sigs = array($W::order_signature(4001, 501, 0), $W::order_signature(4002, 501, 0), $W::order_signature(4001, 502, 0), $W::order_signature(4001, 501, 1));
 $t->equals(4, count(array_unique($sigs)), 'the signature only opens that order, performance and part');
 $t->check($W::order_signature(4001, 501, 0) !== $W::signature('4001'), 'a single-ticket link can\'t be turned into a bundle link');
+$t->check($W::order_link_valid(4001, 501, 0, $W::order_signature(4001, 501, 0)) && !$W::order_link_valid(4001, 501, 0, 'nope'), 'a link is opened by its current signature only');
+update_option($W::ISSUED_LINKS_OPTION, array('4001/501/0' => 'aaaaaaaaaaaaaaaaaaaa'));
+$t->check($W::order_link_valid(4001, 501, 0, 'aaaaaaaaaaaaaaaaaaaa'), 'a link already emailed under old security keys still opens');
+$t->check(!$W::order_link_valid(4002, 501, 0, 'aaaaaaaaaaaaaaaaaaaa') && !$W::order_link_valid(4001, 502, 0, 'aaaaaaaaaaaaaaaaaaaa') && !$W::order_link_valid(4001, 501, 0, ''), 'but only for that order, performance and part');
+update_option($W::ISSUED_LINKS_OPTION, array());
 $second = $W::build((object) array_merge((array) $ticket, array('seat_number' => 13, 'ticket_code' => 'EFGH234567', 'qr_data' => 'EFGH234567')), $info);
 $bundle = $W::bundle(array('ABCD234567' => $pkpass, 'EFGH234567' => $second));
 $zip_path = tempnam(sys_get_temp_dir(), 'pkb');

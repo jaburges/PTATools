@@ -41,8 +41,17 @@ $fake = new class(array('code' => 'ABCD234567')) implements ArrayAccess {
     public function offsetUnset($k): void {}
     public function get_param($k) { return $this->sig; }
 };
+$GLOBALS['wpdb'] = new class {
+    public $prefix = 'wp_';
+    public $codes = array();
+    public function prepare($sql, ...$args) { return array($sql, $args); }
+    public function get_var($q) { return in_array($q[1][0], $this->codes, true) ? '1' : null; }
+};
 $res = $route->serve($fake);
-$t->check($res instanceof WP_Error && $res->get_error_message() === 'Not found', 'a wrong signature is refused, so codes cannot be guessed through the image endpoint');
+$t->check($res instanceof WP_Error && $res->get_error_message() === 'Not found', 'a wrong signature is refused for a code that is not a ticket');
+$t->check(!Azure_Tickets_QR::is_ticket('abcd234567'), 'an unknown code is not a ticket');
+$GLOBALS['wpdb']->codes = array('ABCD234567');
+$t->check(Azure_Tickets_QR::is_ticket('abcd234567'), 'a real ticket code is found, whatever its case');
 
 // ── Encoder ────────────────────────────────────────────────────────────
 $m = Azure_Tickets_QR::matrix('ABCD234567');

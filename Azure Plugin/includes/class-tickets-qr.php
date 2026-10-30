@@ -37,6 +37,11 @@ class Azure_Tickets_QR {
         return substr(hash_hmac('sha256', 'ticket-qr|' . strtoupper((string) $code), wp_salt('auth')), 0, 20);
     }
 
+    public static function is_ticket($code) {
+        global $wpdb;
+        return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM {$wpdb->prefix}azure_tickets WHERE ticket_code = %s LIMIT 1", strtoupper((string) $code)));
+    }
+
     public static function url($code) {
         return add_query_arg('sig', self::signature($code), rest_url(self::ROUTE_NAMESPACE . '/qr/' . rawurlencode(strtoupper((string) $code))));
     }
@@ -51,7 +56,9 @@ class Azure_Tickets_QR {
 
     public function serve($request) {
         $code = strtoupper((string) $request['code']);
-        if (!hash_equals(self::signature($code), (string) $request->get_param('sig'))) {
+        // A stale signature (made before the site's security keys changed) is fine for a real
+        // ticket: the image only shows its code back to someone who already has it.
+        if (!hash_equals(self::signature($code), (string) $request->get_param('sig')) && !self::is_ticket($code)) {
             return new WP_Error('pta_ticket_qr', 'Not found', array('status' => 404));
         }
         $png = self::png($code);

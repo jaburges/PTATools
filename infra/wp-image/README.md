@@ -200,3 +200,20 @@ and the salt keeps the two from reading each other's entries.
 
 Note that this is an object cache, not a page cache: it removes repeated database
 work but every request still boots WordPress and renders the theme.
+
+## Security keys
+
+`wp-config.php` is generated at every container start, and the WordPress image
+fills in any key or salt it isn't given with a fresh random value. Until
+3.147.200 none were given, so every deploy or restart logged everyone out, made
+the stored Apple Wallet certificate unreadable, and broke the signed QR and
+Wallet links in ticket emails sent before it. A one-off job started the same
+way had keys of its own, so links in emails it sent never worked on the site.
+
+The eight keys and salts are now Key Vault secrets (`wp-auth-key`,
+`wp-secure-auth-key`, `wp-logged-in-key`, `wp-nonce-key`, `wp-auth-salt`,
+`wp-secure-auth-salt`, `wp-logged-in-salt`, `wp-nonce-salt`), referenced by app
+secrets of the same names through `id-wilderptsa-aca` and passed as
+`WORDPRESS_AUTH_KEY` and the rest. Keep them when editing the app, and copy
+them into any job that runs WordPress. Rotating them signs everyone out and
+needs the Wallet certificate uploaded again.
