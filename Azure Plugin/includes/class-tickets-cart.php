@@ -13,7 +13,8 @@
  * A buyer gets hold_ttl() from the first seat they tap to check out, counted
  * down on the seat map, cart and checkout pages; when it runs out the map
  * lets their seats go. Whenever the cart is checked (cart page, checkout,
- * placing the order) a lapsed hold is taken back if the seat is still free.
+ * placing the order) lines whose hold has lapsed are removed, so nobody can
+ * keep seats by leaving the cart open.
  * Holds move onto the order when it is placed, become sold when it is paid,
  * and are released if it fails, is cancelled or refunded.
  *
@@ -275,6 +276,11 @@ class Azure_Tickets_Cart {
                 return sprintf(__('Seats in %s are for cast and crew families, so they were removed from your cart.', 'azure-plugin'), $section['name']);
             }
             $places[] = array('section_id' => $s['section_id'], 'seat_key' => (string) $s['seat_key']);
+        }
+        if (!Azure_Tickets_Inventory::still_held($product_id, $hold_key, $places)) {
+            Azure_Tickets_Inventory::release($hold_key, $product_id, $places);
+            /* translators: %d: minutes */
+            return sprintf(__('Your %d minutes to check out ran out, so your seats were let go and removed from your cart. Please choose them again.', 'azure-plugin'), (int) round(Azure_Tickets_Inventory::hold_ttl() / 60));
         }
         $claim = Azure_Tickets_Inventory::claim($product_id, $places, $hold_key, $user_id);
         if (!$claim['ok']) {
@@ -830,28 +836,18 @@ class Azure_Tickets_Cart {
     /**
      * The earliest seat hold in the cart.
      *
-     * @return array{left:int, renewed:bool} Seconds left (0 when nothing is
-     *         held), and whether that hold was taken again after it lapsed.
+     * @return array{left:int} Seconds left, 0 when nothing is held.
      */
     public static function hold_state() {
         $keys = array();
-        $added = 0;
         foreach (WC()->cart ? WC()->cart->get_cart() : array() as $item) {
             if (!empty($item[self::ITEM_SEATS]) && !empty($item[self::ITEM_HOLD])) {
                 $keys[] = $item[self::ITEM_HOLD];
-                $at = (int) ($item[self::ITEM_ADDED] ?? 0);
-                $added = $added && $at ? min($added, $at) : ($added ?: $at);
             }
         }
         $expires = Azure_Tickets_Inventory::hold_expires($keys);
-        if (!$expires) {
-            return array('left' => 0, 'renewed' => false);
-        }
         $now = Azure_Tickets_Inventory::$now ?? time();
-        return array(
-            'left'    => max(0, $expires - $now),
-            'renewed' => $added > 0 && $expires - Azure_Tickets_Inventory::hold_ttl() > $added + 5,
-        );
+        return array('left' => $expires ? max(0, $expires - $now) : 0);
     }
 
     /**
@@ -862,14 +858,11 @@ class Azure_Tickets_Cart {
         if (!function_exists('is_cart') || !(is_cart() || is_checkout()) || is_order_received_page()) {
             return;
         }
-        $hold = self::hold_state();
-        $left = $hold['left'];
+        $left = self::hold_state()['left'];
         if ($left <= 0) {
             return;
         }
-        $text = $hold['renewed']
-            ? __('Your seat hold ran out, but your seats were still free, so they are held again for', 'azure-plugin')
-            : __('Your seats are held for', 'azure-plugin');
+        $text = __('Your seats are held for', 'azure-plugin');
         printf(
             '<div class="pta-hold" data-left="%d" data-reload="%d" role="timer" aria-live="off"><span class="pta-hold__text">%s <strong class="pta-hold__clock">%s</strong></span></div>',
             (int) $left,

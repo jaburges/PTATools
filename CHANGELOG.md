@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.201 — Seats leave the cart when the hold runs out
+
+### Changed
+
+- **When a buyer's seat hold runs out, their seats are removed from the cart** with "Your 10 minutes to check out ran out, so your seats were let go and removed from your cart. Please choose them again." Previously the cart quietly held them again whenever they were still free, so a cart left open (the cart page reloads when the countdown ends) or revisited later could keep the same seats indefinitely. The minutes come from **Seat Reservation Timeout**. Seats already on an order awaiting payment are unaffected.
+
 ## 3.147.200 — Ticket links survive a change of security keys
 
 ### Fixed
