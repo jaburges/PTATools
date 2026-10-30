@@ -187,6 +187,22 @@ class Azure_Tickets_Apple_Wallet {
     }
 
     /**
+     * Links already emailed whose signature was made with security keys the site
+     * no longer has: "order/product/part" => sig. Kept in the database only, since
+     * each one is as good as the passes it opens.
+     */
+    const ISSUED_LINKS_OPTION = 'pta_wallet_issued_order_links';
+
+    public static function order_link_valid($order_id, $product_id, $part, $sig) {
+        if (hash_equals(self::order_signature($order_id, $product_id, $part), $sig)) {
+            return true;
+        }
+        $issued = get_option(self::ISSUED_LINKS_OPTION, array());
+        $key = (int) $order_id . '/' . (int) $product_id . '/' . (int) $part;
+        return is_array($issued) && isset($issued[$key]) && $sig !== '' && hash_equals((string) $issued[$key], $sig);
+    }
+
+    /**
      * One tap adds an order's tickets for a performance: part 0 is the first
      * BUNDLE_MAX of them (by row and seat), part 1 the next, and so on.
      */
@@ -398,7 +414,7 @@ class Azure_Tickets_Apple_Wallet {
         $order_id = (int) $request['order'];
         $product_id = (int) $request['product'];
         $part = (int) $request['part'];
-        if (!hash_equals(self::order_signature($order_id, $product_id, $part), (string) $request->get_param('sig'))) {
+        if (!self::order_link_valid($order_id, $product_id, $part, (string) $request->get_param('sig'))) {
             return new WP_Error('pta_wallet', 'Not found', array('status' => 404));
         }
         $tickets = self::order_part($order_id, $product_id, $part);

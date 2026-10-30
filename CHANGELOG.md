@@ -2,6 +2,15 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.200 — Ticket links survive a change of security keys
+
+### Fixed
+
+- **QR code images in ticket emails no longer break when the site's security keys change.** The image is shown for any real ticket code even if the link was signed under old keys; it only shows the code back to someone who already has it.
+- **Apple Wallet links already emailed can be honoured after a key change.** The exact links sent can be recorded in the database (`pta_wallet_issued_order_links`), and each opens only its own order, performance and part. New links are signed as before.
+
+The site's security keys (`AUTH_KEY` and the rest) were being regenerated at random on every container start, which logged everyone out on each deploy, made the stored Apple Wallet certificate unreadable, and broke the QR and Wallet links in emails sent before the restart. They now come from Key Vault and stay the same.
+
 ## 3.147.199 — Assign seats from a spreadsheet
 
 ### Added
