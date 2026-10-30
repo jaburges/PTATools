@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.204 — Products sold in packs (10 concession tickets at a time)
+
+### Added
+
+- **Simple products can be sold in packs.** Three new fields on the product's **General** tab: **Sold in multiples of** (e.g. 10), **Add button text** (e.g. "Add 10 tickets") and **Buying tip** (e.g. "We recommend around 10 tickets per person"). The upsell list, cart cross-sells, product lists and PTA product cards add a whole pack per click and show the tip under the button; the product page's quantity box starts at the pack size and steps by it; the cart's quantity picker only allows whole packs.
+
 ## 3.147.203 — The seat hold countdown sits at the top of the screen
 
 ### Changed

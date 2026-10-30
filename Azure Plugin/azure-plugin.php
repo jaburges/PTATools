@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.203
+ * Version: 3.147.204
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.203');
+define('AZURE_PLUGIN_VERSION', '3.147.204');
 
 require_once AZURE_PLUGIN_PATH . 'includes/class-private-storage.php';
 
@@ -1840,9 +1840,13 @@ class AzurePlugin {
                 'class-user-children.php',
                 'class-express-checkout.php',
                 'class-pta-products-block.php',
+                'class-product-packs.php',
             ));
             if (class_exists('Azure_Product_Fields_Module')) {
                 Azure_Product_Fields_Module::get_instance();
+            }
+            if (class_exists('Azure_Product_Packs') && function_exists('wc_get_product')) {
+                Azure_Product_Packs::get_instance();
             }
             if (class_exists('Azure_PTA_Products_Block') && function_exists('wc_get_product')) {
                 Azure_PTA_Products_Block::get_instance();

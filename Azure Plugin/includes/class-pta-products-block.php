@@ -238,8 +238,11 @@ class Azure_PTA_Products_Block {
                 $out .= '<div class="pta-products__price">' . wp_kses_post($price) . '</div>';
             }
         }
-        $out .= '<div class="pta-products__action">' . ($s['show_fields'] ? $this->add_to_cart_html($product, $s) : self::link_button($url, self::link_text($product, $s))) . '</div>';
-        return $out . '</div></li>';
+        $out .= '<div class="pta-products__action">' . ($s['show_fields'] ? $this->add_to_cart_html($product, $s) : self::link_button($url, self::link_text($product, $s)));
+        if (class_exists('Azure_Product_Packs')) {
+            $out .= Azure_Product_Packs::tip_html($product);
+        }
+        return $out . '</div></div></li>';
     }
 
     private function add_to_cart_html($product, array $s) {
@@ -258,7 +261,7 @@ class Azure_PTA_Products_Block {
         }
         return '<div class="pta-products__button-wrap"><a href="' . esc_url((string) $product->add_to_cart_url()) . '"'
             . ' class="wp-block-button__link wp-element-button pta-products__button add_to_cart_button ajax_add_to_cart"'
-            . ' data-product_id="' . esc_attr((string) $product->get_id()) . '" data-quantity="1" rel="nofollow">'
+            . ' data-product_id="' . esc_attr((string) $product->get_id()) . '" data-quantity="' . (class_exists('Azure_Product_Packs') ? Azure_Product_Packs::size($product) : 1) . '" rel="nofollow">'
             . esc_html($text) . '</a></div>';
     }
 
