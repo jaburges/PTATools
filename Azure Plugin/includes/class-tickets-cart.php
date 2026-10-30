@@ -2,14 +2,17 @@
 /**
  * Selling seats through WooCommerce.
  *
- * The seat map posts a selection; prepare() checks it against the
+ * Tapping a seat on the map holds it straight away (pick()), so a buyer
+ * learns at once if someone else has it, and the map refreshes while open.
+ * "Add to cart" posts the selection; prepare() checks it against the
  * performance's sections, limits and eligible-family rules, holds the seats
  * and returns one cart line per section. Each line carries its seats and
  * hold key, its quantity can't be edited, and its price is set here from
  * the section, never from the browser.
  *
- * A hold lasts a fixed HOLD_TTL from "Add to cart", counted down on the cart
- * and checkout pages. Whenever the cart is checked (cart page, checkout,
+ * A buyer gets hold_ttl() from the first seat they tap to check out, counted
+ * down on the seat map, cart and checkout pages; when it runs out the map
+ * lets their seats go. Whenever the cart is checked (cart page, checkout,
  * placing the order) a lapsed hold is taken back if the seat is still free.
  * Holds move onto the order when it is placed, become sold when it is paid,
  * and are released if it fails, is cancelled or refunded.
@@ -30,6 +33,8 @@ class Azure_Tickets_Cart {
     const ITEM_ATTEST = '_ticket_accessible_attested';
     const ORDER_ATTACHED = '_ticket_holds_attached';
     const ITEM_ADDED = '_ticket_added';
+    /** Seconds Front Door may share one answer of serve_shared_state(). */
+    const SHARED_STATE_MAX_AGE = 5;
 
     /** @var self|null */
     private static $instance = null;
@@ -48,6 +53,9 @@ class Azure_Tickets_Cart {
         add_action('wp_ajax_nopriv_azure_tickets_add_to_cart', array($this, 'ajax_add_to_cart'));
         add_action('wp_ajax_azure_tickets_seat_map', array($this, 'ajax_seat_map'));
         add_action('wp_ajax_nopriv_azure_tickets_seat_map', array($this, 'ajax_seat_map'));
+        add_action('wp_ajax_azure_tickets_pick', array($this, 'ajax_pick'));
+        add_action('wp_ajax_nopriv_azure_tickets_pick', array($this, 'ajax_pick'));
+        add_action('wp_loaded', array($this, 'serve_shared_state'));
 
         add_filter('woocommerce_add_to_cart_validation', array($this, 'block_plain_add_to_cart'), 10, 2);
         add_filter('woocommerce_is_purchasable', array($this, 'is_purchasable'), 10, 2);
@@ -188,6 +196,7 @@ class Azure_Tickets_Cart {
             }
         }
 
+        $already = Azure_Tickets_Inventory::held_by($product_id, $hold_key);
         $claim = Azure_Tickets_Inventory::claim($product_id, array_values($places), $hold_key, $user_id);
         if (!$claim['ok']) {
             $labels = array_map(function ($p) use ($sections) {
@@ -199,7 +208,7 @@ class Azure_Tickets_Cart {
         foreach ($general as $sid => $g) {
             $keys = Azure_Tickets_Inventory::claim_general($product_id, $sid, $g['count'], $sections[$sid]['capacity'], $hold_key, $user_id);
             if ($keys === false) {
-                Azure_Tickets_Inventory::release($hold_key, $product_id, array_values($places));
+                Azure_Tickets_Inventory::release($hold_key, $product_id, self::without(self::places_of(array_values($places)), $already));
                 foreach ($claimed_general as $done_sid => $done_keys) {
                     Azure_Tickets_Inventory::release($hold_key, $product_id, self::places_for($done_sid, $done_keys));
                 }
@@ -275,6 +284,106 @@ class Azure_Tickets_Cart {
         return '';
     }
 
+    // ── Holding seats as they are tapped ───────────────────────────────
+
+    /**
+     * Hold one seat the buyer tapped on the map. The same rules as prepare()
+     * apply to what they have tapped so far, so a seat they can't buy is
+     * refused here rather than at "Add to cart".
+     *
+     * @param array $seat {section_id, seat_key}
+     * @param array $in_cart Places of this performance already in the cart.
+     * @return array{ok:bool, error?:string, taken?:bool, login?:bool}
+     */
+    public static function pick($product_id, array $seat, $user_id, $hold_key, array $in_cart = array(), $accessible_ok = false) {
+        if (Azure_Tickets_Config::sales_closed($product_id)) {
+            return self::fail(__('Online sales for this performance have closed.', 'azure-plugin'));
+        }
+        $sections = Azure_Tickets_Config::sections($product_id);
+        $sid = (string) ($seat['section_id'] ?? '');
+        $key = (string) ($seat['seat_key'] ?? '');
+        $section = $sections[$sid] ?? null;
+        if (!$section || $section['type'] !== 'rectangle') {
+            return self::fail(__('That seat selection isn\'t valid any more. Please reload the seat map.', 'azure-plugin'));
+        }
+        $type = Azure_Tickets_Layout::seat_type($section['block'], $key);
+        $label = Azure_Tickets_Layout::seat_label($section['block'], $key);
+        if ($type === null || !$section['on_sale']) {
+            return self::fail(sprintf(__('%s isn\'t available. Please reload the seat map.', 'azure-plugin'), $label));
+        }
+        $place = array('section_id' => $sid, 'seat_key' => $key);
+        $picked = self::picked($product_id, $hold_key, $in_cart);
+        if (in_array($place, $picked, true)) {
+            return array('ok' => true);
+        }
+
+        $families = $section['access'] === Azure_Tickets_Config::ACCESS_FAMILIES;
+        if ($families && $user_id <= 0) {
+            return self::fail(sprintf(__('Please sign in to buy seats in %s.', 'azure-plugin'), $section['name']), array('login' => true));
+        }
+        if ($families && !Azure_Tickets_Access::is_family($user_id, $product_id)) {
+            return self::fail(sprintf(__('Seats in %s are for cast and crew families. If you think that includes you, please contact the PTSA.', 'azure-plugin'), $section['name']));
+        }
+        $max = Azure_Tickets_Config::order_limit($product_id);
+        if (count($picked) + count($in_cart) + 1 > $max) {
+            return self::fail(sprintf(_n('You can buy up to %d ticket for this performance.', 'You can buy up to %d tickets for this performance.', $max, 'azure-plugin'), $max));
+        }
+        if (!Azure_Tickets_Config::release_accessible($product_id)) {
+            if ($type === Azure_Tickets_Layout::SEAT_ACCESSIBLE && !$accessible_ok) {
+                return self::fail(__('Please confirm that someone in your party needs a wheelchair space.', 'azure-plugin'));
+            }
+            if ($type === Azure_Tickets_Layout::SEAT_COMPANION) {
+                $counts = array(Azure_Tickets_Layout::SEAT_ACCESSIBLE => 0, Azure_Tickets_Layout::SEAT_COMPANION => 0);
+                foreach ($picked as $p) {
+                    $t = isset($sections[$p['section_id']]) ? Azure_Tickets_Layout::seat_type($sections[$p['section_id']]['block'], $p['seat_key']) : null;
+                    if (isset($counts[$t])) {
+                        $counts[$t]++;
+                    }
+                }
+                if ($counts[Azure_Tickets_Layout::SEAT_COMPANION] >= $counts[Azure_Tickets_Layout::SEAT_ACCESSIBLE]) {
+                    return self::fail(__('ADA companion seats are for the companion of someone in an ADA space. Choose the ADA space first, then its companion seat.', 'azure-plugin'));
+                }
+            }
+        }
+        if ($families) {
+            $limit = Azure_Tickets_Config::family_rules($product_id)['limit'];
+            $family_sections = array_keys(array_filter($sections, function ($s) {
+                return $s['access'] === Azure_Tickets_Config::ACCESS_FAMILIES;
+            }));
+            if ($limit > 0 && Azure_Tickets_Inventory::count_taken($product_id, $family_sections, '', $user_id) + 1 > $limit) {
+                return self::fail(sprintf(__('Each family can have up to %1$d seats in %2$s for this performance.', 'azure-plugin'), $limit, $section['name']));
+            }
+        }
+        if ($section['limit'] > 0 && Azure_Tickets_Inventory::count_taken($product_id, array($sid)) + 1 > $section['limit']) {
+            return self::fail(sprintf(__('No more seats are available in %s.', 'azure-plugin'), $section['name']));
+        }
+        if (!Azure_Tickets_Inventory::claim($product_id, array($place), $hold_key, $user_id)['ok']) {
+            return self::fail(sprintf(__('Sorry, someone else just took %s. Please choose another seat.', 'azure-plugin'), $label), array('taken' => true));
+        }
+        return array('ok' => true);
+    }
+
+    /**
+     * Let go of tapped seats. Seats already in the cart stay held; they go
+     * when their cart line is removed.
+     */
+    public static function unpick($product_id, array $places, $hold_key, array $in_cart = array()) {
+        Azure_Tickets_Inventory::release($hold_key, $product_id, self::without(self::places_of($places), $in_cart));
+    }
+
+    /**
+     * Seats this buyer has tapped and still holds, not counting the cart.
+     */
+    public static function picked($product_id, $hold_key, array $in_cart = array()) {
+        return self::without(Azure_Tickets_Inventory::held_by($product_id, $hold_key), $in_cart);
+    }
+
+    private static function without(array $places, array $remove) {
+        return array_values(array_filter($places, function ($p) use ($remove) {
+            return !in_array($p, $remove, true);
+        }));
+    }
+
     private static function fail($message, array $extra = array()) {
         return array('ok' => false, 'error' => $message) + $extra;
     }
@@ -312,41 +421,57 @@ class Azure_Tickets_Cart {
 
     // ── AJAX ───────────────────────────────────────────────────────────
 
-    private static function hold_key() {
+    /**
+     * @param bool $start Start a session for a visitor who has none. Letting
+     *        go of seats doesn't need one.
+     */
+    private static function hold_key($start = true) {
         if (!function_exists('WC') || !WC()->session) {
             return '';
         }
         if (!WC()->session->has_session()) {
+            if (!$start) {
+                return '';
+            }
             WC()->session->set_customer_session_cookie(true);
         }
         return 'wc:' . WC()->session->get_customer_id();
     }
 
     private static function in_cart($product_id) {
-        $n = 0;
-        foreach (WC()->cart ? WC()->cart->get_cart() : array() as $item) {
+        return count(self::cart_places($product_id));
+    }
+
+    /** Places of this performance in the cart. */
+    private static function cart_places($product_id) {
+        $places = array();
+        foreach (function_exists('WC') && WC()->cart ? WC()->cart->get_cart() : array() as $item) {
             if (self::item_performance($item) === (int) $product_id && !empty($item[self::ITEM_SEATS])) {
-                $n += count($item[self::ITEM_SEATS]);
+                $places = array_merge($places, self::places_of($item[self::ITEM_SEATS]));
             }
         }
-        return $n;
+        return $places;
     }
 
     /**
      * Everything the seat map needs for one performance and this visitor.
+     * Seats they have tapped come back in "picked" and count as free in
+     * "taken", so the map shows them as chosen.
+     *
+     * @param bool $with_layout false when answering a tap.
      */
-    public static function seat_map_data($product_id, $user_id, $hold_key) {
-        $layout = Azure_Tickets_Config::layout($product_id);
+    public static function seat_map_data($product_id, $user_id, $hold_key, $with_layout = true, array $in_cart = array()) {
         $sections = Azure_Tickets_Config::sections($product_id);
-        $family = $user_id > 0 && Azure_Tickets_Access::is_family($user_id, $product_id);
+        $for_families = in_array(Azure_Tickets_Config::ACCESS_FAMILIES, array_column($sections, 'access'), true);
+        $family = $user_id > 0 && $for_families && Azure_Tickets_Access::is_family($user_id, $product_id);
         $taken = Azure_Tickets_Inventory::taken($product_id, $hold_key);
+        $picked = self::picked($product_id, $hold_key, $in_cart);
+        foreach ($picked as $p) {
+            unset($taken[$p['section_id']][$p['seat_key']]);
+        }
+        $taken = array_filter($taken);
         $config = array();
         foreach ($sections as $sid => $s) {
-            $sold = count($taken[$sid] ?? array());
-            $left = $s['capacity'] - $sold;
-            if ($s['limit'] > 0) {
-                $left = min($left, $s['limit'] - $sold);
-            }
             $config[$sid] = array(
                 'price'      => $s['price'],
                 'ada_price'  => Azure_Tickets_Config::seat_price($product_id, $s, Azure_Tickets_Config::KIND_ADA),
@@ -354,23 +479,64 @@ class Azure_Tickets_Cart {
                 'opens'      => $s['opens_at'] && $s['enabled'] ? wp_date('D j M, g:ia', $s['opens_at']) : '',
                 'access'     => $s['access'],
                 'locked'     => $s['access'] === Azure_Tickets_Config::ACCESS_FAMILIES && !$family,
-                'left'       => max(0, $left),
+                'left'       => self::seats_left($s, count($taken[$sid] ?? array())),
             );
         }
-        return array(
-            'layout'             => $layout,
+        $ends = $picked ? Azure_Tickets_Inventory::window_ends($product_id, $hold_key) : 0;
+        $data = array(
             'sections'           => $config,
-            'taken'              => $taken,
-            'max'                => Azure_Tickets_Config::order_limit($product_id) - self::in_cart_safe($product_id),
+            'taken'              => (object) $taken,
+            'picked'             => $picked,
+            'hold_left'          => $ends ? max(0, $ends - (Azure_Tickets_Inventory::$now ?? time())) : 0,
+            'max'                => Azure_Tickets_Config::order_limit($product_id) - count($in_cart),
             'release_accessible' => Azure_Tickets_Config::release_accessible($product_id),
             'signed_in'          => $user_id > 0,
             'family'             => $family,
             'extras'             => (bool) Azure_Tickets_Config::extras($product_id),
         );
+        if ($with_layout) {
+            $data['layout'] = Azure_Tickets_Config::layout($product_id);
+        }
+        return $data;
     }
 
-    private static function in_cart_safe($product_id) {
-        return function_exists('WC') && WC()->cart ? self::in_cart($product_id) : 0;
+    private static function seats_left(array $section, $taken) {
+        $left = $section['capacity'] - $taken;
+        if ($section['limit'] > 0) {
+            $left = min($left, $section['limit'] - $taken);
+        }
+        return max(0, $left);
+    }
+
+    /**
+     * What every open seat map refreshes from: which seats are taken (by
+     * anyone, the asker included) and what is on sale. It is the same for
+     * everyone, so the map asks without cookies and Front Door can hand one
+     * answer to all buyers for SHARED_STATE_MAX_AGE seconds; each buyer's
+     * own seats and countdown come from azure_tickets_pick.
+     */
+    public static function shared_state($product_id) {
+        $taken = Azure_Tickets_Inventory::taken($product_id);
+        $sections = array();
+        foreach (Azure_Tickets_Config::sections($product_id) as $sid => $s) {
+            $sections[$sid] = array('on_sale' => $s['on_sale'], 'left' => self::seats_left($s, count($taken[$sid] ?? array())));
+        }
+        return array('taken' => (object) $taken, 'sections' => $sections);
+    }
+
+    /** GET /?pta_seat_state=<performance id> */
+    public function serve_shared_state() {
+        if (!isset($_GET['pta_seat_state']) || strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') {
+            return;
+        }
+        $product_id = (int) $_GET['pta_seat_state'];
+        if (!Azure_Tickets_Config::is_performance($product_id)) {
+            status_header(404);
+            nocache_headers();
+            wp_send_json_error(array('message' => __('Tickets aren\'t available for this item.', 'azure-plugin')));
+        }
+        header('Cache-Control: public, max-age=0, s-maxage=' . self::SHARED_STATE_MAX_AGE);
+        wp_send_json_success(self::shared_state($product_id));
     }
 
     public function ajax_seat_map() {
@@ -379,7 +545,64 @@ class Azure_Tickets_Cart {
             wp_send_json_error(array('message' => __('Tickets aren\'t available for this item.', 'azure-plugin')));
         }
         nocache_headers();
-        wp_send_json_success(self::seat_map_data($product_id, get_current_user_id(), self::hold_key()));
+        wp_send_json_success(self::seat_map_data($product_id, get_current_user_id(), self::hold_key(), true, self::cart_places($product_id)));
+    }
+
+    /**
+     * op=hold holds the tapped seat; op=release lets go of the posted seats;
+     * op=release_all lets go of every tapped seat (switching performance).
+     * Every answer carries the map's current state.
+     */
+    public function ajax_pick() {
+        $product_id = (int) ($_POST['product_id'] ?? 0);
+        $op = sanitize_key((string) ($_POST['op'] ?? 'hold'));
+        if (!Azure_Tickets_Config::is_performance($product_id)) {
+            wp_send_json_error(array('message' => __('Tickets aren\'t available for this item.', 'azure-plugin')));
+        }
+        $hold_key = self::hold_key($op === 'hold');
+        $user_id = get_current_user_id();
+        $in_cart = self::cart_places($product_id);
+        nocache_headers();
+        if ($op === 'release' || $op === 'release_all') {
+            if ($hold_key !== '') {
+                $places = $op === 'release_all'
+                    ? self::picked($product_id, $hold_key, $in_cart)
+                    : self::posted_places(json_decode(wp_unslash((string) ($_POST['seats'] ?? '[]')), true));
+                self::unpick($product_id, $places, $hold_key, $in_cart);
+            }
+            wp_send_json_success(self::seat_map_data($product_id, $user_id, $hold_key, false, $in_cart));
+        }
+        $product = wc_get_product($product_id);
+        if (!$product || !$product->is_purchasable()) {
+            wp_send_json_error(array('message' => __('Tickets aren\'t on sale for this performance.', 'azure-plugin')));
+        }
+        if ($hold_key === '') {
+            wp_send_json_error(array('message' => __('Your cart isn\'t available right now. Please reload the page.', 'azure-plugin')));
+        }
+        $seat = self::posted_places(array(array(
+            'section_id' => wp_unslash((string) ($_POST['section_id'] ?? '')),
+            'seat_key'   => wp_unslash((string) ($_POST['seat_key'] ?? '')),
+        )));
+        $result = self::pick($product_id, $seat[0], $user_id, $hold_key, $in_cart, !empty($_POST['accessible_ok']));
+        $state = self::seat_map_data($product_id, $user_id, $hold_key, false, $in_cart);
+        if (!$result['ok']) {
+            wp_send_json_error(array('message' => $result['error'], 'login' => !empty($result['login']), 'state' => $state));
+        }
+        wp_send_json_success($state);
+    }
+
+    /** At most a full order's worth of {section_id, seat_key} from the browser. */
+    private static function posted_places($list) {
+        $out = array();
+        foreach (array_slice(is_array($list) ? $list : array(), 0, 50) as $p) {
+            if (is_array($p)) {
+                $out[] = array(
+                    'section_id' => substr(sanitize_text_field((string) ($p['section_id'] ?? '')), 0, 40),
+                    'seat_key'   => substr(sanitize_text_field((string) ($p['seat_key'] ?? '')), 0, 16),
+                );
+            }
+        }
+        return $out;
     }
 
     public function ajax_add_to_cart() {
@@ -627,7 +850,7 @@ class Azure_Tickets_Cart {
         $now = Azure_Tickets_Inventory::$now ?? time();
         return array(
             'left'    => max(0, $expires - $now),
-            'renewed' => $added > 0 && $expires - Azure_Tickets_Inventory::HOLD_TTL > $added + 5,
+            'renewed' => $added > 0 && $expires - Azure_Tickets_Inventory::hold_ttl() > $added + 5,
         );
     }
 

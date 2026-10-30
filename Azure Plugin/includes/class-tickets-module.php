@@ -249,6 +249,8 @@ class Azure_Tickets_Module {
                 'cartUrl' => wc_get_cart_url(),
                 'loginUrl' => wp_login_url(get_permalink($product->get_id())),
                 'currency' => html_entity_decode(get_woocommerce_currency_symbol(), ENT_QUOTES, 'UTF-8'),
+                'holdMinutes' => (int) round(Azure_Tickets_Inventory::hold_ttl() / 60),
+                'stateUrl' => home_url('/?pta_seat_state='),
             ));
         }
     }

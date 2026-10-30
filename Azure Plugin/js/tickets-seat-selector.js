@@ -3,8 +3,11 @@
  *
  * Draws the venue layout, lets the buyer pick reserved seats and general
  * admission places, and sends the choice to azure_tickets_add_to_cart.
- * Prices, limits and availability shown here are for guidance; the server
- * checks all of them again and holds the seats.
+ * Each reserved seat is held on the server as it is tapped
+ * (azure_tickets_pick), starting the buyer's countdown, and the map
+ * refreshes while it is on screen so seats others take grey out. Prices,
+ * limits and availability shown here are for guidance; the server checks
+ * all of them again.
  */
 (function($) {
     'use strict';
@@ -12,6 +15,7 @@
     var cfg = window.azureTicketsFrontend || {};
     // Smallest seat, in pixels, that can be chosen without zooming in first.
     var MIN_TAP = window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 22 : 12;
+    var REFRESH_MS = 15000;
 
     function esc(s) {
         return $('<div>').text(s == null ? '' : String(s)).html();
@@ -122,7 +126,13 @@
         this.attested = false;   // buyer confirmed a wheelchair space is needed
         this.scale = 1;
         this.fitScale = 1;
+        this.seq = 0;            // bumped by every hold/release; older answers are ignored
+        this.busy = 0;           // hold/release requests in flight
+        this.pending = {};       // "section|seat" being held right now
+        this.timerOn = false;
+        $root.data('seatmap', this);
         this.load();
+        this.startRefreshing();
     }
 
     SeatMap.prototype = {
@@ -131,6 +141,7 @@
             var self = this;
             $.post(cfg.ajaxUrl, { action: 'azure_tickets_seat_map', product_id: this.productId })
                 .done(function(res) {
+                    if (self.dead) return;
                     if (!res || !res.success) {
                         self.$root.html('<p class="pta-seatmap__error">' + esc((res && res.data && res.data.message) || 'The seating chart could not be loaded.') + '</p>');
                         return;
@@ -138,13 +149,220 @@
                     self.data = res.data;
                     self.blocks = {};
                     res.data.layout.blocks.forEach(function(b) { self.blocks[b.id] = b; });
+                    self.selected = self.fromPicked(res.data.picked);
                     self.dropUnavailable();
                     self.build();
+                    self.syncTimer();
                     if (message) self.notice(message, 'error');
                 })
                 .fail(function() {
                     self.$root.html('<p class="pta-seatmap__error">The seating chart could not be loaded. Please refresh the page.</p>');
                 });
+        },
+
+        // ── Holding seats and keeping the map current ──────────────────
+
+        /** The server's list of seats this buyer holds, keeping typed names. */
+        fromPicked: function(picked) {
+            var self = this;
+            return (picked || []).map(function(p) {
+                var i = self.indexOf(p.section_id, p.seat_key);
+                return { section_id: p.section_id, seat_key: p.seat_key, name: i === -1 ? '' : self.selected[i].name };
+            });
+        },
+
+        /** POST to azure_tickets_pick; done(ok, data, state) gets state only if no later request was sent. */
+        request: function(params, done) {
+            var self = this, seq = ++this.seq;
+            this.busy++;
+            this.tappedAt = Date.now();
+            $.post(cfg.ajaxUrl, $.extend({ action: 'azure_tickets_pick', product_id: this.productId }, params))
+                .done(function(res) {
+                    var d = (res && res.data) || {};
+                    var ok = !!(res && res.success);
+                    var state = ok ? d : d.state;
+                    done(ok, d, state && seq === self.seq ? state : null);
+                })
+                .fail(function() {
+                    done(false, { message: 'Something went wrong. Please try again.' }, null);
+                })
+                .always(function() { self.busy--; });
+        },
+
+        hold: function(sid, key) {
+            var self = this, ref = sid + '|' + key;
+            this.pending[ref] = true;
+            this.paintSeat(this.seatEl(sid, key));
+            this.request({ op: 'hold', section_id: sid, seat_key: key, accessible_ok: this.attested ? 1 : 0 }, function(ok, d, state) {
+                delete self.pending[ref];
+                if (self.dead) return;
+                if (state) {
+                    self.applyState(state);
+                } else {
+                    if (ok && self.indexOf(sid, key) === -1) self.selected.push({ section_id: sid, seat_key: key, name: '' });
+                    self.renderSummary();
+                }
+                self.paintSeat(self.seatEl(sid, key));
+                if (ok) {
+                    self.notice('');
+                    return;
+                }
+                var msg = esc(d.message || 'That seat could not be held. Please try again.');
+                if (d.login) msg += ' <a href="' + esc(cfg.loginUrl) + '">Sign in</a>';
+                self.notice(msg, 'error');
+            });
+        },
+
+        release: function(places) {
+            if (!places.length) return;
+            var self = this;
+            this.request({ op: 'release', seats: JSON.stringify(places.map(function(p) {
+                return { section_id: p.section_id, seat_key: p.seat_key };
+            })) }, function(ok, d, state) {
+                if (state && !self.dead) self.applyState(state);
+            });
+        },
+
+        /** Lets go of every tapped seat when the buyer switches performance. */
+        releaseAll: function() {
+            if (this.selected.length) {
+                $.post(cfg.ajaxUrl, { action: 'azure_tickets_pick', op: 'release_all', product_id: this.productId });
+            }
+        },
+
+        /** Takes the server's view of seats, sections and this buyer's holds (an answer to a tap). */
+        applyState: function(d) {
+            var self = this;
+            var before = this.selected;
+            var lost = before.filter(function(s) {
+                return !(d.picked || []).some(function(p) { return p.section_id === s.section_id && p.seat_key === s.seat_key; });
+            });
+            var next = this.fromPicked(d.picked);
+            var keys = function(list) { return JSON.stringify(list.map(function(s) { return s.section_id + '|' + s.seat_key; })); };
+            this.show(d.taken, d.sections, next, keys(next) !== keys(before));
+            $.extend(this.data, d);
+            if (lost.length && this.timerOn) {
+                this.notice('Your hold on ' + esc(lost.map(function(s) { return self.seatName(s); }).join('; ')) + ' ended, so ' + (lost.length === 1 ? 'it was' : 'they were') + ' let go.', 'error');
+            }
+            this.syncTimer();
+        },
+
+        /**
+         * Takes the shared refresh, which shows this buyer's own seats as
+         * taken like everyone else's: those stay chosen (or "in your cart"),
+         * and the sections' seats left count them back in.
+         */
+        applyShared: function(d) {
+            var self = this, taken = {}, sections = $.extend(true, {}, this.data.sections);
+            var mine = function(sid, k) { return (self.data.taken[sid] || {})[k] === 'mine'; };
+            Object.keys(d.taken).forEach(function(sid) {
+                Object.keys(d.taken[sid]).forEach(function(k) {
+                    if (self.indexOf(sid, k) !== -1 || self.pending[sid + '|' + k]) return;
+                    (taken[sid] = taken[sid] || {})[k] = mine(sid, k) ? 'mine' : 'taken';
+                });
+            });
+            Object.keys(d.sections).forEach(function(sid) {
+                if (!sections[sid]) return;
+                sections[sid].on_sale = d.sections[sid].on_sale;
+                sections[sid].left = d.sections[sid].left + self.selected.filter(function(s) { return s.section_id === sid; }).length;
+            });
+            this.show(taken, sections, this.selected, false);
+        },
+
+        /** Redraws only what changed. */
+        show: function(taken, sections, selected, selectionChanged) {
+            var self = this;
+            var takenChanged = JSON.stringify(taken) !== JSON.stringify(this.data.taken);
+            var sectionsChanged = JSON.stringify(sections) !== JSON.stringify(this.data.sections);
+            var reshaped = Object.keys(sections).some(function(sid) {
+                var was = self.data.sections[sid];
+                return !was || was.on_sale !== sections[sid].on_sale || was.locked !== sections[sid].locked;
+            });
+            this.data.taken = taken;
+            this.data.sections = sections;
+            this.selected = selected;
+            if (reshaped) {
+                this.dropUnavailable();
+                this.build();
+                return;
+            }
+            if (takenChanged || selectionChanged) this.repaint();
+            if (sectionsChanged) this.renderGeneral();
+            if (selectionChanged) this.renderSummary();
+        },
+
+        /** The countdown runs while the buyer holds tapped seats. */
+        syncTimer: function() {
+            if (!window.ptaHoldTimer) return;
+            var self = this;
+            if (this.data.picked && this.data.picked.length && this.data.hold_left > 0) {
+                window.ptaHoldTimer(this.data.hold_left, function() { return self.holdEnded(); });
+                this.timerOn = true;
+            } else if (this.timerOn) {
+                window.ptaHoldTimer(0);
+                this.timerOn = false;
+            }
+        },
+
+        holdEnded: function() {
+            var self = this;
+            var msg = 'Your ' + (cfg.holdMinutes || 10) + ' minutes ran out, so your seats were let go. Please choose again.';
+            this.timerOn = false;
+            if (this.selected.length) {
+                this.selected = [];
+                this.repaint();
+                this.renderSummary();
+            }
+            this.notice(msg, 'error');
+            // A moment past the expiry, so the server sees the hold as lapsed;
+            // its answer is current, unlike the shared refresh.
+            setTimeout(function() {
+                if (self.dead) return;
+                self.request({ op: 'release_all' }, function(ok, d, state) {
+                    if (state && !self.dead) self.applyState(state);
+                });
+            }, 2000);
+            return msg;
+        },
+
+        startRefreshing: function() {
+            var self = this;
+            this.timer = setInterval(function() {
+                if (!document.hidden) self.refresh();
+            }, REFRESH_MS);
+            $(document).on('visibilitychange.pta' + this.productId, function() {
+                if (!document.hidden && Date.now() - (self.refreshedAt || 0) > 3000) self.refresh();
+            });
+        },
+
+        /**
+         * The shared refresh is fetched without cookies so the edge cache can
+         * serve it, which also makes it a few seconds old. Straight after this
+         * buyer's own tap the tap's answer is newer, so it waits a while.
+         */
+        refresh: function() {
+            if (!this.data || this.dead || this.busy || this.refreshing || this.submitting || this.$root.prop('hidden') || !cfg.stateUrl || !window.fetch) return;
+            if (Date.now() - (this.tappedAt || 0) < REFRESH_MS) return;
+            var self = this, seq = this.seq;
+            this.refreshing = true;
+            this.refreshedAt = Date.now();
+            var done = function() { self.refreshing = false; };
+            window.fetch(cfg.stateUrl + encodeURIComponent(this.productId), { credentials: 'omit' })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    done();
+                    if (res && res.success && !self.dead && seq === self.seq && !self.busy && !self.submitting && Date.now() - (self.tappedAt || 0) >= REFRESH_MS) {
+                        self.applyShared(res.data);
+                    }
+                }, done);
+        },
+
+        destroy: function() {
+            this.dead = true;
+            clearInterval(this.timer);
+            $(document).off('visibilitychange.pta' + this.productId);
+            $(window).off('resize.pta' + this.productId);
+            if (this.timerOn && window.ptaHoldTimer) window.ptaHoldTimer(0);
         },
 
         section: function(id) {
@@ -175,12 +393,24 @@
             return this.selected.filter(function(s) { return self.seatType(s.section_id, s.seat_key) === type; }).length;
         },
 
+        seatEl: function(sid, key) {
+            return this.$root.find('.pta-seat[data-s="' + sid + '"][data-k="' + key + '"]')[0] || null;
+        },
+
+        seatName: function(s) {
+            var parts = s.seat_key.split('-');
+            return 'Row ' + parts[0] + ', Seat ' + parts[1];
+        },
+
         dropUnavailable: function() {
-            var self = this;
+            var self = this, gone = [];
             this.selected = this.selected.filter(function(s) {
                 var sec = self.section(s.section_id);
-                return sec && sec.on_sale && !sec.locked && !self.state(s.section_id, s.seat_key);
+                var keep = sec && sec.on_sale && !sec.locked && !self.state(s.section_id, s.seat_key);
+                if (!keep) gone.push(s);
+                return keep;
             });
+            this.release(gone);
             Object.keys(this.general).forEach(function(sid) {
                 var sec = self.section(sid);
                 if (!sec || !sec.on_sale || sec.locked) delete self.general[sid];
@@ -261,9 +491,32 @@
             this.$canvas = this.$root.find('.pta-seatmap__canvas');
             this.hasAccessible = hasAccessible;
             this.bind();
+            this.paintSelected();
             this.fit();
             this.renderGeneral();
             this.renderSummary();
+        },
+
+        /** Redraws the seats in place, keeping the zoom and keyboard focus. */
+        repaint: function() {
+            var self = this;
+            var focus = document.activeElement && $(document.activeElement).is('.pta-seat') && this.$canvas[0].contains(document.activeElement)
+                ? [document.activeElement.getAttribute('data-s'), document.activeElement.getAttribute('data-k')] : null;
+            this.$canvas.html(this.data.layout.blocks.map(function(b) { return self.blockHtml(b); }).join(''));
+            this.paintSelected();
+            if (focus) {
+                var el = this.seatEl(focus[0], focus[1]);
+                if (el && !el.disabled) el.focus({ preventScroll: true });
+            }
+        },
+
+        paintSelected: function() {
+            var self = this;
+            this.selected.forEach(function(s) { self.paintSeat(self.seatEl(s.section_id, s.seat_key)); });
+            Object.keys(this.pending).forEach(function(ref) {
+                var p = ref.split('|');
+                self.paintSeat(self.seatEl(p[0], p[1]));
+            });
         },
 
         blockHtml: function(b) {
@@ -415,6 +668,7 @@
         toggleSeat: function(el) {
             var sid = el.getAttribute('data-s'), key = el.getAttribute('data-k');
             var sec = this.section(sid);
+            if (this.pending[sid + '|' + key]) return;
             if (sec.locked) {
                 this.notice(this.data.signed_in
                     ? 'Those seats are reserved for cast and crew families.'
@@ -425,13 +679,15 @@
             var type = this.seatType(sid, key);
             var restricted = !this.data.release_accessible;
             if (i !== -1) {
-                this.selected.splice(i, 1);
+                var gone = this.selected.splice(i, 1);
                 this.paintSeat(el);
-                this.notice(type === 'accessible' && restricted && this.dropExtraCompanions() ? 'An ADA companion seat was let go too, as it goes with an ADA space.' : '', 'info');
+                var companions = type === 'accessible' && restricted ? this.dropExtraCompanions() : [];
+                this.notice(companions.length ? 'An ADA companion seat was let go too, as it goes with an ADA space.' : '', 'info');
+                this.release(gone.concat(companions));
                 this.renderSummary();
                 return;
             }
-            if (this.total() >= this.data.max) {
+            if (this.total() + Object.keys(this.pending).length >= this.data.max) {
                 this.notice(this.data.max > 0 ? 'You can choose up to ' + this.data.max + ' tickets for this performance.' : 'You already have the most tickets allowed for this performance in your cart.', 'error');
                 return;
             }
@@ -444,30 +700,23 @@
                 return;
             }
             var self = this;
-            var add = function() {
-                self.selected.push({ section_id: sid, seat_key: key, name: '' });
-                self.notice('');
-                self.paintSeat(el);
-                self.renderSummary();
-            };
             if (type === 'accessible' && restricted && !this.attested) {
-                this.attest(function() { self.attested = true; add(); }, el);
+                this.attest(function() { self.attested = true; self.hold(sid, key); }, el);
                 return;
             }
-            add();
+            this.hold(sid, key);
         },
 
-        /** Keeps companion seats ≤ wheelchair spaces. @return {boolean} whether any were dropped */
+        /** Keeps companion seats ≤ wheelchair spaces. @return {Array} the seats dropped */
         dropExtraCompanions: function() {
-            var dropped = false;
+            var dropped = [];
             while (this.countType('companion') > this.countType('accessible')) {
                 for (var i = this.selected.length - 1; i >= 0; i--) {
                     var s = this.selected[i];
                     if (this.seatType(s.section_id, s.seat_key) === 'companion') {
                         this.selected.splice(i, 1);
-                        var el = this.$root.find('.pta-seat[data-s="' + s.section_id + '"][data-k="' + s.seat_key + '"]')[0];
-                        if (el) this.paintSeat(el);
-                        dropped = true;
+                        this.paintSeat(this.seatEl(s.section_id, s.seat_key));
+                        dropped.push(s);
                         break;
                     }
                 }
@@ -510,8 +759,11 @@
         },
 
         paintSeat: function(el) {
-            var on = this.indexOf(el.getAttribute('data-s'), el.getAttribute('data-k')) !== -1;
+            if (!el) return;
+            var sid = el.getAttribute('data-s'), key = el.getAttribute('data-k');
+            var on = this.indexOf(sid, key) !== -1;
             el.classList.toggle('is-selected', on);
+            el.classList.toggle('is-pending', !!this.pending[sid + '|' + key]);
             el.setAttribute('aria-pressed', on ? 'true' : 'false');
         },
 
@@ -590,7 +842,7 @@
                 (this.hasAccessible ? '<div class="pta-count"><span class="pta-count__label">ADA seat ♿</span><output class="pta-count__n">' + counts.ada + '</output><small>' + each(prices.ada) + '</small></div>' : '') +
                 '</div>'];
             if (!items.length) {
-                html.push('<p class="pta-summary__empty">Tap a seat on the map to choose it, and tap it again to let it go.</p>');
+                html.push('<p class="pta-summary__empty">Tap a seat on the map to hold it, and tap it again to let it go. You have ' + (cfg.holdMinutes || 10) + ' minutes from your first seat to check out.</p>');
             } else {
                 html.push('<h3>Your tickets</h3><ul class="pta-summary__list">' + items.join('') + '</ul>');
                 html.push('<p class="pta-summary__total">Total <strong>' + money(total) + '</strong></p>');
@@ -621,7 +873,12 @@
                 this.notice('Please enter a name for each ticket.', 'error');
                 return;
             }
-            $btn.prop('disabled', true).text('Holding your seats…');
+            if (this.busy) {
+                this.notice('Still holding your last seat — try again in a moment.', 'info');
+                return;
+            }
+            $btn.prop('disabled', true).text('Adding to cart…');
+            this.submitting = true;
             $.post(cfg.ajaxUrl, {
                 action: 'azure_tickets_add_to_cart',
                 product_id: this.productId,
@@ -636,12 +893,15 @@
                         $('.pta-tickets__performances, .pta-tickets__legend').prop('hidden', true);
                         $extras.prop('hidden', false);
                         $extras[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        if (window.ptaHoldTimer) window.ptaHoldTimer(res.data.hold_left);
+                        self.submitting = false;
+                        self.timerOn = false;
+                        if (window.ptaHoldTimer) window.ptaHoldTimer(res.data.hold_left, null);
                         return;
                     }
                     window.location.href = res.data.cart_url || cfg.cartUrl;
                     return;
                 }
+                self.submitting = false;
                 var d = (res && res.data) || {};
                 var msg = esc(d.message || 'Those tickets could not be added. Please try again.');
                 if (d.login) msg += ' <a href="' + esc(cfg.loginUrl) + '">Sign in</a>';
@@ -652,6 +912,7 @@
                 self.notice(msg, 'error');
                 self.renderSummary();
             }).fail(function() {
+                self.submitting = false;
                 self.notice('Something went wrong. Please try again.', 'error');
                 self.renderSummary();
             });
@@ -704,13 +965,13 @@
                 }
             });
             this.$root.on('click.pta', '.pta-summary__remove', function() {
-                var s = self.selected[parseInt($(this).data('ref'), 10)];
-                self.selected.splice(parseInt($(this).data('ref'), 10), 1);
-                var el = self.$root.find('.pta-seat[data-s="' + s.section_id + '"][data-k="' + s.seat_key + '"]')[0];
-                if (el) self.paintSeat(el);
-                if (!self.data.release_accessible && self.dropExtraCompanions()) {
+                var gone = self.selected.splice(parseInt($(this).data('ref'), 10), 1);
+                self.paintSeat(self.seatEl(gone[0].section_id, gone[0].seat_key));
+                var companions = self.data.release_accessible ? [] : self.dropExtraCompanions();
+                if (companions.length) {
                     self.notice('An ADA companion seat was let go too, as it goes with an ADA space.', 'info');
                 }
+                self.release(gone.concat(companions));
                 self.renderSummary();
             });
             this.$root.on('click.pta', '.pta-summary__add', function() { self.submit($(this)); });
@@ -729,14 +990,18 @@
         }
     };
 
-    // Performances of the same product swap the seat map in place; nothing is
-    // held until "Add to cart", so the current selection is simply dropped.
+    // Performances of the same product swap the seat map in place; seats
+    // tapped on the old one are let go.
     function choosePerformance($btn) {
         var $wrap = $btn.closest('.pta-tickets');
         var $old = $('.pta-seatmap').first();
         var id = String($btn.attr('data-performance'));
         if (!$old.length || String($old.attr('data-product-id')) === id) return;
-        $(window).off('resize.pta' + $old.attr('data-product-id'));
+        var old = $old.data('seatmap');
+        if (old) {
+            old.releaseAll();
+            old.destroy();
+        }
         var $map = $('<div class="pta-seatmap"></div>')
             .attr({ 'data-product-id': id, 'data-require-names': $old.attr('data-require-names') })
             .html('<p class="pta-seatmap__loading">Loading seating chart…</p>');

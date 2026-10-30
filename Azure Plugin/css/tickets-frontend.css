@@ -436,6 +436,13 @@ button.pta-tickets__performance:disabled {
     cursor: not-allowed;
 }
 
+.pta-seat.is-pending {
+    background: var(--pta-selected);
+    border-color: var(--pta-selected);
+    opacity: 0.5;
+    cursor: progress;
+}
+
 .pta-seat.is-off {
     background: var(--pta-off-fill);
     border-color: var(--pta-off);

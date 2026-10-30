@@ -228,4 +228,91 @@ $fam_ok = $C::prepare($FRI, array('seats' => array($seat('reg', 'E-3'))), 7, 'ca
 WP_Shim::$post_meta[$FRI]['_ticket_sections'] = json_encode(array('reg' => array('price' => '', 'limit' => 0, 'on_sale' => false, 'access' => 'all')));
 $t->check(strpos($C::refresh($FRI, $fam_ok, 'cartS', 7), 'no longer on sale') !== false, 'a section taken off sale removes its seats from carts');
 
+// ── Holding seats as they are tapped ───────────────────────────────────
+$SAT = 502;
+WP_Shim::$post_meta[$SAT] = array(
+    '_ticket_venue_id'        => $VENUE,
+    '_ticket_sections'        => json_encode(array(
+        'par' => array('price' => '', 'limit' => 0, 'on_sale' => true, 'access' => 'families'),
+        'reg' => array('price' => '', 'limit' => 0, 'on_sale' => true, 'access' => 'all'),
+        'vip' => array('price' => '', 'limit' => 0, 'on_sale' => false, 'access' => 'all'),
+        'wc'  => array('price' => '', 'limit' => 0, 'on_sale' => true, 'access' => 'all'),
+    )),
+    '_ticket_family_emails'   => 'ada@example.com',
+    '_ticket_family_limit'    => 2,
+    '_tickets_per_order_limit'=> 4,
+);
+Azure_Tickets_Access::flush();
+$tap = function ($s, $k) { return array('section_id' => $s, 'seat_key' => $k); };
+$start = Azure_Tickets_Inventory::$now;
+
+$t->check($C::pick($SAT, $tap('reg', 'C-1'), 0, 'tapA')['ok'], 'a guest can hold a regular seat by tapping it');
+$t->equals(array($tap('reg', 'C-1')), $C::picked($SAT, 'tapA'), 'it is listed as theirs');
+$map = $C::seat_map_data($SAT, 0, 'tapA', false);
+$t->check(!isset($map['layout']) && $map['picked'] === array($tap('reg', 'C-1')) && !isset(((array) $map['taken'])['reg']['C-1']), 'the answer to their tap lists it as chosen, not taken, and skips the layout');
+$shared = $C::shared_state($SAT);
+$t->equals(array('taken', 'sections'), array_keys($shared), 'the shared refresh carries nothing about the asker');
+$t->equals(array('C-1' => 'taken'), ((array) $shared['taken'])['reg'], 'and shows the held seat as taken to everyone');
+$t->equals(array('on_sale' => true, 'left' => 14), $shared['sections']['reg'], 'with seats left per section (15 - 1)');
+$t->equals(array('on_sale' => false, 'left' => 2), $shared['sections']['vip'], 'and which sections are on sale');
+$t->equals(Azure_Tickets_Inventory::HOLD_TTL, $map['hold_left'], 'and starts their 10 minutes');
+$t->equals(array('C-1' => 'taken'), ((array) $C::seat_map_data($SAT, 0, 'tapB', false)['taken'])['reg'], 'everyone else sees it taken straight away');
+$r = $C::pick($SAT, $tap('reg', 'C-1'), 0, 'tapB');
+$t->check(!$r['ok'] && !empty($r['taken']) && strpos($r['error'], 'someone else just took Regular · Row C, Seat 1') !== false, 'a second buyer tapping it is told at once');
+$t->check($C::pick($SAT, $tap('reg', 'C-1'), 0, 'tapA')['ok'] && count($C::picked($SAT, 'tapA')) === 1, 'tapping your own seat again changes nothing');
+$t->check(isset($C::seat_map_data($SAT, 0, 'tapA', true)['layout']), 'the first load still has the layout');
+
+Azure_Tickets_Inventory::$now += 300;
+$C::pick($SAT, $tap('reg', 'C-2'), 0, 'tapA');
+$t->equals(Azure_Tickets_Inventory::HOLD_TTL - 300, $C::seat_map_data($SAT, 0, 'tapA', false)['hold_left'], 'a seat tapped 5 minutes in ends with the first: one 10-minute window');
+
+$r = $C::pick($SAT, $tap('reg', 'C-3'), 0, 'tapA', array($tap('reg', 'D-1'), $tap('reg', 'D-2')));
+$t->equals('You can buy up to 4 tickets for this performance.', $r['error'] ?? '', 'the order limit counts tapped seats and the cart');
+$t->check(!$C::pick($SAT, $tap('vip', 'A-1'), 0, 'tapA')['ok'], 'a section off sale cannot be tapped');
+$t->check(!$C::pick($SAT, $tap('reg', 'Z-9'), 0, 'tapA')['ok'], 'nor a seat that is not in the layout');
+$t->check(!$C::pick($SAT, $tap('mat', '1'), 0, 'tapA')['ok'], 'nor the gym mat');
+
+$r = $C::pick($SAT, $tap('wc', 'F-1'), 0, 'tapW');
+$t->check(!$r['ok'] && strpos($r['error'], 'wheelchair space') !== false, 'an ADA space needs the buyer to confirm the need');
+$r = $C::pick($SAT, $tap('wc', 'F-2'), 0, 'tapW');
+$t->check(!$r['ok'] && strpos($r['error'], 'Choose the ADA space first') !== false, 'a companion seat on its own is refused');
+$t->check($C::pick($SAT, $tap('wc', 'F-1'), 0, 'tapW', array(), true)['ok'], 'an ADA space can be held once confirmed');
+$t->check($C::pick($SAT, $tap('wc', 'F-2'), 0, 'tapW')['ok'], 'and then its companion seat');
+$t->check(!$C::pick($SAT, $tap('wc', 'F-3'), 0, 'tapW')['ok'], 'but not a second companion seat');
+
+$r = $C::pick($SAT, $tap('par', 'A-2'), 0, 'tapG');
+$t->check(!$r['ok'] && !empty($r['login']), 'signed-out buyers are asked to sign in for the parents section');
+$t->check(strpos($C::pick($SAT, $tap('par', 'A-2'), 9, 'tapN')['error'] ?? '', 'cast and crew families') !== false, 'non-families cannot hold parent seats');
+$t->check($C::pick($SAT, $tap('par', 'A-2'), 7, 'tapF')['ok'] && $C::pick($SAT, $tap('par', 'A-3'), 7, 'tapF')['ok'], 'a cast family can');
+$t->check(strpos($C::pick($SAT, $tap('par', 'A-4'), 7, 'tapF')['error'] ?? '', 'up to 2 seats') !== false, 'up to the family limit');
+
+$C::unpick($SAT, array($tap('reg', 'C-2')), 'tapA');
+$t->equals(array($tap('reg', 'C-1')), $C::picked($SAT, 'tapA'), 'tapping a seat again lets it go');
+$t->check($C::pick($SAT, $tap('reg', 'C-2'), 0, 'tapB')['ok'], 'and someone else can have it');
+$C::unpick($SAT, array($tap('reg', 'C-2')), 'tapA');
+$t->equals(array($tap('reg', 'C-2')), $C::picked($SAT, 'tapB'), 'nobody can let go of someone else\'s seat');
+$C::unpick($SAT, array($tap('reg', 'C-1')), 'tapA', array($tap('reg', 'C-1')));
+$t->equals(array($tap('reg', 'C-1')), Azure_Tickets_Inventory::held_by($SAT, 'tapA'), 'a seat already in the cart is not let go from the map');
+$t->equals(array(), $C::picked($SAT, 'tapA', array($tap('reg', 'C-1'))), 'and does not count as tapped');
+
+// Add to cart takes the tapped seats as they are.
+$ends = Azure_Tickets_Inventory::window_ends($SAT, 'tapA');
+$r = $C::prepare($SAT, array('seats' => array($seat('reg', 'C-1'), $seat('reg', 'C-3'))), 0, 'tapA');
+$t->check($r['ok'] && Azure_Tickets_Inventory::window_ends($SAT, 'tapA') === $ends, 'adding tapped seats to the cart keeps the same countdown');
+WP_Shim::$post_meta[$SAT]['_ticket_sections'] = json_encode(array(
+    'reg' => array('price' => '', 'limit' => 0, 'on_sale' => true, 'access' => 'all'),
+    'ga'  => array('price' => '', 'limit' => 1, 'on_sale' => true, 'access' => 'all'),
+));
+$C::pick($SAT, $tap('reg', 'E-1'), 0, 'tapH');
+$r = $C::prepare($SAT, array('seats' => array($seat('reg', 'E-1'), $seat('reg', 'E-2')), 'general' => array(array('section_id' => 'ga', 'count' => 3))), 0, 'tapH');
+$t->check(!$r['ok'] && $C::picked($SAT, 'tapH') === array($tap('reg', 'E-1')), 'a refused add to cart lets go of what it added but keeps the tapped seat');
+
+// The window closes.
+$t->equals($start + 300 + Azure_Tickets_Inventory::HOLD_TTL, Azure_Tickets_Inventory::window_ends($SAT, 'tapB'), 'each buyer has their own window');
+Azure_Tickets_Inventory::$now = Azure_Tickets_Inventory::window_ends($SAT, 'tapB') + 1;
+$t->equals(array(), $C::picked($SAT, 'tapB'), 'after 10 minutes the tapped seats are gone');
+$map = $C::seat_map_data($SAT, 0, 'tapB', false);
+$t->check($map['hold_left'] === 0 && $map['picked'] === array(), 'and the countdown stops');
+$t->check($C::pick($SAT, $tap('reg', 'C-2'), 0, 'tapZ')['ok'], 'so others can take them');
+
 exit($t->finish() > 0 ? 1 : 0);
