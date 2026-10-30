@@ -29,6 +29,13 @@ class Azure_AI_Connectors_Settings {
 
     const OPTION = 'azure_ai_connectors_settings';
 
+    /** Assistant domains a staff member tried to connect that are not approved yet. */
+    const PENDING_OPTION = 'azure_ai_connectors_pending_hosts';
+    const PENDING_MAX = 25;
+
+    /** Minimum capabilities an admin can pick for "who can connect". */
+    const CONNECT_CAPABILITIES = array('edit_posts', 'manage_woocommerce', 'manage_options');
+
     /** @var array|null */
     private static $cache = null;
 
@@ -39,6 +46,8 @@ class Azure_AI_Connectors_Settings {
             'rate_limit_per_minute'     => 60,
             'audit_retention_days'      => 90,
             'allow_dynamic_registration' => true,
+            'redirect_hosts'            => array('claude.ai', 'claude.com', 'chatgpt.com', 'chat.openai.com'),
+            'connect_capability'        => 'edit_posts',
             'allowed_origins'           => array('https://claude.ai', 'https://chatgpt.com', 'https://chat.openai.com'),
             'pat_max_days'              => 365,
             'entra_restricted_roles'    => array('azuread'),
@@ -97,12 +106,31 @@ class Azure_AI_Connectors_Settings {
             }
         }
 
+        $hosts = isset($input['redirect_hosts']) ? $input['redirect_hosts'] : $d['redirect_hosts'];
+        if (is_string($hosts)) {
+            $hosts = preg_split('/[\s,]+/', $hosts);
+        }
+        $clean_hosts = array();
+        foreach ((array) $hosts as $host) {
+            $host = self::normalize_host((string) $host);
+            if ($host !== '') {
+                $clean_hosts[] = $host;
+            }
+        }
+
+        $connect_cap = isset($input['connect_capability']) ? (string) $input['connect_capability'] : $d['connect_capability'];
+        if (!in_array($connect_cap, self::CONNECT_CAPABILITIES, true)) {
+            $connect_cap = $d['connect_capability'];
+        }
+
         return array(
             'access_token_ttl'           => $int('access_token_ttl', 300, DAY_IN_SECONDS),
             'refresh_token_ttl'          => $int('refresh_token_ttl', HOUR_IN_SECONDS, 365 * DAY_IN_SECONDS),
             'rate_limit_per_minute'      => $int('rate_limit_per_minute', 1, 1000),
             'audit_retention_days'       => $int('audit_retention_days', 1, 3650),
             'allow_dynamic_registration' => !empty($input['allow_dynamic_registration']),
+            'redirect_hosts'             => array_values(array_unique($clean_hosts)),
+            'connect_capability'         => $connect_cap,
             'allowed_origins'            => array_values(array_unique($clean_origins)),
             'pat_max_days'               => $int('pat_max_days', 0, 3650),
             'entra_restricted_roles'     => $roles,
@@ -135,6 +163,93 @@ class Azure_AI_Connectors_Settings {
             $out .= ':' . (int) $parts['port'];
         }
         return $out;
+    }
+
+    /**
+     * A bare lowercase domain such as claude.ai, or '' when the value is not
+     * one. A pasted URL is reduced to its host.
+     */
+    public static function normalize_host($host) {
+        $host = strtolower(trim($host));
+        if (strpos($host, '://') !== false) {
+            $host = (string) parse_url($host, PHP_URL_HOST);
+        }
+        $host = trim(preg_replace('/^\*\./', '', $host), '.');
+        if (!preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/', $host)) {
+            return '';
+        }
+        return $host;
+    }
+
+    /**
+     * Whether an OAuth redirect may receive authorization codes. https
+     * redirects must be on an approved assistant domain or one of its
+     * subdomains. Loopback and private-use scheme redirects land on the
+     * user's own device, so they are not restricted here.
+     */
+    public static function redirect_host_approved($uri) {
+        if (strtolower((string) parse_url((string) $uri, PHP_URL_SCHEME)) !== 'https') {
+            return true;
+        }
+        $host = strtolower((string) parse_url((string) $uri, PHP_URL_HOST));
+        if ($host === '') {
+            return false;
+        }
+        foreach ((array) self::value('redirect_hosts') as $approved) {
+            $approved = (string) $approved;
+            if ($host === $approved || substr($host, -strlen('.' . $approved)) === '.' . $approved) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return array<string,array{client_name:string,user_id:int,first_seen:string,last_seen:string,attempts:int}> */
+    public static function pending_hosts() {
+        $pending = get_option(self::PENDING_OPTION, array());
+        return is_array($pending) ? $pending : array();
+    }
+
+    /**
+     * Remember that a signed-in staff member tried to connect an assistant
+     * whose redirect domain is not approved, so an admin can approve it.
+     */
+    public static function record_pending_host($host, $client_name, $user_id) {
+        $host = self::normalize_host((string) $host);
+        if ($host === '') {
+            return;
+        }
+        $pending = self::pending_hosts();
+        $now = gmdate('Y-m-d H:i:s');
+        $entry = isset($pending[$host]) ? $pending[$host] : array('first_seen' => $now, 'attempts' => 0);
+        $entry['client_name'] = mb_substr((string) $client_name, 0, 120);
+        $entry['user_id'] = (int) $user_id;
+        $entry['last_seen'] = $now;
+        $entry['attempts'] = (int) $entry['attempts'] + 1;
+        unset($pending[$host]);
+        $pending[$host] = $entry;
+        if (count($pending) > self::PENDING_MAX) {
+            $pending = array_slice($pending, -self::PENDING_MAX, null, true);
+        }
+        update_option(self::PENDING_OPTION, $pending, false);
+    }
+
+    public static function approve_host($host) {
+        $host = self::normalize_host((string) $host);
+        if ($host === '') {
+            return false;
+        }
+        $all = self::get();
+        $all['redirect_hosts'] = array_merge((array) $all['redirect_hosts'], array($host));
+        self::save($all);
+        self::dismiss_host($host);
+        return true;
+    }
+
+    public static function dismiss_host($host) {
+        $pending = self::pending_hosts();
+        unset($pending[(string) $host]);
+        update_option(self::PENDING_OPTION, $pending, false);
     }
 }
 
@@ -260,6 +375,30 @@ class Azure_AI_Connectors_Policy {
     /** Kinds a content-limited account may use on page and post tools. */
     public static function content_limited_kinds() {
         return array(self::KIND_READ, self::KIND_UPDATE);
+    }
+
+    /**
+     * Who may connect an assistant at all: PTA staff, not parents or
+     * customers. Defaults to edit_posts, which administrators, editors,
+     * Entra (azuread) accounts, shop managers and finance hold and parent,
+     * customer, alumni and school_staff accounts do not. Checked when a
+     * connection is approved, when a personal token is created and on every
+     * MCP request, so demoting someone stops their existing connections.
+     *
+     * @param WP_User|int|null $user
+     */
+    public static function can_connect($user = null) {
+        $user = self::resolve_user($user);
+        if (!$user || empty($user->ID)) {
+            return false;
+        }
+        $cap = (string) Azure_AI_Connectors_Settings::value('connect_capability');
+        if (!in_array($cap, Azure_AI_Connectors_Settings::CONNECT_CAPABILITIES, true)) {
+            $cap = 'edit_posts';
+        }
+        $is_current = (int) $user->ID === (int) get_current_user_id();
+        $allowed = $is_current ? current_user_can($cap) : user_can($user, $cap);
+        return (bool) apply_filters('pta_ai_connectors_can_connect', $allowed, $user);
     }
 
     /**

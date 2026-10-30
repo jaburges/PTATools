@@ -152,32 +152,75 @@ $s = Azure_AI_Connectors_Settings::get();
 
 <?php elseif ($tab === 'apps') :
     $clients = Azure_AI_Connectors_Tokens::list_clients();
+    $pending = array_reverse(Azure_AI_Connectors_Settings::pending_hosts(), true);
     ?>
+    <h2><?php esc_html_e('Waiting for approval', 'azure-plugin'); ?></h2>
+    <p class="description"><?php esc_html_e('Sign-in codes are only sent to approved assistant domains. These are domains a staff member tried to connect that are not approved yet. Approve one only if you recognise it as the assistant\'s own domain (for example gemini.google.com): the app name is whatever the app chose to call itself and is not verified.', 'azure-plugin'); ?></p>
+    <table class="widefat striped" style="margin-bottom:24px">
+        <thead><tr>
+            <th><?php esc_html_e('Domain', 'azure-plugin'); ?></th>
+            <th><?php esc_html_e('App name (not verified)', 'azure-plugin'); ?></th>
+            <th><?php esc_html_e('Tried by', 'azure-plugin'); ?></th>
+            <th><?php esc_html_e('Attempts', 'azure-plugin'); ?></th>
+            <th><?php esc_html_e('Last tried', 'azure-plugin'); ?></th>
+            <th></th>
+        </tr></thead>
+        <tbody>
+        <?php if (empty($pending)) : ?>
+            <tr><td colspan="6"><?php esc_html_e('Nothing waiting.', 'azure-plugin'); ?></td></tr>
+        <?php endif; ?>
+        <?php foreach ($pending as $host => $entry) :
+            $who = get_userdata((int) ($entry['user_id'] ?? 0));
+            ?>
+            <tr>
+                <td><strong><code><?php echo esc_html($host); ?></code></strong></td>
+                <td><?php echo esc_html((string) ($entry['client_name'] ?? '')); ?></td>
+                <td><?php echo $who ? esc_html($who->display_name) : '—'; ?></td>
+                <td><?php echo (int) ($entry['attempts'] ?? 0); ?></td>
+                <td><?php echo Azure_AI_Connectors_Admin::format_time($entry['last_seen'] ?? ''); ?></td>
+                <td>
+                    <?php echo Azure_AI_Connectors_Admin::host_button('pta_ai_approve_host', $host, __('Approve domain', 'azure-plugin'), 'button button-primary'); ?>
+                    <?php echo Azure_AI_Connectors_Admin::host_button('pta_ai_dismiss_host', $host, __('Dismiss', 'azure-plugin'), 'button button-link-delete'); ?>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    <p><?php
+        /* translators: %s: comma-separated list of domains */
+        printf(esc_html__('Approved assistant domains: %s.', 'azure-plugin'), '<code>' . esc_html(implode(', ', (array) $s['redirect_hosts'])) . '</code>');
+    ?> <a href="<?php echo esc_url(Azure_AI_Connectors_Module::admin_page_url('settings')); ?>"><?php esc_html_e('Edit in Settings', 'azure-plugin'); ?></a></p>
+
+    <h2><?php esc_html_e('Registered apps', 'azure-plugin'); ?></h2>
     <p class="description"><?php esc_html_e('Apps that registered themselves to start an OAuth sign-in. Registering grants nothing; each user still has to approve. Apps that never complete a sign-in are removed after 30 days.', 'azure-plugin'); ?></p>
     <table class="widefat striped">
         <thead><tr>
             <th><?php esc_html_e('Name (as the app reports it)', 'azure-plugin'); ?></th>
             <th><?php esc_html_e('Client ID', 'azure-plugin'); ?></th>
             <th><?php esc_html_e('Redirects to', 'azure-plugin'); ?></th>
+            <th><?php esc_html_e('Approved', 'azure-plugin'); ?></th>
             <th><?php esc_html_e('Registered', 'azure-plugin'); ?></th>
             <th><?php esc_html_e('Last used', 'azure-plugin'); ?></th>
             <th></th>
         </tr></thead>
         <tbody>
         <?php if (empty($clients)) : ?>
-            <tr><td colspan="6"><?php esc_html_e('No apps registered yet.', 'azure-plugin'); ?></td></tr>
+            <tr><td colspan="7"><?php esc_html_e('No apps registered yet.', 'azure-plugin'); ?></td></tr>
         <?php endif; ?>
         <?php foreach ($clients as $client) :
             $hosts = array();
+            $approved = true;
             foreach ((array) json_decode((string) $client->redirect_uris, true) as $uri) {
                 $h = parse_url((string) $uri, PHP_URL_HOST);
                 $hosts[] = $h ? $h : (string) parse_url((string) $uri, PHP_URL_SCHEME) . '://';
+                $approved = $approved && Azure_AI_Connectors_Settings::redirect_host_approved((string) $uri);
             }
             ?>
             <tr>
                 <td><?php echo esc_html($client->client_name); ?></td>
                 <td><code><?php echo esc_html($client->client_id); ?></code></td>
                 <td><?php echo esc_html(implode(', ', array_unique($hosts))); ?></td>
+                <td><?php echo $approved ? esc_html__('Yes', 'azure-plugin') : '<strong>' . esc_html__('No', 'azure-plugin') . '</strong>'; ?></td>
                 <td><?php echo Azure_AI_Connectors_Admin::format_time($client->created_at); ?></td>
                 <td><?php echo Azure_AI_Connectors_Admin::format_time($client->last_used_at); ?></td>
                 <td>
@@ -262,8 +305,28 @@ $s = Azure_AI_Connectors_Settings::get();
         <h2><?php esc_html_e('Sign-in and tokens', 'azure-plugin'); ?></h2>
         <table class="form-table" role="presentation">
             <tr>
+                <th scope="row"><label for="pta-ai-connect-cap"><?php esc_html_e('Who can connect', 'azure-plugin'); ?></label></th>
+                <td>
+                    <select id="pta-ai-connect-cap" name="connect_capability">
+                        <?php foreach (array(
+                            'edit_posts'         => __('PTA staff: anyone who can edit posts (administrators, editors, Entra accounts, shop managers, finance)', 'azure-plugin'),
+                            'manage_woocommerce' => __('Store staff: administrators, shop managers and finance', 'azure-plugin'),
+                            'manage_options'     => __('Administrators only (and Entra accounts, which hold manage_options)', 'azure-plugin'),
+                        ) as $cap => $label) : ?>
+                            <option value="<?php echo esc_attr($cap); ?>" <?php selected($s['connect_capability'], $cap); ?>><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="description"><?php esc_html_e('Parents, customers, alumni and school staff accounts can never connect an assistant. Existing connections stop working as soon as their owner no longer qualifies.', 'azure-plugin'); ?></p>
+                </td>
+            </tr>
+            <tr>
                 <th scope="row"><?php esc_html_e('App registration', 'azure-plugin'); ?></th>
                 <td><label><input type="checkbox" name="allow_dynamic_registration" value="1" <?php checked(!empty($s['allow_dynamic_registration'])); ?>> <?php esc_html_e('Let assistants register themselves (needed for Claude, ChatGPT and Copilot to connect with OAuth)', 'azure-plugin'); ?></label></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="pta-ai-hosts"><?php esc_html_e('Approved assistant domains', 'azure-plugin'); ?></label></th>
+                <td><textarea id="pta-ai-hosts" name="redirect_hosts" rows="4" class="large-text code" placeholder="gemini.google.com"><?php echo esc_textarea(implode("\n", (array) $s['redirect_hosts'])); ?></textarea>
+                    <p class="description"><?php esc_html_e('Sign-in codes are only sent back to these domains and their subdomains, so a lookalike app cannot collect them. One domain per line. When someone tries an assistant that is not listed, it appears under Apps for one-click approval. Desktop apps that sign in through localhost or their own app link (Cursor, VS Code, Claude Desktop) do not need an entry. Personal access tokens never need one.', 'azure-plugin'); ?></p></td>
             </tr>
             <tr>
                 <th scope="row"><label for="pta-ai-access-ttl"><?php esc_html_e('Access tokens last', 'azure-plugin'); ?></label></th>

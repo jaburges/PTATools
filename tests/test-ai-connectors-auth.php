@@ -317,4 +317,78 @@ for ($i = 0; $i < 5; $i++) {
 $t->equals(3, $hits, 'the per-connection rate limit stops requests past the limit');
 $t->check(Azure_AI_Connectors_Module::rate_limit('mcp_43', 3, 60), 'other connections have their own budget');
 
+// ─── Approved assistant domains ──────────────────────────────────────
+
+AI_Test::reset();
+AI_Test::add_user(1, array('administrator'), 'admin');
+delete_option(Azure_AI_Connectors_Settings::OPTION);
+delete_option(Azure_AI_Connectors_Settings::PENDING_OPTION);
+Azure_AI_Connectors_Settings::reset_cache();
+
+foreach (array(
+    'https://claude.ai/api/mcp/auth_callback'         => 'Claude',
+    'https://claude.com/api/mcp/auth_callback'        => 'Claude on claude.com',
+    'https://chatgpt.com/connector_platform_oauth_redirect' => 'ChatGPT',
+    'https://api.claude.ai/cb'                        => 'a subdomain of an approved domain',
+    'http://127.0.0.1:33418/callback'                 => 'a loopback redirect (Gemini CLI, Claude Code)',
+    'cursor://anysphere.cursor-retrieval/oauth/callback' => 'a private-use app scheme',
+) as $uri => $why) {
+    $t->check(Azure_AI_Connectors_Settings::redirect_host_approved($uri), 'approved by default: ' . $why);
+}
+foreach (array(
+    'https://attacker.example/cb'       => 'an unknown domain',
+    'https://claude.ai.attacker.example/cb' => 'a lookalike that starts with an approved domain',
+    'https://evilclaude.ai/cb'          => 'a lookalike that ends with an approved domain',
+    'https://gemini.google.com/cb'      => 'an assistant nobody has approved yet',
+) as $uri => $why) {
+    $t->check(!Azure_AI_Connectors_Settings::redirect_host_approved($uri), 'not approved: ' . $why);
+}
+
+$t->equals('gemini.google.com', Azure_AI_Connectors_Settings::normalize_host('https://Gemini.Google.com/some/path'), 'a pasted URL is reduced to its domain');
+$t->equals('example.com', Azure_AI_Connectors_Settings::normalize_host('*.example.com'), 'a wildcard prefix is dropped (subdomains are always included)');
+$t->equals('', Azure_AI_Connectors_Settings::normalize_host('not a domain'), 'text that is not a domain is ignored');
+$saved = Azure_AI_Connectors_Settings::save(array('redirect_hosts' => "claude.ai\nhttps://Copilot.Example/redirect\nnonsense here", 'connect_capability' => 'delete_users'));
+$t->equals(array('claude.ai', 'copilot.example'), $saved['redirect_hosts'], 'the domain list is saved one per line, normalized');
+$t->equals('edit_posts', $saved['connect_capability'], 'an unknown "who can connect" capability falls back to edit_posts');
+delete_option(Azure_AI_Connectors_Settings::OPTION);
+Azure_AI_Connectors_Settings::reset_cache();
+
+$evil = Azure_AI_Connectors_Tokens::register_client(array('client_name' => 'Claude', 'redirect_uris' => array('https://attacker.example/cb')));
+$t->check(is_array($evil), 'an app on an unapproved domain can still register (so the user sees a clear message, not a broken connector)');
+list($v2, $c2) = pkce_pair();
+$evil_req = array(
+    'client_id'             => $evil['client_id'],
+    'redirect_uri'          => 'https://attacker.example/cb',
+    'response_type'         => 'code',
+    'code_challenge'        => $c2,
+    'code_challenge_method' => 'S256',
+    'state'                 => 's',
+);
+$e = Azure_AI_Connectors_OAuth::validate_authorize_request($evil_req);
+$t->check(is_wp_error($e) && $e->get_error_code() === 'unapproved_client', 'an authorization request to an unapproved domain is refused');
+$t->check(is_wp_error($e) && empty($e->get_error_data()['redirect']), 'and the refusal is never sent to that domain');
+$t->equals('attacker.example', is_wp_error($e) ? $e->get_error_data()['host'] : '', 'the refusal names the domain for the admin');
+
+Azure_AI_Connectors_Settings::record_pending_host('attacker.example', 'Claude', 1);
+Azure_AI_Connectors_Settings::record_pending_host('attacker.example', 'Claude', 1);
+$pending = Azure_AI_Connectors_Settings::pending_hosts();
+$t->check(isset($pending['attacker.example']) && $pending['attacker.example']['attempts'] === 2, 'repeat attempts are counted against one pending domain');
+for ($i = 0; $i < 40; $i++) {
+    Azure_AI_Connectors_Settings::record_pending_host('spam' . $i . '.example', 'x', 1);
+}
+$t->equals(Azure_AI_Connectors_Settings::PENDING_MAX, count(Azure_AI_Connectors_Settings::pending_hosts()), 'the pending list is capped');
+Azure_AI_Connectors_Settings::dismiss_host('spam39.example');
+$t->check(!isset(Azure_AI_Connectors_Settings::pending_hosts()['spam39.example']), 'a dismissed domain leaves the list');
+$t->check(is_wp_error(Azure_AI_Connectors_OAuth::validate_authorize_request($evil_req)), 'dismissing does not approve');
+
+Azure_AI_Connectors_Settings::record_pending_host('attacker.example', 'Claude', 1);
+$t->check(Azure_AI_Connectors_Settings::approve_host('attacker.example'), 'an admin approves a pending domain');
+$t->check(is_array(Azure_AI_Connectors_OAuth::validate_authorize_request($evil_req)), 'once approved, the same app can sign in');
+$t->check(!isset(Azure_AI_Connectors_Settings::pending_hosts()['attacker.example']), 'an approved domain leaves the pending list');
+$t->check(in_array('claude.ai', (array) Azure_AI_Connectors_Settings::value('redirect_hosts'), true), 'approving keeps the existing domains');
+
+Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::get(), array('redirect_hosts' => array('claude.ai'))));
+$t->check(is_wp_error(Azure_AI_Connectors_OAuth::validate_authorize_request($evil_req)), 'removing a domain later blocks apps that registered while it was approved');
+$t->check(!Azure_AI_Connectors_Settings::approve_host('not a domain'), 'approving something that is not a domain fails');
+
 exit($t->finish() > 0 ? 1 : 0);

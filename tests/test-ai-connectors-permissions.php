@@ -361,5 +361,25 @@ $t->check(strpos($skill, 'Shop managers can read and update pages and posts but 
 $t->check(strpos($skill, 'Each link works once, within 15 minutes') !== false, 'the skill rules say download links are single-use');
 $t->check(strpos($skill, 'pta_set_module') === false, 'the skill file no longer mentions pta_set_module');
 $t->check(strpos($skill, '`pta_whoami` (read; needs read):') !== false, 'tools the user can use are not marked');
+$t->check(strpos($skill, 'PTA Tools > AI Connectors > Apps') !== false, 'the skill file explains assistant approval');
+
+// ─── Who can connect ─────────────────────────────────────────────────
+
+setup_site();
+AI_Test::add_user(30, array('newsletter_editor'), 'writer');
+foreach (array(1 => 'an administrator', 2 => 'a shop manager', 3 => 'an Entra (azuread) account', 30 => 'any role that can edit posts') as $id => $who) {
+    $t->check(Azure_AI_Connectors_Policy::can_connect($id), $who . ' can connect an assistant');
+}
+$t->check(!Azure_AI_Connectors_Policy::can_connect(5), 'a parent or subscriber cannot connect an assistant');
+$t->check(!Azure_AI_Connectors_Policy::can_connect(999), 'an unknown user cannot connect');
+AI_Test::login(5);
+$t->check(!Azure_AI_Connectors_Policy::can_connect(), 'the signed-in parent is refused too');
+AI_Test::login(2);
+$t->check(Azure_AI_Connectors_Policy::can_connect(), 'the signed-in shop manager is allowed');
+
+Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('connect_capability' => 'manage_woocommerce')));
+$t->check(Azure_AI_Connectors_Policy::can_connect(2) && Azure_AI_Connectors_Policy::can_connect(1), 'store staff only: administrators and shop managers still connect');
+$t->check(!Azure_AI_Connectors_Policy::can_connect(3) && !Azure_AI_Connectors_Policy::can_connect(30), 'store staff only: Entra and editor-only accounts do not');
+Azure_AI_Connectors_Settings::save(Azure_AI_Connectors_Settings::defaults());
 
 exit($t->finish() > 0 ? 1 : 0);

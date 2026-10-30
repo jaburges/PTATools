@@ -121,6 +121,17 @@ class Azure_AI_Connectors_OAuth {
         if (!Azure_AI_Connectors_Tokens::redirect_uri_allowed($client, $redirect_uri)) {
             return new WP_Error('invalid_request', 'The redirect address does not match the app\'s registration.', array('redirect' => false));
         }
+        // Anyone can register an app under any name, so codes only go to
+        // assistant domains an admin has approved. Never redirect to an
+        // unapproved one, not even with an error.
+        if (!Azure_AI_Connectors_Settings::redirect_host_approved($redirect_uri)) {
+            $host = strtolower((string) parse_url($redirect_uri, PHP_URL_HOST));
+            return new WP_Error('unapproved_client', sprintf('%s is not an approved assistant on this site yet.', $host), array(
+                'redirect'    => false,
+                'host'        => $host,
+                'client_name' => (string) $client->client_name,
+            ));
+        }
         $base = array('redirect' => true, 'redirect_uri' => $redirect_uri, 'state' => (string) ($q['state'] ?? ''));
 
         if (($q['response_type'] ?? '') !== 'code') {
@@ -149,7 +160,8 @@ class Azure_AI_Connectors_OAuth {
         nocache_headers();
         $q = self::request_params($_GET);
         $valid = self::validate_authorize_request($q);
-        if (is_wp_error($valid)) {
+        $unapproved = is_wp_error($valid) && $valid->get_error_code() === 'unapproved_client';
+        if (is_wp_error($valid) && !$unapproved) {
             self::fail($valid);
         }
         if (!Azure_AI_Connectors_Module::is_secure_request()) {
@@ -161,7 +173,40 @@ class Azure_AI_Connectors_OAuth {
             wp_safe_redirect(wp_login_url($back));
             exit;
         }
+        self::require_staff();
+        if ($unapproved) {
+            self::render_unapproved($valid);
+        }
         self::render_consent($valid, $q);
+    }
+
+    private static function require_staff() {
+        if (!Azure_AI_Connectors_Policy::can_connect()) {
+            self::render_message('PTA staff accounts only', 'AI assistants can only be connected to PTA staff accounts. If you need access, ask a site administrator.', 403);
+        }
+    }
+
+    /**
+     * A staff member tried an assistant whose redirect domain is not
+     * approved. Record it for the admins and explain what happens next.
+     */
+    private static function render_unapproved(WP_Error $error) {
+        $data = (array) $error->get_error_data();
+        $host = (string) ($data['host'] ?? '');
+        $name = (string) ($data['client_name'] ?? '');
+        Azure_AI_Connectors_Settings::record_pending_host($host, $name, get_current_user_id());
+        status_header(403);
+        self::page_open('Waiting for approval');
+        echo '<h1>' . esc_html('This assistant is not approved yet') . '</h1>';
+        echo '<p>' . esc_html(sprintf('"%s" wants to connect and send you back to %s, which is not on this site\'s list of approved assistants.', $name, $host)) . '</p>';
+        if (Azure_AI_Connectors_Policy::can_administer()) {
+            echo '<p>' . esc_html('You are a site administrator. If you recognise this domain as the assistant you are connecting, approve it, then start connecting again from the assistant.') . '</p>';
+            echo '<p><a href="' . esc_url(Azure_AI_Connectors_Module::admin_page_url('apps')) . '">' . esc_html('Review it under PTA Tools > AI Connectors > Apps') . '</a></p>';
+        } else {
+            echo '<p>' . esc_html('A site administrator has been asked to review it. Once it is approved, start connecting again from the assistant.') . '</p>';
+        }
+        self::page_close();
+        exit;
     }
 
     /** admin-post.php?action=pta_ai_authorize_decision (POST) */
@@ -171,6 +216,7 @@ class Azure_AI_Connectors_OAuth {
             wp_safe_redirect(wp_login_url());
             exit;
         }
+        self::require_staff();
         $q = self::request_params($_POST);
         $valid = self::validate_authorize_request($q);
         if (is_wp_error($valid)) {
@@ -280,8 +326,8 @@ class Azure_AI_Connectors_OAuth {
         echo '</main></body></html>';
     }
 
-    private static function render_message($title, $message) {
-        status_header(400);
+    private static function render_message($title, $message, $status = 400) {
+        status_header((int) $status);
         self::page_open($title);
         echo '<h1>' . esc_html($title) . '</h1><p>' . esc_html($message) . '</p>';
         self::page_close();

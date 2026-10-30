@@ -73,7 +73,7 @@ check(asm.headers.get("Access-Control-Allow-Origin") == "*", "metadata is CORS-o
 meta = asm.json()
 
 # ── Dynamic client registration ───────────────────────────
-redirect = "https://client.example/callback"
+redirect = "https://claude.ai/api/mcp/auth_callback"
 reg = requests.post(meta["registration_endpoint"], json={"client_name": "E2E Claude", "redirect_uris": [redirect], "token_endpoint_auth_method": "none", "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"]})
 check(reg.status_code == 201, "client registration returns 201", reg.text)
 client_id = reg.json()["client_id"]
@@ -115,6 +115,15 @@ code = qs["code"][0]
 bad_nonce = dict(form); bad_nonce["_pta_ai_nonce"] = "nope"
 bn = s.post(BASE + "/wp-admin/admin-post.php", data=bad_nonce, allow_redirects=False)
 check(bn.status_code == 400 and "expired" in bn.text, "a forged consent POST is refused", bn.status_code)
+
+# An app on a domain nobody approved: the signed-in admin gets the approval page, never a code.
+other = requests.post(meta["registration_endpoint"], json={"client_name": "Claude", "redirect_uris": ["https://client.example/callback"], "token_endpoint_auth_method": "none"})
+check(other.status_code == 201, "an app on an unapproved domain can still register", other.text)
+uq = dict(q, client_id=other.json()["client_id"], redirect_uri="https://client.example/callback")
+ua = s.get(BASE + "/wp-admin/admin-post.php", params=dict(uq, action="pta_ai_authorize"), allow_redirects=False)
+check(ua.status_code == 403 and "not approved yet" in ua.text and "client.example" in ua.text and "Location" not in ua.headers, "an unapproved assistant domain gets the approval page, not a redirect", ua.status_code)
+apps = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=apps")
+check("client.example" in apps.text and "Approve domain" in apps.text, "the unapproved domain waits under Apps for an admin", apps.status_code)
 
 tok = requests.post(meta["token_endpoint"], data={"grant_type": "authorization_code", "code": code, "redirect_uri": redirect, "client_id": client_id, "code_verifier": "x" * 43, "resource": MCP})
 check(tok.status_code == 400 and tok.json()["error"] == "invalid_grant", "wrong PKCE verifier is refused", tok.text)
@@ -251,9 +260,8 @@ wpub = call(writer, "pta_create_content", {"title": "x", "status": "publish"})
 check(wpub["isError"] and "publish" in wpub["content"][0]["text"], "custom role without publish_posts cannot publish", wpub)
 
 parent = pat("parent")
-check(names_for(parent) == ["pta_list_events", "pta_whoami"], "subscriber: whoami and events only", names_for(parent))
-po = call(parent, "pta_list_orders")
-check(po["isError"], "subscriber cannot call list_orders directly", po)
+pr = rpc(parent, "tools/list")
+check(pr.status_code == 401 and "staff" in pr.text, "a parent's token is refused: AI connections are for PTA staff", pr.status_code)
 
 ro = pat("admin", 'array("pta:read")')
 check("pta_trash_content" not in names_for(ro) and "pta_list_products" in names_for(ro), "read-only token hides write tools")

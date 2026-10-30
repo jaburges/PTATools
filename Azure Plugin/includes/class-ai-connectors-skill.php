@@ -85,6 +85,8 @@ class Azure_AI_Connectors_Skill {
         $md[] = '';
         $md[] = 'Menu names change between versions; look for "connectors", "custom connector", "MCP server" or "tools".';
         $md[] = '';
+        $md[] = 'Sign-in codes are only sent to assistant domains the site has approved. If the sign-in page says the assistant is not approved yet, a site administrator approves it once under PTA Tools > AI Connectors > Apps; then connect again. Personal access tokens do not need this.';
+        $md[] = '';
         $md[] = '### Claude';
         $md[] = '';
         $md[] = '- Claude (web or desktop): Settings > Connectors > Add custom connector. Paste `' . $mcp . '`, add it, click Connect, sign in to ' . $host . ' and choose Allow.';

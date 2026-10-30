@@ -317,6 +317,9 @@ class Azure_AI_Connectors_Module {
 
         wp_set_current_user((int) $token->user_id);
         $user = wp_get_current_user();
+        if (!Azure_AI_Connectors_Policy::can_connect($user)) {
+            return $this->unauthorized('invalid_token', 'AI connections are for PTA staff accounts, and this account no longer qualifies.');
+        }
 
         $payload = json_decode((string) $request->get_body(), true);
         if (json_last_error() !== JSON_ERROR_NONE) {

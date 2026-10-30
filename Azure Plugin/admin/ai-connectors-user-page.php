@@ -66,6 +66,7 @@ $secure = Azure_AI_Connectors_Module::is_secure_request();
 
     <h2><?php esc_html_e('2. Sign in and approve', 'azure-plugin'); ?></h2>
     <p><?php esc_html_e('Your assistant opens this site\'s sign-in page (Microsoft sign-in works too) and then asks you to approve. You can untick "Allow changes" for a read-only connection.', 'azure-plugin'); ?></p>
+    <p class="description"><?php esc_html_e('If the site says the assistant is not approved yet, a site administrator approves its domain once under PTA Tools > AI Connectors > Apps, and then you connect again. Personal access tokens do not need this.', 'azure-plugin'); ?></p>
 
     <h2><?php esc_html_e('Skill file', 'azure-plugin'); ?></h2>
     <p><?php esc_html_e('A SKILL.md describing this site\'s server, how to connect each assistant, the rules, and every tool (marked with the ones you can use). Give it to assistants that support skills or project instructions.', 'azure-plugin'); ?></p>

@@ -330,11 +330,13 @@ Credentials: Required (OAuth flow)
 
 ### AI Connectors
 ```
-Location: PTA Tools → AI Connectors (admins), Users → AI Connectors (everyone)
+Location: PTA Tools → AI Connectors (admins), Users → AI Connectors (PTA staff)
 Credentials: None (the site is its own OAuth server)
 Endpoint: /wp-json/pta-tools/v1/mcp
 ```
 - MCP Streamable HTTP server; OAuth 2.1 + PKCE with discovery and dynamic client registration, sign-in through the normal WordPress (and Entra SSO) login and a consent screen
+- Only PTA staff can connect (`edit_posts` by default; settable to store staff or admins), checked at consent, token creation and on every MCP request
+- Authorization codes only go to approved assistant domains (default `claude.ai`, `claude.com`, `chatgpt.com`, `chat.openai.com`); other domains wait under Apps for one-click admin approval. Loopback and app-scheme redirects are not restricted
 - Personal access tokens as a fallback: named, optional expiry, read-only option, shown once and stored hashed
 - Every tool runs as the connected user and checks their capabilities at call time; Entra (Azure AD User) accounts only get read and update tools, and shop managers only read and update pages and posts (both configurable)
 - Destructive tools need `confirm=true`; deleting moves to the trash; report download links are single-use and expire after 15 minutes
