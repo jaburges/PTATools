@@ -35,11 +35,22 @@ $r = $I::claim($FRI, array($seat('reg', 'A-1')), 'cartA');
 $t->check($r['ok'] && $r['renewed'] === 0, 'claiming your own seat again keeps it');
 $t->equals($I::$now - 300 + $I::HOLD_TTL, $I::hold_expires(array('cartA')), 'without extending the hold');
 
+// ── One window per buyer and performance ───────────────────────────────
+$t->check($I::claim($FRI, array($seat('reg', 'A-9')), 'cartA')['ok'], 'a seat tapped later in the window can be held');
+$t->equals($I::$now - 300 + $I::HOLD_TTL, $I::window_ends($FRI, 'cartA'), 'and it ends with the first one, not 10 minutes from now');
+$t->equals(array($seat('reg', 'A-1'), $seat('reg', 'A-2'), $seat('reg', 'A-9')), $I::held_by($FRI, 'cartA'), 'held_by lists what the buyer holds, oldest first');
+$t->equals(array(), $I::held_by($SAT, 'cartA'), 'per performance');
+$t->equals(0, $I::window_ends($SAT, 'cartA'), 'no window where nothing is held');
+$t->equals(array(), $I::held_by($FRI, ''), 'no hold key, nothing held');
+$I::release('cartA', $FRI, array($seat('reg', 'A-9')));
+
 // ── Expiry ─────────────────────────────────────────────────────────────
 $I::$now += $I::HOLD_TTL - 300 + 1;
 $t->equals(array(), $I::taken($FRI), 'holds lapse after 10 minutes, however often the cart is seen');
 $t->equals(0, $I::hold_expires(array('cartA')), 'and no longer count down');
+$t->equals(array(), $I::held_by($FRI, 'cartA'), 'a lapsed window holds nothing');
 $t->check($I::claim($FRI, array($seat('reg', 'A-2')), 'cartB')['ok'], 'and a lapsed seat can be taken by someone else');
+$t->equals($I::$now + $I::HOLD_TTL, $I::window_ends($FRI, 'cartB'), 'a new window runs 10 minutes');
 $r = $I::claim($FRI, array($seat('reg', 'A-1'), $seat('reg', 'A-2')), 'cartA');
 $t->check(!$r['ok'] && $r['taken'] === array($seat('reg', 'A-2')), 'the first cart learns it lost A-2');
 

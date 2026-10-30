@@ -6,8 +6,10 @@
  * stops two people getting the same seat: claiming is an INSERT IGNORE, so
  * of two simultaneous buyers exactly one row wins.
  *
- *   held     in someone's cart; gone HOLD_TTL after it was taken. Seeing
- *            the cart again does not extend it, so a hold is a fixed window.
+ *   held     tapped on the seat map or in someone's cart. A buyer's holds
+ *            for a performance share one window: the first runs HOLD_TTL,
+ *            and seats added while it is open end with it. Seeing the cart
+ *            again does not extend it.
  *   ordered  on an order awaiting payment; resolved by cleanup()
  *   sold     paid
  *
@@ -67,15 +69,16 @@ class Azure_Tickets_Inventory {
     }
 
     /**
-     * Hold places for a cart. All or nothing: if any place is taken by
-     * someone else, nothing new is held. Places this hold key already has
-     * keep their original expiry; a lapsed one is held afresh if still free.
+     * Hold places. All or nothing: if any place is taken by someone else,
+     * nothing new is held. Places this hold key already has keep their
+     * expiry, new ones end with the key's open window for this performance,
+     * and a lapsed one is held afresh if still free.
      *
      * @param array $places list of ['section_id' => string, 'seat_key' => string]
      * @return array{ok:bool, taken:array, renewed:int} taken lists the places
      *         someone else has; renewed counts places newly held.
      */
-    public static function claim($product_id, array $places, $hold_key, $user_id = 0, $ttl = self::HOLD_TTL) {
+    public static function claim($product_id, array $places, $hold_key, $user_id = 0) {
         global $wpdb;
         $table = self::table();
         $product_id = (int) $product_id;
@@ -83,7 +86,7 @@ class Azure_Tickets_Inventory {
 
         $inserted = array();
         $taken = array();
-        $expires = self::now($ttl);
+        $expires = self::window_expiry($product_id, $hold_key);
         foreach ($places as $p) {
             $section = (string) $p['section_id'];
             $seat = (string) $p['seat_key'];
@@ -130,6 +133,45 @@ class Azure_Tickets_Inventory {
     }
 
     /**
+     * When this hold key's window for the performance ends, or 0 when it
+     * holds nothing there.
+     */
+    public static function window_ends($product_id, $hold_key) {
+        if ((string) $hold_key === '') {
+            return 0;
+        }
+        global $wpdb;
+        $at = $wpdb->get_var($wpdb->prepare(
+            "SELECT MIN(expires_at) FROM " . self::table() . " WHERE product_id = %d AND status = 'held' AND hold_key = %s AND expires_at >= %s",
+            (int) $product_id, (string) $hold_key, self::now()
+        ));
+        return $at ? (int) strtotime($at . ' UTC') : 0;
+    }
+
+    private static function window_expiry($product_id, $hold_key) {
+        $ends = self::window_ends($product_id, $hold_key);
+        return $ends ? gmdate('Y-m-d H:i:s', $ends) : self::now(self::HOLD_TTL);
+    }
+
+    /**
+     * Places this hold key has right now at the performance.
+     *
+     * @return array list of ['section_id' => string, 'seat_key' => string]
+     */
+    public static function held_by($product_id, $hold_key) {
+        if ((string) $hold_key === '') {
+            return array();
+        }
+        global $wpdb;
+        return array_map(function ($r) {
+            return array('section_id' => (string) $r['section_id'], 'seat_key' => (string) $r['seat_key']);
+        }, (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT section_id, seat_key FROM " . self::table() . " WHERE product_id = %d AND status = 'held' AND hold_key = %s AND expires_at >= %s ORDER BY id",
+            (int) $product_id, (string) $hold_key, self::now()
+        ), ARRAY_A));
+    }
+
+    /**
      * Pick and hold $count free general-admission places.
      *
      * @return string[]|false Seat keys held, or false when there aren't enough.
@@ -143,7 +185,7 @@ class Azure_Tickets_Inventory {
             (int) $product_id, (string) $section_id
         )));
         $got = array();
-        $expires = self::now(self::HOLD_TTL);
+        $expires = self::window_expiry($product_id, $hold_key);
         for ($n = 1; $n <= (int) $capacity && count($got) < $count; $n++) {
             if (isset($used[(string) $n])) {
                 continue;
