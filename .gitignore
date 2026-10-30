@@ -44,3 +44,5 @@ infra/wp-image/.ctest/
 # Runtime logs the plugin writes into its own folder
 Azure Plugin/logs.txt
 Azure Plugin/logs.md
+
+__pycache__/

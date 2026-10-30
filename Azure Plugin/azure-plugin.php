@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.195
+ * Version: 3.147.196
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.195');
+define('AZURE_PLUGIN_VERSION', '3.147.196');
 
 require_once AZURE_PLUGIN_PATH . 'includes/class-private-storage.php';
 
@@ -1077,6 +1077,11 @@ class AzurePlugin {
                 $this->init_forms_components($ctx);
             }
 
+            if (!empty($settings['enable_ai_connectors'])) {
+                PTA_Trace::module('ai_connectors');
+                $this->init_ai_connectors_components($ctx);
+            }
+
             // Centralized "ensure scheduled" pass for all module cron events.
             // Skipped on frontend pageloads — only the WP-Cron daemon, admin,
             // and AJAX requests need to verify event registrations. Idempotent;
@@ -1807,6 +1812,24 @@ class AzurePlugin {
     }
 
     /**
+     * AI Connectors: MCP server + OAuth for AI assistants. REST routes,
+     * the root /.well-known/ discovery documents and the admin-post consent
+     * screen all have to be hooked on every request type; the constructor
+     * only adds hooks and loads the rest on the requests that use it.
+     */
+    private function init_ai_connectors_components($ctx) {
+        try {
+            $this->require_module_files(array('class-ai-connectors-module.php'));
+            if (class_exists('Azure_AI_Connectors_Module')) {
+                Azure_AI_Connectors_Module::get_instance();
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('AI Connectors init failed: ' . $e->getMessage(), array('module' => 'AIConnectors', 'file' => $e->getFile(), 'line' => $e->getLine()));
+            error_log('Azure Plugin: AI Connectors init error - ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Product Fields & User Children: WC filters that affect front-end product
      * display, cart, and the My Account tab. Load on every request.
      */
@@ -2187,6 +2210,7 @@ class AzurePlugin {
         wp_clear_scheduled_hook('azure_sso_scheduled_sync');
         wp_clear_scheduled_hook('azure_volunteer_send_reminders');
         wp_clear_scheduled_hook('azure_parent_activation_cleanup');
+        wp_clear_scheduled_hook('azure_ai_connectors_purge');
 
         // Disable the AcyMailing dynamic-text add-on in AcyMailing's
         // plugin registry so it stops appearing in the Dynamic text

@@ -712,7 +712,7 @@ class Azure_PTSA_REST_API {
         return rest_ensure_response(array('id' => (int) $note_id));
     }
 
-    private function order_to_array($o) {
+    public function order_to_array($o) {
         if (!$o) return null;
         // wc_get_orders() can return WC_Order_Refund objects unless the query
         // is constrained to shop_order. Refunds do not implement the full
@@ -841,7 +841,7 @@ class Azure_PTSA_REST_API {
         }
     }
 
-    private function product_to_array($p) {
+    public function product_to_array($p) {
         if (!$p) return null;
         $images = $this->product_images($p);
         $img = !empty($images) ? (string) ($images[0]['src'] ?? '') : '';
