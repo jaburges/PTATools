@@ -9,6 +9,9 @@ if (!defined('ABSPATH')) {
 
 class Azure_SSO_Auth {
     
+    const STATE_TTL = 900;
+    const STATE_COOKIE = 'azure_sso_state';
+    
     private $settings;
     private $credentials;
     
@@ -16,6 +19,8 @@ class Azure_SSO_Auth {
         $this->settings = Azure_Settings::get_all_settings();
         $this->credentials = Azure_Settings::get_credentials('sso');
         
+        add_action('wp_ajax_nopriv_azure_sso_start', array($this, 'start_login'));
+        add_action('wp_ajax_azure_sso_start', array($this, 'start_login'));
         add_action('wp_ajax_nopriv_azure_sso_callback', array($this, 'handle_callback'));
         add_action('wp_ajax_azure_sso_callback', array($this, 'handle_callback'));
         add_action('init', array($this, 'check_sso_requirement'));
@@ -90,10 +95,105 @@ class Azure_SSO_Auth {
             'redirect_uri' => home_url('/wp-admin/admin-ajax.php?action=azure_sso_callback'),
             'response_mode' => 'query',
             'scope' => 'openid profile email User.Read',
-            'state' => $state ?: wp_create_nonce('azure_sso_state')
+            'state' => $state ?: $this->create_state()
         );
         
         return $base_url . '?' . http_build_query($params);
+    }
+    
+    /**
+     * Site URL that starts a Microsoft sign-in when visited.
+     *
+     * The OAuth state is created on click rather than when the link is
+     * rendered, so the link is safe to put on cached pages.
+     */
+    public function get_start_url($redirect_to = '') {
+        $url = admin_url('admin-ajax.php?action=azure_sso_start');
+        if ($redirect_to) {
+            $url = add_query_arg('redirect_to', rawurlencode($redirect_to), $url);
+        }
+        return $url;
+    }
+    
+    /**
+     * AJAX: create a fresh state and send the browser to Microsoft.
+     */
+    public function start_login() {
+        $redirect_to = '';
+        if (!empty($_GET['redirect_to'])) {
+            $redirect_to = wp_validate_redirect(esc_url_raw(wp_unslash($_GET['redirect_to'])), '');
+        }
+        
+        $sso_url = $this->get_authorization_url($this->create_state($redirect_to));
+        if (!$sso_url) {
+            wp_die('Microsoft sign-in is not configured for this site.');
+        }
+        
+        wp_redirect($sso_url);
+        exit;
+    }
+    
+    /**
+     * Create a random, single-use OAuth state for this browser.
+     *
+     * A WordPress nonce changes when the visitor's sign-in status changes, so
+     * a session that ended (or began) mid-sign-in made the callback fail. This
+     * state is stored server-side for STATE_TTL seconds and bound to the
+     * browser by a cookie, so the callback can't be replayed or forged.
+     */
+    private function create_state($redirect_to = '') {
+        $token = wp_generate_password(32, false, false);
+        set_transient('azure_sso_state_' . $token, array('redirect' => (string) $redirect_to), self::STATE_TTL);
+        
+        if (!headers_sent()) {
+            setcookie(self::STATE_COOKIE, $token, array(
+                'expires'  => time() + self::STATE_TTL,
+                'path'     => COOKIEPATH ?: '/',
+                'domain'   => COOKIE_DOMAIN,
+                'secure'   => is_ssl(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ));
+        }
+        
+        return $token;
+    }
+    
+    /**
+     * Look up and discard a state returned by Microsoft.
+     *
+     * @return array|null The stored state, or null when it is unknown, expired,
+     *                    already used, or was issued to a different browser.
+     */
+    private function consume_state($state) {
+        if (!is_string($state) || !preg_match('/^[A-Za-z0-9]{32}$/', $state)) {
+            return null;
+        }
+        
+        $cookie = isset($_COOKIE[self::STATE_COOKIE]) ? (string) $_COOKIE[self::STATE_COOKIE] : '';
+        if (!hash_equals($state, $cookie)) {
+            return null;
+        }
+        
+        $key = 'azure_sso_state_' . $state;
+        $data = get_transient($key);
+        delete_transient($key);
+        
+        return is_array($data) ? $data : null;
+    }
+    
+    private function clear_state_cookie() {
+        unset($_COOKIE[self::STATE_COOKIE]);
+        if (!headers_sent()) {
+            setcookie(self::STATE_COOKIE, '', array(
+                'expires'  => time() - HOUR_IN_SECONDS,
+                'path'     => COOKIEPATH ?: '/',
+                'domain'   => COOKIE_DOMAIN,
+                'secure'   => is_ssl(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ));
+        }
     }
     
     /**
@@ -110,31 +210,27 @@ class Azure_SSO_Auth {
         $code = sanitize_text_field($_GET['code']);
         $state = sanitize_text_field($_GET['state']);
         
-        // Parse state parameter (could be simple nonce or nonce|redirect_url)
-        $redirect_url = admin_url();
-        $nonce_to_verify = $state;
+        $stored = $this->consume_state($state);
+        $this->clear_state_cookie();
         
-        if (strpos($state, '|') !== false) {
-            // Composite state with redirect URL
-            list($nonce_to_verify, $encoded_redirect) = explode('|', $state, 2);
-            $decoded_redirect = base64_decode($encoded_redirect);
-            
-            // FILTER_VALIDATE_URL only proves the string is a URL, not that it
-            // points at this site — so it accepted any absolute URL and turned
-            // the post-login hop into an open redirect. wp_validate_redirect()
-            // confines it to an allowed host.
-            if ($decoded_redirect && filter_var($decoded_redirect, FILTER_VALIDATE_URL)) {
-                $candidate = wp_validate_redirect(esc_url_raw($decoded_redirect), '');
-                if ($candidate !== '') {
-                    $redirect_url = $candidate;
-                }
+        if ($stored === null) {
+            Azure_Logger::warning('SSO: Unknown, expired or reused state; returning visitor to sign-in');
+            if (is_user_logged_in()) {
+                wp_safe_redirect(admin_url());
+            } else {
+                wp_safe_redirect(add_query_arg('sso_error', 'expired', wp_login_url()));
             }
+            exit;
         }
         
-        // Verify state parameter nonce
-        if (!wp_verify_nonce($nonce_to_verify, 'azure_sso_state')) {
-            Azure_Logger::error('SSO: Invalid state parameter: ' . $state);
-            wp_die('Invalid state parameter');
+        // wp_validate_redirect() confines the post-login hop to an allowed
+        // host so the stored return address can't become an open redirect.
+        $redirect_url = admin_url();
+        if (!empty($stored['redirect'])) {
+            $candidate = wp_validate_redirect(esc_url_raw($stored['redirect']), '');
+            if ($candidate !== '') {
+                $redirect_url = $candidate;
+            }
         }
         
         // Exchange code for access token
@@ -451,8 +547,7 @@ class Azure_SSO_Auth {
         // HTTP_HOST so a poisoned Host header can't plant an off-site return
         // address inside the OAuth state.
         $current_url = home_url(add_query_arg(array()));
-        $state = wp_create_nonce('azure_sso_state') . '|' . base64_encode($current_url);
-        $sso_url = $this->get_authorization_url($state);
+        $sso_url = $this->get_authorization_url($this->create_state($current_url));
         
         if ($sso_url) {
             wp_redirect($sso_url);
@@ -477,10 +572,13 @@ class Azure_SSO_Auth {
         }
         $section_rendered = true;
 
-        $sso_url = $this->get_authorization_url();
-        if (!$sso_url) {
+        if (empty($this->credentials['client_id']) || empty($this->credentials['tenant_id'])) {
             return;
         }
+        $redirect_to = isset($_REQUEST['redirect_to'])
+            ? wp_validate_redirect(esc_url_raw(wp_unslash($_REQUEST['redirect_to'])), '')
+            : '';
+        $sso_url = $this->get_start_url($redirect_to);
 
         $button_text = Azure_Settings::get_setting('sso_login_button_text', 'Sign in with Microsoft');
         $org_heading = Azure_Settings::get_setting('sso_login_org_heading', '');
@@ -539,13 +637,7 @@ class Azure_SSO_Auth {
      * Get SSO login URL
      */
     public function get_login_url($redirect_to = '') {
-        $state = wp_create_nonce('azure_sso_state');
-        
-        if ($redirect_to) {
-            $state .= '|' . base64_encode($redirect_to);
-        }
-        
-        return $this->get_authorization_url($state);
+        return $this->get_start_url($redirect_to);
     }
     
     /**
