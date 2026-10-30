@@ -49,6 +49,7 @@ class Azure_Tickets_Module {
         add_action('wp_ajax_azure_tickets_delete_venue', array($this, 'ajax_delete_venue'));
         add_action('wp_ajax_azure_tickets_checkin', array($this, 'ajax_checkin'));
         add_action('wp_ajax_azure_tickets_validate_ticket', array($this, 'ajax_validate_ticket'));
+        add_action('wp_ajax_azure_tickets_email_preview', array($this, 'ajax_email_preview'));
         
         // Cleanup expired seat reservations
         add_action('azure_tickets_cleanup_reservations', array($this, 'cleanup_expired_reservations'));
@@ -556,6 +557,24 @@ class Azure_Tickets_Module {
     /**
      * AJAX: Validate ticket without checking in
      */
+    /**
+     * The order's ticket email in the browser, exactly as the buyer would get it.
+     */
+    public function ajax_email_preview() {
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('You can\'t preview ticket emails.', 'azure-plugin'), '', array('response' => 403));
+        }
+        check_admin_referer('pta_ticket_email_preview');
+        $html = class_exists('Azure_Tickets_Generator') ? (new Azure_Tickets_Generator())->preview_ticket_email(absint($_GET['order'] ?? 0)) : '';
+        if ($html === '') {
+            wp_die(esc_html__('This order has no tickets yet. Save its seats first.', 'azure-plugin'));
+        }
+        nocache_headers();
+        header('Content-Type: text/html; charset=UTF-8');
+        echo $html; // Built and escaped by Azure_Tickets_Generator.
+        exit;
+    }
+
     public function ajax_validate_ticket() {
         check_ajax_referer('azure_tickets_nonce', 'nonce');
 

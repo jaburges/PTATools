@@ -39,6 +39,16 @@ if ($product_id && $can_edit && isset($_POST['pta_assign_order'])) {
     $order = isset($orders[$order_id]) ? wc_get_order($order_id) : null;
     if (!$order) {
         $notice = array('error', array(__('That order isn\'t a paid cast & crew order for this performance.', 'azure-plugin')));
+    } elseif (!empty($_POST['pta_assign_test'])) {
+        $me = wp_get_current_user()->user_email;
+        if (!Azure_Tickets_Assign::assigned($order_id, $product_id)) {
+            $notice = array('error', array(__('No test sent: save this order\'s seats first.', 'azure-plugin')));
+        } elseif (class_exists('Azure_Tickets_Generator') && (new Azure_Tickets_Generator())->send_ticket_email($order_id, $me)) {
+            /* translators: 1: order number, 2: admin's email address */
+            $notice = array('success', array(sprintf(__('Test of order #%1$s\'s email sent to %2$s. The family was not emailed.', 'azure-plugin'), $order->get_order_number(), $me)));
+        } else {
+            $notice = array('error', array(__('The test email could not be sent. Check the site\'s email settings.', 'azure-plugin')));
+        }
     } else {
         $text = (string) wp_unslash($_POST['pta_assign_seats'][$order_id] ?? '');
         $r = Azure_Tickets_Assign::save($order, $product_id, $text, $orders[$order_id]);
@@ -132,7 +142,13 @@ foreach ($orders as $oid => $qty) {
                         <textarea name="pta_assign_seats[<?php echo (int) $oid; ?>]" rows="<?php echo (int) max(2, $row['qty']); ?>" placeholder="D4 Jane Smith" <?php disabled(!$can_edit); ?>><?php echo esc_textarea($unsaved[$oid] ?? Azure_Tickets_Assign::as_text($row['assigned'])); ?></textarea>
                         <div class="pta-assign__actions">
                             <label><input type="checkbox" name="pta_assign_email[<?php echo (int) $oid; ?>]" value="1"> <?php esc_html_e('Email tickets', 'azure-plugin'); ?></label>
-                            <button type="submit" class="button button-primary" <?php disabled(!$can_edit); ?>><?php esc_html_e('Save', 'azure-plugin'); ?></button>
+                            <span>
+                                <?php if ($row['assigned']): ?>
+                                <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin-ajax.php?action=azure_tickets_email_preview&order=' . (int) $oid), 'pta_ticket_email_preview')); ?>" target="_blank" rel="noopener"><?php esc_html_e('Preview email', 'azure-plugin'); ?></a>
+                                <button type="submit" name="pta_assign_test" value="1" class="button" <?php disabled(!$can_edit); ?>><?php esc_html_e('Send a test to me', 'azure-plugin'); ?></button>
+                                <?php endif; ?>
+                                <button type="submit" class="button button-primary" <?php disabled(!$can_edit); ?>><?php esc_html_e('Save', 'azure-plugin'); ?></button>
+                            </span>
                         </div>
                     </form>
                 </td>

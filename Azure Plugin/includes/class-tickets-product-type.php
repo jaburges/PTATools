@@ -251,6 +251,60 @@ function azure_tickets_seating_panel($product_id) {
             </select>
         </p>
 
+        <?php
+        $email_meta = function ($key) use ($product_id) {
+            return (string) get_post_meta($product_id, $key, true);
+        };
+        $banner_id = (int) $email_meta(Azure_Tickets_Config::META_EMAIL_BANNER);
+        $banner_url = $banner_id ? (string) wp_get_attachment_image_url($banner_id, 'medium_large') : '';
+        ?>
+        <h4><?php esc_html_e('Ticket email', 'azure-plugin'); ?></h4>
+        <p class="description"><?php esc_html_e('How the email with the QR codes and Apple Wallet button looks for this show. Blank fields use the product name, the venue and the site admin email. Preview it from Tickets → Assign seats.', 'azure-plugin'); ?></p>
+        <p>
+            <strong><?php esc_html_e('Banner image', 'azure-plugin'); ?></strong><br>
+            <img class="pta-email-banner__preview" src="<?php echo esc_url($banner_url); ?>" alt="" style="max-width:100%;max-height:160px;display:<?php echo $banner_url ? 'block' : 'none'; ?>;margin:4px 0;">
+            <input type="hidden" class="pta-email-banner__id" name="pta_ticket_email_banner" value="<?php echo $banner_id ?: ''; ?>">
+            <button type="button" class="button pta-email-banner__choose"><?php esc_html_e('Choose image', 'azure-plugin'); ?></button>
+            <button type="button" class="button-link pta-email-banner__remove" style="display:<?php echo $banner_id ? 'inline' : 'none'; ?>;"><?php esc_html_e('Remove', 'azure-plugin'); ?></button>
+            <span class="description"><?php esc_html_e('A wide image, about 1200 × 370 px.', 'azure-plugin'); ?></span>
+        </p>
+        <?php foreach (array(
+            array('pta_ticket_email_title', Azure_Tickets_Config::META_EMAIL_TITLE, __('Show name', 'azure-plugin'), __('e.g. Peter Pan (also used in the subject line)', 'azure-plugin')),
+            array('pta_ticket_email_headline', Azure_Tickets_Config::META_EMAIL_HEADLINE, __('Headline', 'azure-plugin'), __('Your tickets are ready!', 'azure-plugin')),
+            array('pta_ticket_email_location', Azure_Tickets_Config::META_EMAIL_LOCATION, __('Location', 'azure-plugin'), $venue->post_title),
+            array('pta_ticket_email_contact', Azure_Tickets_Config::META_EMAIL_CONTACT, __('Questions to', 'azure-plugin'), (string) get_option('admin_email')),
+            array('pta_ticket_email_closing', Azure_Tickets_Config::META_EMAIL_CLOSING, __('Closing line', 'azure-plugin'), __('e.g. a line from the show', 'azure-plugin')),
+        ) as $field): ?>
+        <p>
+            <label for="<?php echo esc_attr($field[0]); ?>"><strong><?php echo esc_html($field[2]); ?></strong></label><br>
+            <input type="text" style="width:100%" id="<?php echo esc_attr($field[0]); ?>" name="<?php echo esc_attr($field[0]); ?>" value="<?php echo esc_attr($email_meta($field[1])); ?>" placeholder="<?php echo esc_attr($field[3]); ?>">
+        </p>
+        <?php endforeach; ?>
+        <script>
+        jQuery(function($) {
+            var $wrap = $('.pta-email-banner__choose').closest('p'), frame;
+            $wrap.on('click', '.pta-email-banner__choose', function(e) {
+                e.preventDefault();
+                if (!window.wp || !wp.media) return;
+                frame = frame || wp.media({ title: <?php echo wp_json_encode(__('Ticket email banner', 'azure-plugin')); ?>, library: { type: 'image' }, multiple: false });
+                frame.off('select').on('select', function() {
+                    var a = frame.state().get('selection').first().toJSON();
+                    var url = (a.sizes && a.sizes.medium_large ? a.sizes.medium_large : a).url;
+                    $wrap.find('.pta-email-banner__id').val(a.id);
+                    $wrap.find('.pta-email-banner__preview').attr('src', url).show();
+                    $wrap.find('.pta-email-banner__remove').show();
+                });
+                frame.open();
+            });
+            $wrap.on('click', '.pta-email-banner__remove', function(e) {
+                e.preventDefault();
+                $wrap.find('.pta-email-banner__id').val('');
+                $wrap.find('.pta-email-banner__preview').hide().attr('src', '');
+                $(this).hide();
+            });
+        });
+        </script>
+
         <h4><?php esc_html_e('Eligible families', 'azure-plugin'); ?></h4>
         <p class="description"><?php esc_html_e('Who can buy in sections set to "Eligible families only". A signed-in buyer qualifies if their account or billing email is on the list, or they bought one of the products below since the start date. Either is enough.', 'azure-plugin'); ?></p>
         <p>
@@ -509,6 +563,18 @@ add_action('woocommerce_process_product_meta', function($post_id) {
         update_post_meta($post_id, Azure_Tickets_Config::META_VIP_CLOSE, isset($_POST['pta_ticket_vip_close']) ? 'yes' : 'no');
         update_post_meta($post_id, Azure_Tickets_Config::META_EXTRAS, array_values(array_filter(array_map('absint', (array) ($_POST['pta_ticket_extras'] ?? array())))));
         update_post_meta($post_id, Azure_Tickets_Config::META_EXTRAS_HEADING, sanitize_text_field(wp_unslash($_POST['pta_ticket_extras_heading'] ?? '')));
+    }
+    if (isset($_POST['pta_ticket_email_title'])) {
+        update_post_meta($post_id, Azure_Tickets_Config::META_EMAIL_BANNER, absint($_POST['pta_ticket_email_banner'] ?? 0) ?: '');
+        foreach (array(
+            'pta_ticket_email_title'    => Azure_Tickets_Config::META_EMAIL_TITLE,
+            'pta_ticket_email_headline' => Azure_Tickets_Config::META_EMAIL_HEADLINE,
+            'pta_ticket_email_location' => Azure_Tickets_Config::META_EMAIL_LOCATION,
+            'pta_ticket_email_closing'  => Azure_Tickets_Config::META_EMAIL_CLOSING,
+        ) as $field => $key) {
+            update_post_meta($post_id, $key, sanitize_text_field(wp_unslash($_POST[$field] ?? '')));
+        }
+        update_post_meta($post_id, Azure_Tickets_Config::META_EMAIL_CONTACT, sanitize_email(wp_unslash($_POST['pta_ticket_email_contact'] ?? '')));
     }
     if (isset($_POST['pta_ticket_family_emails'])) {
         $emails = Azure_Tickets_Config::parse_emails(wp_unslash($_POST['pta_ticket_family_emails']));

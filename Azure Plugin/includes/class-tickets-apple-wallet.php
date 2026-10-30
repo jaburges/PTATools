@@ -179,6 +179,50 @@ class Azure_Tickets_Apple_Wallet {
         return add_query_arg('sig', self::signature($code), rest_url(Azure_Tickets_QR::ROUTE_NAMESPACE . '/wallet/' . rawurlencode(strtoupper((string) $code))));
     }
 
+    /** Apple Wallet takes at most this many passes from one bundle. */
+    const BUNDLE_MAX = 10;
+
+    public static function order_signature($order_id, $product_id, $part) {
+        return substr(hash_hmac('sha256', 'ticket-wallet-order|' . (int) $order_id . '|' . (int) $product_id . '|' . (int) $part, wp_salt('auth')), 0, 20);
+    }
+
+    /**
+     * One tap adds an order's tickets for a performance: part 0 is the first
+     * BUNDLE_MAX of them (by row and seat), part 1 the next, and so on.
+     */
+    public static function order_url($order_id, $product_id, $part = 0) {
+        $path = '/wallet-order/' . (int) $order_id . '/' . (int) $product_id . '/' . (int) $part;
+        return add_query_arg('sig', self::order_signature($order_id, $product_id, $part), rest_url(Azure_Tickets_QR::ROUTE_NAMESPACE . $path));
+    }
+
+    /**
+     * A .pkpasses bundle (iOS 15+): a zip of signed .pkpass files.
+     *
+     * @param array<string,string> $passes ticket code => .pkpass bytes
+     * @return string|WP_Error
+     */
+    public static function bundle(array $passes) {
+        if (!class_exists('ZipArchive')) {
+            return new WP_Error('pta_wallet', 'ZipArchive is missing.');
+        }
+        $zip_path = tempnam(get_temp_dir(), 'pkb');
+        try {
+            $zip = new ZipArchive();
+            if ($zip->open($zip_path, ZipArchive::OVERWRITE) !== true) {
+                return new WP_Error('pta_wallet', 'Could not create the bundle.');
+            }
+            foreach ($passes as $code => $bytes) {
+                $zip->addFromString('ticket-' . $code . '.pkpass', $bytes);
+            }
+            $zip->close();
+            return (string) file_get_contents($zip_path);
+        } finally {
+            if ($zip_path && file_exists($zip_path)) {
+                unlink($zip_path);
+            }
+        }
+    }
+
     /**
      * pass.json for a ticket.
      *
@@ -331,6 +375,64 @@ class Azure_Tickets_Apple_Wallet {
             'callback'            => array($this, 'serve'),
             'permission_callback' => '__return_true',
         ));
+        register_rest_route(Azure_Tickets_QR::ROUTE_NAMESPACE, '/wallet-order/(?P<order>\d+)/(?P<product>\d+)/(?P<part>\d+)', array(
+            'methods'             => 'GET',
+            'callback'            => array($this, 'serve_order'),
+            'permission_callback' => '__return_true',
+        ));
+    }
+
+    /**
+     * @return object[] Active tickets in this part of the order's bundle.
+     */
+    public static function order_part($order_id, $product_id, $part) {
+        global $wpdb;
+        return (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}azure_tickets WHERE order_id = %d AND product_id = %d AND status = 'active'
+             ORDER BY row_letter, seat_number, id LIMIT %d OFFSET %d",
+            (int) $order_id, (int) $product_id, self::BUNDLE_MAX, self::BUNDLE_MAX * (int) $part
+        ));
+    }
+
+    public function serve_order($request) {
+        $order_id = (int) $request['order'];
+        $product_id = (int) $request['product'];
+        $part = (int) $request['part'];
+        if (!hash_equals(self::order_signature($order_id, $product_id, $part), (string) $request->get_param('sig'))) {
+            return new WP_Error('pta_wallet', 'Not found', array('status' => 404));
+        }
+        $tickets = self::order_part($order_id, $product_id, $part);
+        if (!$tickets) {
+            return new WP_Error('pta_wallet', 'These tickets are no longer valid.', array('status' => 410));
+        }
+        $passes = array();
+        foreach ($tickets as $ticket) {
+            $pkpass = self::build($ticket, self::ticket_info($ticket));
+            if (is_wp_error($pkpass)) {
+                Azure_Logger::error('Tickets: Apple Wallet pass failed: ' . $pkpass->get_error_message());
+                return new WP_Error('pta_wallet', 'The Wallet passes could not be made. Please use the QR codes in your email.', array('status' => 500));
+            }
+            $passes[(string) $ticket->ticket_code] = $pkpass;
+        }
+        if (count($passes) === 1) {
+            $bytes = reset($passes);
+            $type = 'application/vnd.apple.pkpass';
+            $name = 'ticket-' . key($passes) . '.pkpass';
+        } else {
+            $bytes = self::bundle($passes);
+            if (is_wp_error($bytes)) {
+                Azure_Logger::error('Tickets: Apple Wallet bundle failed: ' . $bytes->get_error_message());
+                return new WP_Error('pta_wallet', 'The Wallet passes could not be made. Please use the QR codes in your email.', array('status' => 500));
+            }
+            $type = 'application/vnd.apple.pkpasses';
+            $name = 'tickets-' . $order_id . ($part ? '-' . ($part + 1) : '') . '.pkpasses';
+        }
+        header('Content-Type: ' . $type);
+        header('Content-Disposition: attachment; filename="' . $name . '"');
+        header('Content-Length: ' . strlen($bytes));
+        header('Cache-Control: private, no-store');
+        echo $bytes;
+        exit;
     }
 
     public function serve($request) {
