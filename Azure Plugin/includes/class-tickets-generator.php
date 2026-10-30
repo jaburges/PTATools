@@ -59,176 +59,256 @@ class Azure_Tickets_Generator {
     }
     
     /**
-     * Send ticket email to customer
-     * 
-     * @param int $order_id
+     * Email an order's tickets to the buyer.
+     *
+     * @param int    $order_id
+     * @param string $test_to Send a copy marked as a test here instead of to the buyer.
      * @return bool
      */
-    public function send_ticket_email($order_id) {
+    public function send_ticket_email($order_id, $test_to = '') {
         $order = wc_get_order($order_id);
         if (!$order) {
             return false;
         }
-        
         $tickets = $this->get_order_tickets($order_id);
         if (empty($tickets)) {
             return false;
         }
-        
-        // Group tickets by product
-        $tickets_by_product = array();
-        foreach ($tickets as $ticket) {
-            $tickets_by_product[$ticket->product_id][] = $ticket;
-        }
-        
-        // Build email content
-        $email_content = $this->build_ticket_email($order, $tickets_by_product);
-        
-        // Get email subject
-        $subject_template = Azure_Settings::get_setting('tickets_email_subject', 'Your tickets for {{event_name}}');
-        
-        // Get first product name for subject
-        $first_product = wc_get_product($tickets[0]->product_id);
-        $event_name = $first_product ? $first_product->get_name() : 'Your Event';
-        
+        $theme = Azure_Tickets_Config::email_theme((int) $tickets[0]->product_id);
         $subject = str_replace(
             array('{{event_name}}', '{{order_number}}'),
-            array($event_name, $order->get_order_number()),
-            $subject_template
+            array($theme['title'] !== '' ? $theme['title'] : __('your event', 'azure-plugin'), $order->get_order_number()),
+            Azure_Settings::get_setting('tickets_email_subject', 'Your tickets for {{event_name}}')
         );
-        
-        // Send email
         $to = $order->get_billing_email();
-        $headers = array('Content-Type: text/html; charset=UTF-8');
-        
-        // Add PDF attachment if enabled
-        $attachments = array();
-        if (Azure_Settings::get_setting('tickets_include_pdf', true)) {
-            $pdf_path = $this->generate_tickets_pdf($order_id, $tickets);
-            if ($pdf_path) {
-                $attachments[] = $pdf_path;
-            }
+        if ($test_to !== '') {
+            /* translators: 1: email subject, 2: the buyer's email address */
+            $subject = sprintf(__('[Test] %1$s (would go to %2$s)', 'azure-plugin'), $subject, $to);
+            $to = $test_to;
         }
-        
-        $sent = wp_mail($to, $subject, $email_content, $headers, $attachments);
-        
-        // Cleanup temp PDF
-        if (!empty($attachments)) {
-            foreach ($attachments as $attachment) {
-                if (file_exists($attachment)) {
-                    unlink($attachment);
-                }
-            }
-        }
-        
-        return $sent;
+        return wp_mail($to, $subject, $this->email_html($order, $tickets), array('Content-Type: text/html; charset=UTF-8'));
     }
-    
+
     /**
-     * Build ticket email HTML
+     * The email as the buyer would get it, for previewing; '' without tickets.
      */
-    private function build_ticket_email($order, $tickets_by_product) {
+    public function preview_ticket_email($order_id) {
+        $order = wc_get_order($order_id);
+        $tickets = $order ? $this->get_order_tickets($order_id) : array();
+        return $tickets ? $this->email_html($order, $tickets) : '';
+    }
+
+    /**
+     * Whether the order bought this performance's cast & crew product.
+     */
+    private function is_cast_crew($order, $product_id) {
+        $vip = Azure_Tickets_Config::vip_products($product_id);
+        foreach ($order->get_items() as $item) {
+            if (method_exists($item, 'get_product_id') && array_intersect(array((int) $item->get_product_id(), (int) $item->get_variation_id()), $vip)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Short seat name for under a QR code: "D4", or the section for general admission.
+     */
+    private static function seat_short($ticket, $n) {
+        if (!empty($ticket->row_letter)) {
+            return $ticket->row_letter . (int) $ticket->seat_number;
+        }
+        /* translators: %d: ticket number within the order */
+        return sprintf(__('Ticket %d', 'azure-plugin'), $n);
+    }
+
+    /**
+     * Table layout and inline styles throughout: Gmail and Outlook drop
+     * flexbox and most <style> rules.
+     *
+     * @param WC_Order $order
+     * @param object[] $tickets Active tickets, sorted by performance, row and seat.
+     */
+    private function email_html($order, array $tickets) {
+        $by_product = array();
+        foreach ($tickets as $ticket) {
+            $by_product[(int) $ticket->product_id][] = $ticket;
+        }
+        $first = (int) $tickets[0]->product_id;
+        $theme = Azure_Tickets_Config::email_theme($first);
         $wallet_on = class_exists('Azure_Tickets_Apple_Wallet') && Azure_Tickets_Apple_Wallet::is_configured();
+        $cast_crew = $this->is_cast_crew($order, $first);
+        $org = (string) Azure_Settings::get_setting('org_name', get_bloginfo('name'));
+        $sans = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+        $serif = "Georgia,'Times New Roman',serif";
+        $navy = '#10203f';
+        $gold = '#f3d27a';
+        $count = count($tickets);
+        $title = $theme['title'] !== '' ? $theme['title'] : __('the show', 'azure-plugin');
         ob_start();
         ?>
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Your Tickets</title>
-            <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
-                .email-container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .header { text-align: center; padding: 30px 0; background: #1d2327; color: #fff; border-radius: 8px 8px 0 0; }
-                .header h1 { margin: 0; font-size: 24px; }
-                .content { padding: 30px; background: #fff; border: 1px solid #ddd; }
-                .ticket-card { background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; margin: 20px 0; overflow: hidden; }
-                .ticket-header { background: #2271b1; color: #fff; padding: 15px 20px; }
-                .ticket-header h3 { margin: 0; font-size: 18px; }
-                .ticket-body { padding: 20px; display: flex; gap: 20px; }
-                .ticket-qr { text-align: center; }
-                .ticket-qr img { width: 120px; height: 120px; }
-                .ticket-details { flex: 1; }
-                .ticket-details p { margin: 5px 0; }
-                .ticket-code { font-family: monospace; font-size: 18px; font-weight: bold; letter-spacing: 2px; }
-                .event-info { background: #f0f6fc; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-                .btn { display: inline-block; padding: 12px 25px; background: #2271b1; color: #fff; text-decoration: none; border-radius: 5px; margin: 10px 5px; }
-                .btn-wallet { background: #000; }
-                .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-            </style>
-        </head>
-        <body>
-            <div class="email-container">
-                <div class="header">
-                    <h1>🎫 Your Tickets Are Ready!</h1>
-                </div>
-                
-                <div class="content">
-                    <p>Hi <?php echo esc_html($order->get_billing_first_name()); ?>,</p>
-                    <p>Thank you for your purchase! Here are your tickets:</p>
-                    
-                    <?php foreach ($tickets_by_product as $product_id => $product_tickets): 
-                        $product = wc_get_product($product_id);
-                        $event_date = Azure_Tickets_Config::event_date($product_id);
-                    ?>
-                    
-                    <div class="event-info">
-                        <h2 style="margin-top: 0;"><?php echo esc_html($product ? $product->get_name() : 'Event'); ?></h2>
-                        <?php if ($event_date): ?>
-                        <p><strong>📅 Date:</strong> <?php echo esc_html(date_i18n('l, F j, Y \a\t g:i A', strtotime($event_date))); ?></p>
-                        <?php endif; ?>
-                        <p><strong>🎟️ Tickets:</strong> <?php echo count($product_tickets); ?></p>
-                    </div>
-                    
-                    <?php foreach ($product_tickets as $ticket): 
-                        $seat_info = Azure_Tickets_Config::ticket_seat_label($ticket);
-                    ?>
-                    <div class="ticket-card">
-                        <div class="ticket-header">
-                            <h3><?php echo esc_html($seat_info); ?></h3>
-                        </div>
-                        <div class="ticket-body">
-                            <div class="ticket-qr">
-                                <img src="<?php echo esc_url(Azure_Tickets_QR::url($ticket->ticket_code)); ?>" width="120" height="120" alt="<?php echo esc_attr($ticket->ticket_code); ?>">
-                                <p class="ticket-code"><?php echo esc_html($ticket->ticket_code); ?></p>
-                            </div>
-                            <div class="ticket-details">
-                                <?php if ($ticket->attendee_name): ?>
-                                <p><strong>Attendee:</strong> <?php echo esc_html($ticket->attendee_name); ?></p>
-                                <?php endif; ?>
-                                <p><strong>Order:</strong> #<?php echo esc_html($order->get_order_number()); ?></p>
-                                <p style="font-size: 12px; color: #666;">Present this QR code at the entrance for check-in.</p>
-                                <?php if ($wallet_on): ?>
-                                <p><a href="<?php echo esc_url(Azure_Tickets_Apple_Wallet::url($ticket->ticket_code)); ?>" class="btn btn-wallet" style="background:#000;color:#fff;">Add to Apple Wallet</a></p>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                    
-                    <?php endforeach; ?>
-                    
-                    <div style="text-align: center; margin-top: 30px;">
-                        <a href="<?php echo esc_url($order->get_view_order_url()); ?>" class="btn">View Order Details</a>
-                    </div>
-                    
-                    <p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; font-size: 13px;">
-                        <strong>Important:</strong> Please arrive at least 15 minutes before the event. Have your QR code ready on your phone or printed for faster check-in.
-                    </p>
-                </div>
-                
-                <div class="footer">
-                    <p>Questions? Contact us at <?php echo get_option('admin_email'); ?></p>
-                    <p>&copy; <?php echo date('Y'); ?> <?php echo get_bloginfo('name'); ?></p>
-                </div>
-            </div>
-        </body>
-        </html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title><?php echo esc_html($theme['headline']); ?></title>
+<style>
+  @media (max-width: 620px) {
+    .pta-wrap { width: 100% !important; }
+    .pta-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    .pta-seat { font-size: 21px !important; }
+    .pta-qr-row { padding-left: 6px !important; padding-right: 6px !important; }
+    .pta-qr-cell { padding: 3px !important; }
+    .pta-qr-inner { padding: 8px 6px !important; }
+    .pta-qr-cell img { width: 92px !important; height: 92px !important; }
+    .pta-wallet { font-size: 15px !important; padding: 13px 18px !important; }
+  }
+</style>
+</head>
+<body style="margin:0; padding:0; background:#0b1633;">
+<div style="display:none; max-height:0; overflow:hidden;"><?php
+    /* translators: 1: show name, 2: number of tickets */
+    echo esc_html(sprintf(_n('Your ticket for %1$s: %2$d ticket with its QR code.', 'Your tickets for %1$s: %2$d tickets with their QR codes.', $count, 'azure-plugin'), $title, $count));
+?></div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b1633;">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" class="pta-wrap" width="600" cellpadding="0" cellspacing="0" style="width:600px; max-width:600px; background:#fdf8ec; border-radius:14px; overflow:hidden; border:2px solid #d9b45a;">
+
+<?php if ($theme['banner'] !== ''): ?>
+<tr><td style="background:<?php echo $navy; ?>; line-height:0;">
+  <img src="<?php echo esc_url($theme['banner']); ?>" width="600" alt="<?php echo esc_attr($title); ?>" style="display:block; width:100%; height:auto; border:0;">
+</td></tr>
+<?php endif; ?>
+
+<tr><td align="center" class="pta-pad" style="background:<?php echo $navy; ?>; padding:<?php echo $theme['banner'] !== '' ? '6px' : '28px'; ?> 32px 28px;">
+  <div style="font-family:<?php echo $serif; ?>; color:<?php echo $gold; ?>; font-size:13px; letter-spacing:3px; text-transform:uppercase;">&#10022; <?php echo esc_html($cast_crew ? __('Cast & Crew Reserved Seating', 'azure-plugin') : __('Your tickets', 'azure-plugin')); ?> &#10022;</div>
+  <div style="font-family:<?php echo $serif; ?>; color:#ffffff; font-size:30px; line-height:1.2; font-weight:bold; padding-top:8px;"><?php echo esc_html($theme['headline']); ?></div>
+</td></tr>
+
+<tr><td class="pta-pad" style="padding:28px 40px 8px; font-family:<?php echo $sans; ?>; color:#24304d; font-size:16px; line-height:1.6;">
+  <p style="margin:0 0 12px;"><?php
+    /* translators: %s: buyer's first name */
+    echo esc_html(sprintf(__('Hi %s,', 'azure-plugin'), $order->get_billing_first_name()));
+  ?></p>
+  <p style="margin:0;"><?php
+    echo $cast_crew
+        /* translators: %s: show name */
+        ? wp_kses(sprintf(__('Thank you for supporting our cast &amp; crew! Your reserved seats for <strong>%s</strong> are below.', 'azure-plugin'), esc_html($title)), array('strong' => array()))
+        /* translators: %s: show name */
+        : wp_kses(sprintf(__('Thank you for your order! Your tickets for <strong>%s</strong> are below.', 'azure-plugin'), esc_html($title)), array('strong' => array()));
+    echo ' ' . esc_html($wallet_on ? __('Add them to Apple Wallet, or show the QR codes at the door.', 'azure-plugin') : __('Show the QR codes at the door.', 'azure-plugin'));
+  ?></p>
+</td></tr>
+
+<?php foreach ($by_product as $product_id => $group):
+    $ts = Azure_Tickets_Config::event_ts($product_id);
+    $location = Azure_Tickets_Config::email_theme($product_id)['location'];
+    $n = count($group);
+?>
+<tr><td class="pta-pad" style="padding:20px 40px 4px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:<?php echo $navy; ?>; border-radius:10px;">
+    <tr><td style="padding:18px 22px; font-family:<?php echo $sans; ?>; color:#ffffff; font-size:15px; line-height:1.7;">
+      <?php if ($ts): ?>
+      <div style="font-family:<?php echo $serif; ?>; color:<?php echo $gold; ?>; font-size:20px; font-weight:bold;"><?php echo esc_html(wp_date('l, F j, Y', $ts)); ?></div>
+      <div>&#9733;&nbsp; <?php
+        /* translators: 1: start time, 2: arrival time */
+        echo wp_kses(sprintf(__('Show starts <strong>%1$s</strong> &middot; please arrive by %2$s', 'azure-plugin'), esc_html(wp_date('g:i A', $ts)), esc_html(wp_date('g:i', $ts - 15 * MINUTE_IN_SECONDS))), array('strong' => array()));
+      ?></div>
+      <?php endif; ?>
+      <?php if ($location !== ''): ?><div>&#9733;&nbsp; <?php echo esc_html($location); ?></div><?php endif; ?>
+      <div style="color:#b9c4dd; font-size:13px;"><?php
+        /* translators: 1: order number, 2: number of tickets */
+        echo esc_html(sprintf(_n('Order #%1$s · %2$d ticket', 'Order #%1$s · %2$d tickets', $n, 'azure-plugin'), $order->get_order_number(), $n));
+      ?></div>
+    </td></tr>
+  </table>
+</td></tr>
+
+<tr><td class="pta-pad" style="padding:24px 40px 8px;">
+  <div style="font-family:<?php echo $serif; ?>; color:<?php echo $navy; ?>; font-size:14px; letter-spacing:3px; text-transform:uppercase; padding-bottom:10px; text-align:center;"><?php echo esc_html(_n('Your seat', 'Your seats', $n, 'azure-plugin')); ?></div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:2px dashed #d9b45a; border-radius:10px; background:#ffffff;">
+    <tr><td align="center" style="padding:14px 18px; font-family:<?php echo $sans; ?>; color:<?php echo $navy; ?>;">
+      <?php foreach ($group as $ticket): ?>
+      <div class="pta-seat" style="font-size:24px; font-weight:800; line-height:1.55;"><?php echo esc_html(Azure_Tickets_Config::ticket_seat_label($ticket)); ?></div>
+      <?php endforeach; ?>
+    </td></tr>
+  </table>
+</td></tr>
+
+<?php if ($wallet_on): ?>
+<tr><td align="center" class="pta-pad" style="padding:24px 40px 4px;">
+  <?php for ($part = 0; $part * Azure_Tickets_Apple_Wallet::BUNDLE_MAX < $n; $part++):
+      $in_part = min(Azure_Tickets_Apple_Wallet::BUNDLE_MAX, $n - $part * Azure_Tickets_Apple_Wallet::BUNDLE_MAX);
+      if ($n === 1) {
+          $label = __('Add to Apple Wallet', 'azure-plugin');
+      } elseif ($in_part === $n) {
+          /* translators: %d: number of tickets (2 or more) */
+          $label = sprintf(__('Add all %d tickets to Apple Wallet', 'azure-plugin'), $n);
+      } else {
+          /* translators: %d: number of tickets */
+          $label = sprintf(_n('Add %d ticket to Apple Wallet', 'Add %d tickets to Apple Wallet', $in_part, 'azure-plugin'), $in_part);
+      }
+  ?>
+  <div style="padding:4px 0;"><a href="<?php echo esc_url(Azure_Tickets_Apple_Wallet::order_url($order->get_id(), $product_id, $part)); ?>" class="pta-wallet" style="display:inline-block; background:#000000; color:#ffffff; text-decoration:none; font-family:<?php echo $sans; ?>; font-size:17px; font-weight:600; padding:14px 28px; border-radius:10px;"><?php echo esc_html($label); ?></a></div>
+  <?php endfor; ?>
+  <div style="font-family:<?php echo $sans; ?>; color:#5b6684; font-size:13px; padding-top:8px;"><?php esc_html_e('On another phone? Just show the QR codes below at the door.', 'azure-plugin'); ?></div>
+</td></tr>
+<?php endif; ?>
+
+<tr><td class="pta-pad pta-qr-row" style="padding:22px 28px 6px;">
+  <div style="font-family:<?php echo $serif; ?>; color:<?php echo $navy; ?>; font-size:14px; letter-spacing:3px; text-transform:uppercase; padding-bottom:6px; text-align:center;"><?php echo esc_html(_n('Your ticket', 'Your tickets', $n, 'azure-plugin')); ?></div>
+  <?php if ($n > 1): ?>
+  <div style="font-family:<?php echo $sans; ?>; color:#5b6684; font-size:13px; text-align:center; padding-bottom:12px;"><?php esc_html_e('Each seat has its own code — we scan one per person.', 'azure-plugin'); ?></div>
+  <?php endif; ?>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  <?php foreach (array_chunk($group, 3) as $r => $row): ?>
+    <tr>
+    <?php foreach ($row as $i => $ticket): ?>
+      <td class="pta-qr-cell" align="center" width="33%" style="padding:8px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="background:#ffffff; border:1px solid #e6dcc1; border-radius:10px;"><tr>
+          <td class="pta-qr-inner" align="center" style="padding:12px 12px 10px; font-family:<?php echo $sans; ?>;">
+            <img src="<?php echo esc_url(Azure_Tickets_QR::url($ticket->ticket_code)); ?>" width="140" height="140" alt="<?php echo esc_attr($ticket->ticket_code); ?>" style="display:block;">
+            <div style="font-size:17px; font-weight:800; color:<?php echo $navy; ?>; padding-top:6px;"><?php echo esc_html(self::seat_short($ticket, $r * 3 + $i + 1)); ?></div>
+            <div style="font-family:Menlo,Consolas,monospace; font-size:11px; color:#5b6684; letter-spacing:1px;"><?php echo esc_html($ticket->ticket_code); ?></div>
+          </td>
+        </tr></table>
+      </td>
+    <?php endforeach; ?>
+    <?php for ($pad = count($row); $pad < 3 && $n > 3; $pad++): ?><td class="pta-qr-cell" width="33%" style="padding:8px;">&nbsp;</td><?php endfor; ?>
+    </tr>
+  <?php endforeach; ?>
+  </table>
+</td></tr>
+<?php endforeach; ?>
+
+<tr><td class="pta-pad" style="padding:18px 40px 26px; font-family:<?php echo $sans; ?>; color:#24304d; font-size:14px; line-height:1.6;">
+  <div style="border-top:1px solid #e6dcc1; padding-top:16px;">
+    <strong><?php esc_html_e('Good to know', 'azure-plugin'); ?></strong><br>
+    <?php esc_html_e('Please arrive 15 minutes early so we can scan everyone in before curtain. Screenshots and printouts work too.', 'azure-plugin'); ?><br>
+    <?php echo wp_kses(sprintf(
+        /* translators: 1: contact email link, 2: order link */
+        __('Questions? Email %1$s or %2$s.', 'azure-plugin'),
+        '<a href="mailto:' . esc_attr($theme['contact']) . '" style="color:#2a4a8f;">' . esc_html($theme['contact']) . '</a>',
+        '<a href="' . esc_url($order->get_view_order_url()) . '" style="color:#2a4a8f;">' . esc_html__('view your order', 'azure-plugin') . '</a>'
+    ), array('a' => array('href' => array(), 'style' => array()))); ?>
+  </div>
+</td></tr>
+
+<tr><td align="center" style="background:<?php echo $navy; ?>; padding:20px 32px; font-family:<?php echo $serif; ?>; color:<?php echo $gold; ?>; font-size:15px; font-style:italic;">
+  <?php if ($theme['closing'] !== ''): ?>&ldquo;<?php echo esc_html($theme['closing']); ?>&rdquo;<?php endif; ?>
+  <div style="font-family:<?php echo $sans; ?>; font-style:normal; color:#b9c4dd; font-size:12px; padding-top:<?php echo $theme['closing'] !== '' ? '8px' : '0'; ?>;"><?php echo esc_html($org); ?></div>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
         <?php
         return ob_get_clean();
     }
-    
+
     /**
      * Generate PDF of tickets
      * 

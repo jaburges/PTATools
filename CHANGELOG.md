@@ -2,6 +2,18 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.198 — Themed ticket emails
+
+### Changed
+
+- **New ticket email design** for every ticket order: a banner, the performance date, time and location, the seats as a large bold list, one QR code per seat, and a "Good to know" footer. Built with tables and inline styles so it holds together in Gmail, Outlook and on phones. Cast & crew orders are greeted as such; other buyers get the general wording.
+- **One Apple Wallet button for the whole order.** "Add all 6 tickets to Apple Wallet" downloads every pass for that performance in one tap (a `.pkpasses` bundle, iOS 15 and later; orders over 10 tickets get one button per 10). A single ticket still downloads a single pass.
+
+### Added
+
+- **Ticket email settings** on the ticket product (Seating & Prices): banner image, show name (also used in the subject), headline, location, questions-to address and a closing line. Blank fields fall back to the product name, venue and site admin email.
+- **Preview email** and **Send a test to me** on Tickets → Assign seats, per order. The test goes only to the signed-in admin, marked "[Test]" with the address it would have gone to, and changes no seats.
+
 ## 3.147.197 — Seats are held when tapped
 
 ### Changed

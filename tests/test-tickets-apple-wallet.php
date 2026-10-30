@@ -118,6 +118,21 @@ rmdir($dir);
 $t->equals('https://example.test/wp-json/pta-tickets/v1/wallet/ABCD234567?sig=' . $W::signature('ABCD234567'), $W::url('abcd234567'), 'the email links to a signed download');
 $t->check($W::signature('ABCD234567') !== Azure_Tickets_QR::signature('ABCD234567'), 'a QR image link can\'t be turned into a pass download');
 
+// ── Whole-order bundle ─────────────────────────────────────────────────
+$t->equals('https://example.test/wp-json/pta-tickets/v1/wallet-order/4001/501/0?sig=' . $W::order_signature(4001, 501, 0), $W::order_url(4001, 501), 'the email links to a signed bundle of the order\'s tickets for the performance');
+$sigs = array($W::order_signature(4001, 501, 0), $W::order_signature(4002, 501, 0), $W::order_signature(4001, 502, 0), $W::order_signature(4001, 501, 1));
+$t->equals(4, count(array_unique($sigs)), 'the signature only opens that order, performance and part');
+$t->check($W::order_signature(4001, 501, 0) !== $W::signature('4001'), 'a single-ticket link can\'t be turned into a bundle link');
+$second = $W::build((object) array_merge((array) $ticket, array('seat_number' => 13, 'ticket_code' => 'EFGH234567', 'qr_data' => 'EFGH234567')), $info);
+$bundle = $W::bundle(array('ABCD234567' => $pkpass, 'EFGH234567' => $second));
+$zip_path = tempnam(sys_get_temp_dir(), 'pkb');
+file_put_contents($zip_path, $bundle);
+$zip = new ZipArchive();
+$zip->open($zip_path);
+$t->check($zip->numFiles === 2 && $zip->getFromName('ticket-ABCD234567.pkpass') === $pkpass && $zip->getFromName('ticket-EFGH234567.pkpass') === $second, 'the .pkpasses bundle holds each signed pass unchanged');
+$zip->close();
+unlink($zip_path);
+
 $W::remove_certificate();
 $t->check(!$W::is_configured(), 'removing the certificate turns passes off');
 

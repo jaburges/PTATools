@@ -42,6 +42,12 @@ class Azure_Tickets_Config {
     const META_EXTRAS = '_ticket_extras';
     const META_EXTRAS_HEADING = '_ticket_extras_heading';
     const META_HAS_SPONSORS = '_ticket_has_sponsors';
+    const META_EMAIL_TITLE = '_ticket_email_title';
+    const META_EMAIL_HEADLINE = '_ticket_email_headline';
+    const META_EMAIL_BANNER = '_ticket_email_banner';
+    const META_EMAIL_LOCATION = '_ticket_email_location';
+    const META_EMAIL_CONTACT = '_ticket_email_contact';
+    const META_EMAIL_CLOSING = '_ticket_email_closing';
     const VIP_CLOSE_OPTION = 'azure_tickets_vip_close';
 
     const ACCESS_ALL = 'all';
@@ -362,6 +368,31 @@ class Azure_Tickets_Config {
      */
     public static function extras($product_id) {
         return array_values(array_filter(array_map('intval', (array) get_post_meta(self::owner($product_id), self::META_EXTRAS, true))));
+    }
+
+    /**
+     * How the ticket email presents this show; blanks fall back to the
+     * product name, the venue and the site admin email.
+     *
+     * @return array{title:string, headline:string, banner:string, location:string, contact:string, closing:string}
+     */
+    public static function email_theme($product_id) {
+        $owner = self::owner($product_id);
+        $get = function ($key) use ($owner) {
+            return trim((string) get_post_meta($owner, $key, true));
+        };
+        $product = function_exists('wc_get_product') ? wc_get_product($owner) : null;
+        $banner = (int) $get(self::META_EMAIL_BANNER);
+        $venue = self::venue_id($product_id);
+        $contact = $get(self::META_EMAIL_CONTACT);
+        return array(
+            'title'    => $get(self::META_EMAIL_TITLE) ?: ($product ? $product->get_name() : ''),
+            'headline' => $get(self::META_EMAIL_HEADLINE) ?: __('Your tickets are ready!', 'azure-plugin'),
+            'banner'   => $banner ? (string) wp_get_attachment_image_url($banner, 'full') : '',
+            'location' => $get(self::META_EMAIL_LOCATION) ?: ($venue ? (string) get_the_title($venue) : ''),
+            'contact'  => $contact !== '' && is_email($contact) ? $contact : (string) get_option('admin_email'),
+            'closing'  => $get(self::META_EMAIL_CLOSING),
+        );
     }
 
     public static function extras_heading($product_id) {
