@@ -103,4 +103,46 @@ $t->check(!$A::save(new TA_Order(4002), $FRI, "B1 Pat", 1)['ok'], 'another order
 $free = $A::free_seats($FRI);
 $t->check(!in_array(9, $free['fr']['A'], true) && !in_array(16, $free['fr']['A'], true) && in_array(8, $free['fl']['A'], true), 'free seats leave out taken and "no seat" places');
 
+// ── CSV template and upload ────────────────────────────────────────────
+$paid = array(4001 => 3, 4002 => 2);
+$numbers = array('4001' => 4001, '4002' => 4002);
+$get = function ($id) { return new TA_Order($id); };
+$template = $A::csv_template(array(
+    4001 => array('number' => '4001', 'family' => 'Jane Smith', 'paid' => 3, 'assigned' => $A::assigned(4001, $FRI)),
+    4002 => array('number' => '4002', 'family' => '=Pat Doe', 'paid' => 2, 'assigned' => array()),
+));
+$t->equals("\xEF\xBB\xBFOrder,Family,Seat,Name\n4001,\"Jane Smith\",A9,\"Leon Tsai\"\n4001,\"Jane Smith\",B1,Amy\n4001,\"Jane Smith\",,\"Jane Smith\"\n4002,\"'=Pat Doe\",,\"'=Pat Doe\"\n4002,\"'=Pat Doe\",,\"'=Pat Doe\"\n", $template,
+    'the template has a row per ticket bought: assigned seats first, then blanks with the family name');
+$p = $A::parse_csv($template, $numbers);
+$t->equals(array(4001 => array('A-9' => 'Leon Tsai', 'B-1' => 'Amy')), $p['orders'], 'reading it back gives the seats assigned; orders with no seats are left out');
+$r = $A::import($FRI, $p['orders'], $paid, $get);
+$t->check($r['ok'] && $r['added'] + $r['removed'] + $r['renamed'] === 0, 'uploading the template unchanged changes nothing');
+
+$p = $A::parse_csv("Seat,Name,Order #\nA9,Leon Tsai,4001\na-10,Amy,4001\nB1,Pat,#4002\n B 2 ,'=Sam,4002\n,,4002\n", $numbers);
+$t->equals(array(4001 => array('A-9' => 'Leon Tsai', 'A-10' => 'Amy'), 4002 => array('B-1' => 'Pat', 'B-2' => '=Sam')), $p['orders'], 'columns can be in any order; seats like a-10 and B 2 are read; a leading apostrophe is dropped');
+$r = $A::import($FRI, $p['orders'], $paid, $get);
+$t->check($r['ok'] && $r['orders'] === 2 && $r['added'] === 3 && $r['removed'] === 1, 'B1 moves from one order to another in the same upload');
+$t->equals("A9 Leon Tsai\nA10 Amy", $A::as_text($A::assigned(4001, $FRI)), 'each order gets exactly the seats listed');
+$t->equals("B1 Pat\nB2 =Sam", $A::as_text($A::assigned(4002, $FRI)), 'including the order that took the seat');
+
+$bad = $A::parse_csv("Order,Seat\n4001,A9\n9999,A1\n4002,hello\n4001,A9\n", $numbers);
+$t->equals(array(
+    'Row 3: #9999 isn\'t a paid cast & crew order for this performance.',
+    'Row 4: "hello" isn\'t a seat. Write it like D4.',
+    'Row 5: A9 is listed twice for #4001.',
+), $bad['errors'], 'unknown orders, bad seats and repeats are reported by row');
+$t->equals(array('The first row must have "Order" and "Seat" columns. Download the template to start from.'), $A::parse_csv("Seat,Party\nA1,Smith\n", $numbers)['errors'], 'a sheet without Order and Seat columns is refused');
+
+$before = array($A::as_text($A::assigned(4001, $FRI)), $A::as_text($A::assigned(4002, $FRI)));
+$r = $A::import($FRI, array(4001 => array('A-9' => '', 'Z-1' => ''), 4002 => array('C-1' => '', 'A-9' => '', 'A-1' => '')), $paid, $get, array(4001 => '4001', 4002 => '4002'));
+$t->equals(array(
+    'Z1 (#4001) isn\'t a seat in this venue.',
+    '#4002 paid for 2 tickets but 3 seats are listed.',
+    'A9 is listed for both #4001 and #4002.',
+    'C1 (#4002) has already been bought or is in someone\'s cart.',
+), $r['errors'], 'the whole file is checked: shared seats, unknown seats, too many seats, seats bought by others');
+$t->check(!$r['ok'] && empty($r['partial']) && $before === array($A::as_text($A::assigned(4001, $FRI)), $A::as_text($A::assigned(4002, $FRI))), 'and nothing is saved when any of it is wrong');
+$r = $A::import($FRI, array(4002 => array('A-9' => 'Pat')), $paid, $get, array(4001 => '4001', 4002 => '4002'));
+$t->equals(array('A9 (#4002) is already assigned to #4001.'), $r['errors'], 'a seat held by an order not in the file stays with it');
+
 exit($t->finish() > 0 ? 1 : 0);

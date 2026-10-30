@@ -2,6 +2,17 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.199 — Assign seats from a spreadsheet
+
+### Added
+
+- **CSV template and upload on Tickets → Assign seats.** "Download CSV template" gives every cast & crew order for the performance, one row per ticket bought, with the seats already assigned filled in and blank rows for the rest. Fill in the Seat column (and Name, if it should differ) and upload it. Each order in the file gets exactly the seats listed; orders with no seats in the file are left alone. The whole file is checked first (unknown orders, seats that don't exist, more seats than tickets, a seat listed twice, seats bought by someone else or in a cart) and nothing is saved if any row is wrong. Seats can move between orders in one upload. Uploading never emails anyone.
+- **Each order shows whether its tickets have been emailed**: "Emailed Thu 29 Oct, 4:05pm" in green, or "Not emailed yet". Once sent, the checkbox reads "Email tickets again". Test sends don't count.
+
+### Fixed
+
+- Ticking **Email tickets** and saving said "Tickets emailed." even when the email failed to send. It now names the address it went to, or says it could not be sent.
+
 ## 3.147.198 — Themed ticket emails
 
 ### Changed
