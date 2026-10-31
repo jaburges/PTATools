@@ -103,57 +103,10 @@ class Azure_Tickets_Checkin {
         global $wpdb;
         $tickets_table = $wpdb->prefix . 'azure_tickets';
         $checkins_table = $wpdb->prefix . 'azure_ticket_checkins';
-        
-        // Find ticket
-        if (is_int($ticket_id_or_code)) {
-            $ticket = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$tickets_table} WHERE id = %d",
-                $ticket_id_or_code
-            ));
-        } else {
-            $ticket = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$tickets_table} WHERE ticket_code = %s",
-                Azure_Tickets_Module::scanned_code($ticket_id_or_code)
-            ));
-        }
-        
-        if (!$ticket) {
-            return array(
-                'success' => false,
-                'status' => 'not_found',
-                'message' => __('Ticket not found', 'azure-plugin')
-            );
-        }
-        
-        if ($product_id && (int) $ticket->product_id !== (int) $product_id) {
-            $payload = $this->ticket_payload($ticket);
-            return array(
-                'success' => false,
-                'status' => 'wrong_performance',
-                'message' => sprintf(__('This ticket is for %s', 'azure-plugin'), $payload['event']),
-                'ticket' => $payload
-            );
-        }
 
-        if ($ticket->status === 'used') {
-            return array(
-                'success' => false,
-                'status' => 'already_used',
-                'message' => __('Ticket already used', 'azure-plugin'),
-                'checked_in_at' => $ticket->checked_in_at,
-                'ticket' => $this->ticket_payload($ticket)
-            );
-        }
-        
-        if ($ticket->status !== 'active') {
-            return array(
-                'success' => false,
-                'status' => 'invalid',
-                'message' => $ticket->status === 'cancelled'
-                    ? __('Ticket has been cancelled', 'azure-plugin')
-                    : __('Ticket is not valid for check-in', 'azure-plugin'),
-                'ticket' => $this->ticket_payload($ticket)
-            );
+        $ticket = $this->find_ticket($ticket_id_or_code);
+        if ($refused = $this->refusal($ticket, $product_id)) {
+            return $refused;
         }
         
         // Perform check-in
@@ -209,6 +162,87 @@ class Azure_Tickets_Checkin {
             'ticket' => $this->ticket_payload($ticket),
             'checked_in_at' => $check_in_time
         );
+    }
+
+    /**
+     * What check_in() would say, without checking in: `valid` for a ticket
+     * that would be let in, otherwise the same refusal.
+     *
+     * @param int|string $ticket_id_or_code Ticket ID (int) or scanned code (string)
+     * @param int $product_id Performance being scanned at the door. 0 = any.
+     * @return array Result. Every outcome except not_found carries `ticket`.
+     */
+    public function look_up($ticket_id_or_code, $product_id = 0) {
+        $ticket = $this->find_ticket($ticket_id_or_code);
+        if ($refused = $this->refusal($ticket, $product_id)) {
+            return $refused;
+        }
+        return array(
+            'success' => true,
+            'status' => 'valid',
+            'message' => __('Valid ticket - Ready for check-in', 'azure-plugin'),
+            'ticket' => $this->ticket_payload($ticket)
+        );
+    }
+
+    private function find_ticket($ticket_id_or_code) {
+        global $wpdb;
+        $tickets_table = $wpdb->prefix . 'azure_tickets';
+        if (is_int($ticket_id_or_code)) {
+            return $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$tickets_table} WHERE id = %d",
+                $ticket_id_or_code
+            ));
+        }
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$tickets_table} WHERE ticket_code = %s",
+            Azure_Tickets_Module::scanned_code($ticket_id_or_code)
+        ));
+    }
+
+    /**
+     * @return array|null Why the ticket can't be checked in at this performance; null when it can.
+     */
+    private function refusal($ticket, $product_id) {
+        if (!$ticket) {
+            return array(
+                'success' => false,
+                'status' => 'not_found',
+                'message' => __('Ticket not found', 'azure-plugin')
+            );
+        }
+        
+        if ($product_id && (int) $ticket->product_id !== (int) $product_id) {
+            $payload = $this->ticket_payload($ticket);
+            return array(
+                'success' => false,
+                'status' => 'wrong_performance',
+                'message' => sprintf(__('This ticket is for %s', 'azure-plugin'), $payload['event']),
+                'ticket' => $payload
+            );
+        }
+
+        if ($ticket->status === 'used') {
+            return array(
+                'success' => false,
+                'status' => 'already_used',
+                'message' => __('Ticket already used', 'azure-plugin'),
+                'checked_in_at' => $ticket->checked_in_at,
+                'ticket' => $this->ticket_payload($ticket)
+            );
+        }
+        
+        if ($ticket->status !== 'active') {
+            return array(
+                'success' => false,
+                'status' => 'invalid',
+                'message' => $ticket->status === 'cancelled'
+                    ? __('Ticket has been cancelled', 'azure-plugin')
+                    : __('Ticket is not valid for check-in', 'azure-plugin'),
+                'ticket' => $this->ticket_payload($ticket)
+            );
+        }
+        return null;
     }
 
     /**

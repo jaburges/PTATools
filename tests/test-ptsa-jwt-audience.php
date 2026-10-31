@@ -1,6 +1,6 @@
 <?php
 /**
- * PTSA REST JWT audience: accept the iOS app id_token, not only website SSO.
+ * PTSA REST JWT audience: accept the mobile app id_token, not only website SSO.
  *
  * Run: php tests/test-ptsa-jwt-audience.php
  */

@@ -2,6 +2,17 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.205 — Ticket lookup for the mobile app; app wording
+
+### Added
+
+- **`POST /wp-json/ptsa/v1/tickets/lookup`** for the PTSA Board app's scanner. Same body as `tickets/checkin` (`code`, `product_id`) and the same answers — `wrong_performance`, `already_used`, `invalid`, `not_found` — but it never checks the ticket in: a ticket that would be let in comes back as `valid`. Check-in and lookup share one set of checks, so they always agree.
+
+### Changed
+
+- Issues filed from the app's tech backlog are titled "Mobile app - …" instead of "iOS app - …", since the same app now runs on Android. Code comments say "mobile app" too; the `IOS_CLIENT_ID` constant and `ptsa_rest_ios_client_id` option keep their names so the saved setting still applies.
+- `ios-app/` is no longer ignored here: the app lives in [PTA-Tools-iOSApp](https://github.com/jaburges/PTA-Tools-iOSApp).
+
 ## 3.147.204 — Products sold in packs (10 concession tickets at a time)
 
 ### Added

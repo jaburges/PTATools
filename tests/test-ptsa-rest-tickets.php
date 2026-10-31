@@ -111,9 +111,9 @@ $R = 'Azure_PTSA_REST_Tickets';
 // ── Routes ─────────────────────────────────────────────────────────────
 $R::register('ptsa/v1', '__auth__');
 $t->equals(
-    array('ptsa/v1/tickets/performances', 'ptsa/v1/tickets/performances/(?P<id>\d+)', 'ptsa/v1/tickets/checkin', 'ptsa/v1/tickets/(?P<id>\d+)/undo'),
+    array('ptsa/v1/tickets/performances', 'ptsa/v1/tickets/performances/(?P<id>\d+)', 'ptsa/v1/tickets/checkin', 'ptsa/v1/tickets/lookup', 'ptsa/v1/tickets/(?P<id>\d+)/undo'),
     array_keys(PRT::$routes),
-    'the four door routes are registered'
+    'the five door routes are registered'
 );
 $t->check(!array_filter(PRT::$routes, function ($r) { return $r['permission_callback'] !== '__auth__'; }), 'every route uses the app sign-in check');
 
@@ -123,6 +123,22 @@ $t->equals(array($FRI, $SAT), array_column($list, 'id'), 'upcoming performances 
 $t->equals('Fri 13 Nov, 7:00pm', $list[0]['when'], 'with the time in the site timezone');
 $t->equals('Wilder Gym', $list[0]['venue'], 'and the venue name');
 $t->equals(array('sold' => 2, 'checked_in' => 0), $list[0]['stats'], 'sold counts active tickets, not cancelled ones');
+
+// ── Lookup (scan without checking in) ──────────────────────────────────
+$look = function ($code, $product) use ($R) {
+    return $R::lookup(new WP_REST_Request(array(), array('code' => $code, 'product_id' => $product)));
+};
+$r = $look('friaaaaaa2', $FRI);
+$t->check($r['success'] && $r['status'] === 'valid', 'lookup: a good ticket for tonight is valid');
+$t->equals('Left · Row D, Seat 4', $r['ticket']['seat'], 'lookup: with the seat');
+$t->equals(array('sold' => 2, 'checked_in' => 0), $r['stats'], 'lookup: and the counter, unchanged');
+$t->equals('active', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE ticket_code = 'FRIAAAAAA2'"), 'lookup: the ticket is not checked in');
+$t->equals('0', (string) $wpdb->get_var('SELECT COUNT(*) FROM wp_azure_ticket_checkins'), 'lookup: and nothing is logged');
+$t->equals('wrong_performance', $look('SATAAAAAA2', $FRI)['status'], 'lookup: Saturday\'s ticket on Friday is refused like a check-in');
+$t->equals('invalid', $look('FRICCCCCC4', $FRI)['status'], 'lookup: a cancelled ticket is invalid');
+$t->equals('not_found', $look('NOPE234567', $FRI)['status'], 'lookup: an unknown code is not found');
+$t->equals('not_found', $look('', $FRI)['status'], 'lookup: an empty scan is not a ticket');
+$t->check($look('FRIBBBBBB3', 77) instanceof WP_Error, 'lookup: needs a ticket performance');
 
 // ── Scanning ───────────────────────────────────────────────────────────
 $scan = function ($code, $product) use ($R) {
@@ -139,6 +155,7 @@ $t->equals('checkin', $wpdb->get_var("SELECT action FROM wp_azure_ticket_checkin
 $r = $scan('FRIAAAAAA2', $FRI);
 $t->check(!$r['success'] && $r['status'] === 'already_used', 'a second scan is refused');
 $t->equals('Door Dana', $r['ticket']['checked_in_by'], 'saying who scanned it');
+$t->equals('already_used', $look('FRIAAAAAA2', $FRI)['status'], 'lookup after check-in: already used');
 $t->check($r['ticket']['checked_in_time'] !== '', 'and when');
 
 $r = $scan('SATAAAAAA2', $FRI);

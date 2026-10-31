@@ -28,6 +28,9 @@ class Azure_PTSA_REST_Tickets {
         register_rest_route($ns, '/tickets/checkin', array(
             'methods' => 'POST', 'callback' => array(__CLASS__, 'checkin'), 'permission_callback' => $auth,
         ));
+        register_rest_route($ns, '/tickets/lookup', array(
+            'methods' => 'POST', 'callback' => array(__CLASS__, 'lookup'), 'permission_callback' => $auth,
+        ));
         register_rest_route($ns, '/tickets/(?P<id>\d+)/undo', array(
             'methods' => 'POST', 'callback' => array(__CLASS__, 'undo'), 'permission_callback' => $auth,
         ));
@@ -83,6 +86,18 @@ class Azure_PTSA_REST_Tickets {
      * (already used, other night, cancelled) instead of a generic error.
      */
     public static function checkin(WP_REST_Request $req) {
+        return self::scan($req, true);
+    }
+
+    /**
+     * Same body and answers as checkin, without checking in: `valid` for a
+     * ticket that would be let in.
+     */
+    public static function lookup(WP_REST_Request $req) {
+        return self::scan($req, false);
+    }
+
+    private static function scan(WP_REST_Request $req, $check_in) {
         if ($off = self::module_off()) {
             return $off;
         }
@@ -99,7 +114,8 @@ class Azure_PTSA_REST_Tickets {
                 'message' => __('That isn\'t a ticket code', 'azure-plugin'),
             ));
         }
-        $result = (new Azure_Tickets_Checkin())->check_in($code, get_current_user_id(), $product_id);
+        $checkin = new Azure_Tickets_Checkin();
+        $result = $check_in ? $checkin->check_in($code, get_current_user_id(), $product_id) : $checkin->look_up($code, $product_id);
         $result['stats'] = self::stats($product_id);
         return rest_ensure_response($result);
     }

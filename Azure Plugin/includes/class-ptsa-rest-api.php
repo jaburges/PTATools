@@ -2,9 +2,9 @@
 /**
  * PTSA REST API — /wp-json/ptsa/v1/*
  *
- * First-party mobile / SSO REST surface for the PTSA Board iOS app.
+ * First-party mobile / SSO REST surface for the PTSA Board app (iOS and Android).
  * Every route is gated by Azure_PTSA_JWT validating an Entra ID id_token
- * whose audience is our iOS app's client_id. The caller is mapped to a
+ * whose audience is the mobile app's client_id. The caller is mapped to a
  * local WP user by email and `wp_set_current_user()`'d so downstream
  * WP / WooCommerce code sees them as that user.
  *
@@ -20,7 +20,7 @@ class Azure_PTSA_REST_API {
     const NAMESPACE_V1 = 'ptsa/v1';
     const USERMETA_HOME_WIDGETS = 'ptsa_ios_home_widgets';
 
-    /** @var string[] Widget ids the iOS Home screen can show or hide. */
+    /** @var string[] Widget ids the mobile app's Home screen can show or hide. */
     const HOME_WIDGET_IDS = array(
         'orders',
         'calendar',
@@ -33,7 +33,8 @@ class Azure_PTSA_REST_API {
     );
 
     /**
-     * Entra application (client) ID of the board iOS app.
+     * Entra application (client) ID of the board mobile app, shared by the
+     * iOS and Android apps. The name predates the Android app.
      * Public client — not a secret. The app's id_token uses this as `aud`.
      */
     const IOS_CLIENT_ID = '62d983db-f1e9-49cf-a833-b332ea3af84e';
@@ -55,7 +56,7 @@ class Azure_PTSA_REST_API {
     }
 
     /**
-     * Audiences we accept on Entra id_tokens. Always includes the iOS app
+     * Audiences we accept on Entra id_tokens. Always includes the mobile app
      * so a missing option or a website-only SSO client_id cannot 401 the
      * board app. Extra IDs (env, option, website SSO) are also allowed.
      *
@@ -457,7 +458,7 @@ class Azure_PTSA_REST_API {
         $rows  = $wpdb->get_results("SELECT * FROM $table ORDER BY sync_enabled DESC, outlook_calendar_name ASC", ARRAY_A);
         if (!is_array($rows)) $rows = array();
 
-        // Count events per calendar so the iOS picker can show "(N events)".
+        // Count events per calendar so the app's picker can show "(N events)".
         $count_by_id = array();
         foreach ($rows as $row) {
             $cid = (string) ($row['outlook_calendar_id'] ?? '');
@@ -1287,8 +1288,8 @@ class Azure_PTSA_REST_API {
         if ($token === '') {
             return new WP_Error('ptsa_github_not_configured', 'PTSA_GITHUB_TOKEN is not configured.');
         }
-        $title = 'iOS app - ' . (string) ($item['title'] ?? 'Backlog item');
-        $body = "Created from the PTATools iOS app.\n\n";
+        $title = 'Mobile app - ' . (string) ($item['title'] ?? 'Backlog item');
+        $body = "Created from the PTATools mobile app.\n\n";
         if (!empty($item['details'])) {
             $body .= (string) $item['details'] . "\n\n";
         }
@@ -1304,7 +1305,7 @@ class Azure_PTSA_REST_API {
             'headers' => array(
                 'Authorization' => 'Bearer ' . $token,
                 'Accept'        => 'application/vnd.github+json',
-                'User-Agent'    => 'PTATools-iOS-Backlog',
+                'User-Agent'    => 'PTATools-Mobile-Backlog',
                 'X-GitHub-Api-Version' => '2022-11-28',
             ),
             'body' => wp_json_encode(array(

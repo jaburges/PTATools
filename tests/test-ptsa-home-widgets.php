@@ -1,6 +1,6 @@
 <?php
 /**
- * iOS Home widgets: prefs sanitization, volunteer fill math, membership counts.
+ * Mobile app Home widgets: prefs sanitization, volunteer fill math, membership counts.
  *
  * Run: php tests/test-ptsa-home-widgets.php
  */
