@@ -3,7 +3,7 @@
  * PTSA REST — Microsoft Entra ID JWT validator
  *
  * Validates id_tokens issued by Microsoft Entra ID for our public-client
- * iOS app registration. Used as the auth primitive for /wp-json/ptsa/v1/*.
+ * mobile app registration. Used as the auth primitive for /wp-json/ptsa/v1/*.
  *
  * Validates: RS256 signature against tenant JWKS, iss, aud, exp, nbf,
  * and (optionally) upn/preferred_username email-domain allow-list.
@@ -31,7 +31,7 @@ class Azure_PTSA_JWT {
     /**
      * @param string          $tenant_id
      * @param string|string[] $client_ids  Entra app IDs allowed as JWT `aud`
-     *                                     (iOS public client and/or website SSO).
+     *                                     (mobile app public client and/or website SSO).
      */
     public function __construct($tenant_id, $client_ids) {
         $this->tenant_id = (string) $tenant_id;

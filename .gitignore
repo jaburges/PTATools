@@ -16,10 +16,9 @@ wiki-temp/
 # Unrelated vendor drop sitting next to the repo (don't ship)
 /Junotoys_v2.30.0/
 
-# Site salvage, summer park assets, and the iOS app (own private repo)
+# Site salvage and summer park assets
 /salvage/
 /summer-placeholder/
-/ios-app/
 
 # Local summer park backups (DB dumps, secrets)
 .local-backups/
