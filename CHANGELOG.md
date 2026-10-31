@@ -12,6 +12,13 @@ Release notes for PTA Tools, newest first. Earlier versions are on the [wiki cha
 
 - Issues filed from the app's tech backlog are titled "Mobile app - …" instead of "iOS app - …", since the same app now runs on Android. Code comments say "mobile app" too; the `IOS_CLIENT_ID` constant and `ptsa_rest_ios_client_id` option keep their names so the saved setting still applies.
 - `ios-app/` is no longer ignored here: the app lives in [PTA-Tools-iOSApp](https://github.com/jaburges/PTA-Tools-iOSApp).
+- The wilderptsa.net image build leaves out git-ignored files in `Azure Plugin/` (a local wiki clone, debug logs), so only the plugin ships.
+
+### Removed
+
+- Leftovers from the wilderptsa.net App Service, which no longer exists: the `promote-prod.yml` slot-swap workflow and its skill doc, the staging-slot setup script, the App Service `wp-config.php` reference, the Logic App cron definition (the `wilderptsa-wpcron` job replaced it), the dev → staging → prod runbook, and the staging targets in `infra/post-change-smoke.sh`. `Deploy-PtaTools.ps1` now only targets lwptsa.net, and CONTRIBUTING describes the image deploy for wilderptsa.net.
+- Job definitions for Container Apps jobs that no longer exist: `db-onedrive-audit`, `fix-woo-page-ids`, `outbound-test`.
+- `improvements.md`, the May 2026 App Service performance audit; the move to containers replaced it.
 
 ## 3.147.204 — Products sold in packs (10 concession tickets at a time)
 

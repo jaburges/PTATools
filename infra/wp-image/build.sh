@@ -111,6 +111,12 @@ rm -rf "$CONTEXT/wp-content/plugins/Azure Plugin"
 echo "==> staging plugin $TAG from the repository"
 cp -R "$REPO_ROOT/Azure Plugin/." "$CONTEXT/azure-plugin/"
 find "$CONTEXT/azure-plugin" \( -name '._*' -o -name '.DS_Store' \) -delete
+# Git-ignored files in the plugin folder (a wiki clone, local debug logs) are
+# not part of the plugin and must not be published in the image.
+git -C "$REPO_ROOT" ls-files --others --ignored --exclude-standard --directory -z -- "Azure Plugin" |
+  while IFS= read -r -d '' ignored; do
+    rm -rf "$CONTEXT/azure-plugin/${ignored#Azure Plugin/}"
+  done
 
 echo "==> ensuring required plugins (export is not trusted for Stripe / Redis / Roles)"
 # The WordPress base image declares VOLUME /var/www/html, so Dockerfile RUN
