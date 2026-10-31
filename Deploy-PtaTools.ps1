@@ -6,14 +6,15 @@
 # pta-tools/v1 REST namespace is registered (i.e. the plugin actually
 # loaded after extraction).
 #
+# Only lwptsa.net is on App Service. wilderptsa.net runs on Container Apps
+# and ships as an image (infra/wp-image/README.md), never via this script.
+#
 # Usage:
-#   .\Deploy-PtaTools.ps1 -Site wilderptsa
 #   .\Deploy-PtaTools.ps1 -Site lwptsa
-#   .\Deploy-PtaTools.ps1 -Site both
 
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('wilderptsa', 'lwptsa', 'both')]
+    [ValidateSet('lwptsa')]
     [string]$Site,
 
     [switch]$SkipBuild
@@ -28,7 +29,7 @@ $ZipPath   = Join-Path $BuildDir 'azure-plugin.zip'
 
 function Get-SiteConfig([string]$siteName) {
     $envFile = Join-Path $RepoRoot (
-        @{ wilderptsa = 'wilder.env'; lwptsa = 'ltptsa.env' }[$siteName]
+        @{ lwptsa = 'ltptsa.env' }[$siteName]
     )
     if (-not (Test-Path $envFile)) {
         throw "Env file for $siteName not found at $envFile"
@@ -174,7 +175,7 @@ function Deploy-To-Site($cfg) {
     Write-Host " ok (v$expectedVer)"
 
     Write-Host "  - Verifying plugin is active in WordPress..."
-    $publicHost = if ($cfg.Site -eq 'wilderptsa') { 'wilderptsa.net' } else { 'lwptsa.net' }
+    $publicHost = 'lwptsa.net'
     $maxAttempts = 6
     $loaded = $false
     for ($i = 1; $i -le $maxAttempts; $i++) {
@@ -216,11 +217,7 @@ if (-not $SkipBuild) {
     throw "-SkipBuild used but $ZipPath does not exist"
 }
 
-$targets = if ($Site -eq 'both') { @('wilderptsa', 'lwptsa') } else { @($Site) }
-foreach ($t in $targets) {
-    $cfg = Get-SiteConfig $t
-    Deploy-To-Site $cfg
-}
+Deploy-To-Site (Get-SiteConfig $Site)
 
 Write-Host ""
 Write-Host "All deployments complete." -ForegroundColor Green

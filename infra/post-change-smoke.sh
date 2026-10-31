@@ -4,7 +4,6 @@
 #
 # Usage:
 #   ./infra/post-change-smoke.sh                    # tests prod
-#   TARGET=staging ./infra/post-change-smoke.sh     # tests staging
 #   TARGET=https://example.com ./infra/post-change-smoke.sh  # custom URL
 set -uo pipefail
 
@@ -12,17 +11,11 @@ case "${TARGET:-prod}" in
   prod|production|"")
     URL="https://wilderptsa.net"
     ;;
-  staging|stage)
-    URL="https://wilderptsa-staging-c20b298090-drccadb2badebhh5.z02.azurefd.net"
-    ;;
-  staging-direct)
-    URL="https://wilderptsa-staging.azurewebsites.net"
-    ;;
   http*)
     URL="$TARGET"
     ;;
   *)
-    echo "Unknown TARGET: $TARGET (use 'prod', 'staging', 'staging-direct', or a full URL)"
+    echo "Unknown TARGET: $TARGET (use 'prod' or a full URL)"
     exit 2
     ;;
 esac

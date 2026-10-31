@@ -30,14 +30,12 @@ Add a **Platform → Danger Zone** section on PTA Tools Main Settings (or a dedi
 **Status:** Implemented (v3.100) — PTA Tools → Main Settings → Platform Danger Zone
 
 #### 2. Mark PTA Tools as Production Release
-**Status:** Cancelled — use `docs/skills/promote-prod/SKILL.md` (`/promote-prod`) + `release-production.yml` instead (no WP UI).
+**Status:** Cancelled — use `release-production.yml` instead (no WP UI).
 
 **Related code changes (release pipeline):**
 - [x] `azure_plugin_best_github_release()` — skip `prerelease` releases
 - [x] Split into `release-beta.yml` + `release-production.yml`
-- [x] `deploy-staging.yml` — deploy beta/rc tags to staging
 - [x] CONTRIBUTING.md — agents must never create non-prerelease releases without explicit user request
-- [x] Cursor skill `/promote-prod`
 
 ---
 
