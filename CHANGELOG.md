@@ -2,6 +2,14 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.206 — Selling and System pages opened from the menu load their styles and scripts
+
+### Fixed
+
+- **Selling → Reports opened from the side menu had no styling and a dead Products box.** Since the Selling and System tabs got their own menu entries (`?page=azure-plugin-selling-reports` and so on), the page knew which tab to show but the stylesheet and script loading still only recognised the tab-link form (`?page=azure-plugin-selling&tab=reports`). The menu entries now load the same assets as the tab links: the tab bar styles on every Selling and System tab, the report builder and product search on Reports, the rules editor on System → Rules, the menu editor on System → Admin Menu, and the Config styles.
+- **Products search box on Reports rendered unstyled next to the raw list.** WooCommerce has no `select2` style handle outside its own screens, so the search widget's styles never loaded on either URL. The report builder now loads WooCommerce's `select2.css` directly.
+- The Products search placeholder showed a literal `\u2026` instead of "…".
+
 ## 3.147.205 — Ticket lookup for the mobile app; app wording
 
 ### Added
