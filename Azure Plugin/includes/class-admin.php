@@ -244,12 +244,7 @@ class Azure_Admin {
             'azure-plugin-selling',
             array($this, 'admin_page_selling')
         );
-        foreach (array(
-            'classes' => __('Classes', 'azure-plugin'),
-            'product-fields' => __('Product Fields', 'azure-plugin'),
-            'donations' => __('Donations', 'azure-plugin'),
-            'reports' => __('Reports', 'azure-plugin'),
-        ) as $tab => $label) {
+        foreach (self::selling_tab_labels() as $tab => $label) {
             add_submenu_page(
                 'azure-plugin',
                 'PTA Tools - ' . $label,
@@ -288,15 +283,7 @@ class Azure_Admin {
         );
 
         $this->add_menu_heading('system', __('System', 'azure-plugin'), 'manage_options');
-        foreach (array(
-            'critical' => __('Critical', 'azure-plugin'),
-            'logs' => __('Logs', 'azure-plugin'),
-            'schedules' => __('Schedules', 'azure-plugin'),
-            'classes' => __('Class Count', 'azure-plugin'),
-            'menu' => __('Admin Menu', 'azure-plugin'),
-            'config' => __('Config', 'azure-plugin'),
-            'rules' => __('Rules', 'azure-plugin'),
-        ) as $tab => $label) {
+        foreach (self::system_tab_labels() as $tab => $label) {
             $slug = ($tab === 'logs') ? 'azure-plugin-system' : 'azure-plugin-system-' . $tab;
             add_submenu_page(
                 'azure-plugin',
@@ -417,6 +404,53 @@ class Azure_Admin {
         Azure_Home_Screen::get_instance()->render_admin_page('pin');
     }
 
+    /** Selling tabs that have their own menu entry (`azure-plugin-selling-<tab>`). Auction is the parent page. */
+    private static function selling_tab_labels() {
+        return array(
+            'classes' => __('Classes', 'azure-plugin'),
+            'product-fields' => __('Product Fields', 'azure-plugin'),
+            'donations' => __('Donations', 'azure-plugin'),
+            'reports' => __('Reports', 'azure-plugin'),
+        );
+    }
+
+    /** System tabs in menu order. Logs is the parent page; the rest are `azure-plugin-system-<tab>`. */
+    private static function system_tab_labels() {
+        return array(
+            'critical' => __('Critical', 'azure-plugin'),
+            'logs' => __('Logs', 'azure-plugin'),
+            'schedules' => __('Schedules', 'azure-plugin'),
+            'classes' => __('Class Count', 'azure-plugin'),
+            'menu' => __('Admin Menu', 'azure-plugin'),
+            'config' => __('Config', 'azure-plugin'),
+            'rules' => __('Rules', 'azure-plugin'),
+        );
+    }
+
+    /**
+     * The admin page and tab being viewed, as array(page, tab).
+     *
+     * A Selling or System tab opened from its own menu entry
+     * (`?page=azure-plugin-selling-reports`) resolves to the same pair as the
+     * tab link (`?page=azure-plugin-selling&tab=reports`). Asset loading runs
+     * before the page renders, so checks must use this rather than `$_GET`.
+     */
+    public static function current_tabbed_page() {
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
+        $parents = array(
+            'azure-plugin-selling' => array_keys(self::selling_tab_labels()),
+            'azure-plugin-system' => array_diff(array_keys(self::system_tab_labels()), array('logs')),
+        );
+        foreach ($parents as $parent => $tabs) {
+            $prefix = $parent . '-';
+            if (strpos($page, $prefix) === 0 && in_array(substr($page, strlen($prefix)), $tabs, true)) {
+                return array($parent, substr($page, strlen($prefix)));
+            }
+        }
+        return array($page, $tab);
+    }
+
     public function filter_submenu_file($submenu_file) {
         $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
         $tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : '';
@@ -535,7 +569,7 @@ class Azure_Admin {
         wp_enqueue_script('azure-plugin-admin', AZURE_PLUGIN_URL . 'js/admin.js', array('jquery'), $cache_version);
         
         // Load page-specific CSS files
-        $current_page = isset($_GET['page']) ? $_GET['page'] : '';
+        list($current_page, $current_tab) = self::current_tabbed_page();
         
         $tabbed_pages = array(
             'azure-plugin-calendar', 'azure-plugin-system',
@@ -544,7 +578,7 @@ class Azure_Admin {
         if (in_array($current_page, $tabbed_pages)) {
             wp_enqueue_style('azure-admin-tabs', AZURE_PLUGIN_URL . 'css/admin-tabs.css', array(), $cache_version);
         }
-        if ($current_page === 'azure-plugin-system' && isset($_GET['tab']) && $_GET['tab'] === 'menu') {
+        if ($current_page === 'azure-plugin-system' && $current_tab === 'menu') {
             wp_enqueue_script(
                 'azure-admin-menu-editor',
                 AZURE_PLUGIN_URL . 'js/admin-menu-editor.js',
@@ -580,7 +614,7 @@ class Azure_Admin {
                 ));
                 break;
             case 'azure-plugin-system':
-                if (isset($_GET['tab']) && $_GET['tab'] === 'rules') {
+                if ($current_tab === 'rules') {
                     wp_enqueue_style('azure-order-rules-admin', AZURE_PLUGIN_URL . 'css/order-rules-admin.css', array(), $cache_version);
                     wp_enqueue_script('azure-order-rules-admin', AZURE_PLUGIN_URL . 'js/order-rules-admin.js', array('jquery'), $cache_version, true);
                     wp_localize_script('azure-order-rules-admin', 'azureOrderRules', array(
@@ -589,7 +623,7 @@ class Azure_Admin {
                         'confirmDelete' => __('Delete this rule? The email design will be removed too.', 'azure-plugin'),
                     ));
                 }
-                if (isset($_GET['tab']) && $_GET['tab'] === 'config') {
+                if ($current_tab === 'config') {
                     wp_enqueue_style('azure-calendar-frontend', AZURE_PLUGIN_URL . 'css/calendar-frontend.css', array(), $cache_version);
                 }
                 break;
@@ -1144,9 +1178,9 @@ class Azure_Admin {
 
     public function admin_page_system() {
         try {
-            $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
-            if (strpos($page, 'azure-plugin-system-') === 0) {
-                $_GET['tab'] = substr($page, strlen('azure-plugin-system-'));
+            list(, $tab) = self::current_tabbed_page();
+            if ($tab !== '') {
+                $_GET['tab'] = $tab;
             }
             $logs = Azure_Logger::get_logs(200);
             include AZURE_PLUGIN_PATH . 'admin/system-page.php';
@@ -1168,9 +1202,9 @@ class Azure_Admin {
 
     public function admin_page_selling() {
         try {
-            $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
-            if (strpos($page, 'azure-plugin-selling-') === 0) {
-                $_GET['tab'] = substr($page, strlen('azure-plugin-selling-'));
+            list(, $tab) = self::current_tabbed_page();
+            if ($tab !== '') {
+                $_GET['tab'] = $tab;
             }
             $settings = Azure_Settings::get_all_settings();
             include AZURE_PLUGIN_PATH . 'admin/selling-page.php';

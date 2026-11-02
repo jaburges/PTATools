@@ -178,8 +178,10 @@ class Azure_Orders_Reports_Module {
     }
 
     public function enqueue_assets($hook) {
-        $page = isset($_GET['page']) ? (string) $_GET['page'] : '';
-        $tab  = isset($_GET['tab'])  ? (string) $_GET['tab']  : '';
+        if (!class_exists('Azure_Admin')) {
+            return;
+        }
+        list($page, $tab) = Azure_Admin::current_tabbed_page();
         if ($page !== 'azure-plugin-selling' || $tab !== 'reports') {
             return;
         }
@@ -211,7 +213,19 @@ class Azure_Orders_Reports_Module {
         // file fetches 200 OK from the public URL but no <link> tag in
         // the rendered <head>. Our CSS does not override any select2
         // styles, so cascade order doesn't matter.
-        wp_enqueue_style('select2');
+        //
+        // WC registers no 'select2' style handle: its select2 rules ship in
+        // the full WC admin.css, which only loads on WC screens. Load WC's
+        // standalone select2.css instead, or the widget renders unstyled
+        // next to the raw multi-select.
+        if (function_exists('WC')) {
+            wp_enqueue_style(
+                'azure-orders-reports-select2',
+                WC()->plugin_url() . '/assets/css/select2.css',
+                array(),
+                defined('WC_VERSION') ? WC_VERSION : $base_v
+            );
+        }
         wp_enqueue_script('wc-enhanced-select');
 
         wp_enqueue_style(
