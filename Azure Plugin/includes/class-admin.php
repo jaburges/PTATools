@@ -612,6 +612,41 @@ class Azure_Admin {
                     'ajaxUrl' => admin_url('admin-ajax.php'),
                     'nonce'   => wp_create_nonce('azure_plugin_nonce'),
                 ));
+                if ($current_tab === 'printed' && class_exists('Azure_Printed_Calendar')) {
+                    wp_enqueue_media();
+                    wp_enqueue_script('azure-printed-calendar-admin', AZURE_PLUGIN_URL . 'js/printed-calendar-admin.js', array('jquery'), $cache_version, true);
+                    $printed_settings = array();
+                    foreach (array_keys(Azure_Printed_Calendar::calendars()) as $calendar_id) {
+                        $settings = Azure_Printed_Calendar::settings($calendar_id);
+                        $settings['header_url'] = $settings['header_id'] ? (string) wp_get_attachment_image_url($settings['header_id'], 'medium') : '';
+                        $meta = $settings['header_id'] ? wp_get_attachment_metadata($settings['header_id']) : array();
+                        $settings['header_width'] = is_array($meta) && isset($meta['width']) ? (int) $meta['width'] : 0;
+                        $settings['live_link'] = Azure_Printed_Calendar::live_link($calendar_id, $settings);
+                        $printed_settings[$calendar_id] = $settings;
+                    }
+                    wp_localize_script('azure-printed-calendar-admin', 'azurePrintedCalendar', array(
+                        'ajaxUrl'    => admin_url('admin-ajax.php'),
+                        'posterUrl'  => admin_url('admin-post.php'),
+                        'action'     => Azure_Printed_Calendar::ACTION,
+                        'posterNonce'=> wp_create_nonce(Azure_Printed_Calendar::ACTION),
+                        'saveAction' => Azure_Printed_Calendar::SAVE_ACTION,
+                        'saveNonce'  => wp_create_nonce(Azure_Printed_Calendar::SAVE_ACTION),
+                        'settings'   => $printed_settings,
+                        'papers'     => Azure_Printed_Calendar::PAPERS,
+                        'strings'    => array(
+                            'chooseHeader' => __('Choose a header picture', 'azure-plugin'),
+                            'useHeader'    => __('Use this picture', 'azure-plugin'),
+                            'saving'       => __('Saving…', 'azure-plugin'),
+                            'saved'        => __('Saved', 'azure-plugin'),
+                            'saveFailed'   => __('Could not save. Please try again.', 'azure-plugin'),
+                            'lowRes'       => __('This picture is %dpx wide, so it will look soft printed large. 2500px or wider is best.', 'azure-plugin'),
+                            'noLink'       => __('No page embeds this calendar yet, so there is no QR code. Add a live calendar link below.', 'azure-plugin'),
+                            'events'       => __('%d events', 'azure-plugin'),
+                            'oneEvent'     => __('1 event', 'azure-plugin'),
+                            'overflow'     => __('This month is too busy to fit; some lessons may be cut off. Try a larger paper size or Mon–Fri.', 'azure-plugin'),
+                        ),
+                    ));
+                }
                 break;
             case 'azure-plugin-system':
                 if ($current_tab === 'rules') {

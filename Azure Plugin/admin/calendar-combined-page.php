@@ -30,7 +30,7 @@ if ($requested === 'config' || (isset($_GET['auth']) && $_GET['auth'] === 'succe
     exit;
 }
 
-$valid_tabs = array('embed', 'sync', 'upcoming');
+$valid_tabs = array('embed', 'sync', 'upcoming', 'printed');
 $active_tab = in_array($requested, $valid_tabs, true) ? $requested : 'embed';
 
 $GLOBALS['azure_tab_mode'] = true;
@@ -51,6 +51,10 @@ $GLOBALS['azure_tab_mode'] = true;
            class="azure-tab-link <?php echo $active_tab === 'upcoming' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-clock"></span> <?php esc_html_e('Upcoming Events', 'azure-plugin'); ?>
         </a>
+        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-calendar&tab=printed')); ?>"
+           class="azure-tab-link <?php echo $active_tab === 'printed' ? 'active' : ''; ?>">
+            <span class="dashicons dashicons-printer"></span> <?php esc_html_e('Printed Calendars', 'azure-plugin'); ?>
+        </a>
     </nav>
 
     <?php
@@ -60,6 +64,9 @@ $GLOBALS['azure_tab_mode'] = true;
             break;
         case 'upcoming':
             include AZURE_PLUGIN_PATH . 'admin/upcoming-page.php';
+            break;
+        case 'printed':
+            include AZURE_PLUGIN_PATH . 'admin/calendar-printed-page.php';
             break;
         default:
             include AZURE_PLUGIN_PATH . 'admin/calendar-page.php';

@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.206
+ * Version: 3.147.207
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.206');
+define('AZURE_PLUGIN_VERSION', '3.147.207');
 
 require_once AZURE_PLUGIN_PATH . 'includes/class-private-storage.php';
 
@@ -1244,6 +1244,7 @@ class AzurePlugin {
                     'class-calendar-mapping-manager.php',
                     'class-calendar-sync-engine.php',
                     'class-calendar-sync-ajax.php',
+                    'class-printed-calendar.php',
                 ));
 
                 if (class_exists('Azure_Calendar_Auth')) {
@@ -1267,6 +1268,9 @@ class AzurePlugin {
                 }
                 if (class_exists('Azure_Calendar_Sync_Ajax')) {
                     new Azure_Calendar_Sync_Ajax();
+                }
+                if (class_exists('Azure_Printed_Calendar')) {
+                    new Azure_Printed_Calendar();
                 }
             }
         } catch (\Throwable $e) {
