@@ -2,6 +2,14 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.207 — Printed Calendars
+
+### Added
+
+- **Calendar → Printed Calendars** makes a wall poster of one calendar's month from the live events. Pick the calendar, the month, Mon–Fri or the full week, and the paper (A3, 11×17″, Letter or A4, all landscape), check the preview, then print it or save it as a PDF from the print dialog. Text and lines are vector, so a print shop can enlarge the PDF to A2 or 24×36″.
+- The poster has a header picture, the site logo, a colour-coded chip for each grade named at the start of an event title ("4th- Harewood", "Kindergarten - …", "4/5 …") with a legend for the grades that month, the time, and the location when it isn't the calendar's usual one. A QR code in the footer links to the page that shows the calendar. Busy months shrink the event text to fit, and the preview says if a month still doesn't fit. In Mon–Fri mode the footer says how many weekend events were left off.
+- Each calendar keeps its own header picture (chosen from the media library) and poster text: the line above the title, the line under the month, the usual location, a footer message, and the QR link if it shouldn't be found automatically. The preview warns when the picture is under 2500px wide, since it will print soft.
+
 ## 3.147.206 — Selling and System pages opened from the menu load their styles and scripts
 
 ### Fixed
