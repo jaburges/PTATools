@@ -124,6 +124,9 @@ $module_loaded = class_exists('Azure_Tickets_Module') && class_exists('Azure_Tic
         <a href="?page=azure-plugin-tickets&tab=assign" class="nav-tab <?php echo $current_tab === 'assign' ? 'nav-tab-active' : ''; ?>">
             <span class="dashicons dashicons-groups"></span> <?php _e('Assign seats', 'azure-plugin'); ?>
         </a>
+        <a href="?page=azure-plugin-tickets&tab=visualizer" class="nav-tab <?php echo $current_tab === 'visualizer' ? 'nav-tab-active' : ''; ?>">
+            <span class="dashicons dashicons-visibility"></span> <?php _e('Visualizer', 'azure-plugin'); ?>
+        </a>
         <a href="<?php echo admin_url('admin.php?page=azure-plugin-tickets-checkin'); ?>" class="nav-tab <?php echo $current_tab === 'checkin' ? 'nav-tab-active' : ''; ?>">
             <span class="dashicons dashicons-smartphone"></span> <?php _e('Check-in', 'azure-plugin'); ?>
         </a>
@@ -146,6 +149,9 @@ $module_loaded = class_exists('Azure_Tickets_Module') && class_exists('Azure_Tic
                 break;
             case 'assign':
                 include AZURE_PLUGIN_PATH . 'admin/tickets-assign.php';
+                break;
+            case 'visualizer':
+                include AZURE_PLUGIN_PATH . 'admin/tickets-visualizer.php';
                 break;
             case 'settings':
                 include AZURE_PLUGIN_PATH . 'admin/tickets-settings.php';
