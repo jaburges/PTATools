@@ -2,6 +2,13 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.208 — Tickets: seat Visualizer and door printout
+
+### Added
+
+- **Tickets → Visualizer** shows one performance's seat map with who has each seat. Pick the event, then a chip for each performance (with seats sold so far). Seats are drawn as free, sold, checked in, in someone's cart, awaiting payment, or not on public sale, and the seats bought on one order (or held in one cart) have a single outline around them. Hovering over or tabbing to a seat shows the seat, the ticket name, the order number and status, the buyer's name, email and phone, and every seat on that order, and lights up the rest of the order; clicking opens the order. A search box picks out seats by name, email or order number. Shop managers and administrators only, since it shows buyers' details.
+- **Printout** asks which performance (e.g. Fri 13 Nov or Sat 14 Nov), the paper (Letter, Tabloid, A4 or A3) and whether to write names on the sold seats, then opens a print preview of a full-size seating map tiled across four landscape pages, with the title, counts, legend and print time across the top. Sold seats carry the initial and surname ("W. Darling"); free seats are left blank with their number, for checking people in and selling the rest by hand once online sales close. Each page is numbered with its position, and corner marks show where to trim the inner edges before taping.
+
 ## 3.147.207 — Printed Calendars
 
 ### Added
