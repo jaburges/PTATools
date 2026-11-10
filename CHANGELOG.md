@@ -2,6 +2,16 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.207 — Door PINs: volunteers can scan tickets without a board sign-in
+
+### Added
+
+- **Door PIN for volunteers** on each performance (the Variations tab, or the Event Tickets tab for a single-performance product). 6 to 8 digits; blank means only signed-in board members can scan. Volunteers type it into the PTSA Board app's "Just use the ticket scanner" option on the sign-in screen.
+- **`POST /wp-json/ptsa/v1/tickets/door`** (`{pin}`) swaps the PIN for a door token for the performance it opens. A PIN works from 12 hours before the performance starts until 8 hours after, and so does the token. After 10 wrong PINs from one address (or 50 site-wide) in 15 minutes, PINs are refused until the window passes.
+- `tickets/checkin`, `tickets/lookup` and `tickets/{id}/undo` accept `Authorization: Door <token>` as well as the app sign-in. A door token only works for its own performance. Its answers carry the outcome, ticket number and name, but not the checked-in counter, the seat or who scanned. Check-ins are recorded with no WordPress user.
+- Changing or clearing a performance's PIN ends every volunteer session that used the old one.
+- Signed-in app users see each performance's `door_pin` in `tickets/performances`, so a board member can read it out to volunteers. The performance list and the door list are still sign-in only.
+
 ## 3.147.206 — Selling and System pages opened from the menu load their styles and scripts
 
 ### Fixed

@@ -415,6 +415,15 @@ add_action('woocommerce_product_data_panels', function() {
                 'desc_tip' => true,
                 'type' => 'datetime-local'
             ));
+
+            woocommerce_wp_text_input(array(
+                'id' => 'pta_ticket_door_pin_single',
+                'label' => __('Door PIN for volunteers', 'azure-plugin'),
+                'description' => azure_tickets_door_pin_help(),
+                'desc_tip' => true,
+                'value' => Azure_Tickets_Door::pin($post->ID),
+                'custom_attributes' => array('inputmode' => 'numeric', 'autocomplete' => 'off', 'pattern' => '\d{6,8}', 'maxlength' => '8'),
+            ));
             endif;
             
             $venue_options = array('' => __('-- Select Venue --', 'azure-plugin'));
@@ -539,6 +548,9 @@ add_action('woocommerce_process_product_meta', function($post_id) {
     if (isset($_POST['_ticket_sales_close'])) {
         update_post_meta($post_id, Azure_Tickets_Config::META_SALES_CLOSE, Azure_Tickets_Config::clean_local(wp_unslash($_POST['_ticket_sales_close'])));
     }
+    if (isset($_POST['pta_ticket_door_pin_single'])) {
+        update_post_meta($post_id, Azure_Tickets_Door::META_PIN, Azure_Tickets_Door::clean_pin(wp_unslash($_POST['pta_ticket_door_pin_single'])));
+    }
     $old_venue = (int) get_post_meta($post_id, '_ticket_venue_id', true);
     if (isset($_POST['_ticket_venue_id'])) {
         update_post_meta($post_id, '_ticket_venue_id', absint($_POST['_ticket_venue_id']));
@@ -612,6 +624,11 @@ add_action('woocommerce_product_after_variable_attributes', function($loop, $var
             <?php echo wc_help_tip(__('Blank = midnight at the start of the performance day.', 'azure-plugin')); ?>
             <input type="datetime-local" id="pta_ticket_sales_close_<?php echo $loop; ?>" name="pta_ticket_sales_close[<?php echo $loop; ?>]" value="<?php echo esc_attr((string) get_post_meta($id, Azure_Tickets_Config::META_SALES_CLOSE, true)); ?>">
         </p>
+        <p class="form-row form-row-first">
+            <label for="pta_ticket_door_pin_<?php echo $loop; ?>"><?php esc_html_e('Door PIN for volunteers', 'azure-plugin'); ?></label>
+            <?php echo wc_help_tip(azure_tickets_door_pin_help()); ?>
+            <input type="text" inputmode="numeric" autocomplete="off" pattern="\d{6,8}" maxlength="8" id="pta_ticket_door_pin_<?php echo $loop; ?>" name="pta_ticket_door_pin[<?php echo $loop; ?>]" value="<?php echo esc_attr(Azure_Tickets_Door::pin($id)); ?>">
+        </p>
         <p class="form-row form-row-full">
             <label for="pta_ticket_event_id_<?php echo $loop; ?>"><?php esc_html_e('Linked event', 'azure-plugin'); ?></label>
             <select id="pta_ticket_event_id_<?php echo $loop; ?>" name="pta_ticket_event_id[<?php echo $loop; ?>]" style="width:100%">
@@ -631,7 +648,12 @@ add_action('woocommerce_save_product_variation', function($variation_id, $i) {
     update_post_meta($variation_id, Azure_Tickets_Config::META_EVENT_DATE, Azure_Tickets_Config::clean_local(wp_unslash($_POST['pta_ticket_event_date'][$i])));
     update_post_meta($variation_id, Azure_Tickets_Config::META_SALES_CLOSE, Azure_Tickets_Config::clean_local(wp_unslash($_POST['pta_ticket_sales_close'][$i] ?? '')));
     update_post_meta($variation_id, Azure_Tickets_Config::META_EVENT_ID, absint($_POST['pta_ticket_event_id'][$i] ?? 0) ?: '');
+    update_post_meta($variation_id, Azure_Tickets_Door::META_PIN, Azure_Tickets_Door::clean_pin(wp_unslash($_POST['pta_ticket_door_pin'][$i] ?? '')));
 }, 10, 2);
+
+function azure_tickets_door_pin_help() {
+    return __('6 to 8 digits. Volunteers without a board sign-in type this into the PTSA Board app ("Just use the ticket scanner") to check tickets in for this performance, from 12 hours before it starts until 8 hours after. Blank = only signed-in board members can scan. Changing it ends every volunteer session that used the old PIN.', 'azure-plugin');
+}
 
 // After WooCommerce has saved the product type and status.
 add_action('woocommerce_process_product_meta', function($post_id) {

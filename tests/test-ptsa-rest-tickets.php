@@ -18,6 +18,9 @@ if (!function_exists('sanitize_text_field')) {
 if (!function_exists('wp_strip_all_tags')) {
     function wp_strip_all_tags($s) { return strip_tags((string) $s); }
 }
+if (!function_exists('wp_salt')) {
+    function wp_salt($scheme = 'auth') { return 'test-salt-' . $scheme; }
+}
 function rest_ensure_response($data) { return $data; }
 function register_rest_route($ns, $route, $args) { PRT::$routes[$ns . $route] = $args; return true; }
 function get_current_user_id() { return PRT::$user; }
@@ -27,9 +30,10 @@ function wc_get_product($id) { return PRT::$products[$id] ?? null; }
 function wc_get_products($args) { return array_keys(PRT::$products); }
 
 class WP_REST_Request implements ArrayAccess {
-    private $params; private $json;
-    public function __construct(array $params = array(), array $json = array()) { $this->params = $params; $this->json = $json; }
+    private $params; private $json; private $headers;
+    public function __construct(array $params = array(), array $json = array(), array $headers = array()) { $this->params = $params; $this->json = $json; $this->headers = $headers; }
     public function get_json_params() { return $this->json; }
+    public function get_header($k) { return $this->headers[strtolower($k)] ?? null; }
     public function offsetExists($k): bool { return isset($this->params[$k]); }
     public function offsetGet($k): mixed { return $this->params[$k] ?? null; }
     public function offsetSet($k, $v): void { $this->params[$k] = $v; }
@@ -47,6 +51,7 @@ class PRT {
     public static $routes = array();
     public static $products = array();
     public static $user = 7;
+    public static $signed_in_checks = 0;
 }
 
 require_once AZURE_PLUGIN_PATH . 'includes/class-tickets-layout.php';
@@ -109,13 +114,18 @@ $t = new TestRunner('PTSA REST tickets');
 $R = 'Azure_PTSA_REST_Tickets';
 
 // ── Routes ─────────────────────────────────────────────────────────────
+function __auth__($request) { PRT::$signed_in_checks++; return true; }
 $R::register('ptsa/v1', '__auth__');
 $t->equals(
-    array('ptsa/v1/tickets/performances', 'ptsa/v1/tickets/performances/(?P<id>\d+)', 'ptsa/v1/tickets/checkin', 'ptsa/v1/tickets/lookup', 'ptsa/v1/tickets/(?P<id>\d+)/undo'),
+    array('ptsa/v1/tickets/performances', 'ptsa/v1/tickets/performances/(?P<id>\d+)', 'ptsa/v1/tickets/checkin', 'ptsa/v1/tickets/lookup', 'ptsa/v1/tickets/(?P<id>\d+)/undo', 'ptsa/v1/tickets/door'),
     array_keys(PRT::$routes),
-    'the five door routes are registered'
+    'the six door routes are registered'
 );
-$t->check(!array_filter(PRT::$routes, function ($r) { return $r['permission_callback'] !== '__auth__'; }), 'every route uses the app sign-in check');
+$t->equals('__auth__', PRT::$routes['ptsa/v1/tickets/performances']['permission_callback'], 'the performance list needs the app sign-in');
+$t->equals('__auth__', PRT::$routes['ptsa/v1/tickets/performances/(?P<id>\d+)']['permission_callback'], 'and so does the door list');
+$t->equals('__return_true', PRT::$routes['ptsa/v1/tickets/door']['permission_callback'], 'swapping a PIN for a door token is open; the PIN is the check');
+$gate = PRT::$routes['ptsa/v1/tickets/checkin']['permission_callback'];
+$t->check($gate(new WP_REST_Request()) === true && PRT::$signed_in_checks === 1, 'check-in without a door token falls through to the app sign-in');
 
 // ── Performance list ───────────────────────────────────────────────────
 $list = $R::list_performances(new WP_REST_Request());
@@ -191,5 +201,82 @@ $t->equals(array('sold' => 2, 'checked_in' => 1), $r['stats'], 'and the counter 
 $t->check($R::undo(new WP_REST_Request(array('id' => $id))) instanceof WP_Error, 'undoing a ticket that is not checked in is refused');
 $r = $scan('FRIAAAAAA2', $FRI);
 $t->check($r['success'], 'and it can be scanned again');
+$t->equals('', $list[0]['door_pin'], 'signed-in callers see the door PIN on each performance; blank when none is set');
+
+// ── Door PIN (volunteers without a sign-in) ────────────────────────────
+$D = 'Azure_Tickets_Door';
+$t->equals('', $D::clean_pin('12345'), 'a PIN needs at least 6 digits');
+$t->equals('', $D::clean_pin('123456789'), 'and at most 8');
+$t->equals('246810', $D::clean_pin(' 246-810 '), 'spaces and dashes are dropped');
+
+$open = function ($pin) use ($R) {
+    return $R::open_door(new WP_REST_Request(array(), array('pin' => $pin)));
+};
+$r = $open('246810');
+$t->check($r instanceof WP_Error && $r->get_error_data()['status'] === 401, 'no performance has a PIN yet, so none opens');
+
+WP_Shim::$post_meta[$FRI][$D::META_PIN] = '246810';
+WP_Shim::$post_meta[$SAT][$D::META_PIN] = '135790';
+WP_Shim::$transients = array();
+$fri_start = Azure_Tickets_Config::event_ts($FRI);
+Azure_Tickets_Config::$now = $fri_start - 1800;
+$r = $open('246810');
+$t->check(is_array($r) && $r['token'] !== '', 'Friday\'s PIN opens Friday half an hour before the show');
+$t->equals($FRI, $r['performance']['id'], 'naming the performance');
+$t->check(!isset($r['performance']['stats']) && !isset($r['performance']['door_pin']), 'without the counter or the PIN');
+$t->equals($fri_start + 8 * HOUR_IN_SECONDS, $r['expires_at'], 'and it lasts until 8 hours after the start');
+$fri_token = $r['token'];
+
+$r = $open('135790');
+$t->check($r instanceof WP_Error, 'Saturday\'s PIN does not open on Friday evening; its window starts 12 hours before Saturday\'s show');
+
+$door = function ($token, $route = 'checkin') use ($R) {
+    $req = new WP_REST_Request(array(), array(), array('authorization' => 'Door ' . $token));
+    return $R::authorize_door_or('__auth__', $req);
+};
+$checks = PRT::$signed_in_checks;
+$t->check($door($fri_token) === true && PRT::$signed_in_checks === $checks, 'a door token passes without the app sign-in');
+
+PRT::$user = 0;
+$r = $look('SATAAAAAA2', $SAT);
+$t->check($r instanceof WP_Error && $r->get_error_code() === 'ptsa_tickets_door_scope', 'a Friday door token cannot scan for Saturday');
+$r = $scan('FRIBBBBBB3', $FRI);
+$t->check(!$r['success'] && $r['status'] === 'already_used', 'a door scan gives the same outcome');
+$t->check(!isset($r['stats']), 'without the counter');
+$t->check(!isset($r['ticket']['seat']) && !isset($r['ticket']['checked_in_by']), 'or the seat and who scanned');
+$t->equals(array('FRIBBBBBB3', 'Guest'), array($r['ticket']['code'], $r['ticket']['attendee']), 'but with the ticket number and name');
+
+$fid = (int) $wpdb->get_var("SELECT id FROM wp_azure_tickets WHERE ticket_code = 'FRIBBBBBB3'");
+$r = $R::undo(new WP_REST_Request(array('id' => $fid)));
+$t->check($r['success'] && !isset($r['stats']), 'a volunteer can undo a Friday check-in');
+$r = $scan('FRIBBBBBB3', $FRI);
+$t->check($r['success'] && $r['status'] === 'success', 'and scan it again');
+$t->equals('0', (string) $wpdb->get_var("SELECT checked_in_by FROM wp_azure_tickets WHERE ticket_code = 'FRIBBBBBB3'"), 'recorded as a door-PIN check-in, not as a board member');
+$sid = (int) $wpdb->get_var("SELECT id FROM wp_azure_tickets WHERE ticket_code = 'SATAAAAAA2'");
+$r = $R::undo(new WP_REST_Request(array('id' => $sid)));
+$t->check($r instanceof WP_Error && $r->get_error_code() === 'ptsa_tickets_door_scope', 'and cannot undo anything for another night');
+
+$r = $door($fri_token . 'x');
+$t->check($r instanceof WP_Error && $r->get_error_data()['status'] === 401, 'a tampered token is refused');
+WP_Shim::$post_meta[$FRI][$D::META_PIN] = '999111';
+$r = $door($fri_token);
+$t->check($r instanceof WP_Error && $r->get_error_code() === 'ptsa_tickets_door_expired', 'changing the PIN ends sessions that used the old one');
+WP_Shim::$post_meta[$FRI][$D::META_PIN] = '246810';
+$t->check($door($fri_token) === true, 'and putting it back restores them');
+Azure_Tickets_Config::$now = $fri_start + 8 * HOUR_IN_SECONDS + 1;
+$t->check($door($fri_token) instanceof WP_Error, 'the token stops working once the night is over');
+$t->check($open('246810') instanceof WP_Error, 'and the PIN no longer opens Friday');
+Azure_Tickets_Config::$now = $fri_start - 13 * HOUR_IN_SECONDS;
+$t->check($open('246810') instanceof WP_Error, 'nor does it open more than 12 hours early');
+Azure_Tickets_Config::$now = $fri_start - 1800;
+
+WP_Shim::$transients = array();
+for ($i = 0; $i < Azure_Tickets_Door::FAILURES_PER_ADDRESS; $i++) {
+    $open('000000');
+}
+$r = $open('246810');
+$t->check($r instanceof WP_Error && $r->get_error_data()['status'] === 429, 'after 10 wrong PINs even the right one is refused for a while');
+WP_Shim::$transients = array();
+$t->check(is_array($open('246810')), 'and works again once the window passes');
 
 exit($t->finish() > 0 ? 1 : 0);
