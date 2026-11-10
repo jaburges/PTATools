@@ -51,6 +51,7 @@ class Azure_Tickets_Module {
         add_action('wp_ajax_azure_tickets_validate_ticket', array($this, 'ajax_validate_ticket'));
         add_action('wp_ajax_azure_tickets_email_preview', array($this, 'ajax_email_preview'));
         add_action('admin_post_azure_tickets_assign_csv', array('Azure_Tickets_Assign', 'download_csv'));
+        add_action('admin_post_azure_tickets_seat_print', array('Azure_Tickets_Visualizer', 'serve_print'));
         
         // Cleanup expired seat reservations
         add_action('azure_tickets_cleanup_reservations', array($this, 'cleanup_expired_reservations'));
@@ -100,6 +101,7 @@ class Azure_Tickets_Module {
             'class-tickets-access.php',
             'class-tickets-cart.php',
             'class-tickets-assign.php',
+            'class-tickets-visualizer.php',
             'class-tickets-qr.php',
             'class-tickets-product-type.php',
             'class-tickets-generator.php',
@@ -177,6 +179,11 @@ class Azure_Tickets_Module {
                 'nonce' => wp_create_nonce('azure_tickets_nonce'),
                 'ajaxUrl' => admin_url('admin-ajax.php')
             ));
+        }
+
+        if ($tab === 'visualizer') {
+            wp_enqueue_style('azure-tickets-visualizer', AZURE_PLUGIN_URL . 'css/tickets-visualizer.css', array(), AZURE_PLUGIN_VERSION);
+            wp_enqueue_script('azure-tickets-visualizer', AZURE_PLUGIN_URL . 'js/tickets-visualizer.js', array('jquery'), AZURE_PLUGIN_VERSION, true);
         }
         
         // Check-in page assets

@@ -2,7 +2,7 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
-## 3.147.207 — Door PINs: volunteers can scan tickets without a board sign-in
+## 3.147.209 — Door PINs: volunteers can scan tickets without a board sign-in
 
 ### Added
 
@@ -11,6 +11,21 @@ Release notes for PTA Tools, newest first. Earlier versions are on the [wiki cha
 - `tickets/checkin`, `tickets/lookup` and `tickets/{id}/undo` accept `Authorization: Door <token>` as well as the app sign-in. A door token only works for its own performance. Its answers carry the outcome, ticket number and name, but not the checked-in counter, the seat or who scanned. Check-ins are recorded with no WordPress user.
 - Changing or clearing a performance's PIN ends every volunteer session that used the old one.
 - Signed-in app users see each performance's `door_pin` in `tickets/performances`, so a board member can read it out to volunteers. The performance list and the door list are still sign-in only.
+
+## 3.147.208 — Tickets: seat Visualizer and door printout
+
+### Added
+
+- **Tickets → Visualizer** shows one performance's seat map with who has each seat. Pick the event, then a chip for each performance (with seats sold so far). Seats are drawn as free, sold, checked in, in someone's cart, awaiting payment, or not on public sale, and the seats bought on one order (or held in one cart) have a single outline around them. Hovering over or tabbing to a seat shows the seat, the ticket name, the order number and status, the buyer's name, email and phone, and every seat on that order, and lights up the rest of the order; clicking opens the order. A search box picks out seats by name, email or order number. Shop managers and administrators only, since it shows buyers' details.
+- **Printout** asks which performance (e.g. Fri 13 Nov or Sat 14 Nov), the paper (Letter, Tabloid, A4 or A3) and whether to write names on the sold seats, then opens a print preview of a full-size seating map tiled across four landscape pages, with the title, counts, legend and print time across the top. Sold seats carry the initial and surname ("W. Darling"); free seats are left blank with their number, for checking people in and selling the rest by hand once online sales close. Each page is numbered with its position, and corner marks show where to trim the inner edges before taping.
+
+## 3.147.207 — Printed Calendars
+
+### Added
+
+- **Calendar → Printed Calendars** makes a wall poster of one calendar's month from the live events. Pick the calendar, the month, Mon–Fri or the full week, and the paper (A3, 11×17″, Letter or A4, all landscape), check the preview, then print it or save it as a PDF from the print dialog. Text and lines are vector, so a print shop can enlarge the PDF to A2 or 24×36″.
+- The poster has a header picture, the site logo, a colour-coded chip for each grade named at the start of an event title ("4th- Harewood", "Kindergarten - …", "4/5 …") with a legend for the grades that month, the time, and the location when it isn't the calendar's usual one. A QR code in the footer links to the page that shows the calendar. Busy months shrink the event text to fit, and the preview says if a month still doesn't fit. In Mon–Fri mode the footer says how many weekend events were left off.
+- Each calendar keeps its own header picture (chosen from the media library) and poster text: the line above the title, the line under the month, the usual location, a footer message, and the QR link if it shouldn't be found automatically. The preview warns when the picture is under 2500px wide, since it will print soft.
 
 ## 3.147.206 — Selling and System pages opened from the menu load their styles and scripts
 

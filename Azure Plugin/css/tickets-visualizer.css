@@ -1,0 +1,482 @@
+/**
+ * Tickets → Visualizer: the seat map (shared with the printout) and the tab around it.
+ */
+
+/* ── Map, in layout pixels ─────────────────────────────────────────── */
+
+.ptv-canvas {
+    position: relative;
+    overflow: hidden;
+}
+
+.ptv-origin {
+    position: absolute;
+}
+
+.ptv-block {
+    position: absolute;
+    box-sizing: border-box;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.ptv-block--stage {
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    border-radius: 6px 6px 24px 24px;
+}
+
+.ptv-block--area {
+    color: #3c3c3c;
+    border: 2px dashed rgba(0, 0, 0, 0.25);
+    background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.35) 0 8px, transparent 8px 16px);
+    padding: 4px;
+}
+
+.ptv-block--label {
+    font-weight: 700;
+}
+
+.ptv-block--ga {
+    flex-direction: column;
+    gap: 2px;
+    border: 2px solid;
+}
+
+.ptv-block--seats {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 2px 4px 4px;
+}
+
+.ptv-rows {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+}
+
+.ptv-rowline {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    min-height: 0;
+}
+
+.ptv-cells {
+    flex: 1;
+    display: flex;
+    gap: 2px;
+    min-width: 0;
+}
+
+.ptv-rowline.stagger-a .ptv-cells {
+    padding-right: calc(50% / var(--n));
+}
+
+.ptv-rowline.stagger-b .ptv-cells {
+    padding-left: calc(50% / var(--n));
+}
+
+.ptv-row {
+    flex: 0 0 10px;
+    font-size: 9px;
+    font-weight: 700;
+    align-self: center;
+    padding-right: 2px;
+    color: var(--seat, #50575e);
+}
+
+.ptv-rowline.ptv-nums {
+    flex: 0 0 11px;
+}
+
+.ptv-num {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 8px;
+    font-weight: 600;
+    line-height: 11px;
+    text-align: center;
+    color: var(--seat, #50575e);
+    white-space: nowrap;
+}
+
+.ptv-gap {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.ptv-seat {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+    border: 1.5px solid var(--seat);
+    border-radius: 3px 3px 5px 5px;
+    background: #fff;
+    color: #1d2327;
+    container-type: size;
+    line-height: 1;
+}
+
+.ptv-seat b {
+    font-weight: 700;
+    font-size: min(46cqh, 40cqw);
+    white-space: nowrap;
+}
+
+.ptv-seat i {
+    display: block;
+    overflow: hidden;
+    max-width: 100%;
+    padding: 0 1px;
+    box-sizing: border-box;
+    font-style: normal;
+    font-weight: 600;
+    font-size: min(34cqh, 21cqw);
+    line-height: 1.1;
+    text-align: center;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.ptv-seat b small {
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
+/* Padding and gap percentages would be of the row, not the seat, so they stay fixed here. */
+.ptv-seat:has(i) {
+    gap: 2px;
+}
+
+.ptv-seat:has(i) b {
+    font-size: min(30cqh, 26cqw);
+}
+
+.ptv-seat.is-sold {
+    background: var(--seat-fill);
+}
+
+.ptv-seat.is-checked-in {
+    background: var(--seat);
+    color: #fff;
+}
+
+.ptv-seat.is-checked-in b::after {
+    content: " ✓";
+}
+
+.ptv-seat.is-held,
+.ptv-key.is-held {
+    background: repeating-linear-gradient(45deg, #fcf0d4 0 3px, #fff 3px 6px);
+    border-color: #dba617;
+    border-style: dashed;
+}
+
+.ptv-seat.is-ordered {
+    background: repeating-linear-gradient(45deg, #fcf0d4 0 3px, #fff 3px 6px);
+    border-color: #b26200;
+    border-style: dashed;
+}
+
+.ptv-seat.is-closed,
+.ptv-key.is-closed {
+    background: #f0f0f1;
+    border-color: #c3c4c7;
+    color: #8c8f94;
+}
+
+.ptv-seat.is-accessible,
+.ptv-seat.is-companion {
+    border-color: #1565c0;
+}
+
+.ptv-seat.is-companion {
+    border-width: 1.5px 1.5px 1.5px 4px;
+}
+
+/* Bought together: each seat draws the sides of the outline that don't face a seat of the same order. */
+.ptv-seat.ptv-g::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border: 0 solid #1d2327;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.ptv-seat.ptv-gl::before { border-left-width: 2px; }
+.ptv-seat.ptv-gr::before { border-right-width: 2px; }
+.ptv-seat.ptv-gt::before { border-top-width: 2px; }
+.ptv-seat.ptv-gb::before { border-bottom-width: 2px; }
+
+/* Legend swatches */
+.ptv-key {
+    display: inline-block;
+    width: 16px;
+    height: 13px;
+    box-sizing: border-box;
+    border: 1.5px solid #2271b1;
+    border-radius: 2px 2px 4px 4px;
+    background: #fff;
+    vertical-align: middle;
+}
+
+.ptv-key.is-sold { background: rgba(34, 113, 177, 0.3); }
+.ptv-key.is-checked-in { background: #2271b1; }
+.ptv-key.is-group { border: 2px solid #1d2327; border-radius: 0; background: rgba(34, 113, 177, 0.3); }
+
+/* ── Visualizer tab ────────────────────────────────────────────────── */
+
+.ptv-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin: 4px 0 12px;
+}
+
+.ptv-head h2 {
+    margin: 0;
+}
+
+.ptv-pick {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ptv-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 12px;
+}
+
+.ptv-chip {
+    display: inline-flex;
+    flex-direction: column;
+    padding: 6px 14px;
+    border: 1px solid #c3c4c7;
+    border-radius: 999px;
+    background: #fff;
+    color: #1d2327;
+    text-decoration: none;
+    line-height: 1.3;
+}
+
+.ptv-chip small {
+    color: #646970;
+}
+
+.ptv-chip:hover,
+.ptv-chip:focus {
+    border-color: #2271b1;
+    color: #2271b1;
+}
+
+.ptv-chip.is-current {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.ptv-chip.is-current small {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.ptv-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    align-items: center;
+    margin: 0 0 10px;
+}
+
+.ptv-stats {
+    font-size: 14px;
+}
+
+.ptv-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    color: #50575e;
+}
+
+.ptv-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.ptv-find {
+    margin-left: auto;
+}
+
+.ptv-find input {
+    min-width: 220px;
+}
+
+.ptv-map {
+    position: relative;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.ptv-map .ptv-canvas {
+    transform-origin: 0 0;
+}
+
+.ptv-map .ptv-seat,
+.ptv-map .ptv-block--ga {
+    cursor: pointer;
+}
+
+.ptv-map .ptv-seat:focus-visible,
+.ptv-map .ptv-block--ga:focus-visible {
+    outline: 2px solid #1d2327;
+    outline-offset: 1px;
+    z-index: 2;
+}
+
+.ptv-map .ptv-seat.is-hl {
+    box-shadow: 0 0 0 2px #d63638;
+    z-index: 2;
+}
+
+.ptv-map.is-finding .ptv-seat:not(.is-match) {
+    opacity: 0.25;
+}
+
+.ptv-map .ptv-seat.is-match {
+    box-shadow: 0 0 0 2px #d63638;
+    z-index: 2;
+}
+
+.ptv-tip {
+    position: fixed;
+    z-index: 100000;
+    max-width: 320px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: #1d2327;
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.45;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+}
+
+.ptv-tip[hidden] {
+    display: none;
+}
+
+.ptv-tip strong {
+    font-size: 14px;
+}
+
+.ptv-tip .ptv-tip__state {
+    display: inline-block;
+    margin: 2px 0 4px;
+    padding: 0 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.16);
+    font-size: 12px;
+}
+
+.ptv-tip .ptv-tip__muted {
+    color: #c3c4c7;
+}
+
+.ptv-note {
+    margin-top: 10px;
+    color: #646970;
+}
+
+/* Print modal */
+.ptv-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.ptv-modal[hidden] {
+    display: none;
+}
+
+.ptv-modal__box {
+    width: min(520px, calc(100vw - 32px));
+    max-height: calc(100vh - 64px);
+    overflow: auto;
+    padding: 20px 24px;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.ptv-modal__box h2 {
+    margin-top: 0;
+}
+
+.ptv-modal fieldset {
+    margin: 0 0 16px;
+    padding: 0;
+    border: 0;
+}
+
+.ptv-modal legend {
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.ptv-days {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ptv-days label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.ptv-days label:has(input:checked) {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    background: #f0f6fc;
+}
+
+.ptv-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
