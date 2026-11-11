@@ -615,6 +615,180 @@ class Azure_Tickets_Visualizer {
         return array('seats' => $seats, 'orders' => $snap['orders'], 'sections' => $sections);
     }
 
+    // ── The PTSA Board app's seat map ───────────────────────────────────
+
+    /**
+     * Where each seat of a rectangle block sits inside the block, in layout
+     * pixels before the block's rotation. Follows the tab's CSS: 2/4/4px
+     * block padding, an 11px seat-number line, a 12px row-letter column,
+     * 2px gaps, a half-seat stagger, and a wheelchair space beside a
+     * "no seat" taking both cells.
+     *
+     * @return array{cells: array<string,array{x:float,y:float,w:float,h:float,n:int,type:string}>, rows: array<int,array{label:string,x:float,y:float}>}
+     */
+    public static function seat_cells(array $block) {
+        $rows = Azure_Tickets_Layout::row_labels($block);
+        $out = array('cells' => array(), 'rows' => array());
+        if (!$rows) {
+            return $out;
+        }
+        $inner_w = (float) $block['width'] - 8;
+        $inner_h = (float) $block['height'] - 6;
+        $top = 2.0;
+        if (empty($block['hideNumbers'])) {
+            $top += 13;
+            $inner_h -= 13;
+        }
+        $count = count($rows);
+        $row_h = max(0.0, ($inner_h - 2 * ($count - 1)) / $count);
+        $per_row = max(1, (int) $block['seatsPerRow']);
+        foreach ($rows as $i => $r) {
+            $y = $top + $i * ($row_h + 2);
+            $left = 16.0;
+            $width = $inner_w - 12;
+            if (!empty($block['stagger'])) {
+                $pad = 0.5 * $inner_w / $per_row;
+                $width -= $pad;
+                if ($i % 2) {
+                    $left += $pad;
+                }
+            }
+            $cells = self::row_cells($block, $r);
+            $unit = max(0.0, ($width - 2 * (count($cells) - 1)) / max(1, array_sum(array_column($cells, 'span'))));
+            $x = $left;
+            foreach ($cells as $c) {
+                $w = $unit * $c['span'];
+                if ($c['type'] !== 'none') {
+                    $out['cells'][$c['key']] = array('x' => $x, 'y' => $y, 'w' => $w, 'h' => $row_h, 'n' => (int) $c['n'], 'type' => $c['type'] !== '' ? $c['type'] : 'normal');
+                }
+                $x += $w + 2;
+            }
+            $out['rows'][] = array('label' => $r, 'x' => 9.0, 'y' => $y + $row_h / 2);
+        }
+        return $out;
+    }
+
+    /**
+     * Everything the app draws, already laid out: positions are in layout
+     * pixels from the top-left of the drawn area, seats and row letters by
+     * their centre (with the block's angle), other shapes by their corner.
+     * Same people data as the tab's tooltips; hold keys never leave.
+     */
+    public static function app_map(array $snap) {
+        $box = self::bounds($snap['layout']);
+        $round = function ($v) {
+            return round((float) $v, 1);
+        };
+        $shapes = array();
+        $seats = array();
+        $row_labels = array();
+        foreach ($snap['layout']['blocks'] as $b) {
+            $sec = $snap['sections'][$b['id']] ?? null;
+            $color = ($b['color'] ?? '') !== '' ? $b['color'] : '#2271b1';
+            $corner = array(
+                'x' => $round($b['x'] - $box['x']),
+                'y' => $round($b['y'] - $box['y']),
+                'w' => $round($b['width']),
+                'h' => $round($b['height']),
+            );
+            switch ($b['type']) {
+                case 'stage':
+                case 'area':
+                case 'label':
+                    $shapes[] = $corner + array(
+                        'kind'  => $b['type'],
+                        'text'  => (string) ($b['type'] === 'label' ? ($b['text'] ?? '') : ($b['label'] ?? '')),
+                        'color' => (string) ($b['color'] ?? ''),
+                    );
+                    break;
+                case 'general_admission':
+                    if (!$sec) {
+                        break;
+                    }
+                    $g = $snap['occ']['general'][$b['id']] ?? self::empty_general();
+                    $shapes[] = $corner + array(
+                        'kind'  => 'ga',
+                        'text'  => (string) $b['name'],
+                        'color' => $color,
+                        'ga'    => array(
+                            'capacity'   => (int) $sec['capacity'],
+                            'sold'       => $g['sold'],
+                            'checked_in' => $g['checked_in'],
+                            'free'       => max(0, (int) $sec['capacity'] - $g['sold'] - $g['ordered'] - $g['held']),
+                            'enabled'    => (bool) $sec['enabled'],
+                        ),
+                    );
+                    break;
+                case 'rectangle':
+                    if (!$sec) {
+                        break;
+                    }
+                    $taken = $snap['occ']['seats'][$b['id']] ?? array();
+                    $groups = array();
+                    foreach ($taken as $key => $seat) {
+                        $groups[$key] = $seat['group'];
+                    }
+                    $sides = self::outlines($b, $groups);
+                    $angle = (float) ($b['angle'] ?? 0);
+                    $rad = deg2rad($angle);
+                    $cos = cos($rad);
+                    $sin = sin($rad);
+                    $cx = $b['x'] + $b['width'] / 2 - $box['x'];
+                    $cy = $b['y'] + $b['height'] / 2 - $box['y'];
+                    $place = function ($lx, $ly) use ($b, $cos, $sin, $cx, $cy, $round) {
+                        $dx = $lx - $b['width'] / 2;
+                        $dy = $ly - $b['height'] / 2;
+                        return array($round($cx + $dx * $cos - $dy * $sin), $round($cy + $dx * $sin + $dy * $cos));
+                    };
+                    $geo = self::seat_cells($b);
+                    foreach ($geo['rows'] as $row) {
+                        list($x, $y) = $place($row['x'], $row['y']);
+                        $row_labels[] = array('text' => $row['label'], 'x' => $x, 'y' => $y, 'a' => $angle, 'color' => $color);
+                    }
+                    foreach ($geo['cells'] as $key => $c) {
+                        list($x, $y) = $place($c['x'] + $c['w'] / 2, $c['y'] + $c['h'] / 2);
+                        $seat = $taken[$key] ?? null;
+                        $seats[] = array(
+                            's'     => (string) $b['id'],
+                            'k'     => (string) $key,
+                            'x'     => $x,
+                            'y'     => $y,
+                            'w'     => $round($c['w']),
+                            'h'     => $round($c['h']),
+                            'a'     => $angle,
+                            'n'     => $c['n'],
+                            't'     => $c['type'],
+                            'st'    => $seat ? $seat['state'] : ($sec['enabled'] ? 'free' : 'closed'),
+                            'label' => Azure_Tickets_Layout::seat_label($b, $key),
+                            'name'  => $seat ? $seat['name'] : '',
+                            'order' => $seat ? (int) $seat['order'] : 0,
+                            'g'     => $seat ? (string) $seat['group'] : '',
+                            'sides' => (string) ($sides[$key] ?? ''),
+                            'in'    => $seat && $seat['checked_in_at'] ? mysql2date('D j M, g:ia', $seat['checked_in_at']) : '',
+                            'until' => $seat && $seat['until'] ? wp_date('g:ia', $seat['until']) : '',
+                            'who'   => $seat && $seat['user'] ? self::user_name($seat['user']) : '',
+                            'color' => $color,
+                        );
+                    }
+                    break;
+            }
+        }
+        $orders = array();
+        foreach ($snap['orders'] as $id => $o) {
+            $orders[] = array('id' => (int) $id) + $o;
+        }
+        return array(
+            'width'  => (int) $box['w'],
+            'height' => (int) $box['h'],
+            'stats'  => $snap['stats'],
+            'venue'  => $snap['venue'] ?? '',
+            'shapes' => $shapes,
+            'rows'   => $row_labels,
+            'seats'  => $seats,
+            'orders' => $orders,
+        );
+    }
+
     private static function user_name($user_id) {
         $u = get_user_by('id', (int) $user_id);
         return $u ? (string) $u->display_name : '';

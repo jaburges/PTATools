@@ -10,7 +10,8 @@
  * door token (POST /tickets/door) and send it as `Authorization: Door
  * <token>`. That only reaches checkin, lookup and undo, only for that
  * performance, and the answers leave out the counter, seat and who
- * scanned. The performance list and door list stay sign-in only.
+ * scanned. The performance list and door list stay sign-in only, and the
+ * seat map (buyers' contact details) also needs manage_woocommerce.
  *
  * @package AzurePlugin
  */
@@ -41,6 +42,9 @@ class Azure_PTSA_REST_Tickets {
         ));
         register_rest_route($ns, '/tickets/performances/(?P<id>\d+)', array(
             'methods' => 'GET', 'callback' => array(__CLASS__, 'get_performance'), 'permission_callback' => $auth,
+        ));
+        register_rest_route($ns, '/tickets/performances/(?P<id>\d+)/seats', array(
+            'methods' => 'GET', 'callback' => array(__CLASS__, 'get_seats'), 'permission_callback' => $auth,
         ));
         register_rest_route($ns, '/tickets/checkin', array(
             'methods' => 'POST', 'callback' => array(__CLASS__, 'checkin'), 'permission_callback' => $door_or_auth,
@@ -93,7 +97,7 @@ class Azure_PTSA_REST_Tickets {
             return new WP_Error('ptsa_tickets_door_pin', 'That PIN isn\'t open for a performance right now. Check it with a board member.', array('status' => 401));
         }
         $performance = self::performance($id);
-        unset($performance['stats'], $performance['door_pin']);
+        unset($performance['stats'], $performance['door_pin'], $performance['has_seats']);
         return rest_ensure_response(array(
             'token'       => $session['token'],
             'expires_at'  => $session['expires_at'],
@@ -153,6 +157,34 @@ class Azure_PTSA_REST_Tickets {
         $row = self::performance($id);
         $row['tickets'] = (new Azure_Tickets_Checkin())->performance_tickets($id);
         return rest_ensure_response($row);
+    }
+
+    /**
+     * The Visualizer's seat map for one performance, laid out for the app.
+     * It shows buyers' names, emails and phone numbers, so like the
+     * Visualizer tab it needs manage_woocommerce.
+     */
+    public static function get_seats(WP_REST_Request $req) {
+        if ($off = self::module_off()) {
+            return $off;
+        }
+        if (!class_exists('Azure_Tickets_Visualizer')) {
+            require_once __DIR__ . '/class-tickets-visualizer.php';
+        }
+        if (!current_user_can(Azure_Tickets_Visualizer::CAP)) {
+            return new WP_Error('ptsa_tickets_seats_forbidden', 'The seat map shows buyers\' details, so only shop managers and administrators can see it.', array('status' => 403));
+        }
+        $id = (int) $req['id'];
+        if (!Azure_Tickets_Config::is_performance($id)) {
+            return self::not_found();
+        }
+        $snap = Azure_Tickets_Visualizer::snapshot($id);
+        if (!$snap) {
+            return new WP_Error('ptsa_tickets_no_seats', 'This performance has no seating plan.', array('status' => 404));
+        }
+        $map = Azure_Tickets_Visualizer::app_map($snap);
+        $map['performance'] = self::performance($id);
+        return rest_ensure_response($map);
     }
 
     /**
@@ -242,7 +274,7 @@ class Azure_PTSA_REST_Tickets {
     }
 
     /**
-     * @return array{id:int,name:string,starts_at:int,starts:string,when:string,venue:string,stats:array{sold:int,checked_in:int}}
+     * @return array{id:int,name:string,starts_at:int,starts:string,when:string,venue:string,stats:array{sold:int,checked_in:int},door_pin:string,has_seats:bool}
      */
     public static function performance($product_id) {
         $product = wc_get_product($product_id);
@@ -257,6 +289,7 @@ class Azure_PTSA_REST_Tickets {
             'venue'     => $venue_id ? (string) get_the_title($venue_id) : '',
             'stats'     => self::stats($product_id),
             'door_pin'  => Azure_Tickets_Door::pin($product_id),
+            'has_seats' => (bool) $venue_id,
         );
     }
 

@@ -166,4 +166,60 @@ $t->check(strpos($page, 'Peter &amp; Wendy') !== false && strpos($page, 'Peter &
 $t->check(strpos($page, 'Page 4 of 4') !== false, 'pages are numbered for taping together');
 $t->check(strpos($page, 'window.print()') !== false, 'autoprint opens the print dialog');
 
+// ── The app's seat map ─────────────────────────────────────────────────
+$near = function ($a, $b) {
+    return abs((float) $a - (float) $b) < 0.06;
+};
+$sized = array_merge($block, array('x' => 100, 'y' => 50, 'width' => 216, 'height' => 81, 'angle' => 0, 'stagger' => false, 'hideNumbers' => false));
+$geo = $V::seat_cells($sized);
+$a1 = $geo['cells']['A-1'];
+$t->check($near($a1['x'], 16) && $near($a1['y'], 15), 'the first seat sits after the padding, the row letter and the seat-number line', json_encode($a1));
+$t->check($near($a1['h'], (81 - 6 - 13 - 4) / 3), 'rows share the height left, less the 2px gaps');
+$t->check($near($geo['cells']['A-5']['w'], 2 * $a1['w']), 'a wheelchair space beside "no seat" is two seats wide');
+$t->check($near($geo['cells']['A-5']['x'] + $geo['cells']['A-5']['w'], 216 - 4), '…and the row still ends at the block\'s right padding');
+$t->check(!isset($geo['cells']['C-3']) && $near($geo['cells']['C-6']['x'] + $geo['cells']['C-6']['w'], 212), '"no seat" leaves a gap, not a seat');
+$t->check($near($geo['cells']['B-1']['y'], 15 + $a1['h'] + 2), 'the next row starts a gap below');
+$t->equals(array('A', 'B', 'C'), array_column($geo['rows'], 'label'), 'each row has its letter');
+$bare = $V::seat_cells(array_merge($sized, array('hideNumbers' => true)));
+$t->check($near($bare['cells']['A-1']['y'], 2), 'without seat numbers the rows start at the top padding');
+$stag = $V::seat_cells(array_merge($sized, array('stagger' => true)));
+$pad = 0.5 * 208 / 6;
+$t->check($near($stag['cells']['A-1']['x'], 16) && $near($stag['cells']['B-1']['x'], 16 + $pad), 'staggered rows: every other row moves half a seat right');
+
+$app_occ = $V::merge($inventory, $tickets, array('GA'));
+$app_snap = array(
+    'layout'   => array('canvas' => array('width' => 800, 'height' => 600), 'blocks' => array(
+        $sized,
+        array('id' => 'st', 'type' => 'stage', 'x' => 100, 'y' => 200, 'width' => 216, 'height' => 30, 'color' => '', 'label' => 'STAGE'),
+        array('id' => 'GA', 'type' => 'general_admission', 'name' => 'Floor', 'x' => 100, 'y' => 240, 'width' => 100, 'height' => 40, 'color' => '#a00'),
+    )),
+    'sections' => $sections,
+    'occ'      => $app_occ,
+    'stats'    => $V::stats($sections, $app_occ),
+    'venue'    => 'School Gym',
+    'orders'   => array(7 => array('number' => '1007', 'buyer' => 'Mary Darling', 'email' => 'mary@example.com', 'phone' => '', 'seats' => array('A1', 'A2'), 'ga' => array())),
+);
+$map = $V::app_map($app_snap);
+$by_key = array_column($map['seats'], null, 'k');
+$t->equals(16, count($map['seats']), 'every seat is sent: 18 places less the merged wheelchair cell and the gap');
+$t->check($near($by_key['A-1']['x'], 100 + 16 + $a1['w'] / 2 - 88) && $near($by_key['A-1']['y'], 50 + 15 + $a1['h'] / 2 - 38), 'seats are placed by their centre, from the top-left of the drawn area', json_encode($by_key['A-1']));
+$t->equals('checked_in', $by_key['A-1']['st'], 'with who has them: checked in');
+$t->equals('Wendy Darling', $by_key['A-1']['name'], '…their name');
+$t->equals(7, $by_key['A-1']['order'], '…and their order');
+$t->equals('ltb', $by_key['A-1']['sides'], 'and which sides of the bought-together outline to draw (A2 is on the same order)');
+$t->equals('free', $by_key['A-3']['st'], 'a seat no one has is free');
+$t->equals('held', $by_key['B-4']['st'], 'a seat in a cart is held');
+$t->equals('accessible', $by_key['A-5']['t'], 'wheelchair spaces are marked');
+$t->equals('Left · Row A, Seat 1', $by_key['A-1']['label'], 'each seat has a spoken label');
+$t->check(strpos(json_encode($map), 'secret-hold-key') === false, 'hold keys are not sent');
+$t->equals(array(array('id' => 7, 'number' => '1007', 'buyer' => 'Mary Darling', 'email' => 'mary@example.com', 'phone' => '', 'seats' => array('A1', 'A2'), 'ga' => array())), $map['orders'], 'orders are a list carrying their id');
+$kinds = array_column($map['shapes'], null, 'kind');
+$t->equals('STAGE', $kinds['stage']['text'], 'the stage is drawn with its label');
+$t->equals(array('capacity' => 10, 'sold' => 2, 'checked_in' => 1, 'free' => 7, 'enabled' => false), $kinds['ga']['ga'], 'general admission is a box with its counts');
+$t->equals(3, count($map['rows']), 'row letters are placed too');
+
+$turned = $V::app_map(array_merge($app_snap, array('layout' => array('canvas' => array('width' => 800, 'height' => 600), 'blocks' => array(array_merge($sized, array('angle' => 90)))))));
+$t1 = array_column($turned['seats'], null, 'k')['A-1'];
+$t->check($t1['x'] > $turned['width'] / 2 && $t1['y'] < $turned['height'] / 2 && $t1['a'] == 90, 'a block turned 90° clockwise puts its first seat top right, and says the angle', json_encode($t1));
+
 $t->finish();

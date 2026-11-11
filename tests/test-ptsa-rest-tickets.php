@@ -28,6 +28,7 @@ function get_userdata($id) { return $id === 7 ? (object) array('display_name' =>
 function get_the_title($id) { return $id === 900 ? 'Wilder Gym' : ''; }
 function wc_get_product($id) { return PRT::$products[$id] ?? null; }
 function wc_get_products($args) { return array_keys(PRT::$products); }
+function current_user_can($cap) { return in_array($cap, PRT::$caps, true); }
 
 class WP_REST_Request implements ArrayAccess {
     private $params; private $json; private $headers;
@@ -52,6 +53,7 @@ class PRT {
     public static $products = array();
     public static $user = 7;
     public static $signed_in_checks = 0;
+    public static $caps = array();
 }
 
 require_once AZURE_PLUGIN_PATH . 'includes/class-tickets-layout.php';
@@ -117,12 +119,15 @@ $R = 'Azure_PTSA_REST_Tickets';
 function __auth__($request) { PRT::$signed_in_checks++; return true; }
 $R::register('ptsa/v1', '__auth__');
 $t->equals(
-    array('ptsa/v1/tickets/performances', 'ptsa/v1/tickets/performances/(?P<id>\d+)', 'ptsa/v1/tickets/checkin', 'ptsa/v1/tickets/lookup', 'ptsa/v1/tickets/(?P<id>\d+)/undo', 'ptsa/v1/tickets/door'),
+    array('ptsa/v1/tickets/performances', 'ptsa/v1/tickets/performances/(?P<id>\d+)', 'ptsa/v1/tickets/performances/(?P<id>\d+)/seats', 'ptsa/v1/tickets/checkin', 'ptsa/v1/tickets/lookup', 'ptsa/v1/tickets/(?P<id>\d+)/undo', 'ptsa/v1/tickets/door'),
     array_keys(PRT::$routes),
-    'the six door routes are registered'
+    'the seven door routes are registered'
 );
 $t->equals('__auth__', PRT::$routes['ptsa/v1/tickets/performances']['permission_callback'], 'the performance list needs the app sign-in');
 $t->equals('__auth__', PRT::$routes['ptsa/v1/tickets/performances/(?P<id>\d+)']['permission_callback'], 'and so does the door list');
+$t->equals('__auth__', PRT::$routes['ptsa/v1/tickets/performances/(?P<id>\d+)/seats']['permission_callback'], 'and the seat map, which a door token can\'t reach');
+$r = $R::get_seats(new WP_REST_Request(array('id' => 501)));
+$t->check($r instanceof WP_Error && $r->get_error_data()['status'] === 403, 'the seat map shows buyers\' details, so it needs manage_woocommerce');
 $t->equals('__return_true', PRT::$routes['ptsa/v1/tickets/door']['permission_callback'], 'swapping a PIN for a door token is open; the PIN is the check');
 $gate = PRT::$routes['ptsa/v1/tickets/checkin']['permission_callback'];
 $t->check($gate(new WP_REST_Request()) === true && PRT::$signed_in_checks === 1, 'check-in without a door token falls through to the app sign-in');
@@ -132,6 +137,7 @@ $list = $R::list_performances(new WP_REST_Request());
 $t->equals(array($FRI, $SAT), array_column($list, 'id'), 'upcoming performances only (not last spring, not the hoodie), earliest first');
 $t->equals('Fri 13 Nov, 7:00pm', $list[0]['when'], 'with the time in the site timezone');
 $t->equals('Wilder Gym', $list[0]['venue'], 'and the venue name');
+$t->check($list[0]['has_seats'] === true, 'and whether it has a seating plan to show');
 $t->equals(array('sold' => 2, 'checked_in' => 0), $list[0]['stats'], 'sold counts active tickets, not cancelled ones');
 
 // ── Lookup (scan without checking in) ──────────────────────────────────
