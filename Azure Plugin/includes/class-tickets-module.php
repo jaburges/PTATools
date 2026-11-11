@@ -97,6 +97,7 @@ class Azure_Tickets_Module {
             'class-tickets-layout.php',
             'class-tickets-inventory.php',
             'class-tickets-config.php',
+            'class-tickets-door.php',
             'class-tickets-access.php',
             'class-tickets-cart.php',
             'class-tickets-assign.php',

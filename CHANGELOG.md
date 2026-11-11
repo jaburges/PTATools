@@ -2,6 +2,17 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.209 — Door PINs: volunteers can scan tickets without a board sign-in
+
+### Added
+
+- **Door PIN for volunteers** on each performance (the Variations tab, or the Event Tickets tab for a single-performance product). 6 to 8 digits; blank means only signed-in board members can scan. Volunteers type it into the PTSA Board app's "Just use the ticket scanner" option on the sign-in screen.
+- **`POST /wp-json/ptsa/v1/tickets/door`** (`{pin}`) swaps the PIN for a door token for the performance it opens. A PIN works from 12 hours before the performance starts until 8 hours after, and so does the token. After 10 wrong PINs from one address (or 50 site-wide) in 15 minutes, PINs are refused until the window passes.
+- `tickets/checkin`, `tickets/lookup` and `tickets/{id}/undo` accept `Authorization: Door <token>` as well as the app sign-in. A door token only works for its own performance. Its answers carry the outcome, ticket number and name, but not the checked-in counter, the seat or who scanned. Check-ins are recorded with no WordPress user.
+- Changing or clearing a performance's PIN ends every volunteer session that used the old one.
+- Signed-in app users see each performance's `door_pin` in `tickets/performances`, so a board member can read it out to volunteers. The performance list and the door list are still sign-in only.
+- **`GET /wp-json/ptsa/v1/tickets/performances/{id}/seats`** gives the PTSA Board app the Visualizer's seat map, already laid out. Each seat comes with its position, size and angle; its state (free, sold, checked in, in a cart, awaiting payment, or not on public sale); the name on its ticket, its order and when it was checked in; and which sides of the bought-together outline to draw. The response also has the stage, areas, labels and general admission boxes with their counts, the row letters, the seat totals, and each order's buyer, email, phone, status and seats. Like the Visualizer tab, it needs `manage_woocommerce`. Performances now say whether they have a seating plan (`has_seats`).
+
 ## 3.147.208 — Tickets: seat Visualizer and door printout
 
 ### Added
