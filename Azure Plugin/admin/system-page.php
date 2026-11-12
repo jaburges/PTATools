@@ -1,14 +1,14 @@
 <?php
 /**
  * System Module Page (formerly System Logs)
- * Tabs: Critical | Logs | Schedules | Class Count | Admin Menu | Config | Rules
+ * Tabs: Critical | Logs | Schedules | Class Count | Admin Menu | AI Connectors | Config | Rules
  */
 if (!defined('ABSPATH')) {
     exit;
 }
 
 $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'logs';
-$valid_tabs = array('critical', 'logs', 'schedules', 'classes', 'menu', 'config', 'rules');
+$valid_tabs = array('critical', 'logs', 'schedules', 'classes', 'menu', 'ai-connectors', 'config', 'rules');
 if (!in_array($active_tab, $valid_tabs, true)) {
     $active_tab = 'logs';
 }
@@ -40,6 +40,10 @@ $GLOBALS['azure_system_tab'] = $active_tab;
            class="azure-tab-link <?php echo $active_tab === 'menu' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-menu-alt"></span> <?php esc_html_e('Admin Menu', 'azure-plugin'); ?>
         </a>
+        <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-system&tab=ai-connectors')); ?>"
+           class="azure-tab-link <?php echo $active_tab === 'ai-connectors' ? 'active' : ''; ?>">
+            <span class="dashicons dashicons-superhero"></span> <?php esc_html_e('AI Connectors', 'azure-plugin'); ?>
+        </a>
         <a href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin-system&tab=config')); ?>"
            class="azure-tab-link <?php echo $active_tab === 'config' ? 'active' : ''; ?>">
             <span class="dashicons dashicons-admin-generic"></span> <?php esc_html_e('Config', 'azure-plugin'); ?>
@@ -56,6 +60,8 @@ $GLOBALS['azure_system_tab'] = $active_tab;
         <?php include AZURE_PLUGIN_PATH . 'admin/system-classes-tab.php'; ?>
     <?php elseif ($active_tab === 'menu'): ?>
         <?php include AZURE_PLUGIN_PATH . 'admin/system-menu-tab.php'; ?>
+    <?php elseif ($active_tab === 'ai-connectors'): ?>
+        <?php include AZURE_PLUGIN_PATH . 'admin/system-ai-connectors-tab.php'; ?>
     <?php elseif ($active_tab === 'config'): ?>
         <?php include AZURE_PLUGIN_PATH . 'admin/calendar-config-page.php'; ?>
     <?php elseif ($active_tab === 'rules'): ?>

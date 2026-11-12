@@ -59,6 +59,8 @@ $_GET = array('page' => 'azure-plugin-selling', 'tab' => 'reports');
 $t->equals(array('azure-plugin-selling', 'reports'), Azure_Admin::current_tabbed_page(), 'Reports tab link resolves the same way');
 $_GET = array('page' => 'azure-plugin-system-rules');
 $t->equals(array('azure-plugin-system', 'rules'), Azure_Admin::current_tabbed_page(), 'Rules menu entry resolves to the System page, rules tab');
+$_GET = array('page' => 'azure-plugin-system-ai-connectors', 'section' => 'settings');
+$t->equals(array('azure-plugin-system', 'ai-connectors'), Azure_Admin::current_tabbed_page(), 'AI Connectors menu entry resolves to the System page, AI Connectors tab');
 $_GET = array('page' => 'azure-plugin-selling-rule-email');
 $t->equals(array('azure-plugin-selling-rule-email', ''), Azure_Admin::current_tabbed_page(), 'Rule email editor is its own page, not a Selling tab');
 $_GET = array('page' => 'azure-plugin-system-logs');

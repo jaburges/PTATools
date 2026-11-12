@@ -7,7 +7,7 @@
  *   /wp-json/pta-tools/v1/oauth/*      OAuth 2.1 authorization server
  *   /.well-known/oauth-*               discovery documents at the site root
  *   Users > AI Connectors              personal setup page, tokens, skill file
- *   PTA Tools > AI Connectors          admin: settings, all connections, audit
+ *   PTA Tools > System > AI Connectors admin: settings, all connections, audit
  *
  * Every request authenticates with a bearer token (OAuth access token or
  * personal access token), runs as that token's WordPress user, and every
@@ -44,7 +44,7 @@ class Azure_AI_Connectors_Module {
     const REST_NS      = 'pta-tools/v1';
     const PURGE_HOOK   = 'azure_ai_connectors_purge';
     const USER_PAGE    = 'pta-ai-connectors';
-    const ADMIN_PAGE   = 'azure-plugin-ai-connectors';
+    const ADMIN_PAGE   = 'azure-plugin-system-ai-connectors';
     const DOWNLOAD_TTL = 900;
 
     private static $instance = null;
@@ -111,8 +111,9 @@ class Azure_AI_Connectors_Module {
         return admin_url($parent . '?page=' . self::USER_PAGE);
     }
 
-    public static function admin_page_url($tab = '') {
-        return admin_url('admin.php?page=' . self::ADMIN_PAGE . ($tab !== '' ? '&tab=' . rawurlencode($tab) : ''));
+    /** PTA Tools > System > AI Connectors. Its own tabs use `section`, because System uses `tab`. */
+    public static function admin_page_url($section = '') {
+        return admin_url('admin.php?page=' . self::ADMIN_PAGE . ($section !== '' ? '&section=' . rawurlencode($section) : ''));
     }
 
     // ─── Request helpers ─────────────────────────────────────────────
@@ -288,7 +289,7 @@ class Azure_AI_Connectors_Module {
         }
         $origin = (string) $request->get_header('origin');
         if ($origin !== '' && !self::origin_allowed($origin)) {
-            return $this->http_error(403, 'origin_not_allowed', 'This browser origin is not allowed. An admin can add it under PTA Tools > AI Connectors > Settings.');
+            return $this->http_error(403, 'origin_not_allowed', 'This browser origin is not allowed. An admin can add it under PTA Tools > System > AI Connectors > Settings.');
         }
 
         $bearer = self::bearer_token($request);

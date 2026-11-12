@@ -2,6 +2,12 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.212 — AI Connectors moves under System
+
+### Changed
+
+- **AI Connectors** is now a tab under **PTA Tools → System**, next to Admin Menu, instead of its own PTA Tools menu entry. The tab is always there with an on/off switch, so administrators can find it while the module is off; connections, the audit log, apps, tools and settings appear below the switch once it is on. The dashboard card's Configure button goes to the new tab. Users → AI Connectors, where each person connects their own assistant, has not moved.
+
 ## 3.147.211 — AI Connectors: what each role can do, plus store, report and Stripe tools
 
 ### Changed

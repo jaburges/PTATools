@@ -343,7 +343,7 @@ class Azure_AI_Connectors_Policy {
         if (!Azure_AI_Connectors_Access::allows($user, $tool)) {
             return new WP_Error(
                 'pta_ai_role_access',
-                'Your role is not allowed to use this tool through AI Connectors. A site administrator chooses what each role can do under PTA Tools > AI Connectors > Settings.'
+                'Your role is not allowed to use this tool through AI Connectors. A site administrator chooses what each role can do under PTA Tools > System > AI Connectors > Settings.'
             );
         }
         if (!self::has_permission($tool)) {

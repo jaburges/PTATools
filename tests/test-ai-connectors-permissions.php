@@ -353,7 +353,7 @@ foreach (array('### Order reports', '### Store setup', '### Finance (Stripe)') a
 $t->check(strpos($skill, 'Each link works once, within 15 minutes') !== false, 'the skill rules say download links are single-use');
 $t->check(strpos($skill, 'pta_set_module') === false, 'the skill file no longer mentions pta_set_module');
 $t->check(strpos($skill, '`pta_whoami` (read; needs read):') !== false, 'tools the user can use are not marked');
-$t->check(strpos($skill, 'PTA Tools > AI Connectors > Apps') !== false, 'the skill file explains assistant approval');
+$t->check(strpos($skill, 'PTA Tools > System > AI Connectors > Apps') !== false, 'the skill file explains assistant approval');
 
 // ─── Who can connect ─────────────────────────────────────────────────
 

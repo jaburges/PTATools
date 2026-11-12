@@ -1,7 +1,8 @@
 <?php
 /**
- * PTA Tools > AI Connectors (site administrators): every connection,
- * audit log, registered apps, settings. Access is checked by
+ * PTA Tools > System > AI Connectors (site administrators): every
+ * connection, audit log, registered apps, settings. Rendered inside the
+ * System page's AI Connectors tab; access is checked by
  * Azure_AI_Connectors_Admin::render_admin_page().
  */
 
@@ -9,9 +10,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-$settings_all = class_exists('Azure_Settings') ? Azure_Settings::get_all_settings() : array();
-$enabled = !empty($settings_all['enable_ai_connectors']);
-$tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'connections';
+$tab = isset($_GET['section']) ? sanitize_key(wp_unslash($_GET['section'])) : 'connections';
 $tabs = array(
     'connections' => __('Connections', 'azure-plugin'),
     'audit'       => __('Audit log', 'azure-plugin'),
@@ -24,14 +23,8 @@ if (!isset($tabs[$tab])) {
 }
 $s = Azure_AI_Connectors_Settings::get();
 ?>
-<div class="wrap">
-    <h1><?php esc_html_e('AI Connectors', 'azure-plugin'); ?></h1>
+<div class="pta-ai-admin">
     <?php Azure_AI_Connectors_Admin::render_notice(); ?>
-
-    <?php if (!$enabled) : ?>
-        <div class="notice notice-info inline"><p><?php esc_html_e('The AI Connectors module is off. Turn it on from the PTA Tools dashboard.', 'azure-plugin'); ?>
-            <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=azure-plugin')); ?>"><?php esc_html_e('Open dashboard', 'azure-plugin'); ?></a></p></div>
-    <?php endif; ?>
 
     <p>
         <?php esc_html_e('MCP server URL:', 'azure-plugin'); ?>
@@ -93,7 +86,7 @@ $s = Azure_AI_Connectors_Settings::get();
     ?>
     <form method="get" style="margin:12px 0">
         <input type="hidden" name="page" value="<?php echo esc_attr(Azure_AI_Connectors_Module::ADMIN_PAGE); ?>">
-        <input type="hidden" name="tab" value="audit">
+        <input type="hidden" name="section" value="audit">
         <select name="tool">
             <option value=""><?php esc_html_e('All tools', 'azure-plugin'); ?></option>
             <?php foreach (array_keys(Azure_AI_Connectors_Registry::all()) as $name) : ?>
