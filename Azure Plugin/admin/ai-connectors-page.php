@@ -237,11 +237,12 @@ $s = Azure_AI_Connectors_Settings::get();
     </table>
 
 <?php elseif ($tab === 'tools') : ?>
-    <p class="description"><?php esc_html_e('Every tool on this site and what it needs. A user sees a tool only when their WordPress capabilities allow it; Entra accounts never get destructive or admin tools, and shop managers only read and update pages and posts.', 'azure-plugin'); ?></p>
+    <p class="description"><?php esc_html_e('Every tool on this site and what it needs. A user sees a tool only when one of their roles has its group ticked under Settings and their WordPress capabilities allow it.', 'azure-plugin'); ?></p>
     <table class="widefat striped">
         <thead><tr>
             <th><?php esc_html_e('Tool', 'azure-plugin'); ?></th>
             <th><?php esc_html_e('Kind', 'azure-plugin'); ?></th>
+            <th><?php esc_html_e('Group', 'azure-plugin'); ?></th>
             <th><?php esc_html_e('Needs', 'azure-plugin'); ?></th>
             <th><?php esc_html_e('Description', 'azure-plugin'); ?></th>
         </tr></thead>
@@ -250,7 +251,8 @@ $s = Azure_AI_Connectors_Settings::get();
             <tr>
                 <td><code><?php echo esc_html($name); ?></code></td>
                 <td><?php echo esc_html($tool['kind']); ?></td>
-                <td><?php echo esc_html(Azure_AI_Connectors_Skill::permission_text($tool)); ?></td>
+                <td><?php echo $tool['access'] === '' ? esc_html__('Everyone who can connect', 'azure-plugin') : esc_html(Azure_AI_Connectors_Access::group_label($tool['access'])); ?></td>
+                <td><?php echo esc_html(Azure_AI_Connectors_Skill::permission_text($tool, false)); ?></td>
                 <td><?php echo esc_html($tool['description']); ?></td>
             </tr>
         <?php endforeach; ?>
@@ -258,7 +260,8 @@ $s = Azure_AI_Connectors_Settings::get();
     </table>
 
 <?php else :
-    $roles = function_exists('wp_roles') ? wp_roles()->get_names() : array();
+    $grid_roles = Azure_AI_Connectors_Access::grid_roles();
+    $grid = Azure_AI_Connectors_Access::grid();
     $brand_pages = get_posts(array(
         'post_type'      => 'page',
         'post_status'    => array('publish', 'private', 'draft', 'pending', 'future'),
@@ -317,43 +320,32 @@ $s = Azure_AI_Connectors_Settings::get();
             </tr>
         </table>
 
-        <h2><?php esc_html_e('Microsoft Entra accounts', 'azure-plugin'); ?></h2>
-        <p class="description"><?php esc_html_e('Accounts created by Entra sign-in get the Azure AD User role, which carries editor capabilities plus manage_options. Through AI connections, these accounts can read and update only: delete, trash and admin tools are never offered, whatever their role allows.', 'azure-plugin'); ?></p>
-        <table class="form-table" role="presentation">
-            <tr>
-                <th scope="row"><?php esc_html_e('Treat these roles as Entra accounts', 'azure-plugin'); ?></th>
-                <td>
-                    <?php foreach ($roles as $slug => $label) : ?>
-                        <label style="display:inline-block;min-width:200px"><input type="checkbox" name="entra_restricted_roles[]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, (array) $s['entra_restricted_roles'], true)); ?>> <?php echo esc_html(translate_user_role($label)); ?></label>
+        <h2><?php esc_html_e('What each role can do', 'azure-plugin'); ?></h2>
+        <p class="description"><?php esc_html_e('Tick what assistants may do for each role. Someone with several roles gets everything any of their roles allows. Administrators always get everything. WordPress permissions still apply on top: ticking a box never lets a role do something it cannot do in wp-admin.', 'azure-plugin'); ?></p>
+        <div style="overflow-x:auto;max-width:100%">
+        <table class="widefat striped pta-ai-role-grid" style="width:auto;margin-top:8px">
+            <thead><tr>
+                <th scope="col"><?php esc_html_e('Tools', 'azure-plugin'); ?></th>
+                <th scope="col" style="text-align:center"><?php echo esc_html(translate_user_role('Administrator')); ?></th>
+                <?php foreach ($grid_roles as $slug => $label) : ?>
+                    <th scope="col" style="text-align:center"><?php echo esc_html(translate_user_role($label)); ?>
+                        <input type="hidden" name="role_access_roles[]" value="<?php echo esc_attr($slug); ?>"></th>
+                <?php endforeach; ?>
+            </tr></thead>
+            <tbody>
+            <?php foreach (Azure_AI_Connectors_Access::grantable_groups() as $group => $group_label) : ?>
+                <tr>
+                    <th scope="row" style="font-weight:normal"><?php echo esc_html($group_label); ?></th>
+                    <td style="text-align:center"><input type="checkbox" checked disabled aria-label="<?php echo esc_attr(sprintf(__('%1$s: %2$s', 'azure-plugin'), translate_user_role('Administrator'), $group_label)); ?>"></td>
+                    <?php foreach ($grid_roles as $slug => $label) : ?>
+                        <td style="text-align:center"><input type="checkbox" name="role_access[<?php echo esc_attr($slug); ?>][]" value="<?php echo esc_attr($group); ?>" <?php checked(in_array($group, $grid[$slug] ?? array(), true)); ?> aria-label="<?php echo esc_attr(sprintf(__('%1$s: %2$s', 'azure-plugin'), translate_user_role($label), $group_label)); ?>"></td>
                     <?php endforeach; ?>
-                </td>
-            </tr>
-            <tr>
-                <th scope="row"><?php esc_html_e('Also by sign-in', 'azure-plugin'); ?></th>
-                <td><label><input type="checkbox" name="entra_restrict_sso_linked" value="1" <?php checked(!empty($s['entra_restrict_sso_linked'])); ?>> <?php esc_html_e('Anyone who has ever signed in with Entra SSO, whatever their role', 'azure-plugin'); ?></label></td>
-            </tr>
-            <tr>
-                <th scope="row"><?php esc_html_e('Administrators', 'azure-plugin'); ?></th>
-                <td><label><input type="checkbox" name="entra_exempt_admins" value="1" <?php checked(!empty($s['entra_exempt_admins'])); ?>> <?php esc_html_e('Accounts with the Administrator role keep full tools, whatever other roles they have (applies to both rules on this page)', 'azure-plugin'); ?></label></td>
-            </tr>
-            <tr>
-                <th scope="row"><?php esc_html_e('Creating', 'azure-plugin'); ?></th>
-                <td><label><input type="checkbox" name="entra_allow_create" value="1" <?php checked(!empty($s['entra_allow_create'])); ?>> <?php esc_html_e('Let Entra accounts create pages, posts and coupons (still never delete)', 'azure-plugin'); ?></label></td>
-            </tr>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
         </table>
-
-        <h2><?php esc_html_e('Pages and posts', 'azure-plugin'); ?></h2>
-        <p class="description"><?php esc_html_e('WooCommerce gives shop managers editor capabilities. Through AI connections, these roles can read and update pages and posts but not create or trash them. Their store tools are not affected.', 'azure-plugin'); ?></p>
-        <table class="form-table" role="presentation">
-            <tr>
-                <th scope="row"><?php esc_html_e('Read and update only', 'azure-plugin'); ?></th>
-                <td>
-                    <?php foreach ($roles as $slug => $label) : ?>
-                        <label style="display:inline-block;min-width:200px"><input type="checkbox" name="content_limited_roles[]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, (array) $s['content_limited_roles'], true)); ?>> <?php echo esc_html(translate_user_role($label)); ?></label>
-                    <?php endforeach; ?>
-                </td>
-            </tr>
-        </table>
+        </div>
+        <p class="description"><?php esc_html_e('New pages, posts and products are always created as drafts; publishing is a separate step that needs the role\'s publish permission. Site admin tools (module list) are for administrators only.', 'azure-plugin'); ?></p>
 
         <h2><?php esc_html_e('Sign-in and tokens', 'azure-plugin'); ?></h2>
         <table class="form-table" role="presentation">
@@ -362,9 +354,9 @@ $s = Azure_AI_Connectors_Settings::get();
                 <td>
                     <select id="pta-ai-connect-cap" name="connect_capability">
                         <?php foreach (array(
-                            'edit_posts'         => __('PTA staff: anyone who can edit posts (administrators, editors, Entra accounts, shop managers, finance)', 'azure-plugin'),
+                            'edit_posts'         => __('PTA staff: anyone who can edit posts (administrators, editors, Azure AD users, shop managers, finance)', 'azure-plugin'),
                             'manage_woocommerce' => __('Store staff: administrators, shop managers and finance', 'azure-plugin'),
-                            'manage_options'     => __('Administrators only (and Entra accounts, which hold manage_options)', 'azure-plugin'),
+                            'manage_options'     => __('Administrators only (and Azure AD users, which hold manage_options)', 'azure-plugin'),
                         ) as $cap => $label) : ?>
                             <option value="<?php echo esc_attr($cap); ?>" <?php selected($s['connect_capability'], $cap); ?>><?php echo esc_html($label); ?></option>
                         <?php endforeach; ?>

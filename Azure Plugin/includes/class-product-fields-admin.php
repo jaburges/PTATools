@@ -43,6 +43,26 @@ class Azure_Product_Fields_Admin {
             wp_send_json_error('Unauthorized');
         }
 
+        $result = self::save_group(array(
+            'id'          => intval($_POST['id'] ?? 0),
+            'name'        => wp_unslash($_POST['name'] ?? ''),
+            'description' => wp_unslash($_POST['description'] ?? ''),
+            'is_active'   => intval($_POST['is_active'] ?? 1),
+            'categories'  => (array) ($_POST['categories'] ?? array()),
+        ));
+        if (is_wp_error($result)) {
+            wp_send_json_error($result->get_error_message());
+        }
+        wp_send_json_success(array('id' => $result, 'message' => 'Group saved'));
+    }
+
+    /**
+     * Create or update a field group and its category assignments.
+     *
+     * @param array $in id, name, description, is_active, categories (term ids)
+     * @return int|WP_Error Group id.
+     */
+    public static function save_group(array $in) {
         global $wpdb;
         $table = Azure_Database::get_table_name('product_field_groups');
         $cat_table = Azure_Database::get_table_name('product_field_categories');
@@ -52,18 +72,18 @@ class Azure_Product_Fields_Admin {
             $table = Azure_Database::get_table_name('product_field_groups');
             $cat_table = Azure_Database::get_table_name('product_field_categories');
             if (!$table || $wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
-                wp_send_json_error('Database tables could not be created. Check error logs.');
+                return new WP_Error('azure_pf_no_tables', 'Database tables could not be created. Check error logs.');
             }
         }
 
-        $id          = intval($_POST['id'] ?? 0);
-        $name        = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
-        $description = sanitize_textarea_field(wp_unslash($_POST['description'] ?? ''));
-        $is_active   = intval($_POST['is_active'] ?? 1);
-        $categories  = array_map('intval', (array)($_POST['categories'] ?? array()));
+        $id          = intval($in['id'] ?? 0);
+        $name        = sanitize_text_field((string) ($in['name'] ?? ''));
+        $description = sanitize_textarea_field((string) ($in['description'] ?? ''));
+        $is_active   = intval($in['is_active'] ?? 1);
+        $categories  = array_map('intval', (array) ($in['categories'] ?? array()));
 
         if (empty($name)) {
-            wp_send_json_error('Group name is required');
+            return new WP_Error('azure_pf_invalid', 'Group name is required');
         }
 
         $data = array(
@@ -76,13 +96,13 @@ class Azure_Product_Fields_Admin {
         if ($id > 0) {
             $result = $wpdb->update($table, $data, array('id' => $id));
             if ($result === false) {
-                wp_send_json_error('DB update failed: ' . $wpdb->last_error);
+                return new WP_Error('azure_pf_db', 'DB update failed: ' . $wpdb->last_error);
             }
         } else {
             $data['created_at'] = current_time('mysql');
             $result = $wpdb->insert($table, $data);
             if ($result === false) {
-                wp_send_json_error('DB insert failed: ' . $wpdb->last_error);
+                return new WP_Error('azure_pf_db', 'DB insert failed: ' . $wpdb->last_error);
             }
             $id = $wpdb->insert_id;
         }
@@ -92,7 +112,7 @@ class Azure_Product_Fields_Admin {
             $wpdb->insert($cat_table, array('group_id' => $id, 'term_id' => $term_id));
         }
 
-        wp_send_json_success(array('id' => $id, 'message' => 'Group saved'));
+        return (int) $id;
     }
 
     public function ajax_delete_group() {
@@ -155,19 +175,41 @@ class Azure_Product_Fields_Admin {
             wp_send_json_error('Unauthorized');
         }
 
+        $in = array();
+        foreach (array('id', 'group_id', 'label', 'field_type', 'placeholder', 'required', 'save_to_profile', 'user_meta_key', 'scope', 'field_key', 'options') as $key) {
+            if (isset($_POST[$key])) {
+                $in[$key] = wp_unslash($_POST[$key]);
+            }
+        }
+        $result = self::save_field($in);
+        if (is_wp_error($result)) {
+            wp_send_json_error($result->get_error_message());
+        }
+        wp_send_json_success($result + array('message' => 'Field saved'));
+    }
+
+    /**
+     * Create or update a field. field_key is fixed after the first save.
+     *
+     * @param array $in id, group_id, label, field_type, placeholder, required,
+     *                  save_to_profile, user_meta_key, scope, field_key,
+     *                  options (one per line, select fields)
+     * @return array{id:int,field_key:string}|WP_Error
+     */
+    public static function save_field(array $in) {
         global $wpdb;
         $table = Azure_Database::get_table_name('product_fields');
 
-        $id              = intval($_POST['id'] ?? 0);
-        $group_id        = intval($_POST['group_id'] ?? 0);
-        $label           = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
-        $field_type      = sanitize_text_field(wp_unslash($_POST['field_type'] ?? 'text'));
-        $placeholder     = sanitize_text_field(wp_unslash($_POST['placeholder'] ?? ''));
-        $required        = intval($_POST['required'] ?? 0);
-        $save_to_profile = intval($_POST['save_to_profile'] ?? 0);
-        $user_meta_key   = sanitize_key(wp_unslash($_POST['user_meta_key'] ?? ''));
-        $scope           = sanitize_text_field(wp_unslash($_POST['scope'] ?? 'child'));
-        $requested_key   = sanitize_key(wp_unslash($_POST['field_key'] ?? ''));
+        $id              = intval($in['id'] ?? 0);
+        $group_id        = intval($in['group_id'] ?? 0);
+        $label           = sanitize_text_field((string) ($in['label'] ?? ''));
+        $field_type      = sanitize_text_field((string) ($in['field_type'] ?? 'text'));
+        $placeholder     = sanitize_text_field((string) ($in['placeholder'] ?? ''));
+        $required        = intval($in['required'] ?? 0);
+        $save_to_profile = intval($in['save_to_profile'] ?? 0);
+        $user_meta_key   = sanitize_key((string) ($in['user_meta_key'] ?? ''));
+        $scope           = sanitize_text_field((string) ($in['scope'] ?? 'child'));
+        $requested_key   = sanitize_key((string) ($in['field_key'] ?? ''));
         $options_json    = '';
 
         if (!array_key_exists($scope, Azure_Product_Fields_Module::scope_labels())) {
@@ -179,7 +221,7 @@ class Azure_Product_Fields_Admin {
         }
 
         if (empty($label) || !$group_id) {
-            wp_send_json_error('Label and group are required');
+            return new WP_Error('azure_pf_invalid', 'Label and group are required');
         }
 
         $valid_types = array('text', 'email', 'tel', 'number', 'textarea', 'select', 'checkbox');
@@ -187,8 +229,8 @@ class Azure_Product_Fields_Admin {
             $field_type = 'text';
         }
 
-        if ($field_type === 'select' && !empty($_POST['options'])) {
-            $options = array_filter(array_map('trim', explode("\n", sanitize_textarea_field(wp_unslash($_POST['options'])))));
+        if ($field_type === 'select' && !empty($in['options'])) {
+            $options = array_filter(array_map('trim', explode("\n", sanitize_textarea_field((string) $in['options']))));
             $options_json = wp_json_encode(array_values($options));
         }
 
@@ -204,7 +246,7 @@ class Azure_Product_Fields_Admin {
         if ($field_key === '') {
             $field_key = 'field_' . time();
         }
-        $field_key = $this->ensure_unique_field_key($field_key, $existing ? $existing->id : 0);
+        $field_key = self::ensure_unique_field_key($field_key, $existing ? $existing->id : 0);
 
         if ($save_to_profile && empty($user_meta_key)) {
             $user_meta_key = 'pta_pf_' . $field_key;
@@ -235,11 +277,7 @@ class Azure_Product_Fields_Admin {
             $id = $wpdb->insert_id;
         }
 
-        wp_send_json_success(array(
-            'id'        => $id,
-            'field_key' => $field_key,
-            'message'   => 'Field saved',
-        ));
+        return array('id' => (int) $id, 'field_key' => $field_key);
     }
 
     public function ajax_delete_field() {
@@ -281,7 +319,7 @@ class Azure_Product_Fields_Admin {
      * Make sure `field_key` is unique across rows (other than the row being
      * saved). Appends a numeric suffix if needed.
      */
-    private function ensure_unique_field_key($candidate, $current_id = 0) {
+    private static function ensure_unique_field_key($candidate, $current_id = 0) {
         global $wpdb;
         $table = Azure_Database::get_table_name('product_fields');
         if (!$table) {

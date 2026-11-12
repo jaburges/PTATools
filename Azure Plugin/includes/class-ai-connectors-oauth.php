@@ -366,11 +366,8 @@ class Azure_AI_Connectors_OAuth {
             }
             echo '</ul>';
         }
-        if (Azure_AI_Connectors_Policy::is_entra_restricted($user)) {
-            echo '<p class="warn">Your account signs in with Microsoft Entra, so delete and admin tools are never available through AI connections.</p>';
-        }
-        if (Azure_AI_Connectors_Policy::is_content_limited($user)) {
-            echo '<p class="warn">Your role can read and update pages and posts through AI connections, but not create or trash them.</p>';
+        if (!Azure_AI_Connectors_Access::is_admin_user($user)) {
+            echo '<p class="muted">What your role can do through AI connections is set by a site administrator.</p>';
         }
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';

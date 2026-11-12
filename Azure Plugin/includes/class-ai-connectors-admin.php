@@ -149,11 +149,11 @@ class Azure_AI_Connectors_Admin {
         $input = wp_unslash($_POST);
         $input['access_token_ttl'] = isset($input['access_token_minutes']) ? (int) $input['access_token_minutes'] * MINUTE_IN_SECONDS : null;
         $input['refresh_token_ttl'] = isset($input['refresh_token_days']) ? (int) $input['refresh_token_days'] * DAY_IN_SECONDS : null;
-        foreach (array('entra_restricted_roles', 'content_limited_roles') as $role_list) {
-            if (!isset($input[$role_list])) {
-                $input[$role_list] = array();
-            }
+        $grid = array();
+        foreach ((array) ($input['role_access_roles'] ?? array()) as $role) {
+            $grid[(string) $role] = (array) ($input['role_access'][$role] ?? array());
         }
+        $input['role_access'] = $grid;
         Azure_AI_Connectors_Settings::save($input);
         $notice = __('Settings saved.', 'azure-plugin');
         $type = 'success';

@@ -2,6 +2,33 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.211 — AI Connectors: what each role can do, plus store, report and Stripe tools
+
+### Changed
+
+- **AI Connectors → Settings → What each role can do** replaces the "Microsoft Entra accounts" and "Pages and posts" sections. It is a grid of tool groups (pages and posts, order reports, products, store setup, orders, coupons, Stripe, calendar sync) against every staff role. Someone with several roles gets everything any of them allows, so an Azure AD user who is also a shop manager gets both sets. Administrators always get everything. WordPress capabilities still apply on top, so a ticked box never lets a role do more than it can in wp-admin.
+- Defaults until an administrator saves the grid:
+
+  | Role | Gets |
+  |---|---|
+  | Azure AD User | Pages and posts (read, edit, publish and unpublish, create drafts) and read-only order reports |
+  | Shop manager | Order reports (read and edit), products, store setup, orders, coupons |
+  | Finance | The shop manager set plus Stripe |
+  | Editor | Pages and posts, including the trash |
+  | Author, Contributor | Pages and posts, without the trash |
+
+  Roles not in the table get only the basic tools until they are ticked.
+- New pages and posts are always created as drafts (or pending review). Publishing and unpublishing are a separate update.
+- `pta_whoami` lists the account's tool groups instead of the old Entra and shop manager flags. The consent screen, Users → AI Connectors, the Tools tab and the skill file describe the grid.
+- `pta_get_brand_guide` is open to every staff member who can connect, so it can guide product descriptions too.
+
+### Added
+
+- **Order reports**: `pta_get_report`, `pta_list_report_columns`, `pta_create_report` and `pta_update_report`, alongside the existing list and export. Reading needs only `edit_posts`, so Azure AD users can pull any saved report. Creating and editing needs `manage_woocommerce`. Unknown columns are refused by name rather than dropped.
+- **Products**: `pta_create_product` (always a draft), a richer `pta_update_product` (prices and sale price, tax status and class, shipping class, dimensions, stock, categories, images, visibility, publish or unpublish, and changing between simple, variable, grouped and external), `pta_store_options` (product types, tax classes, shipping classes, stock statuses), `pta_set_product_attributes`, and `pta_list_variations`, `pta_create_variation` and `pta_update_variation`. A sale price at or above the regular price is refused instead of silently dropped.
+- **Store setup**: `pta_list_categories`, `pta_create_category`, `pta_update_category`, `pta_list_attributes`, `pta_create_attribute` and `pta_update_attribute` (store-wide attributes and their values). When the Product Fields module is on: `pta_list_product_fields`, `pta_save_product_field_group` and `pta_save_product_field`.
+- **Stripe (finance and administrators, read only)**: `pta_stripe_balance`, `pta_stripe_list_payouts`, `pta_stripe_get_payout` (every charge, refund and fee in a payout, matched to its order, with totals), `pta_stripe_fees` (sales, refunds, disputes, fees and net by month, week or day) and `pta_stripe_list_disputes`. They use the WooCommerce Stripe Gateway's own keys and mode. There are no refund or payout tools.
+
 ## 3.147.210 — AI Connectors: brand guide
 
 ### Added

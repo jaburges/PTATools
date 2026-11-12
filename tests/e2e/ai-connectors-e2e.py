@@ -14,6 +14,7 @@ Setup used for the 3.147.196 PR (PHP 8.3, MariaDB, WP-CLI):
     wp eval 'Azure_Settings::enable_module("ai_connectors", true); Azure_Settings::enable_module("calendar", true);'
     wp user create shop shop@example.org --role=shop_manager --user_pass=shop
     wp user create entra entra@example.org --role=azuread --user_pass=entra
+    wp user create treasurer treasurer@example.org --role=finance --user_pass=treasurer
     wp role create newsletter_editor "Newsletter Editor" && wp cap add newsletter_editor read edit_posts
     wp user create writer writer@example.org --role=newsletter_editor --user_pass=writer
     wp user create parent parent@example.org --role=subscriber --user_pass=parent
@@ -99,7 +100,7 @@ html = consent.text
 check(consent.status_code == 200 and "Allow E2E Claude to use your account?" in html, "consent screen names the app", html[:300])
 check("Move a page or post to the trash (asks you to confirm first)" in html, "consent lists destructive tools with the confirm note")
 check(consent.headers.get("X-Frame-Options") == "DENY", "consent screen cannot be framed")
-form = dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', html))
+form = dict(re.findall(r'<input type="hidden"[^>]*?name="([^"]+)" value="([^"]*)"', html))
 form = {k: requests.utils.unquote(v).replace("&amp;", "&") for k, v in form.items()}
 nonce = re.search(r'name="_pta_ai_nonce" value="([^"]+)"', html).group(1)
 form["_pta_ai_nonce"] = nonce
@@ -228,36 +229,73 @@ def names_for(token):
     return sorted(t["name"] for t in rpc(token, "tools/list").json()["result"]["tools"])
 
 entra = pat("entra")
-check(names_for(entra) == sorted(["pta_whoami", "pta_list_content", "pta_get_content", "pta_update_content", "pta_list_events"]), "Entra (azuread) user: read and update tools only", names_for(entra))
+entra_names = names_for(entra)
+check(entra_names == sorted(["pta_whoami", "pta_list_events", "pta_list_content", "pta_get_content", "pta_create_content", "pta_update_content",
+    "pta_list_reports", "pta_get_report", "pta_export_report"]), "Azure AD user (default grid): pages and posts without trash, read-only reports", entra_names)
 about = int(wp_eval('echo get_page_by_path("about")->ID;'))
 et = call(entra, "pta_trash_content", {"id": about, "confirm": True})
-check(et["isError"] and "Microsoft Entra" in et["content"][0]["text"], "Entra user cannot trash even with confirm", et)
+check(et["isError"] and "Your role is not allowed" in et["content"][0]["text"], "Azure AD user cannot trash even with confirm", et)
 check(wp_eval('echo get_post_status(%d);' % about) == "publish", "the page is untouched")
 eu = call(entra, "pta_update_content", {"id": about, "excerpt": "Edited by Entra"})
-check(not eu["isError"], "Entra user can update", eu)
+check(not eu["isError"], "Azure AD user can update", eu)
+ec = call(entra, "pta_create_content", {"type": "page", "title": "Draft from AI"})
+check(not ec["isError"] and ec["structuredContent"]["status"] == "draft", "a page created by an assistant is always a draft", ec)
+draft_id = ec["structuredContent"]["id"] if not ec["isError"] else 0
+ep2 = call(entra, "pta_update_content", {"id": draft_id, "status": "publish"})
+check(not ep2["isError"] and wp_eval('echo get_post_status(%d);' % draft_id) == "publish", "publishing is a separate update", ep2)
+eun = call(entra, "pta_update_content", {"id": draft_id, "status": "draft"})
+check(not eun["isError"] and wp_eval('echo get_post_status(%d);' % draft_id) == "draft", "and so is unpublishing", eun)
+er = call(entra, "pta_list_reports")
+check(not er["isError"] and len(er["structuredContent"]["reports"]) >= 1, "Azure AD user can list saved reports", er)
+ecr = call(entra, "pta_create_report", {"name": "x", "columns": ["order_id"]})
+check(ecr["isError"], "but not create them", ecr)
 
 shop = pat("shop")
 shop_names = names_for(shop)
-check(shop_names == sorted(["pta_whoami", "pta_list_events", "pta_list_content", "pta_get_content", "pta_update_content",
-    "pta_list_products", "pta_get_product", "pta_update_product", "pta_list_orders", "pta_get_order",
-    "pta_list_coupons", "pta_create_coupon", "pta_list_reports", "pta_export_report"]),
-    "shop manager (real WooCommerce role): store tools plus read/update pages and posts", shop_names)
+for name in ("pta_create_product", "pta_update_product", "pta_set_product_attributes", "pta_create_variation", "pta_create_category",
+             "pta_create_attribute", "pta_create_report", "pta_update_report", "pta_list_orders", "pta_create_coupon"):
+    check(name in shop_names, "shop manager has " + name, shop_names)
+check(not [n for n in shop_names if n.endswith("_content")], "a shop manager on their own gets no page tools", shop_names)
+check(not [n for n in shop_names if n.startswith("pta_stripe_")], "or Stripe tools", shop_names)
 sc = call(shop, "pta_create_content", {"title": "x"})
-check(sc["isError"] and "not create or trash" in sc["content"][0]["text"], "shop manager cannot create a post", sc)
+check(sc["isError"] and "Your role is not allowed" in sc["content"][0]["text"], "shop manager cannot create a post", sc)
 st2 = call(shop, "pta_trash_content", {"id": about, "confirm": True})
-check(st2["isError"] and "not create or trash" in st2["content"][0]["text"], "shop manager cannot trash a page even with confirm", st2)
+check(st2["isError"] and "Your role is not allowed" in st2["content"][0]["text"], "shop manager cannot trash a page even with confirm", st2)
 check(wp_eval('echo get_post_status(%d);' % about) == "publish", "the page is still published")
-su = call(shop, "pta_update_content", {"id": about, "excerpt": "Edited by shop"})
-check(not su["isError"], "shop manager can update a page", su)
 scc = call(shop, "pta_create_coupon", {"code": "SHOP5", "amount": 5})
 check(not scc["isError"], "shop manager can create a coupon", scc)
 
+# Products, variations and store setup through real WooCommerce
+cat = call(shop, "pta_create_category", {"name": "Spirit Wear E2E"})
+check(not cat["isError"], "create a product category", cat)
+cat_id = cat["structuredContent"].get("id", 0) if not cat["isError"] else 0
+att = call(shop, "pta_create_attribute", {"name": "Size E2E", "values": ["Small", "Large"]})
+check(not att["isError"], "create a global attribute with values", att)
+np = call(shop, "pta_create_product", {"name": "E2E Hoodie", "regular_price": "30", "category_ids": [cat_id], "tax_status": "none"})
+check(not np["isError"] and np["structuredContent"]["status"] == "draft", "a new product is always a draft", np)
+pid = np["structuredContent"]["id"] if not np["isError"] else 0
+up = call(shop, "pta_update_product", {"id": pid, "type": "variable"})
+check(not up["isError"] and wp_eval('echo wc_get_product(%d)->get_type();' % pid) == "variable", "change a product from simple to variable", up)
+sa = call(shop, "pta_set_product_attributes", {"product_id": pid, "attributes": [{"name": "Size E2E", "options": ["Small", "Large"], "used_for_variations": True}]})
+check(not sa["isError"], "set the product's attributes", sa)
+cv = call(shop, "pta_create_variation", {"product_id": pid, "attributes": {"Size E2E": "large"}, "regular_price": "32"})
+check(not cv["isError"], "create a variation", cv)
+lv = call(shop, "pta_list_variations", {"product_id": pid})
+check(not lv["isError"] and len(lv["structuredContent"]["variations"]) == 1, "list variations", lv)
+pub = call(shop, "pta_update_product", {"id": pid, "status": "publish"})
+check(not pub["isError"] and wp_eval('echo get_post_status(%d);' % pid) == "publish", "publish the product as a separate step", pub)
+rep = call(shop, "pta_create_report", {"name": "E2E report", "granularity": "order", "columns": ["order_id"], "date_preset": "last_30_days"})
+check(not rep["isError"], "shop manager can create a report", rep)
+bad_rep = call(shop, "pta_create_report", {"name": "Bad", "granularity": "order", "columns": ["not_a_column"]})
+check(bad_rep["isError"] and "not_a_column" in bad_rep["content"][0]["text"], "unknown report columns are refused", bad_rep)
+
 writer = pat("writer")
-check(names_for(writer) == sorted(["pta_whoami", "pta_list_content", "pta_get_content", "pta_create_content", "pta_update_content", "pta_list_events"]), "custom role follows its capabilities", names_for(writer))
+check(names_for(writer) == sorted(["pta_whoami", "pta_list_events"]), "a custom role not in the grid gets only the basic tools", names_for(writer))
+wp_eval('$s = get_option("azure_ai_connectors_settings", array()); $s["role_access"] = array("newsletter_editor" => array("content", "content_create")); update_option("azure_ai_connectors_settings", $s);')
+check(names_for(writer) == sorted(["pta_whoami", "pta_list_content", "pta_get_content", "pta_create_content", "pta_update_content", "pta_list_events"]), "ticking groups for it adds the tools its capabilities allow", names_for(writer))
 wp_page = call(writer, "pta_create_content", {"type": "page", "title": "x"})
 check(wp_page["isError"], "custom role without edit_pages cannot create a page", wp_page)
-wpub = call(writer, "pta_create_content", {"title": "x", "status": "publish"})
-check(wpub["isError"] and "publish" in wpub["content"][0]["text"], "custom role without publish_posts cannot publish", wpub)
+wp_eval('$s = get_option("azure_ai_connectors_settings", array()); unset($s["role_access"]); update_option("azure_ai_connectors_settings", $s);')
 
 parent = pat("parent")
 pr = rpc(parent, "tools/list")
@@ -303,14 +341,29 @@ again_page = s.get(cp.headers["Location"])
 check(m and m.group(1) not in again_page.text, "and is not shown again on reload")
 check(m and rpc(m.group(1), "ping").status_code == 200, "the form-created token works")
 
-# Entra user cannot open admin settings
+# Role grid saves through the settings form
+sp = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=settings")
+check('name="role_access[azuread][]"' in sp.text and 'name="role_access_roles[]" value="shop_manager"' in sp.text and "entra_restricted_roles" not in sp.text, "settings show the role grid", sp.status_code)
+form = sp.text.split('name="action" value="pta_ai_save_settings"')[1].split("</form>")[0]
+fields = [(m.group(1), _h.unescape(m.group(2))) for m in re.finditer(r'<input type="hidden"[^>]*?name="([^"]+)" value="([^"]*)"', form)]
+wp_eval('update_option("pta_e2e_ai_settings", get_option("azure_ai_connectors_settings", array()));')
+grid_fields = [(n, v) for n, v in fields if n in ("_wpnonce", "action", "role_access_roles[]")]
+grid_fields += [("role_access[azuread][]", "content"), ("role_access[shop_manager][]", "products"), ("access_token_minutes", "60"), ("refresh_token_days", "30")]
+s.post(BASE + "/wp-admin/admin-post.php", data=grid_fields)
+saved = wp_eval('echo json_encode(get_option("azure_ai_connectors_settings")["role_access"]);')
+saved_grid = json.loads(saved) if saved.startswith("{") else {}
+check(saved_grid.get("azuread") == ["content"] and saved_grid.get("shop_manager") == ["products"] and saved_grid.get("finance") == [], "the grid saves ticked and unticked roles", saved)
+check(names_for(entra) == sorted(["pta_whoami", "pta_list_events", "pta_list_content", "pta_get_content", "pta_update_content"]), "and takes effect straight away", names_for(entra))
+wp_eval('update_option("azure_ai_connectors_settings", get_option("pta_e2e_ai_settings")); delete_option("pta_e2e_ai_settings");')
+
+# Azure AD user cannot open admin settings
 es = requests.Session(); es.get(BASE + "/wp-login.php")
 es.post(BASE + "/wp-login.php", data={"log": "entra", "pwd": "entra", "wp-submit": "Log In", "testcookie": "1"})
 ep = es.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=settings")
-check("Only site administrators" in ep.text and "entra_restricted_roles" not in ep.text, "Entra user (manage_options) cannot see AI Connectors settings")
+check("Only site administrators" in ep.text and "role_access" not in ep.text, "Azure AD user (manage_options) cannot see AI Connectors settings")
 ep_nonce = re.search(r'name="_wpnonce" value="([^"]+)"', s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=settings").text).group(1)
-sv = es.post(BASE + "/wp-admin/admin-post.php", data={"action": "pta_ai_save_settings", "_wpnonce": ep_nonce, "entra_restricted_roles[]": "subscriber"})
-check(sv.status_code in (403, 200) and ("Only site administrators" in sv.text or "link you followed has expired" in sv.text), "Entra user cannot save settings", (sv.status_code, sv.text[:200]))
+sv = es.post(BASE + "/wp-admin/admin-post.php", data={"action": "pta_ai_save_settings", "_wpnonce": ep_nonce, "role_access_roles[]": "azuread", "role_access[azuread][]": "content_trash"})
+check(sv.status_code in (403, 200) and ("Only site administrators" in sv.text or "link you followed has expired" in sv.text), "Azure AD user cannot save settings", (sv.status_code, sv.text[:200]))
 
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

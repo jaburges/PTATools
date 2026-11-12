@@ -19,6 +19,9 @@ class Azure_AI_Connectors_Skill {
         'content'  => 'Pages and posts',
         'calendar' => 'Calendar',
         'store'    => 'Store',
+        'catalog'  => 'Store setup',
+        'reports'  => 'Order reports',
+        'finance'  => 'Finance (Stripe)',
         'admin'    => 'Admin',
         'other'    => 'Other',
     );
@@ -77,7 +80,7 @@ class Azure_AI_Connectors_Skill {
         $md[] = '1. Every tool acts as the connected WordPress user and is limited to what that user may do. Call `pta_whoami` first to see the account, its roles and the tools it can use.';
         $md[] = '2. Tools marked destructive need `confirm: true`. Describe exactly what will change, wait for the user to agree in the conversation, then call again with `confirm: true`. Never set it on your own.';
         $md[] = '3. Deleting moves pages and posts to the trash. Nothing is permanently deleted.';
-        $md[] = '4. Accounts that sign in with Microsoft Entra can read and update but never delete or use admin tools. Shop managers can read and update pages and posts but not create or trash them; their store tools are unaffected. A read-only connection only has read tools.';
+        $md[] = '4. A site administrator chooses which groups of tools each role may use; `pta_whoami` lists the groups this account has. New pages, posts and products are always created as drafts: show the user, and publish only when they ask. A read-only connection only has read tools.';
         $md[] = '5. Order and customer data is personal. Only show it to the user who asked, and do not repeat download links anywhere else. Each link works once, within 15 minutes; export again if the user needs another copy.';
         $md[] = '6. Never ask the user for their password. If a call fails with an authorization error, ask them to reconnect.';
         if (Azure_AI_Connectors_Brand_Guide::active()) {
@@ -157,18 +160,12 @@ class Azure_AI_Connectors_Skill {
         return implode("\n", $md) . "\n";
     }
 
-    public static function permission_text(array $tool) {
+    public static function permission_text(array $tool, $with_group = true) {
         $caps = isset($tool['permission']) ? (array) $tool['permission'] : array('read');
         $text = implode(' or ', $caps);
-        $kind = $tool['kind'];
-        if (!empty($tool['permission_callback']) || in_array($kind, array(Azure_AI_Connectors_Policy::KIND_DESTRUCTIVE, Azure_AI_Connectors_Policy::KIND_ADMIN), true)) {
-            $text .= ', not an Entra account';
-        } elseif ($kind === Azure_AI_Connectors_Policy::KIND_CREATE) {
-            $text .= ', not an Entra account unless an admin allows it';
-        }
-        if (($tool['group'] ?? '') === Azure_AI_Connectors_Policy::GROUP_CONTENT
-            && !in_array($tool['kind'], Azure_AI_Connectors_Policy::content_limited_kinds(), true)) {
-            $text .= ', not a shop manager';
+        $group = Azure_AI_Connectors_Access::tool_group($tool);
+        if ($with_group && $group !== '') {
+            $text .= ', role access "' . Azure_AI_Connectors_Access::group_label($group) . '"';
         }
         if (Azure_AI_Connectors_Policy::requires_confirm($tool) && $tool['kind'] !== Azure_AI_Connectors_Policy::KIND_DESTRUCTIVE) {
             $text .= ', confirm=true';

@@ -51,11 +51,13 @@ class AI_Test {
             'read' => true, 'manage_woocommerce' => true, 'view_woocommerce_reports' => true,
             'edit_products' => true, 'publish_products' => true, 'delete_products' => true,
             'edit_shop_orders' => true, 'edit_shop_coupons' => true, 'publish_shop_coupons' => true,
+            'manage_product_terms' => true, 'edit_product_terms' => true,
         );
         return array(
-            'administrator' => array_merge($editor, $shop, array('manage_options' => true, 'list_users' => true, 'access_pta_tools' => true)),
+            'administrator' => array_merge($editor, $shop, array('manage_options' => true, 'list_users' => true, 'access_pta_tools' => true, 'manage_pta_finance' => true)),
             // WooCommerce's shop_manager also carries editor capabilities.
             'shop_manager'  => array_merge($editor, $shop),
+            'finance'       => array_merge($editor, $shop, array('manage_pta_finance' => true)),
             // Mirrors AzurePlugin::get_azuread_capabilities(): editor + PTA access + manage_options.
             'azuread'       => array_merge($editor, array('access_pta_tools' => true, 'manage_options' => true)),
             'newsletter_editor' => array('read' => true, 'edit_posts' => true),
@@ -113,7 +115,6 @@ class AI_Test {
         self::$current = 0;
         self::$actions = array();
         Azure_AI_Connectors_Settings::reset_cache();
-        Azure_AI_Connectors_Policy::reset_cache();
         Azure_AI_Connectors_Registry::reset();
         self::fresh_db();
     }
