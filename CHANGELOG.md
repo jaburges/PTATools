@@ -25,6 +25,8 @@ Release notes for PTA Tools, newest first. Earlier versions are on the [wiki cha
 ### Fixed
 
 - **System → Admin Menu** now keeps each role's layout. Saving looked successful, but the save request checked the ticked items against a menu list that WordPress only builds when it draws the sidebar, which it never does for that request. Every item was dropped, so reselecting the role or reloading showed the default menu. The tab now records the items it shows, and the save checks against that. An Admin Menu tab left open from before this update needs one reload before its first save.
+- **Appearance → Customize** can now be hidden. WordPress puts the current page's address into that link, so a saved choice only matched on the page where it was made. Menu items are now matched without that part, and HTML-encoded links are decoded.
+- In the Admin Menu editor, unticking a top-level item and ticking it again brings back the sub-items exactly as they were, and saving a hidden top-level item no longer also saves each of its sub-items.
 
 ### Added
 

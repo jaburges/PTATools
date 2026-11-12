@@ -164,6 +164,35 @@ $plugin = file_get_contents(dirname(__DIR__) . '/Azure Plugin/azure-plugin.php')
 $t->check(strpos($plugin, "\$caps['manage_options'] = true;") !== false, 'Azure AD User role copies manage_options onto editor caps');
 $t->check(preg_match("/'access_pta_tools'\\s*=>\\s*true,\\s*'manage_options'\\s*=>\\s*true,/s", $plugin) === 1, 'Azure AD User fallback caps include manage_options');
 
+// ─── Stable IDs for page-dependent submenu links ────────────────────
+
+$C = 'Azure_Admin_Menu_Customizer';
+$t->equals('customize.php', $C::normalize_slug('customize.php?return=%2Fwp-admin%2Fedit.php'), 'Customize drops the per-page return= argument');
+$t->equals('customize.php', $C::normalize_slug('customize.php?return=%2Fwp-admin%2Fadmin.php%3Fpage%3Dazure-plugin-system'), 'so it is the same ID on every page');
+$t->equals('customize.php?autofocus%5Bcontrol%5D=header_image', $C::normalize_slug('customize.php?return=%2Fwp-admin%2F&#038;autofocus%5Bcontrol%5D=header_image'), 'other arguments are kept and HTML-encoded ampersands decoded');
+$t->equals('edit.php?post_type=product', $C::normalize_slug('edit.php?post_type=product'), 'ordinary slugs are unchanged');
+$t->equals('azure-plugin-system', $C::normalize_slug('azure-plugin-system'), 'slugs without a query are unchanged');
+
+$theme_catalog = $C::catalog_from_globals(
+    array(array('Appearance', 'switch_themes', 'themes.php', '', 'menu-top')),
+    array('themes.php' => array(
+        array('Themes', 'switch_themes', 'themes.php'),
+        array('Customize', 'customize', 'customize.php?return=%2Fwp-admin%2Fedit.php'),
+    ))
+);
+$t->equals(array('themes.php', 'themes.php::themes.php', 'themes.php::customize.php'), $C::catalog_ids($theme_catalog), 'the catalog uses the stable Customize ID');
+
+$GLOBALS['submenu'] = array('themes.php' => array(
+    array('Themes', 'switch_themes', 'themes.php'),
+    array('Customize', 'customize', 'customize.php?return=%2Fwp-admin%2Fusers.php'),
+));
+$t->equals(array('customize.php', 'customize.php?return=%2Fwp-admin%2Fusers.php'), $C::raw_submenu_slugs('themes.php', 'customize.php'), 'hiding Customize finds its link on any page');
+$t->equals(array('themes.php'), $C::raw_submenu_slugs('themes.php', 'themes.php'), 'other links are matched exactly');
+unset($GLOBALS['submenu']);
+
+$js = file_get_contents(dirname(__DIR__) . '/Azure Plugin/js/admin-menu-editor.js');
+$t->check(strpos($js, "data('ownVisible'") !== false, 'the editor remembers each child\'s own state while its parent is unticked');
+
 $system = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/system-page.php');
 $t->check(strpos($system, 'tab=menu') !== false, 'System has an Admin Menu tab');
 

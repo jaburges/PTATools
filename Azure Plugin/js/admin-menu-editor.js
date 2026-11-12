@@ -43,19 +43,30 @@
             $item.find('.azure-ame-child').each(function() {
                 var $child = $(this);
                 var childId = String($child.data('id') || '');
-                var childVisible = parentVisible && hidden.indexOf(childId) === -1;
+                var ownVisible = hidden.indexOf(childId) === -1;
                 var childLocked = locked.indexOf(childId) !== -1;
-                setRowState($child, childVisible, childLocked);
+                $child.data('ownVisible', ownVisible);
+                setRowState($child, parentVisible && ownVisible, childLocked);
             });
         });
     }
 
+    // A hidden parent hides its children, so only children of visible
+    // parents are saved individually.
     function collectHidden() {
         var hidden = [];
-        $('#azure-ame-sidebar .azure-ame-check').each(function() {
-            if (!this.checked) {
-                hidden.push(this.value);
+        $('#azure-ame-sidebar .azure-ame-item').each(function() {
+            var $item = $(this);
+            var $parentBox = $item.children('.azure-ame-row').find('.azure-ame-check').first();
+            if (!$parentBox.prop('checked')) {
+                hidden.push($parentBox.val());
+                return;
             }
+            $item.find('.azure-ame-child .azure-ame-check').each(function() {
+                if (!this.checked) {
+                    hidden.push(this.value);
+                }
+            });
         });
         return hidden;
     }
@@ -77,11 +88,21 @@
             var $item = $box.closest('.azure-ame-item');
             var isParent = $box.closest('.azure-ame-child').length === 0;
             if (isParent) {
-                $item.toggleClass('is-hidden', !$box.prop('checked'));
-                if (!$box.prop('checked')) {
-                    $item.find('.azure-ame-child').addClass('is-hidden')
-                        .find('.azure-ame-check').prop('checked', false);
-                }
+                var checked = $box.prop('checked');
+                $item.toggleClass('is-hidden', !checked);
+                $item.find('.azure-ame-child').each(function() {
+                    var $child = $(this);
+                    var $childBox = $child.find('.azure-ame-check').first();
+                    if (!checked) {
+                        $child.data('ownVisible', $childBox.prop('checked'));
+                        $child.addClass('is-hidden');
+                        $childBox.prop('checked', false);
+                    } else {
+                        var own = $child.data('ownVisible') !== false;
+                        $child.toggleClass('is-hidden', !own);
+                        $childBox.prop('checked', own);
+                    }
+                });
             } else {
                 $box.closest('.azure-ame-child').toggleClass('is-hidden', !$box.prop('checked'));
             }
