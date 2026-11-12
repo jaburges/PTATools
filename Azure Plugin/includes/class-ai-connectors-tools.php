@@ -47,6 +47,18 @@ class Azure_AI_Connectors_Tools {
         // ─── Pages and posts ─────────────────────────────────────────
         $type_prop = array('type' => 'string', 'enum' => self::CONTENT_TYPES, 'description' => 'post or page. Default post.');
         $content_caps = array('edit_posts', 'edit_pages');
+        $brand = Azure_AI_Connectors_Brand_Guide::active() ? ' ' . Azure_AI_Connectors_Brand_Guide::instruction() : '';
+
+        $r::register(Azure_AI_Connectors_Brand_Guide::TOOL, array(
+            'group'        => 'content',
+            'title'        => 'Get the brand guide',
+            'description'  => 'The site brand guide chosen by an administrator: the agent prompt to follow, brand colours, fonts and example images. Call it before creating or updating any page or post, and follow it.',
+            'kind'         => $P::KIND_READ,
+            'permission'   => $content_caps,
+            'available'    => array('Azure_AI_Connectors_Brand_Guide', 'active'),
+            'input_schema' => array('type' => 'object', 'properties' => array()),
+            'callback'     => array($self, 'get_brand_guide'),
+        ));
 
         $r::register('pta_list_content', array(
             'group'        => 'content',
@@ -77,7 +89,7 @@ class Azure_AI_Connectors_Tools {
         $r::register('pta_create_content', array(
             'group'        => 'content',
             'title'        => 'Create a page or post',
-            'description'  => 'Create a post or page. It is saved as a draft unless you set status; publishing needs the publish capability.',
+            'description'  => 'Create a post or page. It is saved as a draft unless you set status; publishing needs the publish capability.' . $brand,
             'kind'         => $P::KIND_CREATE,
             'permission'   => $content_caps,
             'input_schema' => array('type' => 'object', 'required' => array('title'), 'properties' => array(
@@ -94,7 +106,7 @@ class Azure_AI_Connectors_Tools {
         $r::register('pta_update_content', array(
             'group'        => 'content',
             'title'        => 'Update a page or post',
-            'description'  => 'Change the title, content, excerpt, slug, parent or status of a post or page. Only the fields you send change.',
+            'description'  => 'Change the title, content, excerpt, slug, parent or status of a post or page. Only the fields you send change.' . $brand,
             'kind'         => $P::KIND_UPDATE,
             'permission'   => $content_caps,
             'input_schema' => array('type' => 'object', 'required' => array('id'), 'properties' => array(
@@ -434,11 +446,16 @@ class Azure_AI_Connectors_Tools {
                 'content_allowed_kinds' => $content_limited ? Azure_AI_Connectors_Policy::content_limited_kinds() : Azure_AI_Connectors_Policy::kinds(),
                 'note'                  => implode(' ', $notes),
             ),
+            'brand_guide' => Azure_AI_Connectors_Brand_Guide::summary(),
             'tools' => $tools,
         );
     }
 
     // ─── Pages and posts ─────────────────────────────────────────────
+
+    public static function get_brand_guide(array $args) {
+        return Azure_AI_Connectors_Brand_Guide::read();
+    }
 
     public static function list_content(array $args) {
         $type_obj = self::type_object($args['type'] ?? 'post');

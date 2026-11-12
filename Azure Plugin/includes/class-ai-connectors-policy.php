@@ -55,6 +55,8 @@ class Azure_AI_Connectors_Settings {
             'entra_exempt_admins'       => true,
             'entra_allow_create'        => false,
             'content_limited_roles'     => array('shop_manager'),
+            'brand_guide_enabled'       => false,
+            'brand_guide_page_id'       => 0,
         );
     }
 
@@ -138,6 +140,8 @@ class Azure_AI_Connectors_Settings {
             'entra_exempt_admins'        => !empty($input['entra_exempt_admins']),
             'entra_allow_create'         => !empty($input['entra_allow_create']),
             'content_limited_roles'      => $content_roles,
+            'brand_guide_enabled'        => !empty($input['brand_guide_enabled']),
+            'brand_guide_page_id'        => isset($input['brand_guide_page_id']) ? max(0, (int) $input['brand_guide_page_id']) : 0,
         );
     }
 

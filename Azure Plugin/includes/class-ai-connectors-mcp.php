@@ -109,10 +109,14 @@ class Azure_AI_Connectors_MCP {
     }
 
     public static function instructions() {
-        return 'Tools act on this WordPress site as the signed-in user, with exactly that user\'s permissions. '
+        $text = 'Tools act on this WordPress site as the signed-in user, with exactly that user\'s permissions. '
             . 'Call pta_whoami first to see who you are acting as and what you can do. '
             . 'Tools marked DESTRUCTIVE need confirm=true: describe the change to the user and only send confirm=true after they explicitly agree. '
             . 'Deleting moves items to the trash; nothing is permanently deleted.';
+        if (Azure_AI_Connectors_Brand_Guide::active()) {
+            $text .= ' ' . Azure_AI_Connectors_Brand_Guide::instruction();
+        }
+        return $text;
     }
 
     private static function tools_list(array $context) {

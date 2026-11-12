@@ -81,7 +81,7 @@ class Azure_AI_Connectors_Module {
     }
 
     public static function load() {
-        foreach (array('policy', 'registry', 'tokens', 'audit', 'mcp', 'oauth', 'tools', 'skill') as $part) {
+        foreach (array('policy', 'registry', 'tokens', 'audit', 'mcp', 'oauth', 'tools', 'skill', 'brand-guide') as $part) {
             require_once __DIR__ . '/class-ai-connectors-' . $part . '.php';
         }
     }

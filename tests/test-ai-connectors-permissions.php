@@ -53,10 +53,12 @@ $content_all = array('pta_list_content', 'pta_get_content', 'pta_create_content'
 
 setup_site();
 $every = sorted(array_keys(Azure_AI_Connectors_Registry::all()));
-$t->equals(18, count($every), 'the first tool set has 18 tools');
+$t->equals(19, count($every), 'the tool set has 19 tools');
 $t->check(!in_array('pta_set_module', $every, true), 'there is no tool for switching modules');
 
-$t->equals($every, tools_for(1, $ALL), 'an administrator gets every tool');
+// The brand guide tool only appears once an administrator turns it on.
+$admin_tools = array_values(array_diff($every, array('pta_get_brand_guide')));
+$t->equals($admin_tools, tools_for(1, $ALL), 'an administrator gets every tool except the brand guide, which is off by default');
 
 $t->equals(
     sorted(array_merge(array('pta_whoami', 'pta_list_events', 'pta_list_content', 'pta_get_content', 'pta_update_content'), $store_all)),
@@ -101,7 +103,7 @@ $t->check(!in_array('pta_trash_content', $with_create, true), 'but never delete'
 $t->check(!in_array('pta_calendar_sync', $with_create, true), 'or run admin tools');
 
 setup_site();
-$t->equals($every, tools_for(6, $ALL), 'an administrator who also has the azuread role is exempt by default');
+$t->equals($admin_tools, tools_for(6, $ALL), 'an administrator who also has the azuread role is exempt by default');
 Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_exempt_admins' => false)));
 $boardadmin = tools_for(6, $ALL);
 $t->check(!in_array('pta_trash_content', $boardadmin, true) && !in_array('pta_calendar_sync', $boardadmin, true), 'with the exemption off, that administrator loses delete and admin tools');
@@ -134,7 +136,7 @@ $t->check(in_array('pta_create_coupon', $shop_tools, true) && in_array('pta_upda
 $t->check(!Azure_AI_Connectors_Policy::is_entra_restricted(2), 'the shop manager rule is separate from the Entra rule');
 $t->check(!Azure_AI_Connectors_Policy::is_content_limited(5) && !Azure_AI_Connectors_Policy::is_content_limited(4), 'other roles are not limited by it');
 
-$t->equals($every, tools_for(7, $ALL), 'an administrator who is also a shop manager keeps full tools');
+$t->equals($admin_tools, tools_for(7, $ALL), 'an administrator who is also a shop manager keeps full tools');
 
 Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('content_limited_roles' => array())));
 $lifted = tools_for(2, $ALL);

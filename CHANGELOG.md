@@ -2,6 +2,15 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.210 — AI Connectors: brand guide
+
+### Added
+
+- **AI Connectors → Settings → Brand guide**: a checkbox to make assistants follow a brand guide, and a dropdown to pick the page that holds it. Private and draft pages can be picked, since assistants read the page through a tool rather than visiting it. **Create a starter Brand Guide page** makes a private page from what the site already has (its name, tagline, logo and recent featured images) with example colours and fonts to replace, and selects it.
+- While it is on, the MCP server's sign-in instructions tell every connected assistant to read the brand guide before it creates or updates a page or post. The create and update tool descriptions, `pta_whoami` and the downloadable skill file say the same.
+- **`pta_get_brand_guide`** (read-only, for anyone who can edit content) returns the page's agent prompt, its colours, its typography section, its images and its full text. The agent prompt is the block with the CSS class `pta-brand-prompt`, or otherwise the section under an "Agent prompt" heading. Colours are every hex code on the page, labelled with the rest of their line or table row. Editing the page changes what every assistant follows; nothing is cached.
+- `docs/brand-guide/wilder-ptsa-brand-guide.html` is the origin site's guide as block markup, ready to paste into the page's code editor.
+
 ## 3.147.209 — Door PINs: volunteers can scan tickets without a board sign-in
 
 ### Added

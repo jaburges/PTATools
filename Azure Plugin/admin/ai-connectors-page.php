@@ -259,10 +259,63 @@ $s = Azure_AI_Connectors_Settings::get();
 
 <?php else :
     $roles = function_exists('wp_roles') ? wp_roles()->get_names() : array();
+    $brand_pages = get_posts(array(
+        'post_type'      => 'page',
+        'post_status'    => array('publish', 'private', 'draft', 'pending', 'future'),
+        'posts_per_page' => -1,
+        'orderby'        => 'title',
+        'order'          => 'ASC',
+    ));
+    $brand_id = (int) $s['brand_guide_page_id'];
+    $brand_page = $brand_id ? get_post($brand_id) : null;
+    $status_labels = array(
+        'private' => __('private', 'azure-plugin'),
+        'draft'   => __('draft', 'azure-plugin'),
+        'pending' => __('pending', 'azure-plugin'),
+        'future'  => __('scheduled', 'azure-plugin'),
+    );
     ?>
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
         <input type="hidden" name="action" value="pta_ai_save_settings">
         <?php wp_nonce_field('pta_ai_settings'); ?>
+
+        <h2><?php esc_html_e('Brand guide', 'azure-plugin'); ?></h2>
+        <p class="description"><?php esc_html_e('A page that describes how the site looks and sounds: logo, colours, fonts, example images and a prompt for assistants. While this is on, every connected assistant is told to read it before it creates or changes a page or post, and gets a pta_get_brand_guide tool that returns it. Editing the page changes what assistants follow.', 'azure-plugin'); ?></p>
+        <table class="form-table" role="presentation">
+            <tr>
+                <th scope="row"><?php esc_html_e('Use a brand guide', 'azure-plugin'); ?></th>
+                <td><label><input type="checkbox" name="brand_guide_enabled" value="1" <?php checked(!empty($s['brand_guide_enabled'])); ?>> <?php esc_html_e('Make assistants follow a brand guide when they create or change pages and posts', 'azure-plugin'); ?></label>
+                    <?php if (!empty($s['brand_guide_enabled']) && !Azure_AI_Connectors_Brand_Guide::active()) : ?>
+                        <p class="description" style="color:#b32d2e"><?php esc_html_e('Not in use: the selected page is missing or in the trash.', 'azure-plugin'); ?></p>
+                    <?php endif; ?></td>
+            </tr>
+            <tr>
+                <th scope="row"><label for="pta-ai-brand-page"><?php esc_html_e('Brand guide page', 'azure-plugin'); ?></label></th>
+                <td>
+                    <select id="pta-ai-brand-page" name="brand_guide_page_id">
+                        <option value="0"><?php esc_html_e('— Choose a page —', 'azure-plugin'); ?></option>
+                        <?php foreach ($brand_pages as $p) :
+                            $label = get_the_title($p) !== '' ? get_the_title($p) : sprintf(__('(no title) #%d', 'azure-plugin'), $p->ID);
+                            if (isset($status_labels[$p->post_status])) {
+                                $label .= ' (' . $status_labels[$p->post_status] . ')';
+                            }
+                            ?>
+                            <option value="<?php echo (int) $p->ID; ?>" <?php selected($brand_id, (int) $p->ID); ?>><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php if ($brand_page && $brand_page->post_type === 'page' && $brand_page->post_status !== 'trash') : ?>
+                        <a href="<?php echo esc_url(get_permalink($brand_page)); ?>" target="_blank" rel="noopener"><?php esc_html_e('View', 'azure-plugin'); ?></a>
+                        &middot; <a href="<?php echo esc_url(get_edit_post_link($brand_page->ID)); ?>"><?php esc_html_e('Edit', 'azure-plugin'); ?></a>
+                    <?php endif; ?>
+                    <p class="description"><?php
+                        /* translators: %s: the CSS class name */
+                        printf(esc_html__('Private pages work: assistants read the page through the tool, so it does not need to be public. Put the assistant instructions in a block with the CSS class %s (Block settings > Advanced), or under a heading called "Agent prompt".', 'azure-plugin'), '<code>' . esc_html(Azure_AI_Connectors_Brand_Guide::PROMPT_CLASS) . '</code>');
+                    ?></p>
+                    <p><button type="submit" form="pta-ai-brand-create" class="button"><?php esc_html_e('Create a starter Brand Guide page', 'azure-plugin'); ?></button>
+                        <span class="description"><?php esc_html_e('A private page with your site name, logo, recent images and example colours and fonts to replace.', 'azure-plugin'); ?></span></p>
+                </td>
+            </tr>
+        </table>
 
         <h2><?php esc_html_e('Microsoft Entra accounts', 'azure-plugin'); ?></h2>
         <p class="description"><?php esc_html_e('Accounts created by Entra sign-in get the Azure AD User role, which carries editor capabilities plus manage_options. Through AI connections, these accounts can read and update only: delete, trash and admin tools are never offered, whatever their role allows.', 'azure-plugin'); ?></p>
@@ -359,6 +412,10 @@ $s = Azure_AI_Connectors_Settings::get();
             </tr>
         </table>
         <?php submit_button(__('Save settings', 'azure-plugin')); ?>
+    </form>
+    <form id="pta-ai-brand-create" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" onsubmit="return confirm('<?php echo esc_js(__('Create a new private page called Brand Guide and select it? Unsaved changes on this screen will be lost.', 'azure-plugin')); ?>');">
+        <input type="hidden" name="action" value="pta_ai_create_brand_guide">
+        <?php wp_nonce_field('pta_ai_create_brand_guide'); ?>
     </form>
 <?php endif; ?>
 </div>

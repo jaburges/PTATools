@@ -80,6 +80,9 @@ class Azure_AI_Connectors_Skill {
         $md[] = '4. Accounts that sign in with Microsoft Entra can read and update but never delete or use admin tools. Shop managers can read and update pages and posts but not create or trash them; their store tools are unaffected. A read-only connection only has read tools.';
         $md[] = '5. Order and customer data is personal. Only show it to the user who asked, and do not repeat download links anywhere else. Each link works once, within 15 minutes; export again if the user needs another copy.';
         $md[] = '6. Never ask the user for their password. If a call fails with an authorization error, ask them to reconnect.';
+        if (Azure_AI_Connectors_Brand_Guide::active()) {
+            $md[] = '7. ' . Azure_AI_Connectors_Brand_Guide::instruction();
+        }
         $md[] = '';
         $md[] = '## Connect your assistant';
         $md[] = '';
