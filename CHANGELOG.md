@@ -2,6 +2,48 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.211 — AI Connectors: what each role can do, plus store, report and Stripe tools
+
+### Changed
+
+- **AI Connectors → Settings → What each role can do** replaces the "Microsoft Entra accounts" and "Pages and posts" sections. It is a grid of tool groups (pages and posts, order reports, products, store setup, orders, coupons, Stripe, calendar sync) against every staff role. Someone with several roles gets everything any of them allows, so an Azure AD user who is also a shop manager gets both sets. Administrators always get everything. WordPress capabilities still apply on top, so a ticked box never lets a role do more than it can in wp-admin.
+- Defaults until an administrator saves the grid:
+
+  | Role | Gets |
+  |---|---|
+  | Azure AD User | Pages and posts (read, edit, publish and unpublish, create drafts) and read-only order reports |
+  | Shop manager | Order reports (read and edit), products, store setup, orders, coupons |
+  | Finance | The shop manager set plus Stripe |
+  | Editor | Pages and posts, including the trash |
+  | Author, Contributor | Pages and posts, without the trash |
+
+  Roles not in the table get only the basic tools until they are ticked.
+- New pages and posts are always created as drafts (or pending review). Publishing and unpublishing are a separate update.
+- `pta_whoami` lists the account's tool groups instead of the old Entra and shop manager flags. The consent screen, Users → AI Connectors, the Tools tab and the skill file describe the grid.
+- `pta_get_brand_guide` is open to every staff member who can connect, so it can guide product descriptions too.
+
+### Fixed
+
+- **System → Admin Menu** now keeps each role's layout. Saving looked successful, but the save request checked the ticked items against a menu list that WordPress only builds when it draws the sidebar, which it never does for that request. Every item was dropped, so reselecting the role or reloading showed the default menu. The tab now records the items it shows, and the save checks against that. An Admin Menu tab left open from before this update needs one reload before its first save.
+- **Appearance → Customize** can now be hidden. WordPress puts the current page's address into that link, so a saved choice only matched on the page where it was made. Menu items are now matched without that part, and HTML-encoded links are decoded.
+- In the Admin Menu editor, unticking a top-level item and ticking it again brings back the sub-items exactly as they were, and saving a hidden top-level item no longer also saves each of its sub-items.
+
+### Added
+
+- **Order reports**: `pta_get_report`, `pta_list_report_columns`, `pta_create_report` and `pta_update_report`, alongside the existing list and export. Reading needs only `edit_posts`, so Azure AD users can pull any saved report. Creating and editing needs `manage_woocommerce`. Unknown columns are refused by name rather than dropped.
+- **Products**: `pta_create_product` (always a draft), a richer `pta_update_product` (prices and sale price, tax status and class, shipping class, dimensions, stock, categories, images, visibility, publish or unpublish, and changing between simple, variable, grouped and external), `pta_store_options` (product types, tax classes, shipping classes, stock statuses), `pta_set_product_attributes`, and `pta_list_variations`, `pta_create_variation` and `pta_update_variation`. A sale price at or above the regular price is refused instead of silently dropped.
+- **Store setup**: `pta_list_categories`, `pta_create_category`, `pta_update_category`, `pta_list_attributes`, `pta_create_attribute` and `pta_update_attribute` (store-wide attributes and their values). When the Product Fields module is on: `pta_list_product_fields`, `pta_save_product_field_group` and `pta_save_product_field`.
+- **Stripe (finance and administrators, read only)**: `pta_stripe_balance`, `pta_stripe_list_payouts`, `pta_stripe_get_payout` (every charge, refund and fee in a payout, matched to its order, with totals), `pta_stripe_fees` (sales, refunds, disputes, fees and net by month, week or day) and `pta_stripe_list_disputes`. They use the WooCommerce Stripe Gateway's own keys and mode. There are no refund or payout tools.
+
+## 3.147.210 — AI Connectors: brand guide
+
+### Added
+
+- **AI Connectors → Settings → Brand guide**: a checkbox to make assistants follow a brand guide, and a dropdown to pick the page that holds it. Private and draft pages can be picked, since assistants read the page through a tool rather than visiting it. **Create a starter Brand Guide page** makes a private page from what the site already has (its name, tagline, logo and recent featured images) with example colours and fonts to replace, and selects it.
+- While it is on, the MCP server's sign-in instructions tell every connected assistant to read the brand guide before it creates or updates a page or post. The create and update tool descriptions, `pta_whoami` and the downloadable skill file say the same.
+- **`pta_get_brand_guide`** (read-only, for anyone who can edit content) returns the page's agent prompt, its colours, its typography section, its images and its full text. The agent prompt is the block with the CSS class `pta-brand-prompt`, or otherwise the section under an "Agent prompt" heading. Colours are every hex code on the page, labelled with the rest of their line or table row. Editing the page changes what every assistant follows; nothing is cached.
+- `docs/brand-guide/wilder-ptsa-brand-guide.html` is the origin site's guide as block markup, ready to paste into the page's code editor.
+
 ## 3.147.209 — Door PINs: volunteers can scan tickets without a board sign-in
 
 ### Added

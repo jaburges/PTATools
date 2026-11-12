@@ -1,8 +1,8 @@
 <?php
 /**
- * AI Connectors permissions: which tools each kind of account gets, the
- * Entra no-destructive rule, confirm=true, read-only connections, and the
- * MCP JSON-RPC layer that enforces them.
+ * AI Connectors permissions: which tools each kind of account gets through
+ * the role grid, confirm=true, read-only connections, and the MCP JSON-RPC
+ * layer that enforces them.
  *
  * Run: php tests/test-ai-connectors-permissions.php
  */
@@ -31,6 +31,12 @@ function setup_site() {
     AI_Test::add_user(5, array('subscriber'), 'parent');
     AI_Test::add_user(6, array('administrator', 'azuread'), 'boardadmin');
     AI_Test::add_user(7, array('administrator', 'shop_manager'), 'shopadmin');
+    AI_Test::add_user(8, array('azuread', 'shop_manager'), 'shopstaff');
+    AI_Test::add_user(9, array('finance', 'azuread'), 'treasurer');
+}
+
+function save_grid(array $grid) {
+    Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::get(), array('role_access' => $grid)));
 }
 
 function tools_for($user_id, array $scopes) {
@@ -45,117 +51,104 @@ function sorted(array $names) {
     return $names;
 }
 
-$store_read = array('pta_get_order', 'pta_get_product', 'pta_list_coupons', 'pta_list_orders', 'pta_list_products', 'pta_list_reports', 'pta_export_report');
-$store_all = array_merge($store_read, array('pta_update_product', 'pta_create_coupon'));
-$content_all = array('pta_list_content', 'pta_get_content', 'pta_create_content', 'pta_update_content', 'pta_trash_content');
+$base = array('pta_whoami', 'pta_list_events');
+$content_edit = array('pta_list_content', 'pta_get_content', 'pta_update_content');
+$reports_read = array('pta_list_reports', 'pta_get_report', 'pta_export_report');
+$reports_edit = array('pta_list_report_columns', 'pta_create_report', 'pta_update_report');
+$products = array('pta_list_products', 'pta_get_product', 'pta_store_options', 'pta_create_product', 'pta_update_product', 'pta_set_product_attributes', 'pta_list_variations', 'pta_create_variation', 'pta_update_variation');
+$catalog_read = array('pta_list_categories', 'pta_list_attributes');
+$catalog_edit = array('pta_create_category', 'pta_update_category', 'pta_create_attribute', 'pta_update_attribute');
+$fields = array('pta_list_product_fields', 'pta_save_product_field_group', 'pta_save_product_field');
+$stripe = array('pta_stripe_balance', 'pta_stripe_list_payouts', 'pta_stripe_get_payout', 'pta_stripe_fees', 'pta_stripe_list_disputes');
+$orders_coupons = array('pta_list_orders', 'pta_get_order', 'pta_list_coupons', 'pta_create_coupon');
+$shop_tools_expected = sorted(array_merge($base, $reports_read, $reports_edit, $products, $catalog_read, $catalog_edit, $orders_coupons));
 
-// ─── Capability filtering by role ────────────────────────────────────
+// ─── Default grid ────────────────────────────────────────────────────
 
 setup_site();
 $every = sorted(array_keys(Azure_AI_Connectors_Registry::all()));
-$t->equals(18, count($every), 'the first tool set has 18 tools');
+$t->equals(43, count($every), 'the tool set has 43 tools');
 $t->check(!in_array('pta_set_module', $every, true), 'there is no tool for switching modules');
+foreach (array_merge($reports_read, $reports_edit, $products, $catalog_read, $catalog_edit, $fields, $stripe) as $name) {
+    $t->check(in_array($name, $every, true), "{$name} is registered");
+}
+foreach (Azure_AI_Connectors_Registry::all() as $name => $tool) {
+    if (in_array($tool['kind'], array('destructive', 'admin'), true)) {
+        $t->check($tool['access'] !== '', "{$name} ({$tool['kind']}) belongs to an access group");
+    }
+}
 
-$t->equals($every, tools_for(1, $ALL), 'an administrator gets every tool');
+// Off here: the brand guide (until an admin turns it on), product fields
+// (module off) and Stripe (no Stripe gateway).
+$admin_tools = array_values(array_diff($every, array_merge(array('pta_get_brand_guide'), $fields, $stripe)));
+$t->equals($admin_tools, tools_for(1, $ALL), 'an administrator gets every tool that is switched on');
 
+$t->equals(sorted(array_merge($base, $content_edit, array('pta_create_content'), $reports_read)), tools_for(3, $ALL), 'an Azure AD user gets pages and posts (no trash) and read-only reports');
+$t->equals($shop_tools_expected, tools_for(2, $ALL), 'a shop manager gets reports, products, store setup, orders and coupons, and no page tools');
 $t->equals(
-    sorted(array_merge(array('pta_whoami', 'pta_list_events', 'pta_list_content', 'pta_get_content', 'pta_update_content'), $store_all)),
-    tools_for(2, $ALL),
-    'a shop manager gets every store tool, read and update for pages and posts, and nothing admin'
+    sorted(array_merge($shop_tools_expected, $content_edit, array('pta_create_content'))),
+    tools_for(8, $ALL),
+    'an Azure AD user who is also a shop manager gets both sets'
 );
-
-$t->equals(
-    sorted(array('pta_whoami', 'pta_list_events', 'pta_list_content', 'pta_get_content', 'pta_create_content', 'pta_update_content')),
-    tools_for(4, $ALL),
-    'a custom role with only edit_posts gets the content tools its capabilities allow, without trash'
-);
-
-$t->equals(sorted(array('pta_whoami', 'pta_list_events')), tools_for(5, $ALL), 'a subscriber or parent can only see who they are and the calendar');
-
-// ─── Entra (Azure AD) accounts ───────────────────────────────────────
+$t->equals(tools_for(8, $ALL), tools_for(9, $ALL), 'finance gets the shop manager set (Stripe is off on this test site)');
+$t->equals(sorted($base), tools_for(4, $ALL), 'a role that is not in the grid gets only the basic tools, whatever its capabilities');
+$t->equals(sorted($base), tools_for(5, $ALL), 'a subscriber or parent can only see who they are and the calendar');
+$t->equals($admin_tools, tools_for(6, $ALL), 'an administrator who also has the azuread role keeps every tool');
+$t->equals($admin_tools, tools_for(7, $ALL), 'an administrator who is also a shop manager keeps every tool');
 
 AI_Test::login(3);
 $t->check(current_user_can('delete_posts') && current_user_can('manage_options'), 'the azuread role really holds delete_posts and manage_options');
-$t->check(Azure_AI_Connectors_Policy::is_entra_restricted(3), 'an azuread account is treated as an Entra account');
-$entra_tools = tools_for(3, $ALL);
-$t->equals(
-    sorted(array('pta_whoami', 'pta_list_events', 'pta_list_content', 'pta_get_content', 'pta_update_content')),
-    $entra_tools,
-    'an Entra account gets read and update tools only'
-);
-foreach ($entra_tools as $name) {
-    $kind = Azure_AI_Connectors_Registry::get($name)['kind'];
-    $t->check(in_array($kind, array('read', 'update'), true), "Entra tool {$name} is read or update ({$kind})");
+$azure_tools = tools_for(3, $ALL);
+foreach (array('pta_trash_content', 'pta_calendar_sync', 'pta_list_modules', 'pta_create_report', 'pta_update_product') as $name) {
+    $t->check(!in_array($name, $azure_tools, true), "no {$name} for Azure AD users");
 }
-$t->check(!in_array('pta_trash_content', $entra_tools, true), 'no trash tool for Entra, even though the role can delete posts');
-$t->check(!in_array('pta_calendar_sync', $entra_tools, true), 'no calendar sync for Entra, even though the role has manage_options');
-$t->check(!in_array('pta_list_modules', $entra_tools, true), 'no admin tools for Entra');
-$t->check(!Azure_AI_Connectors_Policy::can_administer(3), 'an Entra account cannot administer AI Connectors despite manage_options');
+$t->check(!Azure_AI_Connectors_Policy::can_administer(3), 'an Azure AD user cannot administer AI Connectors despite manage_options');
 $t->check(Azure_AI_Connectors_Policy::can_administer(1), 'an administrator can');
 $t->check(!Azure_AI_Connectors_Policy::can_administer(2), 'a shop manager cannot');
 
-Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_allow_create' => true)));
-$with_create = tools_for(3, $ALL);
-$t->check(in_array('pta_create_content', $with_create, true), 'the admin setting can let Entra accounts create');
-$t->check(!in_array('pta_trash_content', $with_create, true), 'but never delete');
-$t->check(!in_array('pta_calendar_sync', $with_create, true), 'or run admin tools');
-
-setup_site();
-$t->equals($every, tools_for(6, $ALL), 'an administrator who also has the azuread role is exempt by default');
-Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_exempt_admins' => false)));
-$boardadmin = tools_for(6, $ALL);
-$t->check(!in_array('pta_trash_content', $boardadmin, true) && !in_array('pta_calendar_sync', $boardadmin, true), 'with the exemption off, that administrator loses delete and admin tools');
-$t->check(in_array('pta_export_report', $boardadmin, true) && in_array('pta_update_product', $boardadmin, true), 'but keeps read and update tools their caps allow');
-$t->check(!in_array('pta_create_coupon', $boardadmin, true), 'and loses create tools');
-
-setup_site();
-$GLOBALS['wpdb']->insert('wp_azure_sso_users', array('wordpress_user_id' => 4, 'azure_user_id' => 'aad-4', 'azure_email' => 'writer@example.test'));
-$t->check(!Azure_AI_Connectors_Policy::is_entra_restricted(4), 'signing in with Entra once does not restrict a custom role by default');
-Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_restrict_sso_linked' => true)));
-Azure_AI_Connectors_Policy::reset_cache();
-$t->check(Azure_AI_Connectors_Policy::is_entra_restricted(4), 'with "also by sign-in" on, an SSO-linked account is restricted');
-$t->check(!in_array('pta_create_content', tools_for(4, $ALL), true), 'and loses create');
-$t->check(!Azure_AI_Connectors_Policy::is_entra_restricted(5), 'accounts never linked to Entra are unaffected');
-
-setup_site();
-Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_restricted_roles' => array('azuread', 'shop_manager'))));
-$t->check(Azure_AI_Connectors_Policy::is_entra_restricted(2), 'admins can add other roles to the Entra rule');
-$t->check(!in_array('pta_create_coupon', tools_for(2, $ALL), true), 'which then lose create tools');
-
-// ─── Shop managers and pages/posts ───────────────────────────────────
-
-setup_site();
 AI_Test::login(2);
 $t->check(current_user_can('delete_posts') && current_user_can('edit_pages'), 'the shop_manager role really holds editor capabilities');
-$t->check(Azure_AI_Connectors_Policy::is_content_limited(2), 'a shop manager is limited to read and update on pages and posts');
 $shop_tools = tools_for(2, $ALL);
-$t->check(!in_array('pta_create_content', $shop_tools, true) && !in_array('pta_trash_content', $shop_tools, true), 'no create or trash for pages and posts');
-$t->check(in_array('pta_create_coupon', $shop_tools, true) && in_array('pta_update_product', $shop_tools, true), 'store create and update tools are not affected');
-$t->check(!Azure_AI_Connectors_Policy::is_entra_restricted(2), 'the shop manager rule is separate from the Entra rule');
-$t->check(!Azure_AI_Connectors_Policy::is_content_limited(5) && !Azure_AI_Connectors_Policy::is_content_limited(4), 'other roles are not limited by it');
+$t->check(!in_array('pta_create_content', $shop_tools, true) && !in_array('pta_trash_content', $shop_tools, true), 'so the grid is what keeps page tools from shop managers');
 
-$t->equals($every, tools_for(7, $ALL), 'an administrator who is also a shop manager keeps full tools');
+$t->equals(array('content', 'content_create', 'reports'), Azure_AI_Connectors_Access::groups_for(3), 'groups_for lists an Azure AD user\'s groups');
+$t->equals(array_keys(Azure_AI_Connectors_Access::groups()), Azure_AI_Connectors_Access::groups_for(1), 'administrators get every group, including admin');
+$t->equals(array('content', 'content_create', 'reports', 'reports_edit', 'products', 'catalog', 'orders', 'coupons', 'stripe'), Azure_AI_Connectors_Access::groups_for(9), 'groups combine across roles');
 
-Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('content_limited_roles' => array())));
-$lifted = tools_for(2, $ALL);
-$t->check(in_array('pta_create_content', $lifted, true) && in_array('pta_trash_content', $lifted, true), 'clearing the setting gives shop managers what their capabilities allow');
+// ─── Changing the grid ───────────────────────────────────────────────
 
-Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('content_limited_roles' => array('shop_manager', 'newsletter_editor'))));
-$t->check(!in_array('pta_create_content', tools_for(4, $ALL), true) && in_array('pta_update_content', tools_for(4, $ALL), true), 'admins can apply the rule to other roles');
+setup_site();
+save_grid(array('azuread' => array('content')));
+$t->equals(sorted(array_merge($base, $content_edit)), tools_for(3, $ALL), 'unticking create and reports takes them away from Azure AD users');
+$t->equals($shop_tools_expected, tools_for(2, $ALL), 'roles not in the saved grid keep their defaults');
 
-Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('entra_exempt_admins' => false)));
-$shopadmin = tools_for(7, $ALL);
-$t->check(!in_array('pta_create_content', $shopadmin, true) && in_array('pta_create_coupon', $shopadmin, true), 'with the administrator exemption off, the rule applies to an administrator who is also a shop manager');
+save_grid(array('azuread' => array('content'), 'shop_manager' => array()));
+$t->equals(sorted($base), tools_for(2, $ALL), 'a role saved with nothing ticked gets only the basic tools');
+
+save_grid(array('newsletter_editor' => array('content', 'content_create', 'content_trash')));
+$writer = tools_for(4, $ALL);
+$t->check(in_array('pta_create_content', $writer, true) && in_array('pta_update_content', $writer, true), 'a custom role can be given page tools');
+$t->check(!in_array('pta_trash_content', $writer, true), 'but not trash when the role cannot delete posts');
+
+save_grid(array('subscriber' => array('content', 'products', 'reports')));
+$t->equals(sorted($base), tools_for(5, $ALL), 'ticking boxes never grants more than WordPress capabilities allow');
+
+save_grid(array('azuread' => array('admin', 'content', 'calendar_sync', 'nonsense'), 'administrator' => array()));
+$t->equals(array('content', 'calendar_sync'), Azure_AI_Connectors_Settings::value('role_access')['azuread'], 'the admin group and unknown groups cannot be granted');
+$t->check(!isset(Azure_AI_Connectors_Settings::value('role_access')['administrator']), 'the administrator row cannot be saved');
+$t->equals($admin_tools, tools_for(1, $ALL), 'administrators keep every tool whatever is saved');
+$cal = tools_for(3, $ALL);
+$t->check(in_array('pta_calendar_sync', $cal, true) && !in_array('pta_list_modules', $cal, true), 'calendar sync can be granted; admin tools cannot');
 
 // ─── Read-only connections ───────────────────────────────────────────
 
 setup_site();
 $read_only = tools_for(1, $READ);
-$t->equals(
-    sorted(array_merge(array('pta_whoami', 'pta_list_content', 'pta_get_content', 'pta_list_events', 'pta_list_modules'), $store_read)),
-    $read_only,
-    'a read-only connection only offers read tools, even to an administrator'
-);
+$expected_read = array_values(array_filter($admin_tools, function ($name) {
+    return Azure_AI_Connectors_Registry::get($name)['kind'] === 'read';
+}));
+$t->equals($expected_read, $read_only, 'a read-only connection only offers read tools, even to an administrator');
+$t->check(in_array('pta_list_content', $read_only, true) && in_array('pta_export_report', $read_only, true) && !in_array('pta_update_product', $read_only, true), 'read tools stay and write tools go');
 
 // ─── Registry rules for destructive tools ────────────────────────────
 
@@ -239,11 +232,7 @@ $t->check(is_array($batch) && count($batch) === 1 && $batch[0]['id'] === 'a', 'a
 
 $listed = array_map(function ($tool) { return $tool['name']; }, mcp(3, 'tools/list')['result']['tools']);
 sort($listed);
-$t->equals(
-    sorted(array('pta_whoami', 'pta_list_events', 'pta_list_content', 'pta_get_content', 'pta_update_content')),
-    $listed,
-    'tools/list for an Entra account lists only its read and update tools'
-);
+$t->equals(tools_for(3, $ALL), $listed, 'tools/list for an Azure AD user lists exactly the tools the grid gives it');
 $listed_sub = array_map(function ($tool) { return $tool['name']; }, mcp(5, 'tools/list')['result']['tools']);
 $t->check(!in_array('pta_trash_content', $listed_sub, true) && !in_array('pta_list_orders', $listed_sub, true), 'tools/list for a parent hides tools they cannot use');
 $t->check(in_array('test_remove_widget', array_map(function ($tool) { return $tool['name']; }, mcp(1, 'tools/list')['result']['tools']), true), 'a registered tool is listed for users who may use it');
@@ -262,21 +251,21 @@ $t->equals(array('removed' => 7), $res['result']['structuredContent'], 'the resu
 $t->check(strpos($res['result']['content'][0]['text'], '"removed": 7') !== false, 'and as JSON text');
 
 $res = call_tool(3, 'test_remove_widget', array('id' => 8, 'confirm' => true));
-$t->check($res['result']['isError'] === true && $removed === 1, 'an Entra account cannot run a destructive tool even with confirm=true and the capability');
-$t->check(strpos($res['result']['content'][0]['text'], 'Microsoft Entra') !== false, 'and is told why');
+$t->check($res['result']['isError'] === true && $removed === 1, 'an Azure AD user cannot run a destructive tool with no access group, even with confirm=true and the capability');
+$t->check(strpos($res['result']['content'][0]['text'], 'Your role is not allowed') !== false, 'and is told why');
 $res = call_tool(3, 'pta_trash_content', array('id' => 12, 'confirm' => true));
-$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'Microsoft Entra') !== false, 'an Entra account cannot trash content even with confirm=true');
+$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'Your role is not allowed') !== false, 'an Azure AD user cannot trash content even with confirm=true');
 $res = call_tool(1, 'test_remove_widget', array('id' => 9, 'confirm' => true), $READ);
 $t->check($res['result']['isError'] === true && $removed === 1, 'a read-only connection cannot run a destructive tool');
 $res = call_tool(5, 'pta_calendar_sync', array());
-$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'permission') !== false, 'a parent calling an admin tool directly is refused');
+$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'not allowed') !== false, 'a parent calling an admin tool directly is refused');
 $res = call_tool(2, 'pta_trash_content', array('id' => 12, 'confirm' => true));
-$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'not create or trash') !== false, 'a shop manager cannot trash content even with confirm=true, and is told why');
+$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'Your role is not allowed') !== false, 'a shop manager cannot trash content even with confirm=true, and is told why');
 $res = call_tool(2, 'pta_create_content', array('title' => 'x'));
-$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'not create or trash') !== false, 'a shop manager cannot create content');
+$t->check($res['result']['isError'] === true && strpos($res['result']['content'][0]['text'], 'Your role is not allowed') !== false, 'a shop manager cannot create content');
 $shop_who = call_tool(2, 'pta_whoami', array())['result']['structuredContent'];
-$t->check($shop_who['restrictions']['content_limited'] === true && $shop_who['restrictions']['entra_account'] === false, 'whoami reports the shop manager rule');
-$t->equals(array('read', 'update'), $shop_who['restrictions']['content_allowed_kinds'], 'whoami lists what a shop manager may do with pages and posts');
+$t->equals(array('reports', 'reports_edit', 'products', 'catalog', 'orders', 'coupons'), array_column($shop_who['access']['groups'], 'group'), 'whoami lists the shop manager\'s access groups');
+$t->check(!isset($shop_who['restrictions']), 'whoami no longer reports the old Entra and shop manager rules');
 $res = call_tool(1, 'pta_nope', array());
 $t->equals(-32602, $res['error']['code'], 'an unknown tool is an invalid-params error');
 $res = call_tool(1, 'test_remove_widget', array('id' => 'seven', 'confirm' => true));
@@ -285,8 +274,8 @@ $t->check($res['result']['isError'] === true && strpos($res['result']['content']
 $who = call_tool(3, 'pta_whoami', array());
 $data = $who['result']['structuredContent'];
 $t->equals(3, $data['user']['id'], 'whoami reports the connected account');
-$t->check($data['restrictions']['entra_account'] === true, 'whoami says the account is an Entra account');
-$t->equals(array('read', 'update'), $data['restrictions']['allowed_kinds'], 'whoami lists what an Entra account may do');
+$t->equals(array('content', 'content_create', 'reports'), array_column($data['access']['groups'], 'group'), 'whoami lists the Azure AD user\'s access groups');
+$t->check($data['access']['groups'][0]['label'] !== '', 'with labels');
 $t->equals('https://example.test/wp-json/pta-tools/v1/mcp', $data['site']['mcp_url'], 'whoami gives the MCP URL');
 
 // ─── Audit log ───────────────────────────────────────────────────────
@@ -354,10 +343,13 @@ foreach (array('### Claude', '### ChatGPT', '### Gemini', '### Microsoft Copilot
 foreach (array_keys(Azure_AI_Connectors_Registry::all()) as $name) {
     $t->check(strpos($skill, '`' . $name . '`') !== false, 'the skill file lists ' . $name);
 }
-$t->check(strpos($skill, '`pta_trash_content` (destructive, needs confirm=true; needs delete_posts or delete_pages, not an Entra account, not a shop manager) - not available to you') !== false, 'tools the user cannot use are marked for them, with the role rules');
-preg_match('/^- `pta_update_content`[^\n]*$/m', $skill, $update_line);
-$t->check(!empty($update_line) && strpos($update_line[0], 'shop manager') === false, 'update tools carry no shop manager note');
-$t->check(strpos($skill, 'Shop managers can read and update pages and posts but not create or trash them') !== false, 'the skill rules explain the shop manager rule');
+$t->check(strpos($skill, '`pta_trash_content` (destructive, needs confirm=true; needs delete_posts or delete_pages, role access "Pages and posts: move to the trash") - not available to you') !== false, 'tools the user cannot use are marked for them, with their access group');
+$t->check(strpos($skill, 'Entra') === false && strpos($skill, 'shop manager') === false, 'the skill file no longer mentions the old Entra and shop manager rules');
+$t->check(strpos($skill, 'A site administrator chooses which groups of tools each role may use') !== false, 'the skill rules explain the role grid');
+$t->check(strpos($skill, 'always created as drafts') !== false, 'the skill rules say new items are drafts');
+foreach (array('### Order reports', '### Store setup', '### Finance (Stripe)') as $heading) {
+    $t->check(strpos($skill, $heading) !== false, 'the skill file has a section ' . trim($heading, '# '));
+}
 $t->check(strpos($skill, 'Each link works once, within 15 minutes') !== false, 'the skill rules say download links are single-use');
 $t->check(strpos($skill, 'pta_set_module') === false, 'the skill file no longer mentions pta_set_module');
 $t->check(strpos($skill, '`pta_whoami` (read; needs read):') !== false, 'tools the user can use are not marked');
@@ -367,7 +359,7 @@ $t->check(strpos($skill, 'PTA Tools > AI Connectors > Apps') !== false, 'the ski
 
 setup_site();
 AI_Test::add_user(30, array('newsletter_editor'), 'writer');
-foreach (array(1 => 'an administrator', 2 => 'a shop manager', 3 => 'an Entra (azuread) account', 30 => 'any role that can edit posts') as $id => $who) {
+foreach (array(1 => 'an administrator', 2 => 'a shop manager', 3 => 'an Azure AD user', 30 => 'any role that can edit posts') as $id => $who) {
     $t->check(Azure_AI_Connectors_Policy::can_connect($id), $who . ' can connect an assistant');
 }
 $t->check(!Azure_AI_Connectors_Policy::can_connect(5), 'a parent or subscriber cannot connect an assistant');
@@ -379,7 +371,7 @@ $t->check(Azure_AI_Connectors_Policy::can_connect(), 'the signed-in shop manager
 
 Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::defaults(), array('connect_capability' => 'manage_woocommerce')));
 $t->check(Azure_AI_Connectors_Policy::can_connect(2) && Azure_AI_Connectors_Policy::can_connect(1), 'store staff only: administrators and shop managers still connect');
-$t->check(!Azure_AI_Connectors_Policy::can_connect(3) && !Azure_AI_Connectors_Policy::can_connect(30), 'store staff only: Entra and editor-only accounts do not');
+$t->check(!Azure_AI_Connectors_Policy::can_connect(3) && !Azure_AI_Connectors_Policy::can_connect(30), 'store staff only: Azure AD and editor-only accounts do not');
 Azure_AI_Connectors_Settings::save(Azure_AI_Connectors_Settings::defaults());
 
 exit($t->finish() > 0 ? 1 : 0);

@@ -95,6 +95,65 @@ $t->equals(
     'non-admin roles may hide System in their own menu'
 );
 
+// Save round trip. admin_menu never fires on admin-ajax.php, so the save
+// request runs with no catalog snapshot.
+class AMC_Json_Exit extends Exception {
+    public $success;
+    public $data;
+    public function __construct($success, $data) {
+        parent::__construct('json');
+        $this->success = $success;
+        $this->data = $data;
+    }
+}
+function check_ajax_referer($action, $arg) { return true; }
+function current_user_can($cap) { return true; }
+function sanitize_key($key) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $key)); }
+function wp_unslash($value) { return $value; }
+function translate_user_role($name) { return $name; }
+function wp_roles() {
+    return (object) array('roles' => array(
+        'administrator' => array('name' => 'Administrator'),
+        'editor' => array('name' => 'Editor'),
+        'azuread' => array('name' => 'Azure AD User'),
+    ));
+}
+function wp_send_json_success($data = null) { throw new AMC_Json_Exit(true, $data); }
+function wp_send_json_error($data = null) { throw new AMC_Json_Exit(false, $data); }
+
+function amc_save($role, array $hidden) {
+    $_POST = array('nonce' => 'n', 'role' => $role, 'hidden' => $hidden);
+    try {
+        Azure_Admin_Menu_Customizer::get_instance()->ajax_save();
+    } catch (AMC_Json_Exit $e) {
+        return $e;
+    }
+    return null;
+}
+
+WP_Shim::$options = array();
+Azure_Admin_Menu_Customizer::$catalog = $catalog;
+Azure_Admin_Menu_Customizer::remember_catalog_ids($catalog);
+Azure_Admin_Menu_Customizer::$catalog = null;
+
+$res = amc_save('editor', array('edit.php', 'edit.php::post-new.php', 'not-a-menu'));
+$t->check($res !== null && $res->success, 'save succeeds without a catalog snapshot in the request');
+$t->equals(array('edit.php', 'edit.php::post-new.php'), $res->data['hidden'], 'save echoes the hidden items it kept');
+$stored_after = Azure_Admin_Menu_Customizer::stored();
+$t->equals(array('edit.php', 'edit.php::post-new.php'), $stored_after['editor']['hidden'] ?? null, 'saved hides are what the editor loads back for the role');
+$t->check(!isset($stored_after['azuread']), 'saving one role leaves other roles untouched');
+
+amc_save('azuread', array('azure-plugin::azure-plugin-calendar'));
+$stored_after = Azure_Admin_Menu_Customizer::stored();
+$t->equals(array('edit.php', 'edit.php::post-new.php'), $stored_after['editor']['hidden'], 'saving a second role keeps the first');
+$t->equals(array('azure-plugin::azure-plugin-calendar'), $stored_after['azuread']['hidden'], 'second role is saved under its own slug');
+
+$admin_res = amc_save('administrator', array('edit.php', 'azure-plugin'));
+$t->equals(array('edit.php'), $admin_res->data['hidden'], 'save still strips locked items for administrator');
+
+$tab = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/system-menu-tab.php');
+$t->check(strpos($tab, 'remember_catalog_ids(') !== false, 'Admin Menu tab records the IDs it renders');
+
 $t->equals('access_pta_tools', Azure_Admin_Menu_Customizer::CAP, 'Azure AD users share the PTA Tools capability');
 
 $php = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-admin.php');
@@ -104,6 +163,35 @@ $t->check(strpos($php, "'Dashboard'") !== false, 'Dashboard submenu is registere
 $plugin = file_get_contents(dirname(__DIR__) . '/Azure Plugin/azure-plugin.php');
 $t->check(strpos($plugin, "\$caps['manage_options'] = true;") !== false, 'Azure AD User role copies manage_options onto editor caps');
 $t->check(preg_match("/'access_pta_tools'\\s*=>\\s*true,\\s*'manage_options'\\s*=>\\s*true,/s", $plugin) === 1, 'Azure AD User fallback caps include manage_options');
+
+// ─── Stable IDs for page-dependent submenu links ────────────────────
+
+$C = 'Azure_Admin_Menu_Customizer';
+$t->equals('customize.php', $C::normalize_slug('customize.php?return=%2Fwp-admin%2Fedit.php'), 'Customize drops the per-page return= argument');
+$t->equals('customize.php', $C::normalize_slug('customize.php?return=%2Fwp-admin%2Fadmin.php%3Fpage%3Dazure-plugin-system'), 'so it is the same ID on every page');
+$t->equals('customize.php?autofocus%5Bcontrol%5D=header_image', $C::normalize_slug('customize.php?return=%2Fwp-admin%2F&#038;autofocus%5Bcontrol%5D=header_image'), 'other arguments are kept and HTML-encoded ampersands decoded');
+$t->equals('edit.php?post_type=product', $C::normalize_slug('edit.php?post_type=product'), 'ordinary slugs are unchanged');
+$t->equals('azure-plugin-system', $C::normalize_slug('azure-plugin-system'), 'slugs without a query are unchanged');
+
+$theme_catalog = $C::catalog_from_globals(
+    array(array('Appearance', 'switch_themes', 'themes.php', '', 'menu-top')),
+    array('themes.php' => array(
+        array('Themes', 'switch_themes', 'themes.php'),
+        array('Customize', 'customize', 'customize.php?return=%2Fwp-admin%2Fedit.php'),
+    ))
+);
+$t->equals(array('themes.php', 'themes.php::themes.php', 'themes.php::customize.php'), $C::catalog_ids($theme_catalog), 'the catalog uses the stable Customize ID');
+
+$GLOBALS['submenu'] = array('themes.php' => array(
+    array('Themes', 'switch_themes', 'themes.php'),
+    array('Customize', 'customize', 'customize.php?return=%2Fwp-admin%2Fusers.php'),
+));
+$t->equals(array('customize.php', 'customize.php?return=%2Fwp-admin%2Fusers.php'), $C::raw_submenu_slugs('themes.php', 'customize.php'), 'hiding Customize finds its link on any page');
+$t->equals(array('themes.php'), $C::raw_submenu_slugs('themes.php', 'themes.php'), 'other links are matched exactly');
+unset($GLOBALS['submenu']);
+
+$js = file_get_contents(dirname(__DIR__) . '/Azure Plugin/js/admin-menu-editor.js');
+$t->check(strpos($js, "data('ownVisible'") !== false, 'the editor remembers each child\'s own state while its parent is unticked');
 
 $system = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/system-page.php');
 $t->check(strpos($system, 'tab=menu') !== false, 'System has an Admin Menu tab');

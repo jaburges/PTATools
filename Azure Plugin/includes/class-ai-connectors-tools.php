@@ -18,6 +18,7 @@ class Azure_AI_Connectors_Tools {
 
     const CONTENT_TYPES = array('post', 'page');
     const EDITABLE_STATUSES = array('draft', 'pending', 'publish', 'private');
+    const CREATE_STATUSES = array('draft', 'pending');
 
     /** Modules pta_list_modules reports on. */
     const MODULES = array(
@@ -47,6 +48,19 @@ class Azure_AI_Connectors_Tools {
         // ─── Pages and posts ─────────────────────────────────────────
         $type_prop = array('type' => 'string', 'enum' => self::CONTENT_TYPES, 'description' => 'post or page. Default post.');
         $content_caps = array('edit_posts', 'edit_pages');
+        $brand = Azure_AI_Connectors_Brand_Guide::active() ? ' ' . Azure_AI_Connectors_Brand_Guide::instruction() : '';
+
+        $r::register(Azure_AI_Connectors_Brand_Guide::TOOL, array(
+            'group'        => 'content',
+            'title'        => 'Get the brand guide',
+            'description'  => 'The site brand guide chosen by an administrator: the agent prompt to follow, brand colours, fonts and example images. Call it before creating or updating any page, post or product description, and follow it.',
+            'kind'         => $P::KIND_READ,
+            'permission'   => array('edit_posts', 'edit_pages', 'edit_products'),
+            'access'       => '',
+            'available'    => array('Azure_AI_Connectors_Brand_Guide', 'active'),
+            'input_schema' => array('type' => 'object', 'properties' => array()),
+            'callback'     => array($self, 'get_brand_guide'),
+        ));
 
         $r::register('pta_list_content', array(
             'group'        => 'content',
@@ -54,6 +68,7 @@ class Azure_AI_Connectors_Tools {
             'description'  => 'List posts or pages you can edit, newest first. Filter by status or search text.',
             'kind'         => $P::KIND_READ,
             'permission'   => $content_caps,
+            'access'       => 'content',
             'input_schema' => array('type' => 'object', 'properties' => array(
                 'type'     => $type_prop,
                 'status'   => array('type' => 'string', 'enum' => array('any', 'publish', 'draft', 'pending', 'private', 'future')),
@@ -69,6 +84,7 @@ class Azure_AI_Connectors_Tools {
             'description'  => 'Full content of one post or page by id, including its raw block markup.',
             'kind'         => $P::KIND_READ,
             'permission'   => $content_caps,
+            'access'       => 'content',
             'input_schema' => array('type' => 'object', 'required' => array('id'), 'properties' => array(
                 'id' => array('type' => 'integer', 'minimum' => 1),
             )),
@@ -77,15 +93,16 @@ class Azure_AI_Connectors_Tools {
         $r::register('pta_create_content', array(
             'group'        => 'content',
             'title'        => 'Create a page or post',
-            'description'  => 'Create a post or page. It is saved as a draft unless you set status; publishing needs the publish capability.',
+            'description'  => 'Create a post or page as a draft (or pending review). New content is never published straight away: once the user has checked it, publish it with pta_update_content.' . $brand,
             'kind'         => $P::KIND_CREATE,
             'permission'   => $content_caps,
+            'access'       => 'content_create',
             'input_schema' => array('type' => 'object', 'required' => array('title'), 'properties' => array(
                 'type'    => $type_prop,
                 'title'   => array('type' => 'string', 'maxLength' => 300),
                 'content' => array('type' => 'string', 'description' => 'HTML or block markup.'),
                 'excerpt' => array('type' => 'string'),
-                'status'  => array('type' => 'string', 'enum' => self::EDITABLE_STATUSES),
+                'status'  => array('type' => 'string', 'enum' => self::CREATE_STATUSES, 'description' => 'draft (default) or pending.'),
                 'slug'    => array('type' => 'string', 'maxLength' => 200),
                 'parent'  => array('type' => 'integer', 'minimum' => 0, 'description' => 'Parent page id (pages only).'),
             )),
@@ -94,9 +111,10 @@ class Azure_AI_Connectors_Tools {
         $r::register('pta_update_content', array(
             'group'        => 'content',
             'title'        => 'Update a page or post',
-            'description'  => 'Change the title, content, excerpt, slug, parent or status of a post or page. Only the fields you send change.',
+            'description'  => 'Change the title, content, excerpt, slug, parent or status of a post or page. Only the fields you send change. Set status to publish to publish it, or draft to unpublish it.' . $brand,
             'kind'         => $P::KIND_UPDATE,
             'permission'   => $content_caps,
+            'access'       => 'content',
             'input_schema' => array('type' => 'object', 'required' => array('id'), 'properties' => array(
                 'id'      => array('type' => 'integer', 'minimum' => 1),
                 'title'   => array('type' => 'string', 'maxLength' => 300),
@@ -114,6 +132,7 @@ class Azure_AI_Connectors_Tools {
             'description'  => 'Move a post or page to the trash. It can be restored from Trash in wp-admin; nothing is permanently deleted.',
             'kind'         => $P::KIND_DESTRUCTIVE,
             'permission'   => array('delete_posts', 'delete_pages'),
+            'access'       => 'content_trash',
             'input_schema' => array('type' => 'object', 'required' => array('id'), 'properties' => array(
                 'id' => array('type' => 'integer', 'minimum' => 1),
             )),
@@ -141,6 +160,7 @@ class Azure_AI_Connectors_Tools {
             'description'  => 'Run the Outlook calendar sync now, the same as Calendar > Sync > Sync now. Events removed in Outlook are removed from the site calendar.',
             'kind'         => $P::KIND_ADMIN,
             'permission'   => array('manage_options'),
+            'access'       => 'calendar_sync',
             'available'    => function () {
                 return class_exists('Azure_Settings') && Azure_Settings::is_module_enabled('calendar');
             },
@@ -151,65 +171,16 @@ class Azure_AI_Connectors_Tools {
 
         // ─── Store (WooCommerce) ─────────────────────────────────────
         $wc = array($self, 'woocommerce_active');
-        $product_caps = array('edit_products', 'manage_woocommerce');
         $order_caps = array('edit_shop_orders', 'manage_woocommerce');
         $coupon_caps = array('edit_shop_coupons', 'manage_woocommerce');
 
-        $r::register('pta_list_products', array(
-            'group'        => 'store',
-            'title'        => 'List products',
-            'description'  => 'Store products, newest first, with price, stock and status.',
-            'kind'         => $P::KIND_READ,
-            'permission'   => $product_caps,
-            'available'    => $wc,
-            'input_schema' => array('type' => 'object', 'properties' => array(
-                'search'   => array('type' => 'string', 'maxLength' => 200),
-                'status'   => array('type' => 'string', 'enum' => array('any', 'publish', 'draft', 'pending', 'private')),
-                'type'     => array('type' => 'string', 'maxLength' => 40, 'description' => 'Product type, e.g. simple, variable.'),
-                'per_page' => array('type' => 'integer', 'minimum' => 1, 'maximum' => 100),
-                'page'     => array('type' => 'integer', 'minimum' => 1),
-            )),
-            'callback'     => array($self, 'list_products'),
-        ));
-        $r::register('pta_get_product', array(
-            'group'        => 'store',
-            'title'        => 'Get a product',
-            'description'  => 'One product by id, including its description.',
-            'kind'         => $P::KIND_READ,
-            'permission'   => $product_caps,
-            'available'    => $wc,
-            'input_schema' => array('type' => 'object', 'required' => array('id'), 'properties' => array(
-                'id' => array('type' => 'integer', 'minimum' => 1),
-            )),
-            'callback'     => array($self, 'get_product'),
-        ));
-        $r::register('pta_update_product', array(
-            'group'        => 'store',
-            'title'        => 'Update a product',
-            'description'  => 'Change a product\'s name, descriptions, SKU, prices, stock or status. Only the fields you send change. Prices are strings such as "12.50"; send "" to clear a sale price.',
-            'kind'         => $P::KIND_UPDATE,
-            'permission'   => $product_caps,
-            'available'    => $wc,
-            'input_schema' => array('type' => 'object', 'required' => array('id'), 'properties' => array(
-                'id'                => array('type' => 'integer', 'minimum' => 1),
-                'name'              => array('type' => 'string', 'maxLength' => 300),
-                'description'       => array('type' => 'string'),
-                'short_description' => array('type' => 'string'),
-                'sku'               => array('type' => 'string', 'maxLength' => 100),
-                'regular_price'     => array('type' => 'string', 'maxLength' => 20),
-                'sale_price'        => array('type' => 'string', 'maxLength' => 20),
-                'status'            => array('type' => 'string', 'enum' => self::EDITABLE_STATUSES),
-                'manage_stock'      => array('type' => 'boolean'),
-                'stock_quantity'    => array('type' => 'integer', 'minimum' => 0),
-            )),
-            'callback'     => array($self, 'update_product'),
-        ));
         $r::register('pta_list_orders', array(
             'group'        => 'store',
             'title'        => 'List orders',
             'description'  => 'Store orders, newest first, with customer, items and totals. Filter by status (e.g. processing, completed) or search text.',
             'kind'         => $P::KIND_READ,
             'permission'   => $order_caps,
+            'access'       => 'orders',
             'available'    => $wc,
             'input_schema' => array('type' => 'object', 'properties' => array(
                 'status'   => array('type' => 'string', 'maxLength' => 40),
@@ -225,6 +196,7 @@ class Azure_AI_Connectors_Tools {
             'description'  => 'One order by id.',
             'kind'         => $P::KIND_READ,
             'permission'   => $order_caps,
+            'access'       => 'orders',
             'available'    => $wc,
             'input_schema' => array('type' => 'object', 'required' => array('id'), 'properties' => array(
                 'id' => array('type' => 'integer', 'minimum' => 1),
@@ -237,6 +209,7 @@ class Azure_AI_Connectors_Tools {
             'description'  => 'Store coupons with discount, limits, usage and expiry.',
             'kind'         => $P::KIND_READ,
             'permission'   => $coupon_caps,
+            'access'       => 'coupons',
             'available'    => $wc,
             'input_schema' => array('type' => 'object', 'properties' => array(
                 'search'   => array('type' => 'string', 'maxLength' => 100),
@@ -252,6 +225,7 @@ class Azure_AI_Connectors_Tools {
             'description'  => 'Create a coupon code. It is live straight away unless status is draft.',
             'kind'         => $P::KIND_CREATE,
             'permission'   => $coupon_caps,
+            'access'       => 'coupons',
             'available'    => $wc,
             'input_schema' => array('type' => 'object', 'required' => array('code', 'amount'), 'properties' => array(
                 'code'                 => array('type' => 'string', 'maxLength' => 60),
@@ -271,31 +245,6 @@ class Azure_AI_Connectors_Tools {
             )),
             'callback'     => array($self, 'create_coupon'),
         ));
-        $r::register('pta_list_reports', array(
-            'group'        => 'store',
-            'title'        => 'List saved order reports',
-            'description'  => 'Saved reports from Selling > Reports, with when each was last exported.',
-            'kind'         => $P::KIND_READ,
-            'permission'   => array('manage_woocommerce'),
-            'available'    => $wc,
-            'input_schema' => array('type' => 'object', 'properties' => array()),
-            'callback'     => array($self, 'list_reports'),
-        ));
-        $r::register('pta_export_report', array(
-            'group'        => 'store',
-            'title'        => 'Export an order report as CSV',
-            'description'  => 'Run a saved Selling > Reports report and return a single-use download link that expires after 15 minutes. Set include_csv to also get the CSV text (small reports only).',
-            'kind'         => $P::KIND_READ,
-            'permission'   => array('manage_woocommerce'),
-            'available'    => $wc,
-            'input_schema' => array('type' => 'object', 'required' => array('report_id'), 'properties' => array(
-                'report_id'   => array('type' => 'integer', 'minimum' => 1),
-                'as_of_today' => array('type' => 'boolean', 'description' => 'End the date range now, like the dashboard Export button. Default true.'),
-                'include_csv' => array('type' => 'boolean'),
-            )),
-            'callback'     => array($self, 'export_report'),
-        ));
-
         // ─── Admin ───────────────────────────────────────────────────
         $admin_check = array($P, 'can_administer');
         $r::register('pta_list_modules', array(
@@ -304,10 +253,16 @@ class Azure_AI_Connectors_Tools {
             'description'         => 'Which PTA Tools modules are switched on.',
             'kind'                => $P::KIND_READ,
             'permission'          => array('manage_options'),
+            'access'              => Azure_AI_Connectors_Access::ADMIN_GROUP,
             'permission_callback' => $admin_check,
             'input_schema'        => array('type' => 'object', 'properties' => array()),
             'callback'            => array($self, 'list_modules'),
         ));
+
+        Azure_AI_Connectors_Report_Tools::register();
+        Azure_AI_Connectors_Store_Tools::register();
+        Azure_AI_Connectors_Catalog_Tools::register();
+        Azure_AI_Connectors_Stripe_Tools::register();
     }
 
     // ─── Shared helpers ──────────────────────────────────────────────
@@ -316,7 +271,7 @@ class Azure_AI_Connectors_Tools {
         return function_exists('wc_get_product') && function_exists('wc_get_orders');
     }
 
-    private static function ptsa() {
+    public static function ptsa() {
         if (self::$ptsa === null) {
             foreach (array('class-ptsa-jwt.php', 'class-ptsa-rest-api.php') as $file) {
                 $path = AZURE_PLUGIN_PATH . 'includes/' . $file;
@@ -334,7 +289,7 @@ class Azure_AI_Connectors_Tools {
      *
      * @return mixed|WP_Error Response data.
      */
-    private static function ptsa_call($method, array $params = array(), array $url_params = array(), $json = null) {
+    public static function ptsa_call($method, array $params = array(), array $url_params = array(), $json = null) {
         $api = self::ptsa();
         if (!$api || !method_exists($api, $method)) {
             return new WP_Error('pta_ai_unavailable', 'This part of the site is not available.');
@@ -397,15 +352,6 @@ class Azure_AI_Connectors_Tools {
                 'requires_confirm' => Azure_AI_Connectors_Policy::requires_confirm($tool),
             );
         }
-        $restricted = Azure_AI_Connectors_Policy::is_entra_restricted($user);
-        $content_limited = Azure_AI_Connectors_Policy::is_content_limited($user);
-        $notes = array();
-        if ($restricted) {
-            $notes[] = 'This account signs in with Microsoft Entra, so delete and admin tools are not available to it.';
-        }
-        if ($content_limited) {
-            $notes[] = 'This account\'s role can read and update pages and posts, but not create or trash them.';
-        }
         $token = $context['token'] ?? null;
         return array(
             'site' => array(
@@ -427,18 +373,22 @@ class Azure_AI_Connectors_Tools {
                 'client' => (string) ($context['client_label'] ?? ''),
                 'scopes' => $scopes,
             ),
-            'restrictions' => array(
-                'entra_account'         => $restricted,
-                'allowed_kinds'         => $restricted ? Azure_AI_Connectors_Policy::entra_allowed_kinds() : Azure_AI_Connectors_Policy::kinds(),
-                'content_limited'       => $content_limited,
-                'content_allowed_kinds' => $content_limited ? Azure_AI_Connectors_Policy::content_limited_kinds() : Azure_AI_Connectors_Policy::kinds(),
-                'note'                  => implode(' ', $notes),
+            'access' => array(
+                'groups' => array_map(function ($group) {
+                    return array('group' => $group, 'label' => Azure_AI_Connectors_Access::group_label($group));
+                }, Azure_AI_Connectors_Access::groups_for($user)),
+                'note'   => 'A site administrator chooses what each role can do through AI Connectors. Someone with several roles gets everything any of them allows.',
             ),
+            'brand_guide' => Azure_AI_Connectors_Brand_Guide::summary(),
             'tools' => $tools,
         );
     }
 
     // ─── Pages and posts ─────────────────────────────────────────────
+
+    public static function get_brand_guide(array $args) {
+        return Azure_AI_Connectors_Brand_Guide::read();
+    }
 
     public static function list_content(array $args) {
         $type_obj = self::type_object($args['type'] ?? 'post');
@@ -492,10 +442,7 @@ class Azure_AI_Connectors_Tools {
         if (!$caps || !current_user_can($caps->create_posts ?? $caps->edit_posts)) {
             return new WP_Error('pta_ai_forbidden', 'You cannot create ' . ($type_obj ? $type_obj->labels->name : 'that type') . '.');
         }
-        $status = $args['status'] ?? 'draft';
-        if (in_array($status, array('publish', 'private'), true) && !current_user_can($caps->publish_posts)) {
-            return new WP_Error('pta_ai_forbidden', 'You cannot publish ' . $type_obj->labels->name . '. Save it as draft or pending instead.');
-        }
+        $status = in_array($args['status'] ?? '', self::CREATE_STATUSES, true) ? $args['status'] : 'draft';
         $postarr = array(
             'post_type'    => $type_obj->name,
             'post_title'   => (string) $args['title'],
@@ -515,7 +462,10 @@ class Azure_AI_Connectors_Tools {
             return $id;
         }
         $post = get_post($id);
-        return self::content_summary($post) + array('edit_link' => admin_url('post.php?post=' . (int) $id . '&action=edit'));
+        return self::content_summary($post) + array(
+            'edit_link' => admin_url('post.php?post=' . (int) $id . '&action=edit'),
+            'note'      => 'Saved as ' . $status . '. Show the user, then publish with pta_update_content when they are happy.',
+        );
     }
 
     public static function update_content(array $args) {
@@ -652,48 +602,6 @@ class Azure_AI_Connectors_Tools {
 
     // ─── Store ───────────────────────────────────────────────────────
 
-    public static function list_products(array $args) {
-        $data = self::ptsa_call('list_products', array(
-            'search'   => (string) ($args['search'] ?? ''),
-            'status'   => (string) ($args['status'] ?? 'any'),
-            'type'     => (string) ($args['type'] ?? ''),
-            'per_page' => (int) ($args['per_page'] ?? 20),
-            'page'     => (int) ($args['page'] ?? 1),
-        ));
-        return is_wp_error($data) ? $data : array('products' => array_values((array) $data));
-    }
-
-    public static function get_product(array $args) {
-        $product = wc_get_product((int) $args['id']);
-        if (!$product) {
-            return new WP_Error('pta_ai_not_found', 'No product with that id.');
-        }
-        $api = self::ptsa();
-        if (!$api) {
-            return new WP_Error('pta_ai_unavailable', 'This part of the site is not available.');
-        }
-        return $api->product_to_array($product) + array('description' => $product->get_description());
-    }
-
-    public static function update_product(array $args) {
-        $id = (int) $args['id'];
-        if (!wc_get_product($id)) {
-            return new WP_Error('pta_ai_not_found', 'No product with that id.');
-        }
-        if (!current_user_can('edit_post', $id)) {
-            return new WP_Error('pta_ai_forbidden', 'You cannot edit that product.');
-        }
-        $patch = $args;
-        unset($patch['id']);
-        if (empty($patch)) {
-            return new WP_Error('pta_ai_nothing', 'Send at least one field to change.');
-        }
-        if (isset($patch['status']) && in_array($patch['status'], array('publish', 'private'), true) && !current_user_can('publish_products') && !current_user_can('manage_woocommerce')) {
-            return new WP_Error('pta_ai_forbidden', 'You cannot publish products.');
-        }
-        return self::ptsa_call('update_product', array(), array('id' => $id), $patch);
-    }
-
     public static function list_orders(array $args) {
         $data = self::ptsa_call('list_orders', array(
             'status'   => (string) ($args['status'] ?? ''),
@@ -810,89 +718,6 @@ class Azure_AI_Connectors_Tools {
             return new WP_Error('pta_ai_coupon_failed', 'The coupon could not be saved.');
         }
         return self::coupon_to_array(new WC_Coupon($id));
-    }
-
-    private static function load_reports() {
-        foreach (array(
-            'class-orders-reports-cpt.php',
-            'class-orders-reports-columns.php',
-            'class-orders-reports-query.php',
-            'class-orders-reports-export.php',
-            'class-orders-reports-storage.php',
-        ) as $file) {
-            $path = AZURE_PLUGIN_PATH . 'includes/' . $file;
-            if (file_exists($path)) {
-                require_once $path;
-            }
-        }
-        return class_exists('Azure_Orders_Reports_Storage') && class_exists('Azure_Orders_Reports_Export') && class_exists('Azure_Orders_Reports_Query');
-    }
-
-    public static function list_reports(array $args) {
-        if (!self::load_reports()) {
-            return new WP_Error('pta_ai_unavailable', 'Order reports are not available.');
-        }
-        $out = array();
-        foreach (Azure_Orders_Reports_Storage::list_all() as $r) {
-            $out[] = array(
-                'id'                 => (int) $r['id'],
-                'name'               => (string) $r['name'],
-                'modified'           => (string) $r['modified'],
-                'last_exported_at'   => $r['last_exported_at'] !== '' ? (string) $r['last_exported_at'] : null,
-                'last_exported_rows' => (int) $r['last_exported_rows'],
-            );
-        }
-        return array('reports' => $out);
-    }
-
-    public static function export_report(array $args) {
-        if (!self::load_reports()) {
-            return new WP_Error('pta_ai_unavailable', 'Order reports are not available.');
-        }
-        $loaded = Azure_Orders_Reports_Storage::load((int) $args['report_id']);
-        if (!$loaded) {
-            return new WP_Error('pta_ai_not_found', 'No saved report with that id.');
-        }
-        $config = $loaded['config'];
-        if (!array_key_exists('as_of_today', $args) || $args['as_of_today']) {
-            if (!isset($config['date_range']) || !is_array($config['date_range'])) {
-                $config['date_range'] = array('from' => null, 'to' => null, 'preset' => null);
-            }
-            $config['date_range']['to_today'] = true;
-        }
-
-        $path = Azure_AI_Connectors_Module::export_path();
-        if (!$path) {
-            return new WP_Error('pta_ai_export_failed', 'Could not create the export file.');
-        }
-        $handle = fopen($path, 'w');
-        if ($handle === false) {
-            return new WP_Error('pta_ai_export_failed', 'Could not create the export file.');
-        }
-        $rows = (new Azure_Orders_Reports_Export())->write_to_handle($config, $handle);
-        fclose($handle);
-        Azure_Orders_Reports_Storage::mark_exported((int) $loaded['id'], $rows);
-
-        $filename = sanitize_file_name($loaded['name'] . '-' . gmdate('Ymd-His') . '.csv');
-        $link = Azure_AI_Connectors_Module::create_download($path, $filename, get_current_user_id());
-        $out = array(
-            'report'       => $loaded['name'],
-            'rows'         => (int) $rows,
-            'filename'     => $filename,
-            'download_url' => $link['url'],
-            'expires_at'   => gmdate('c', $link['expires']),
-            'note'         => 'The link works once, within 15 minutes, for whoever opens it first. Share it only with the user.',
-        );
-        if (!empty($args['include_csv'])) {
-            $size = (int) filesize($path);
-            if ($size <= 256 * 1024) {
-                $csv = (string) file_get_contents($path);
-                $out['csv'] = strpos($csv, "\xEF\xBB\xBF") === 0 ? substr($csv, 3) : $csv;
-            } else {
-                $out['csv_omitted'] = 'The CSV is larger than 256 KB; use the download link.';
-            }
-        }
-        return $out;
     }
 
     // ─── Admin ───────────────────────────────────────────────────────

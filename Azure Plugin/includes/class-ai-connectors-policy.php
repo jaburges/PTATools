@@ -8,17 +8,11 @@
  *     custom roles get exactly what their capabilities allow;
  *   - the connection's scope allows the tool's kind (read-only connections
  *     only see read tools);
- *   - the user is not an Entra-restricted account, or the tool's kind is one
- *     Entra accounts may use (read and update; create only if an admin
- *     allows it). Destructive and admin tools are never available to them,
- *     whatever their role grants;
- *   - for page and post tools (group "content"), the user is not on a
- *     content-limited role (default: shop_manager), or the tool's kind is
- *     read or update. WooCommerce gives shop managers editor capabilities,
- *     so without this rule they could create and trash pages.
- *
- * Administrators are exempt from both role rules while entra_exempt_admins
- * is on (the default).
+ *   - one of the user's roles has the tool's access group ticked in the
+ *     role grid (Azure_AI_Connectors_Access). People with several roles get
+ *     everything any of their roles allows; administrators get every group.
+ *     The grid is what stops an editor-capable role (azuread, shop_manager)
+ *     reaching tools its capabilities would otherwise allow.
  */
 
 if (!defined('ABSPATH')) {
@@ -50,11 +44,9 @@ class Azure_AI_Connectors_Settings {
             'connect_capability'        => 'edit_posts',
             'allowed_origins'           => array('https://claude.ai', 'https://chatgpt.com', 'https://chat.openai.com'),
             'pat_max_days'              => 365,
-            'entra_restricted_roles'    => array('azuread'),
-            'entra_restrict_sso_linked' => false,
-            'entra_exempt_admins'       => true,
-            'entra_allow_create'        => false,
-            'content_limited_roles'     => array('shop_manager'),
+            'role_access'               => array(),
+            'brand_guide_enabled'       => false,
+            'brand_guide_page_id'       => 0,
         );
     }
 
@@ -88,11 +80,6 @@ class Azure_AI_Connectors_Settings {
             $v = isset($input[$key]) ? (int) $input[$key] : (int) $d[$key];
             return max($min, min($max, $v));
         };
-
-        $roles = isset($input['entra_restricted_roles']) ? (array) $input['entra_restricted_roles'] : $d['entra_restricted_roles'];
-        $roles = array_values(array_unique(array_filter(array_map('sanitize_key', $roles))));
-        $content_roles = isset($input['content_limited_roles']) ? (array) $input['content_limited_roles'] : $d['content_limited_roles'];
-        $content_roles = array_values(array_unique(array_filter(array_map('sanitize_key', $content_roles))));
 
         $origins = isset($input['allowed_origins']) ? $input['allowed_origins'] : array();
         if (is_string($origins)) {
@@ -133,11 +120,9 @@ class Azure_AI_Connectors_Settings {
             'connect_capability'         => $connect_cap,
             'allowed_origins'            => array_values(array_unique($clean_origins)),
             'pat_max_days'               => $int('pat_max_days', 0, 3650),
-            'entra_restricted_roles'     => $roles,
-            'entra_restrict_sso_linked'  => !empty($input['entra_restrict_sso_linked']),
-            'entra_exempt_admins'        => !empty($input['entra_exempt_admins']),
-            'entra_allow_create'         => !empty($input['entra_allow_create']),
-            'content_limited_roles'      => $content_roles,
+            'role_access'                => Azure_AI_Connectors_Access::sanitize_grid($input['role_access'] ?? array()),
+            'brand_guide_enabled'        => !empty($input['brand_guide_enabled']),
+            'brand_guide_page_id'        => isset($input['brand_guide_page_id']) ? max(0, (int) $input['brand_guide_page_id']) : 0,
         );
     }
 
@@ -261,14 +246,8 @@ class Azure_AI_Connectors_Policy {
     const KIND_DESTRUCTIVE = 'destructive';
     const KIND_ADMIN       = 'admin';
 
-    /** Registry group of the page and post tools the content rule applies to. */
-    const GROUP_CONTENT = 'content';
-
     const SCOPE_READ  = 'pta:read';
     const SCOPE_WRITE = 'pta:write';
-
-    /** @var array<int,bool> user id => linked to an Entra sign-in */
-    private static $sso_linked = array();
 
     public static function kinds() {
         return array(self::KIND_READ, self::KIND_CREATE, self::KIND_UPDATE, self::KIND_DESTRUCTIVE, self::KIND_ADMIN);
@@ -305,79 +284,6 @@ class Azure_AI_Connectors_Policy {
     }
 
     /**
-     * Whether the account is treated as an Entra (Azure AD) account.
-     *
-     * Entra sign-in provisions accounts on the Azure AD User role (`azuread`),
-     * which carries editor capabilities plus manage_options. A capability check
-     * alone would therefore hand those accounts delete and admin tools, so this
-     * rule sits on top of capabilities.
-     *
-     * @param WP_User|int|null $user
-     */
-    public static function is_entra_restricted($user = null) {
-        $user = self::resolve_user($user);
-        if (!$user || empty($user->ID)) {
-            return false;
-        }
-        $settings = Azure_AI_Connectors_Settings::get();
-        $roles = array_map('strval', (array) $user->roles);
-
-        $restricted = false;
-        if (!empty($settings['entra_exempt_admins']) && in_array('administrator', $roles, true)) {
-            $restricted = false;
-        } elseif (array_intersect($roles, (array) $settings['entra_restricted_roles'])) {
-            $restricted = true;
-        } elseif (!empty($settings['entra_restrict_sso_linked']) && self::is_sso_linked((int) $user->ID)) {
-            $restricted = true;
-        }
-
-        return (bool) apply_filters('pta_ai_connectors_is_entra_restricted', $restricted, $user);
-    }
-
-    /**
-     * Kinds an Entra-restricted account may use. Destructive and admin are
-     * never in this list.
-     */
-    public static function entra_allowed_kinds() {
-        $kinds = array(self::KIND_READ, self::KIND_UPDATE);
-        if (Azure_AI_Connectors_Settings::value('entra_allow_create')) {
-            $kinds[] = self::KIND_CREATE;
-        }
-        return $kinds;
-    }
-
-    /**
-     * Whether page and post tools are limited to read and update for this
-     * account. WooCommerce's shop_manager role carries editor capabilities
-     * (edit_posts, delete_posts, edit_pages, ...), but shop managers should
-     * only read and update pages and posts through AI connections.
-     *
-     * @param WP_User|int|null $user
-     */
-    public static function is_content_limited($user = null) {
-        $user = self::resolve_user($user);
-        if (!$user || empty($user->ID)) {
-            return false;
-        }
-        $settings = Azure_AI_Connectors_Settings::get();
-        $roles = array_map('strval', (array) $user->roles);
-
-        $limited = false;
-        if (!empty($settings['entra_exempt_admins']) && in_array('administrator', $roles, true)) {
-            $limited = false;
-        } elseif (array_intersect($roles, (array) $settings['content_limited_roles'])) {
-            $limited = true;
-        }
-
-        return (bool) apply_filters('pta_ai_connectors_is_content_limited', $limited, $user);
-    }
-
-    /** Kinds a content-limited account may use on page and post tools. */
-    public static function content_limited_kinds() {
-        return array(self::KIND_READ, self::KIND_UPDATE);
-    }
-
-    /**
      * Who may connect an assistant at all: PTA staff, not parents or
      * customers. Defaults to edit_posts, which administrators, editors,
      * Entra (azuread) accounts, shop managers and finance hold and parent,
@@ -403,7 +309,8 @@ class Azure_AI_Connectors_Policy {
 
     /**
      * Who may change AI Connectors settings and see or revoke everyone's
-     * connections. manage_options alone is not enough: Entra accounts hold it.
+     * connections: administrators. manage_options alone is not enough,
+     * because the Azure AD User role holds it.
      *
      * @param WP_User|int|null $user
      */
@@ -414,7 +321,7 @@ class Azure_AI_Connectors_Policy {
         }
         $is_current = (int) $user->ID === (int) get_current_user_id();
         $has_cap = $is_current ? current_user_can('manage_options') : user_can($user, 'manage_options');
-        return $has_cap && !self::is_entra_restricted($user);
+        return $has_cap && Azure_AI_Connectors_Access::is_admin_user($user);
     }
 
     /**
@@ -433,16 +340,10 @@ class Azure_AI_Connectors_Policy {
             return new WP_Error('pta_ai_unavailable', 'This tool is not available on this site right now.');
         }
         $kind = (string) ($tool['kind'] ?? self::KIND_READ);
-        if (self::is_entra_restricted($user) && !in_array($kind, self::entra_allowed_kinds(), true)) {
+        if (!Azure_AI_Connectors_Access::allows($user, $tool)) {
             return new WP_Error(
-                'pta_ai_entra_restricted',
-                'Accounts that sign in with Microsoft Entra can only read and update through AI Connectors. This tool is not available to your account.'
-            );
-        }
-        if (($tool['group'] ?? '') === self::GROUP_CONTENT && self::is_content_limited($user) && !in_array($kind, self::content_limited_kinds(), true)) {
-            return new WP_Error(
-                'pta_ai_content_limited',
-                'Your role can read and update pages and posts through AI Connectors, but not create or trash them.'
+                'pta_ai_role_access',
+                'Your role is not allowed to use this tool through AI Connectors. A site administrator chooses what each role can do under PTA Tools > AI Connectors > Settings.'
             );
         }
         if (!self::has_permission($tool)) {
@@ -478,27 +379,6 @@ class Azure_AI_Connectors_Policy {
 
     public static function confirmed(array $args) {
         return isset($args['confirm']) && $args['confirm'] === true;
-    }
-
-    private static function is_sso_linked($user_id) {
-        if (isset(self::$sso_linked[$user_id])) {
-            return self::$sso_linked[$user_id];
-        }
-        global $wpdb;
-        $linked = false;
-        $table = class_exists('Azure_Database') ? Azure_Database::get_table_name('sso_users') : '';
-        if ($table && isset($wpdb)) {
-            $linked = (bool) $wpdb->get_var($wpdb->prepare(
-                "SELECT id FROM {$table} WHERE wordpress_user_id = %d LIMIT 1",
-                $user_id
-            ));
-        }
-        self::$sso_linked[$user_id] = $linked;
-        return $linked;
-    }
-
-    public static function reset_cache() {
-        self::$sso_linked = array();
     }
 
     private static function resolve_user($user) {

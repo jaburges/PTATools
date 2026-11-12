@@ -31,6 +31,7 @@ class Azure_AI_Connectors_Admin {
         add_action('admin_post_pta_ai_create_pat', array($this, 'handle_create_pat'));
         add_action('admin_post_pta_ai_revoke', array($this, 'handle_revoke'));
         add_action('admin_post_pta_ai_save_settings', array($this, 'handle_save_settings'));
+        add_action('admin_post_pta_ai_create_brand_guide', array($this, 'handle_create_brand_guide'));
         add_action('admin_post_pta_ai_delete_client', array($this, 'handle_delete_client'));
         add_action('admin_post_pta_ai_skill', array($this, 'handle_skill'));
         add_action('admin_post_pta_ai_approve_host', array($this, 'handle_approve_host'));
@@ -148,13 +149,39 @@ class Azure_AI_Connectors_Admin {
         $input = wp_unslash($_POST);
         $input['access_token_ttl'] = isset($input['access_token_minutes']) ? (int) $input['access_token_minutes'] * MINUTE_IN_SECONDS : null;
         $input['refresh_token_ttl'] = isset($input['refresh_token_days']) ? (int) $input['refresh_token_days'] * DAY_IN_SECONDS : null;
-        foreach (array('entra_restricted_roles', 'content_limited_roles') as $role_list) {
-            if (!isset($input[$role_list])) {
-                $input[$role_list] = array();
-            }
+        $grid = array();
+        foreach ((array) ($input['role_access_roles'] ?? array()) as $role) {
+            $grid[(string) $role] = (array) ($input['role_access'][$role] ?? array());
         }
+        $input['role_access'] = $grid;
         Azure_AI_Connectors_Settings::save($input);
-        $this->back(Azure_AI_Connectors_Module::admin_page_url('settings'), __('Settings saved.', 'azure-plugin'));
+        $notice = __('Settings saved.', 'azure-plugin');
+        $type = 'success';
+        if (!empty($input['brand_guide_enabled']) && !Azure_AI_Connectors_Brand_Guide::active()) {
+            $notice .= ' ' . __('The brand guide is not in use: choose a page that is not in the trash.', 'azure-plugin');
+            $type = 'error';
+        }
+        $this->back(Azure_AI_Connectors_Module::admin_page_url('settings'), $notice, $type);
+    }
+
+    public function handle_create_brand_guide() {
+        check_admin_referer('pta_ai_create_brand_guide');
+        if (!Azure_AI_Connectors_Policy::can_administer() || !current_user_can('publish_pages')) {
+            wp_die(esc_html__('Only site administrators can create the brand guide page.', 'azure-plugin'), 403);
+        }
+        $back = Azure_AI_Connectors_Module::admin_page_url('settings');
+        $id = wp_insert_post(wp_slash(array(
+            'post_type'    => 'page',
+            'post_title'   => __('Brand Guide', 'azure-plugin'),
+            'post_content' => Azure_AI_Connectors_Brand_Guide::starter_content(),
+            'post_status'  => 'private',
+            'post_author'  => get_current_user_id(),
+        )), true);
+        if (is_wp_error($id)) {
+            $this->back($back, $id->get_error_message(), 'error');
+        }
+        Azure_AI_Connectors_Settings::save(array_merge(Azure_AI_Connectors_Settings::get(), array('brand_guide_page_id' => (int) $id)));
+        $this->back($back, __('Created a private Brand Guide page and selected it. Replace the example colours and fonts, then tick the box to turn it on.', 'azure-plugin'));
     }
 
     public function handle_delete_client() {

@@ -25,6 +25,9 @@
  *   input_schema         JSON Schema object for the arguments.
  *   callback             fn(array $args, array $context): array|WP_Error.
  *   group                Heading on the setup page (site, content, ...).
+ *   access               Access group from Azure_AI_Connectors_Access::groups()
+ *                        that a role needs; '' for anyone who can connect.
+ *                        Defaults to '' (destructive and admin tools: admin).
  *   open_world           True when the tool reaches an outside service.
  *
  * The callback runs as the signed-in user and must still do any per-object
@@ -70,6 +73,12 @@ class Azure_AI_Connectors_Registry {
         $def['title'] = isset($def['title']) ? (string) $def['title'] : $name;
         $def['description'] = isset($def['description']) ? (string) $def['description'] : '';
         $def['group'] = isset($def['group']) ? (string) $def['group'] : 'other';
+        if (!isset($def['access'])) {
+            $def['access'] = in_array($kind, array(Azure_AI_Connectors_Policy::KIND_DESTRUCTIVE, Azure_AI_Connectors_Policy::KIND_ADMIN), true)
+                ? Azure_AI_Connectors_Access::ADMIN_GROUP
+                : '';
+        }
+        $def['access'] = (string) $def['access'];
 
         if (Azure_AI_Connectors_Policy::requires_confirm($def)) {
             $schema['properties']['confirm'] = array(

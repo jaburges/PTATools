@@ -11,6 +11,7 @@ if (!defined('ABSPATH')) {
 class Azure_Admin_Menu_Customizer {
 
     const OPTION = 'azure_admin_menu_visibility';
+    const CATALOG_OPTION = 'azure_admin_menu_catalog_ids';
     const CAP = 'access_pta_tools';
     const ID_SEP = '::';
 
@@ -107,7 +108,7 @@ class Azure_Admin_Menu_Customizer {
                     if ($sub_label === '') {
                         continue;
                     }
-                    $child_slug = (string) $sub[2];
+                    $child_slug = self::normalize_slug((string) $sub[2]);
                     $node['children'][] = array(
                         'id' => $slug . self::ID_SEP . $child_slug,
                         'parent' => $slug,
@@ -119,6 +120,24 @@ class Azure_Admin_Menu_Customizer {
             $tree[] = $node;
         }
         return $tree;
+    }
+
+    /**
+     * Stable ID for a submenu slug. Customize links carry the current
+     * page in ?return=, and some slugs arrive HTML-encoded, so the raw
+     * slug differs from page to page.
+     */
+    public static function normalize_slug($slug) {
+        $slug = html_entity_decode((string) $slug, ENT_QUOTES, 'UTF-8');
+        $q = strpos($slug, '?');
+        if ($q === false) {
+            return $slug;
+        }
+        $parts = array_filter(explode('&', substr($slug, $q + 1)), function ($part) {
+            return $part !== '' && strpos($part, 'return=') !== 0;
+        });
+        $base = substr($slug, 0, $q);
+        return $parts ? $base . '?' . implode('&', $parts) : $base;
     }
 
     public static function clean_label($html) {
@@ -149,6 +168,20 @@ class Azure_Admin_Menu_Customizer {
                 }
             }
         }
+        return $ids;
+    }
+
+    /**
+     * admin_menu does not run on admin-ajax.php, so the save handler has
+     * no catalog of its own. It validates against the IDs the editor
+     * last rendered instead.
+     *
+     * @param array $catalog
+     * @return string[]
+     */
+    public static function remember_catalog_ids($catalog) {
+        $ids = self::catalog_ids($catalog);
+        update_option(self::CATALOG_OPTION, $ids, false);
         return $ids;
     }
 
@@ -239,9 +272,29 @@ class Azure_Admin_Menu_Customizer {
             } else {
                 $parent = substr($id, 0, $pos);
                 $child = substr($id, $pos + strlen(self::ID_SEP));
-                remove_submenu_page($parent, $child);
+                foreach (self::raw_submenu_slugs($parent, $child) as $raw) {
+                    remove_submenu_page($parent, $raw);
+                }
             }
         }
+    }
+
+    /**
+     * Raw $submenu slugs under $parent whose normalized form is $child.
+     *
+     * @return string[]
+     */
+    public static function raw_submenu_slugs($parent, $child) {
+        global $submenu;
+        $out = array($child);
+        if (!empty($submenu[$parent]) && is_array($submenu[$parent])) {
+            foreach ($submenu[$parent] as $sub) {
+                if (is_array($sub) && isset($sub[2]) && self::normalize_slug((string) $sub[2]) === $child) {
+                    $out[] = (string) $sub[2];
+                }
+            }
+        }
+        return array_values(array_unique($out));
     }
 
     public static function stored() {
@@ -280,8 +333,8 @@ class Azure_Admin_Menu_Customizer {
         if (!is_array($raw)) {
             $raw = array();
         }
-        $catalog = is_array(self::$catalog) ? self::$catalog : array();
-        $hidden = self::sanitize_hidden($raw, self::catalog_ids($catalog), $role);
+        $valid_ids = get_option(self::CATALOG_OPTION, array());
+        $hidden = self::sanitize_hidden($raw, is_array($valid_ids) ? $valid_ids : array(), $role);
         $stored = self::stored();
         $stored[$role] = array('hidden' => $hidden);
         update_option(self::OPTION, $stored, false);
