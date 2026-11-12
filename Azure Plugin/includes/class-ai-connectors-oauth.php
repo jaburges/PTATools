@@ -201,7 +201,7 @@ class Azure_AI_Connectors_OAuth {
         echo '<p>' . esc_html(sprintf('"%s" wants to connect and send you back to %s, which is not on this site\'s list of approved assistants.', $name, $host)) . '</p>';
         if (Azure_AI_Connectors_Policy::can_administer()) {
             echo '<p>' . esc_html('You are a site administrator. If you recognise this domain as the assistant you are connecting, approve it, then start connecting again from the assistant.') . '</p>';
-            echo '<p><a href="' . esc_url(Azure_AI_Connectors_Module::admin_page_url('apps')) . '">' . esc_html('Review it under PTA Tools > AI Connectors > Apps') . '</a></p>';
+            echo '<p><a href="' . esc_url(Azure_AI_Connectors_Module::admin_page_url('apps')) . '">' . esc_html('Review it under PTA Tools > System > AI Connectors > Apps') . '</a></p>';
         } else {
             echo '<p>' . esc_html('A site administrator has been asked to review it. Once it is approved, start connecting again from the assistant.') . '</p>';
         }

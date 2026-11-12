@@ -123,7 +123,7 @@ check(other.status_code == 201, "an app on an unapproved domain can still regist
 uq = dict(q, client_id=other.json()["client_id"], redirect_uri="https://client.example/callback")
 ua = s.get(BASE + "/wp-admin/admin-post.php", params=dict(uq, action="pta_ai_authorize"), allow_redirects=False)
 check(ua.status_code == 403 and "not approved yet" in ua.text and "client.example" in ua.text and "Location" not in ua.headers, "an unapproved assistant domain gets the approval page, not a redirect", ua.status_code)
-apps = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=apps")
+apps = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-system-ai-connectors&section=apps")
 check("client.example" in apps.text and "Approve domain" in apps.text, "the unapproved domain waits under Apps for an admin", apps.status_code)
 
 tok = requests.post(meta["token_endpoint"], data={"grant_type": "authorization_code", "code": code, "redirect_uri": redirect, "client_id": client_id, "code_verifier": "x" * 43, "resource": MCP})
@@ -322,10 +322,10 @@ wp_eval('delete_option("azure_ai_connectors_settings");')
 # ── Admin screens ─────────────────────────────────────────
 up_page = s.get(BASE + "/wp-admin/users.php?page=pta-ai-connectors")
 check(up_page.status_code == 200 and "MCP server URL" in up_page.text and "E2E Claude" not in up_page.text and "Personal token" in up_page.text, "Users > AI Connectors renders; revoked and failed connections are not listed", up_page.status_code)
-ad = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=audit")
+ad = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-system-ai-connectors&section=audit")
 check(ad.status_code == 200 and "pta_trash_content" in ad.text and "confirm_required" in ad.text, "admin audit log shows calls", ad.status_code)
 for tab in ("connections", "apps", "tools", "settings"):
-    pg = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=" + tab)
+    pg = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-system-ai-connectors&section=" + tab)
     check(pg.status_code == 200 and "AI Connectors" in pg.text and "Fatal" not in pg.text, "admin tab renders: " + tab)
 import html as _h; skill_link = _h.unescape(re.search(r'href="([^"]*action=pta_ai_skill[^"]*)"', up_page.text).group(1))
 sk = s.get(skill_link)
@@ -342,7 +342,7 @@ check(m and m.group(1) not in again_page.text, "and is not shown again on reload
 check(m and rpc(m.group(1), "ping").status_code == 200, "the form-created token works")
 
 # Role grid saves through the settings form
-sp = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=settings")
+sp = s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-system-ai-connectors&section=settings")
 check('name="role_access[azuread][]"' in sp.text and 'name="role_access_roles[]" value="shop_manager"' in sp.text and "entra_restricted_roles" not in sp.text, "settings show the role grid", sp.status_code)
 form = sp.text.split('name="action" value="pta_ai_save_settings"')[1].split("</form>")[0]
 fields = [(m.group(1), _h.unescape(m.group(2))) for m in re.finditer(r'<input type="hidden"[^>]*?name="([^"]+)" value="([^"]*)"', form)]
@@ -359,9 +359,9 @@ wp_eval('update_option("azure_ai_connectors_settings", get_option("pta_e2e_ai_se
 # Azure AD user cannot open admin settings
 es = requests.Session(); es.get(BASE + "/wp-login.php")
 es.post(BASE + "/wp-login.php", data={"log": "entra", "pwd": "entra", "wp-submit": "Log In", "testcookie": "1"})
-ep = es.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=settings")
+ep = es.get(BASE + "/wp-admin/admin.php?page=azure-plugin-system-ai-connectors&section=settings")
 check("Only site administrators" in ep.text and "role_access" not in ep.text, "Azure AD user (manage_options) cannot see AI Connectors settings")
-ep_nonce = re.search(r'name="_wpnonce" value="([^"]+)"', s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-ai-connectors&tab=settings").text).group(1)
+ep_nonce = re.search(r'name="_wpnonce" value="([^"]+)"', s.get(BASE + "/wp-admin/admin.php?page=azure-plugin-system-ai-connectors&section=settings").text).group(1)
 sv = es.post(BASE + "/wp-admin/admin-post.php", data={"action": "pta_ai_save_settings", "_wpnonce": ep_nonce, "role_access_roles[]": "azuread", "role_access[azuread][]": "content_trash"})
 check(sv.status_code in (403, 200) and ("Only site administrators" in sv.text or "link you followed has expired" in sv.text), "Azure AD user cannot save settings", (sv.status_code, sv.text[:200]))
 

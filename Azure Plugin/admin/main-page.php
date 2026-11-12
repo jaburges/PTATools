@@ -189,7 +189,7 @@ if (!defined('ABSPATH')) {
                                 <input type="checkbox" class="module-toggle" data-module="ai_connectors" <?php checked($settings['enable_ai_connectors'] ?? false); ?> />
                                 <span class="slider"></span>
                             </label>
-                            <a href="<?php echo admin_url('admin.php?page=azure-plugin-ai-connectors'); ?>" class="button button-configure">Configure</a>
+                            <a href="<?php echo admin_url('admin.php?page=azure-plugin-system-ai-connectors'); ?>" class="button button-configure">Configure</a>
                         </div>
                     </div>
                     <div class="module-description">

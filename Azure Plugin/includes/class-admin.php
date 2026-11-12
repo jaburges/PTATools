@@ -422,6 +422,7 @@ class Azure_Admin {
             'schedules' => __('Schedules', 'azure-plugin'),
             'classes' => __('Class Count', 'azure-plugin'),
             'menu' => __('Admin Menu', 'azure-plugin'),
+            'ai-connectors' => __('AI Connectors', 'azure-plugin'),
             'config' => __('Config', 'azure-plugin'),
             'rules' => __('Rules', 'azure-plugin'),
         );

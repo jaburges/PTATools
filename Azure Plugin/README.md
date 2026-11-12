@@ -330,7 +330,7 @@ Credentials: Required (OAuth flow)
 
 ### AI Connectors
 ```
-Location: PTA Tools → AI Connectors (admins), Users → AI Connectors (PTA staff)
+Location: PTA Tools → System → AI Connectors (admins), Users → AI Connectors (PTA staff)
 Credentials: None (the site is its own OAuth server)
 Endpoint: /wp-json/pta-tools/v1/mcp
 ```

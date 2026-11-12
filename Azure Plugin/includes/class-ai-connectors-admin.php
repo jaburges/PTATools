@@ -4,9 +4,10 @@
  *
  *   Users > AI Connectors (PTA staff, see Policy::can_connect()): setup
  *     steps, skill file, your connected apps and personal access tokens.
- *   PTA Tools > AI Connectors (site admins only): every connection, the
- *     audit log, registered apps and settings. Entra accounts hold
- *     manage_options, so the page checks Policy::can_administer() too.
+ *   PTA Tools > System > AI Connectors (site admins only): every connection,
+ *     the audit log, registered apps and settings. The System page renders
+ *     it as a tab. Entra accounts hold manage_options, so the page checks
+ *     Policy::can_administer() too.
  */
 
 if (!defined('ABSPATH')) {
@@ -45,14 +46,6 @@ class Azure_AI_Connectors_Admin {
     }
 
     public function admin_menu() {
-        add_submenu_page(
-            'azure-plugin',
-            'PTA Tools - AI Connectors',
-            __('AI Connectors', 'azure-plugin'),
-            'manage_options',
-            Azure_AI_Connectors_Module::ADMIN_PAGE,
-            array($this, 'render_admin_page')
-        );
         add_users_page(
             __('AI Connectors', 'azure-plugin'),
             __('AI Connectors', 'azure-plugin'),
@@ -64,9 +57,9 @@ class Azure_AI_Connectors_Admin {
 
     public function render_admin_page() {
         if (!Azure_AI_Connectors_Policy::can_administer()) {
-            echo '<div class="wrap"><h1>' . esc_html__('AI Connectors', 'azure-plugin') . '</h1><div class="notice notice-info inline"><p>'
+            echo '<div class="notice notice-info inline"><p>'
                 . esc_html__('Only site administrators can change AI Connectors settings or see everyone\'s connections.', 'azure-plugin')
-                . ' <a href="' . esc_url(Azure_AI_Connectors_Module::user_page_url()) . '">' . esc_html__('Set up your own connection', 'azure-plugin') . '</a></p></div></div>';
+                . ' <a href="' . esc_url(Azure_AI_Connectors_Module::user_page_url()) . '">' . esc_html__('Set up your own connection', 'azure-plugin') . '</a></p></div>';
             return;
         }
         include AZURE_PLUGIN_PATH . 'admin/ai-connectors-page.php';
