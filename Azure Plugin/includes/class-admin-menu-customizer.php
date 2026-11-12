@@ -11,6 +11,7 @@ if (!defined('ABSPATH')) {
 class Azure_Admin_Menu_Customizer {
 
     const OPTION = 'azure_admin_menu_visibility';
+    const CATALOG_OPTION = 'azure_admin_menu_catalog_ids';
     const CAP = 'access_pta_tools';
     const ID_SEP = '::';
 
@@ -153,6 +154,20 @@ class Azure_Admin_Menu_Customizer {
     }
 
     /**
+     * admin_menu does not run on admin-ajax.php, so the save handler has
+     * no catalog of its own. It validates against the IDs the editor
+     * last rendered instead.
+     *
+     * @param array $catalog
+     * @return string[]
+     */
+    public static function remember_catalog_ids($catalog) {
+        $ids = self::catalog_ids($catalog);
+        update_option(self::CATALOG_OPTION, $ids, false);
+        return $ids;
+    }
+
+    /**
      * Hide an item only when every role the user holds has it unchecked.
      * Empty hidden list = all items visible (default).
      *
@@ -280,8 +295,8 @@ class Azure_Admin_Menu_Customizer {
         if (!is_array($raw)) {
             $raw = array();
         }
-        $catalog = is_array(self::$catalog) ? self::$catalog : array();
-        $hidden = self::sanitize_hidden($raw, self::catalog_ids($catalog), $role);
+        $valid_ids = get_option(self::CATALOG_OPTION, array());
+        $hidden = self::sanitize_hidden($raw, is_array($valid_ids) ? $valid_ids : array(), $role);
         $stored = self::stored();
         $stored[$role] = array('hidden' => $hidden);
         update_option(self::OPTION, $stored, false);

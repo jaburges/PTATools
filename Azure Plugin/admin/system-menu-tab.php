@@ -13,6 +13,7 @@ if (!current_user_can('manage_options')) {
 $roles = Azure_Admin_Menu_Customizer::role_choices();
 $default_role = isset($roles['azuread']) ? 'azuread' : (isset($roles['editor']) ? 'editor' : (string) array_key_first($roles));
 $catalog = is_array(Azure_Admin_Menu_Customizer::$catalog) ? Azure_Admin_Menu_Customizer::$catalog : array();
+Azure_Admin_Menu_Customizer::remember_catalog_ids($catalog);
 $stored = Azure_Admin_Menu_Customizer::stored();
 $hidden_by_role = array();
 foreach (array_keys($roles) as $slug) {

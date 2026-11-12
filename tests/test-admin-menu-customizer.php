@@ -95,6 +95,65 @@ $t->equals(
     'non-admin roles may hide System in their own menu'
 );
 
+// Save round trip. admin_menu never fires on admin-ajax.php, so the save
+// request runs with no catalog snapshot.
+class AMC_Json_Exit extends Exception {
+    public $success;
+    public $data;
+    public function __construct($success, $data) {
+        parent::__construct('json');
+        $this->success = $success;
+        $this->data = $data;
+    }
+}
+function check_ajax_referer($action, $arg) { return true; }
+function current_user_can($cap) { return true; }
+function sanitize_key($key) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $key)); }
+function wp_unslash($value) { return $value; }
+function translate_user_role($name) { return $name; }
+function wp_roles() {
+    return (object) array('roles' => array(
+        'administrator' => array('name' => 'Administrator'),
+        'editor' => array('name' => 'Editor'),
+        'azuread' => array('name' => 'Azure AD User'),
+    ));
+}
+function wp_send_json_success($data = null) { throw new AMC_Json_Exit(true, $data); }
+function wp_send_json_error($data = null) { throw new AMC_Json_Exit(false, $data); }
+
+function amc_save($role, array $hidden) {
+    $_POST = array('nonce' => 'n', 'role' => $role, 'hidden' => $hidden);
+    try {
+        Azure_Admin_Menu_Customizer::get_instance()->ajax_save();
+    } catch (AMC_Json_Exit $e) {
+        return $e;
+    }
+    return null;
+}
+
+WP_Shim::$options = array();
+Azure_Admin_Menu_Customizer::$catalog = $catalog;
+Azure_Admin_Menu_Customizer::remember_catalog_ids($catalog);
+Azure_Admin_Menu_Customizer::$catalog = null;
+
+$res = amc_save('editor', array('edit.php', 'edit.php::post-new.php', 'not-a-menu'));
+$t->check($res !== null && $res->success, 'save succeeds without a catalog snapshot in the request');
+$t->equals(array('edit.php', 'edit.php::post-new.php'), $res->data['hidden'], 'save echoes the hidden items it kept');
+$stored_after = Azure_Admin_Menu_Customizer::stored();
+$t->equals(array('edit.php', 'edit.php::post-new.php'), $stored_after['editor']['hidden'] ?? null, 'saved hides are what the editor loads back for the role');
+$t->check(!isset($stored_after['azuread']), 'saving one role leaves other roles untouched');
+
+amc_save('azuread', array('azure-plugin::azure-plugin-calendar'));
+$stored_after = Azure_Admin_Menu_Customizer::stored();
+$t->equals(array('edit.php', 'edit.php::post-new.php'), $stored_after['editor']['hidden'], 'saving a second role keeps the first');
+$t->equals(array('azure-plugin::azure-plugin-calendar'), $stored_after['azuread']['hidden'], 'second role is saved under its own slug');
+
+$admin_res = amc_save('administrator', array('edit.php', 'azure-plugin'));
+$t->equals(array('edit.php'), $admin_res->data['hidden'], 'save still strips locked items for administrator');
+
+$tab = file_get_contents(dirname(__DIR__) . '/Azure Plugin/admin/system-menu-tab.php');
+$t->check(strpos($tab, 'remember_catalog_ids(') !== false, 'Admin Menu tab records the IDs it renders');
+
 $t->equals('access_pta_tools', Azure_Admin_Menu_Customizer::CAP, 'Azure AD users share the PTA Tools capability');
 
 $php = file_get_contents(dirname(__DIR__) . '/Azure Plugin/includes/class-admin.php');
