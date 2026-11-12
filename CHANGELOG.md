@@ -22,6 +22,10 @@ Release notes for PTA Tools, newest first. Earlier versions are on the [wiki cha
 - `pta_whoami` lists the account's tool groups instead of the old Entra and shop manager flags. The consent screen, Users → AI Connectors, the Tools tab and the skill file describe the grid.
 - `pta_get_brand_guide` is open to every staff member who can connect, so it can guide product descriptions too.
 
+### Fixed
+
+- **System → Admin Menu** now keeps each role's layout. Saving looked successful, but the save request checked the ticked items against a menu list that WordPress only builds when it draws the sidebar, which it never does for that request. Every item was dropped, so reselecting the role or reloading showed the default menu. The tab now records the items it shows, and the save checks against that. An Admin Menu tab left open from before this update needs one reload before its first save.
+
 ### Added
 
 - **Order reports**: `pta_get_report`, `pta_list_report_columns`, `pta_create_report` and `pta_update_report`, alongside the existing list and export. Reading needs only `edit_posts`, so Azure AD users can pull any saved report. Creating and editing needs `manage_woocommerce`. Unknown columns are refused by name rather than dropped.
