@@ -279,6 +279,6 @@ $end = 'summarise your changes.';
 $t->check(strpos($g['agent_prompt'], 'You are editing pages on the') === 0 && substr($g['agent_prompt'], -strlen($end)) === $end, 'the whole agent prompt reads back');
 $t->check(strpos($g['agent_prompt'], "VOICE\n- Warm") !== false, 'with its line breaks');
 $t->check(strpos($g['fonts'], 'Jost') !== false && strpos($g['fonts'], 'Noto Serif') !== false, 'fonts name Jost and Noto Serif');
-$t->equals(5, count($g['images']), 'the logo and four example images read back');
+$t->equals(7, count($g['images']), 'the logo, four example images and the two example emails read back');
 
-$t->finish();
+exit($t->finish() > 0 ? 1 : 0);
