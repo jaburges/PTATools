@@ -78,10 +78,10 @@ list($event_id, $product_id) = Azure_Tickets_Visualizer::pick($events, absint($_
             <?php
             /* translators: 1: seats sold, 2: capacity */
             echo '<strong>' . esc_html(sprintf(__('%1$d of %2$d sold', 'azure-plugin'), $st['sold'], $st['capacity'])) . '</strong>';
-            if ($st['checked_in']) {
-                /* translators: %d: tickets checked in */
-                echo ' · ' . esc_html(sprintf(__('%d checked in', 'azure-plugin'), $st['checked_in']));
-            }
+            /* translators: %d: tickets checked in */
+            $in_label = __('%d checked in', 'azure-plugin');
+            echo '<span class="ptv-in-count" data-label="' . esc_attr($in_label) . '"' . ($st['checked_in'] ? '' : ' hidden') . '> · '
+                . esc_html(sprintf($in_label, $st['checked_in'])) . '</span>';
             if ($st['held']) {
                 /* translators: %d: seats in carts */
                 echo ' · ' . esc_html(sprintf(__('%d in carts', 'azure-plugin'), $st['held']));
@@ -119,15 +119,34 @@ list($event_id, $product_id) = Azure_Tickets_Visualizer::pick($events, absint($_
     </div>
 
     <?php $box = Azure_Tickets_Visualizer::bounds($snap['layout']); ?>
-    <div class="ptv-map" data-w="<?php echo (int) $box['w']; ?>" data-h="<?php echo (int) $box['h']; ?>">
+    <?php
+    $door = array(
+        'url'     => admin_url('admin-ajax.php'),
+        'action'  => Azure_Tickets_Visualizer::DOOR_ACTION,
+        'nonce'   => wp_create_nonce(Azure_Tickets_Visualizer::DOOR_ACTION),
+        'product' => $product_id,
+    );
+    ?>
+    <div class="ptv-map" data-w="<?php echo (int) $box['w']; ?>" data-h="<?php echo (int) $box['h']; ?>" data-door="<?php echo esc_attr(wp_json_encode($door)); ?>">
         <?php echo Azure_Tickets_Visualizer::map_html($snap['layout'], $snap['sections'], $snap['occ'], array('focusable' => true)); // Escaped as it is built. ?>
     </div>
-    <p class="ptv-note"><?php esc_html_e('Hover over (or tab to) a seat to see who has it; the seats bought with it light up. Click a sold seat to open its order. The map shows the moment the page loaded; reload to catch up.', 'azure-plugin'); ?></p>
+    <p class="ptv-note"><?php esc_html_e('Hover over (or tab to) a seat to see who has it; the seats bought with it light up. Click a sold seat to open its order. Right-click it (or press the menu key) to check that order in without a QR code, all at once or seat by seat, or to undo a seat\'s check-in. The map shows the moment the page loaded, apart from your own check-ins; reload to catch up.', 'azure-plugin'); ?></p>
     <div class="ptv-tip" role="status" hidden></div>
 
     <script type="application/json" id="ptv-data"><?php echo wp_json_encode(Azure_Tickets_Visualizer::client_data($snap), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
 
-    <div class="ptv-modal" hidden role="dialog" aria-modal="true" aria-labelledby="ptv-modal-title">
+    <div class="ptv-menu" role="menu" hidden></div>
+
+    <div class="ptv-modal ptv-door" hidden role="dialog" aria-modal="true" aria-labelledby="ptv-door-title">
+        <div class="ptv-modal__box ptv-door__box">
+            <h2 id="ptv-door-title"></h2>
+            <p class="ptv-door__sub"></p>
+            <div class="ptv-door__body" aria-live="polite"></div>
+            <div class="ptv-modal__actions ptv-door__actions"></div>
+        </div>
+    </div>
+
+    <div class="ptv-modal ptv-print" hidden role="dialog" aria-modal="true" aria-labelledby="ptv-modal-title">
         <form class="ptv-modal__box" data-url="<?php echo esc_url(Azure_Tickets_Visualizer::print_url(0)); ?>">
             <h2 id="ptv-modal-title"><?php esc_html_e('Print the seating map', 'azure-plugin'); ?></h2>
             <p><?php esc_html_e('A full-size map across four landscape pages that tape together, with every buyer\'s name on their seats and the free seats left blank, for checking people in at the door and selling the rest by hand.', 'azure-plugin'); ?></p>
