@@ -480,3 +480,184 @@
     justify-content: flex-end;
     gap: 8px;
 }
+
+/* Right-click menu on a sold seat */
+.ptv-menu {
+    position: fixed;
+    z-index: 100002;
+    min-width: 220px;
+    padding: 4px 0;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    background: #fff;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+}
+
+.ptv-menu[hidden] {
+    display: none;
+}
+
+.ptv-menu__head {
+    margin-bottom: 4px;
+    padding: 6px 14px 8px;
+    border-bottom: 1px solid #f0f0f1;
+    color: #50575e;
+    font-size: 12px;
+}
+
+.ptv-menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 14px;
+    border: 0;
+    background: none;
+    color: #1d2327;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ptv-menu button:hover,
+.ptv-menu button:focus {
+    outline: none;
+    background: #2271b1;
+    color: #fff;
+}
+
+/* Check-in box: big targets for a busy ticket desk */
+.ptv-door .ptv-modal__box {
+    width: min(680px, calc(100vw - 32px));
+}
+
+.ptv-door__sub {
+    margin-top: -8px;
+    color: #50575e;
+    font-size: 14px;
+}
+
+.ptv-door__muted {
+    color: #646970;
+}
+
+.ptv-door__wait .spinner {
+    float: none;
+    margin: 0 6px 0 0;
+}
+
+.ptv-door__choices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0 8px;
+}
+
+.ptv-door__big,
+.ptv-door__seat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 14px;
+    border: 2px solid #2271b1;
+    border-radius: 10px;
+    background: #fff;
+    color: #2271b1;
+    font: inherit;
+    text-align: center;
+    cursor: pointer;
+}
+
+.ptv-door__big {
+    min-height: 120px;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.ptv-door__big small {
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.4;
+}
+
+.ptv-door__big.is-primary {
+    background: #2271b1;
+    color: #fff;
+}
+
+.ptv-door__big:hover:not(:disabled),
+.ptv-door__seat:hover:not(:disabled) {
+    box-shadow: 0 0 0 2px #72aee6;
+}
+
+.ptv-door__big:focus-visible,
+.ptv-door__seat:focus-visible {
+    outline: 3px solid #1d2327;
+    outline-offset: 2px;
+}
+
+.ptv-door__big:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.ptv-door__seats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    gap: 10px;
+    margin: 12px 0 8px;
+}
+
+.ptv-door__seat {
+    min-height: 100px;
+    border-color: #c3c4c7;
+    color: #1d2327;
+}
+
+.ptv-door__seat strong {
+    font-size: 28px;
+    line-height: 1;
+}
+
+.ptv-door__seat span {
+    color: #50575e;
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.ptv-door__seat[aria-pressed="true"] {
+    border-color: #2271b1;
+    background: #2271b1;
+    color: #fff;
+}
+
+.ptv-door__seat[aria-pressed="true"] span {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.ptv-door__seat[aria-pressed="true"] strong::before {
+    content: "✓ ";
+}
+
+.ptv-door__seat:disabled {
+    border-style: dashed;
+    background: #f0f6fc;
+    color: #2271b1;
+    cursor: default;
+}
+
+.ptv-door__done {
+    margin: 20px 0;
+    color: #00a32a;
+    font-size: 24px;
+    font-weight: 700;
+    text-align: center;
+}
+
+@media (max-width: 520px) {
+    .ptv-door__choices {
+        grid-template-columns: 1fr;
+    }
+}

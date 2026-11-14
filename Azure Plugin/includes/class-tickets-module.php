@@ -52,6 +52,7 @@ class Azure_Tickets_Module {
         add_action('wp_ajax_azure_tickets_email_preview', array($this, 'ajax_email_preview'));
         add_action('admin_post_azure_tickets_assign_csv', array('Azure_Tickets_Assign', 'download_csv'));
         add_action('admin_post_azure_tickets_seat_print', array('Azure_Tickets_Visualizer', 'serve_print'));
+        add_action('wp_ajax_azure_tickets_visualizer_door', array('Azure_Tickets_Visualizer', 'ajax_door'));
         
         // Cleanup expired seat reservations
         add_action('azure_tickets_cleanup_reservations', array($this, 'cleanup_expired_reservations'));

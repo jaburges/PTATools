@@ -222,4 +222,59 @@ $turned = $V::app_map(array_merge($app_snap, array('layout' => array('canvas' =>
 $t1 = array_column($turned['seats'], null, 'k')['A-1'];
 $t->check($t1['x'] > $turned['width'] / 2 && $t1['y'] < $turned['height'] / 2 && $t1['a'] == 90, 'a block turned 90° clockwise puts its first seat top right, and says the angle', json_encode($t1));
 
+// ── Checking an order in from the map ──────────────────────────────────
+require_once dirname(__DIR__) . '/Azure Plugin/includes/class-tickets-checkin.php';
+global $wpdb;
+$wpdb = new Sqlite_WPDB();
+$wpdb->exec("CREATE TABLE wp_azure_tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, product_id INTEGER, section_id TEXT, row_letter TEXT, seat_number INTEGER,
+    attendee_name TEXT, ticket_code TEXT, status TEXT, checked_in_at TEXT, checked_in_by INTEGER)");
+$wpdb->exec("CREATE TABLE wp_azure_ticket_checkins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER, action TEXT, user_id INTEGER, device_info TEXT, created_at TEXT)");
+$add = function ($order, $perf, $row, $n, $status = 'active', $name = '') use ($wpdb) {
+    $wpdb->insert('wp_azure_tickets', array('order_id' => $order, 'product_id' => $perf, 'section_id' => $row === null ? 'GA' : 'left',
+        'row_letter' => $row, 'seat_number' => $n, 'attendee_name' => $name, 'ticket_code' => 'c' . $order . $row . $n . $perf, 'status' => $status));
+    return $wpdb->insert_id;
+};
+$m3 = $add(40, 100, 'M', 3, 'active', 'Wendy');
+$m4 = $add(40, 100, 'M', 4);
+$m10 = $add(40, 100, 'M', 10);
+$floor = $add(40, 100, null, null);
+$add(40, 100, 'M', 5, 'cancelled');
+$sat = $add(40, 200, 'M', 3);
+$other = $add(41, 100, 'M', 6);
+
+$list = $V::order_tickets(100, 40);
+$t->equals(array('M3', 'M4', 'M10', ''), array_column($list, 'seat'), 'the box lists the order\'s live tickets for that performance only, seats in number order');
+$t->equals('M-3', $list[0]['key'], 'each carries the map\'s seat key, so the map can be updated');
+$t->equals('Wendy', $list[0]['name'], '…and the ticket name');
+$t->equals('', $list[3]['key'], 'general admission has no seat key');
+$t->equals('General Admission', $list[3]['label'], '…and is labelled as such');
+
+$r = $V::check_in_order(100, 40, array($m4, $other, $sat), 9);
+$t->equals(1, $r['checked_in'], 'checking in chosen seats: only this order\'s tickets for this performance count');
+$t->equals('used', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $m4"), 'the chosen seat is in');
+$t->equals('active', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $other"), 'another order\'s ticket is left alone');
+$t->equals('active', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $sat"), 'so is the same order\'s ticket for another night');
+$t->equals('active', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $m3"), 'and the seats not chosen');
+$t->equals(9, (int) $wpdb->get_var("SELECT checked_in_by FROM wp_azure_tickets WHERE id = $m4"), 'it is recorded against whoever clicked');
+$t->equals('checkin', $wpdb->get_var("SELECT action FROM wp_azure_ticket_checkins WHERE ticket_id = $m4"), '…and logged like a scan');
+$t->equals(1, $r['total_in'], 'the performance\'s checked-in count comes back for the summary line');
+$t->check($r['tickets'][1]['status'] === 'used' && $r['tickets'][1]['time'] !== '', 'the fresh ticket list shows the time it went in');
+
+$r = $V::check_in_order(100, 40, array($m4), 9);
+$t->equals(array(0, 1), array($r['checked_in'], $r['already']), 'choosing a seat already in says so instead of checking it in twice');
+
+$r = $V::check_in_order(100, 40, null, 9);
+$t->equals(array(3, 0), array($r['checked_in'], $r['already']), 'all: the rest of the order goes in (M3, M10 and the floor ticket), the one already in is not counted again');
+$t->equals(0, (int) $wpdb->get_var("SELECT COUNT(*) FROM wp_azure_tickets WHERE order_id = 40 AND product_id = 100 AND status = 'active'"), 'nothing on the order is left to check in');
+$t->equals('cancelled', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE order_id = 40 AND seat_number = 5"), 'a cancelled ticket is never checked in');
+$t->equals(4, $r['total_in'], 'four checked in for the night');
+$t->equals('active', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $sat"), 'all still means this performance only');
+
+$cancel = $add(42, 100, 'N', 1);
+$wpdb->query("UPDATE wp_azure_tickets SET status = 'cancelled' WHERE id = $cancel");
+$r = $V::check_in_order(100, 42, array($cancel), 9);
+$t->equals(array(0, array()), array($r['checked_in'], $r['problems']), 'a cancelled ticket is not offered at all, so there is nothing to refuse');
+
 $t->finish();

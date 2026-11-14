@@ -2,6 +2,13 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.213 — Check people in from the seat Visualizer
+
+### Added
+
+- **Tickets → Visualizer: right-click a sold seat** for a menu with **View order** and **Check in…**, for people at the ticket desk who can't find their QR code. Check in opens a box with two big buttons: **Check in all** checks in every seat on that order for the performance straight away, and **Choose seats** shows each seat on the order as a large button to tap, for when only part of the party has arrived. Seats already checked in show their time and can't be picked again. The map and the "checked in" count update without a reload, and the box closes itself once everyone on the order is in. The menu key or Shift+F10 opens the same menu from the keyboard.
+- Check-ins from the map go through the same check-in as a QR scan, so they appear in the check-in log and stats under the person who clicked, and a ticket scanned meanwhile on the door app is reported as already in rather than checked in twice. Only shop managers and administrators can use it, as with the rest of the Visualizer.
+
 ## 3.147.212 — AI Connectors moves under System
 
 ### Changed
