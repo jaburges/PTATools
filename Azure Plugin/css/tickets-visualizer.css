@@ -656,6 +656,10 @@
     text-align: center;
 }
 
+.ptv-door__done--undo {
+    color: #1d2327;
+}
+
 @media (max-width: 520px) {
     .ptv-door__choices {
         grid-template-columns: 1fr;

@@ -686,20 +686,58 @@ class Azure_Tickets_Visualizer {
                 $problems[] = ($t['seat'] !== '' ? $t['seat'] : $t['label']) . ': ' . ($r['message'] ?? '');
             }
         }
-        global $wpdb;
         return array(
             'checked_in' => $done,
             'already'    => $already,
             'problems'   => $problems,
             'tickets'    => self::order_tickets($product_id, $order_id),
-            'total_in'   => (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}azure_tickets WHERE product_id = %d AND status = 'used'",
-                (int) $product_id
-            )),
+            'total_in'   => self::checked_in_count($product_id),
         );
     }
 
-    /** admin-ajax: op=list shows an order's tickets, op=checkin checks them in (all=1, or ids[]). */
+    /**
+     * Takes back the check-in on one of the order's seats, through the
+     * door's own undo (logged against $user_id).
+     *
+     * @return array{undone:int,message:string,tickets:array,total_in:int}
+     */
+    public static function undo_seat($product_id, $order_id, $section_id, $seat_key, $user_id) {
+        $undone = 0;
+        $message = __('That seat isn\'t checked in.', 'azure-plugin');
+        foreach (self::order_tickets($product_id, $order_id) as $t) {
+            if ($t['key'] === '' || $t['section'] !== (string) $section_id || $t['key'] !== (string) $seat_key || $t['status'] !== 'used') {
+                continue;
+            }
+            $r = (new Azure_Tickets_Checkin())->undo_checkin($t['id'], (int) $user_id);
+            if (!empty($r['success'])) {
+                $undone = 1;
+                /* translators: %s: seat, e.g. M3 */
+                $message = sprintf(__('%s is no longer checked in.', 'azure-plugin'), $t['seat']);
+            } else {
+                $message = (string) ($r['message'] ?? $message);
+            }
+            break;
+        }
+        return array(
+            'undone'   => $undone,
+            'message'  => $message,
+            'tickets'  => self::order_tickets($product_id, $order_id),
+            'total_in' => self::checked_in_count($product_id),
+        );
+    }
+
+    private static function checked_in_count($product_id) {
+        global $wpdb;
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}azure_tickets WHERE product_id = %d AND status = 'used'",
+            (int) $product_id
+        ));
+    }
+
+    /**
+     * admin-ajax: op=list shows an order's tickets, op=checkin checks them
+     * in (all=1, or ids[]), op=undo takes one seat's check-in back (section, key).
+     */
     public static function ajax_door() {
         check_ajax_referer(self::DOOR_ACTION, 'nonce');
         if (!current_user_can(self::CAP)) {
@@ -711,7 +749,13 @@ class Azure_Tickets_Visualizer {
             wp_send_json_error(array('message' => __('That order or performance wasn\'t found. Reload the page.', 'azure-plugin')));
         }
         nocache_headers();
-        if (sanitize_key((string) ($_POST['op'] ?? 'list')) !== 'checkin') {
+        $op = sanitize_key((string) ($_POST['op'] ?? 'list'));
+        if ($op === 'undo') {
+            $section = sanitize_text_field(wp_unslash((string) ($_POST['section'] ?? '')));
+            $key = sanitize_text_field(wp_unslash((string) ($_POST['key'] ?? '')));
+            wp_send_json_success(self::undo_seat($product_id, $order_id, $section, $key, get_current_user_id()));
+        }
+        if ($op !== 'checkin') {
             wp_send_json_success(array('tickets' => self::order_tickets($product_id, $order_id)));
         }
         $ids = null;

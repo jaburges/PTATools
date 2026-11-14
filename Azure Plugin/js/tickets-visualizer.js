@@ -174,10 +174,13 @@
         hide();
         menuSeat = el;
         var head = 'Order #' + esc(ord.o.number) + (ord.o.buyer ? ' \u00b7 ' + esc(ord.o.buyer) : '');
+        var isIn = seatInfo(el).st === 'checked_in';
+        var seatNo = el.getAttribute('data-k').replace('-', '');
         $menu.html(
             '<div class="ptv-menu__head">' + head + '</div>' +
             (ord.o.url ? '<button type="button" role="menuitem" data-act="order"><span class="dashicons dashicons-external"></span> View order</button>' : '') +
-            (door ? '<button type="button" role="menuitem" data-act="checkin"><span class="dashicons dashicons-yes-alt"></span> Check in\u2026</button>' : '')
+            (door ? '<button type="button" role="menuitem" data-act="checkin"><span class="dashicons dashicons-yes-alt"></span> Check in\u2026</button>' : '') +
+            (door && isIn ? '<button type="button" role="menuitem" data-act="undo"><span class="dashicons dashicons-undo"></span> Undo check-in (' + esc(seatNo) + ')</button>' : '')
         ).prop('hidden', false);
         var mw = $menu.outerWidth(), mh = $menu.outerHeight();
         $menu.css({
@@ -211,6 +214,7 @@
         if (!ord) return;
         if (act === 'order' && ord.o.url) window.open(ord.o.url, '_blank', 'noopener');
         if (act === 'checkin') openDoor(el, ord);
+        if (act === 'undo') undoSeat(el, ord);
     }).on('keydown', function(e) {
         var $b = $menu.find('button'), i = $b.index(document.activeElement);
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -265,21 +269,39 @@
         return doorTickets.filter(function(t) { return t.status === 'active'; });
     }
 
-    function openDoor(el, ord) {
+    function startDoor(el, ord, title, wait) {
         clearTimeout(closeTimer);
         doorSeat = el;
         doorOrder = ord.id;
         doorTickets = [];
         picked = {};
-        $door.find('#ptv-door-title').text('Check in order #' + ord.o.number);
+        $door.find('#ptv-door-title').text(title + ord.o.number);
         $door.find('.ptv-door__sub').text([ord.o.buyer, ord.o.vip ? 'cast & crew' : ''].filter(Boolean).join(' \u00b7 '));
-        $door.find('.ptv-door__body').html('<p class="ptv-door__wait"><span class="spinner is-active"></span> Loading tickets\u2026</p>');
+        $door.find('.ptv-door__body').html('<p class="ptv-door__wait"><span class="spinner is-active"></span> ' + wait + '</p>');
         actions([['Cancel', 'close']]);
         $door.prop('hidden', false);
         $door.find('[data-act="close"]').trigger('focus');
+    }
+
+    function openDoor(el, ord) {
+        startDoor(el, ord, 'Check in order #', 'Loading tickets\u2026');
         post({ op: 'list' }, function(d) {
             doorTickets = d.tickets || [];
             showChoice();
+        });
+    }
+
+    function undoSeat(el, ord) {
+        startDoor(el, ord, 'Order #', 'Undoing the check-in\u2026');
+        post({ op: 'undo', section: el.getAttribute('data-s'), key: el.getAttribute('data-k') }, function(d) {
+            doorTickets = d.tickets || [];
+            paint(doorTickets, d.total_in);
+            $door.find('.ptv-door__body').html(d.undone
+                ? '<p class="ptv-door__done ptv-door__done--undo">\u21a9 ' + esc(d.message) + '</p><p class="ptv-door__muted">Their QR code will scan again.</p>'
+                : '<p>' + esc(d.message) + '</p>');
+            actions([['Done', 'close', true]]);
+            $door.find('[data-act="close"]').trigger('focus');
+            if (d.undone) closeTimer = setTimeout(closeDoor, 1600);
         });
     }
 
@@ -369,14 +391,19 @@
     // Brings the map and the counts in line with what the server now says.
     function paint(tickets, totalIn) {
         tickets.forEach(function(t) {
-            if (!t.key || t.status !== 'used') return;
+            if (!t.key) return;
+            var used = t.status === 'used';
             var s = data.seats[t.section + '|' + t.key];
             if (s) {
-                s.st = 'checked_in';
+                s.st = used ? 'checked_in' : 'sold';
                 s.in = t.in;
             }
-            $map.find('.ptv-seat[data-s="' + t.section + '"][data-k="' + t.key + '"]')
-                .removeClass('is-sold is-ordered').addClass('is-checked-in');
+            var $seat = $map.find('.ptv-seat[data-s="' + t.section + '"][data-k="' + t.key + '"]');
+            if (used) {
+                $seat.removeClass('is-sold is-ordered').addClass('is-checked-in');
+            } else if ($seat.hasClass('is-checked-in')) {
+                $seat.removeClass('is-checked-in').addClass('is-sold');
+            }
         });
         var $count = $('.ptv-in-count');
         if ($count.length && typeof totalIn === 'number') {

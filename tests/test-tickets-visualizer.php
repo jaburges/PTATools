@@ -272,6 +272,20 @@ $t->equals('cancelled', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHER
 $t->equals(4, $r['total_in'], 'four checked in for the night');
 $t->equals('active', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $sat"), 'all still means this performance only');
 
+$r = $V::undo_seat(100, 40, 'left', 'M-4', 9);
+$t->equals(1, $r['undone'], 'undo takes back one seat\'s check-in');
+$t->equals('M4 is no longer checked in.', $r['message'], '…and says which');
+$t->equals('active', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $m4"), 'the ticket is live again, so its QR code scans');
+$t->equals('used', $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $m3"), 'the rest of the order stays in');
+$t->equals('undo_checkin', $wpdb->get_var("SELECT action FROM wp_azure_ticket_checkins WHERE ticket_id = $m4 ORDER BY id DESC LIMIT 1"), 'the undo is logged');
+$t->equals(3, $r['total_in'], 'the count goes down');
+$r = $V::undo_seat(100, 40, 'left', 'M-4', 9);
+$t->equals(0, $r['undone'], 'undoing a seat that isn\'t in does nothing');
+$r = $V::undo_seat(100, 41, 'left', 'M-3', 9);
+$t->equals(array(0, 'used'), array($r['undone'], $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $m3")), 'another order can\'t undo this order\'s seat');
+$r = $V::undo_seat(100, 40, 'GA', '', 9);
+$t->equals(0, $r['undone'], 'general admission has no seat to undo from the map');
+
 $cancel = $add(42, 100, 'N', 1);
 $wpdb->query("UPDATE wp_azure_tickets SET status = 'cancelled' WHERE id = $cancel");
 $r = $V::check_in_order(100, 42, array($cancel), 9);

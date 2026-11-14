@@ -130,7 +130,7 @@ list($event_id, $product_id) = Azure_Tickets_Visualizer::pick($events, absint($_
     <div class="ptv-map" data-w="<?php echo (int) $box['w']; ?>" data-h="<?php echo (int) $box['h']; ?>" data-door="<?php echo esc_attr(wp_json_encode($door)); ?>">
         <?php echo Azure_Tickets_Visualizer::map_html($snap['layout'], $snap['sections'], $snap['occ'], array('focusable' => true)); // Escaped as it is built. ?>
     </div>
-    <p class="ptv-note"><?php esc_html_e('Hover over (or tab to) a seat to see who has it; the seats bought with it light up. Click a sold seat to open its order. Right-click it (or press the menu key) to check that order in without a QR code, all at once or seat by seat. The map shows the moment the page loaded, apart from your own check-ins; reload to catch up.', 'azure-plugin'); ?></p>
+    <p class="ptv-note"><?php esc_html_e('Hover over (or tab to) a seat to see who has it; the seats bought with it light up. Click a sold seat to open its order. Right-click it (or press the menu key) to check that order in without a QR code, all at once or seat by seat, or to undo a seat\'s check-in. The map shows the moment the page loaded, apart from your own check-ins; reload to catch up.', 'azure-plugin'); ?></p>
     <div class="ptv-tip" role="status" hidden></div>
 
     <script type="application/json" id="ptv-data"><?php echo wp_json_encode(Azure_Tickets_Visualizer::client_data($snap), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
