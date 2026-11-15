@@ -2,6 +2,16 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.214 — Sell seats at the door from the Visualizer
+
+### Added
+
+- **Right-click a free seat → Sold at the door** marks it sold for cash at the door: it shows as checked in, counts in the "checked in" figure, and is taken for online buyers and on the PTSA Board app, so it can't be sold twice. The tooltip says who sold it and when. **Undo door sale** on the same seat frees it again; it never touches a seat sold online.
+
+### Fixed
+
+- Releasing or selling seats for "order 0" no longer matches every cart hold and door sale; those calls now do nothing.
+
 ## 3.147.213 — Check people in from the seat Visualizer
 
 ### Added
