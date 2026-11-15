@@ -154,7 +154,7 @@ class Azure_Tickets_Visualizer {
     public static function occupancy($product_id, array $sections) {
         global $wpdb;
         $inventory = (array) $wpdb->get_results($wpdb->prepare(
-            'SELECT section_id, seat_key, status, hold_key, user_id, order_id, expires_at FROM ' . Azure_Tickets_Inventory::table()
+            'SELECT section_id, seat_key, status, hold_key, user_id, order_id, expires_at, created_at FROM ' . Azure_Tickets_Inventory::table()
             . " WHERE product_id = %d AND (status IN ('sold', 'ordered') OR (status = 'held' AND expires_at >= %s)) ORDER BY id",
             (int) $product_id, gmdate('Y-m-d H:i:s', Azure_Tickets_Inventory::$now ?? time())
         ), ARRAY_A);
@@ -210,14 +210,17 @@ class Azure_Tickets_Visualizer {
                 $ga[$sid] = $g;
                 continue;
             }
+            $door = $status === 'sold' && !$order && (string) $r['hold_key'] === Azure_Tickets_Inventory::DOOR_KEY;
             $seats[$sid][(string) $r['seat_key']] = array(
-                'state'         => $status,
+                'state'         => $door ? 'checked_in' : $status,
                 'order'         => $status === 'held' ? 0 : $order,
                 'name'          => '',
                 'group'         => $group,
                 'until'         => $status === 'held' && $r['expires_at'] ? (int) strtotime($r['expires_at'] . ' UTC') : 0,
                 'user'          => (int) $r['user_id'],
-                'checked_in_at' => '',
+                // Ticket check-ins are site-local time; door sales are stored in UTC.
+                'checked_in_at' => $door && !empty($r['created_at']) ? get_date_from_gmt((string) $r['created_at']) : '',
+                'door'          => $door,
             );
         }
         foreach ($tickets as $t) {
@@ -239,7 +242,7 @@ class Azure_Tickets_Visualizer {
             }
             if (!$seat) {
                 // A ticket with no inventory row (sold before seats were tracked there).
-                $seat = array('state' => 'sold', 'order' => $order, 'name' => '', 'group' => 'o' . $order, 'until' => 0, 'user' => 0, 'checked_in_at' => '');
+                $seat = array('state' => 'sold', 'order' => $order, 'name' => '', 'group' => 'o' . $order, 'until' => 0, 'user' => 0, 'checked_in_at' => '', 'door' => false);
             }
             $seat['name'] = trim((string) $t['attendee_name']);
             if ($used) {
@@ -596,6 +599,7 @@ class Azure_Tickets_Visualizer {
                     'who'   => $s['user'] ? self::user_name($s['user']) : '',
                     // Check-in stores site-local time (current_time('mysql')).
                     'in'    => $s['checked_in_at'] ? mysql2date('D j M, g:ia', $s['checked_in_at']) : '',
+                    'door'  => !empty($s['door']),
                 );
             }
         }
@@ -726,12 +730,47 @@ class Azure_Tickets_Visualizer {
         );
     }
 
+    /**
+     * A free seat sold for cash at the door ($sell), or that sale taken
+     * back. A door sale shows as checked in and is taken online.
+     *
+     * @return array{ok:bool,message:string,in:string,who:string,total_in:int}
+     */
+    public static function door_sale($product_id, $section_id, $seat_key, $sell, $user_id) {
+        $sec = Azure_Tickets_Config::sections($product_id)[(string) $section_id] ?? null;
+        if (!$sec || $sec['type'] === 'general_admission' || Azure_Tickets_Layout::seat_type($sec['block'], $seat_key) === null) {
+            return array('ok' => false, 'message' => __('That isn\'t a seat on this map. Reload the page.', 'azure-plugin'), 'in' => '', 'who' => '', 'total_in' => self::checked_in_count($product_id));
+        }
+        $seat = str_replace('-', '', (string) $seat_key);
+        if ($sell) {
+            $ok = Azure_Tickets_Inventory::door_sell($product_id, $section_id, $seat_key, $user_id);
+            /* translators: %s: seat, e.g. D9 */
+            $message = $ok ? sprintf(__('%s sold at the door and checked in.', 'azure-plugin'), $seat)
+                /* translators: %s: seat, e.g. D9 */
+                : sprintf(__('%s is already taken (sold, or in someone\'s cart). Reload the page to see who has it.', 'azure-plugin'), $seat);
+        } else {
+            $ok = Azure_Tickets_Inventory::door_unsell($product_id, $section_id, $seat_key);
+            /* translators: %s: seat, e.g. D9 */
+            $message = $ok ? sprintf(__('%s is free again.', 'azure-plugin'), $seat)
+                /* translators: %s: seat, e.g. D9 */
+                : sprintf(__('%s wasn\'t sold at the door, so nothing changed.', 'azure-plugin'), $seat);
+        }
+        return array(
+            'ok'       => $ok,
+            'message'  => $message,
+            'in'       => $ok && $sell ? wp_date('D j M, g:ia') : '',
+            'who'      => $ok && $sell ? self::user_name($user_id) : '',
+            'total_in' => self::checked_in_count($product_id),
+        );
+    }
+
+    /** Tickets checked in plus seats sold at the door: the summary line's count. */
     private static function checked_in_count($product_id) {
         global $wpdb;
         return (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM {$wpdb->prefix}azure_tickets WHERE product_id = %d AND status = 'used'",
             (int) $product_id
-        ));
+        )) + Azure_Tickets_Inventory::door_count($product_id);
     }
 
     /**
@@ -745,11 +784,17 @@ class Azure_Tickets_Visualizer {
         }
         $product_id = absint($_POST['product_id'] ?? 0);
         $order_id = absint($_POST['order_id'] ?? 0);
-        if (!$order_id || !Azure_Tickets_Config::is_performance($product_id)) {
+        $op = sanitize_key((string) ($_POST['op'] ?? 'list'));
+        $door_op = $op === 'door_sell' || $op === 'door_unsell';
+        if ((!$order_id && !$door_op) || !Azure_Tickets_Config::is_performance($product_id)) {
             wp_send_json_error(array('message' => __('That order or performance wasn\'t found. Reload the page.', 'azure-plugin')));
         }
         nocache_headers();
-        $op = sanitize_key((string) ($_POST['op'] ?? 'list'));
+        if ($door_op) {
+            $section = sanitize_text_field(wp_unslash((string) ($_POST['section'] ?? '')));
+            $key = sanitize_text_field(wp_unslash((string) ($_POST['key'] ?? '')));
+            wp_send_json_success(self::door_sale($product_id, $section, $key, $op === 'door_sell', get_current_user_id()));
+        }
         if ($op === 'undo') {
             $section = sanitize_text_field(wp_unslash((string) ($_POST['section'] ?? '')));
             $key = sanitize_text_field(wp_unslash((string) ($_POST['key'] ?? '')));

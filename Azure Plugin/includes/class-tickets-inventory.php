@@ -29,6 +29,8 @@ class Azure_Tickets_Inventory {
     const ORDER_TTL = 3600;
     const DB_VERSION = '1';
     const DB_VERSION_OPTION = 'azure_tickets_inventory_db';
+    /** hold_key of a seat sold at the door (cart hold keys are "wc:…"). */
+    const DOOR_KEY = 'door';
 
     /** @var int|null Fixed clock for tests. */
     public static $now = null;
@@ -268,6 +270,9 @@ class Azure_Tickets_Inventory {
      */
     public static function mark_sold($order_id, array $places_by_product) {
         global $wpdb;
+        if ((int) $order_id <= 0) {
+            return array();
+        }
         $table = self::table();
         $wpdb->query($wpdb->prepare(
             "UPDATE {$table} SET status = 'sold', expires_at = NULL WHERE order_id = %d",
@@ -343,7 +348,41 @@ class Azure_Tickets_Inventory {
 
     public static function release_order($order_id) {
         global $wpdb;
+        // Holds and door sales have no order; order 0 would take them all.
+        if ((int) $order_id <= 0) {
+            return;
+        }
         $wpdb->query($wpdb->prepare("DELETE FROM " . self::table() . " WHERE order_id = %d", (int) $order_id));
+    }
+
+    /**
+     * A seat sold for cash at the door: sold, with no order, so it is taken
+     * for everyone online and on the map. False when someone already has it.
+     */
+    public static function door_sell($product_id, $section_id, $seat_key, $user_id) {
+        global $wpdb;
+        self::purge_expired_holds($product_id);
+        return (bool) $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO " . self::table() . " (product_id, section_id, seat_key, status, hold_key, user_id, order_id, expires_at, created_at) VALUES (%d, %s, %s, 'sold', %s, %d, 0, NULL, %s)",
+            (int) $product_id, (string) $section_id, (string) $seat_key, self::DOOR_KEY, (int) $user_id, self::now()
+        ));
+    }
+
+    /** Takes back a door sale; seats sold online are never touched. */
+    public static function door_unsell($product_id, $section_id, $seat_key) {
+        global $wpdb;
+        return (bool) $wpdb->query($wpdb->prepare(
+            "DELETE FROM " . self::table() . " WHERE product_id = %d AND section_id = %s AND seat_key = %s AND status = 'sold' AND order_id = 0 AND hold_key = %s",
+            (int) $product_id, (string) $section_id, (string) $seat_key, self::DOOR_KEY
+        ));
+    }
+
+    public static function door_count($product_id) {
+        global $wpdb;
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM " . self::table() . " WHERE product_id = %d AND status = 'sold' AND order_id = 0 AND hold_key = %s",
+            (int) $product_id, self::DOOR_KEY
+        ));
     }
 
     /**

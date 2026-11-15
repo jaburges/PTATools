@@ -231,6 +231,10 @@ $wpdb->exec("CREATE TABLE wp_azure_tickets (
     attendee_name TEXT, ticket_code TEXT, status TEXT, checked_in_at TEXT, checked_in_by INTEGER)");
 $wpdb->exec("CREATE TABLE wp_azure_ticket_checkins (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER, action TEXT, user_id INTEGER, device_info TEXT, created_at TEXT)");
+$wpdb->exec("CREATE TABLE wp_azure_ticket_inventory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, section_id TEXT NOT NULL, seat_key TEXT NOT NULL,
+    status TEXT NOT NULL, hold_key TEXT NOT NULL DEFAULT '', user_id INTEGER NOT NULL DEFAULT 0, order_id INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT, created_at TEXT NOT NULL, UNIQUE (product_id, section_id, seat_key))");
 $add = function ($order, $perf, $row, $n, $status = 'active', $name = '') use ($wpdb) {
     $wpdb->insert('wp_azure_tickets', array('order_id' => $order, 'product_id' => $perf, 'section_id' => $row === null ? 'GA' : 'left',
         'row_letter' => $row, 'seat_number' => $n, 'attendee_name' => $name, 'ticket_code' => 'c' . $order . $row . $n . $perf, 'status' => $status));
@@ -285,6 +289,31 @@ $r = $V::undo_seat(100, 41, 'left', 'M-3', 9);
 $t->equals(array(0, 'used'), array($r['undone'], $wpdb->get_var("SELECT status FROM wp_azure_tickets WHERE id = $m3")), 'another order can\'t undo this order\'s seat');
 $r = $V::undo_seat(100, 40, 'GA', '', 9);
 $t->equals(0, $r['undone'], 'general admission has no seat to undo from the map');
+
+// ── Seats sold at the door ─────────────────────────────────────────────
+$door_occ = $V::merge(array(
+    array('section_id' => 'L', 'seat_key' => 'D-9', 'status' => 'sold', 'hold_key' => 'door', 'user_id' => 3, 'order_id' => 0, 'expires_at' => null, 'created_at' => '2026-11-15 01:40:00'),
+), array(), array());
+$d9 = $door_occ['seats']['L']['D-9'];
+$t->check($d9['state'] === 'checked_in' && $d9['door'] === true && $d9['order'] === 0, 'a seat sold at the door shows as checked in, with no order');
+$t->equals(get_date_from_gmt('2026-11-15 01:40:00'), $d9['checked_in_at'], '…at the time of the sale, in site time');
+$t->equals('', $d9['group'], 'door sales are not outlined as bought together');
+
+$I = 'Azure_Tickets_Inventory';
+$t->check($I::door_sell(100, 'right', 'D-9', 9), 'a free seat can be sold at the door');
+$t->check(!$I::door_sell(100, 'right', 'D-9', 9), 'not twice');
+$wpdb->query("INSERT INTO wp_azure_ticket_inventory (product_id, section_id, seat_key, status, hold_key, user_id, order_id, created_at) VALUES (100, 'right', 'D-10', 'sold', '', 0, 55, '2026-11-14 00:00:00')");
+$t->check(!$I::door_sell(100, 'right', 'D-10', 9), 'nor a seat sold online');
+$taken = $I::taken(100)['right'] ?? array();
+ksort($taken);
+$t->equals(array('D-10' => 'taken', 'D-9' => 'taken'), $taken, 'a door sale is taken for online buyers');
+$t->equals(1, $I::door_count(100), 'door sales are counted');
+$t->check(!$I::door_unsell(100, 'right', 'D-10'), 'undoing a door sale never frees a seat sold online');
+$I::release_order(0);
+$I::mark_sold(0, array());
+$t->equals(2, (int) $wpdb->get_var('SELECT COUNT(*) FROM wp_azure_ticket_inventory'), 'releasing or selling "order 0" leaves door sales alone');
+$t->check($I::door_unsell(100, 'right', 'D-9'), 'a door sale can be undone');
+$t->equals(0, $I::door_count(100), '…and the seat is free again');
 
 $cancel = $add(42, 100, 'N', 1);
 $wpdb->query("UPDATE wp_azure_tickets SET status = 'cancelled' WHERE id = $cancel");
