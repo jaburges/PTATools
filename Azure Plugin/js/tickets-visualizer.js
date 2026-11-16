@@ -63,6 +63,11 @@
         if (s.st === 'checked_in' && s.in) state += ' ' + s.in;
         if (s.st === 'held' && s.until) state += ' until ' + s.until;
         lines.push('<span class="ptv-tip__state">' + esc(state) + '</span>');
+        if (s.door) {
+            lines.push('Sold at the door' + (s.who ? ' by ' + esc(s.who) : ''));
+            lines.push('<span class="ptv-tip__muted">Right-click to undo</span>');
+            return lines.join('<br>');
+        }
         if (s.n) lines.push('Ticket name: ' + esc(s.n));
         if (s.st === 'held') {
             lines.push(s.who ? 'Signed in as ' + esc(s.who) : '<span class="ptv-tip__muted">Not signed in</span>');
@@ -168,20 +173,34 @@
         menuSeat = null;
     }
 
+    // What the right-click menu offers on a seat; '' when it has no menu (a cart hold).
+    function menuHtml(el) {
+        var s = seatInfo(el), ord = orderOf(el);
+        var seatNo = el.getAttribute('data-k').replace('-', '');
+        var item = function(act, icon, text) {
+            return '<button type="button" role="menuitem" data-act="' + act + '"><span class="dashicons dashicons-' + icon + '"></span> ' + text + '</button>';
+        };
+        if (!s) {
+            return door ? '<div class="ptv-menu__head">' + esc(el.getAttribute('aria-label')) + ' \u00b7 free</div>' +
+                item('door_sell', 'tickets-alt', 'Sold at the door (' + esc(seatNo) + ')') : '';
+        }
+        if (s.door) {
+            return door ? '<div class="ptv-menu__head">' + esc(seatNo) + ' sold at the door' + (s.who ? ' by ' + esc(s.who) : '') + '</div>' +
+                item('door_unsell', 'undo', 'Undo door sale (' + esc(seatNo) + ')') : '';
+        }
+        if (!ord) return '';
+        return '<div class="ptv-menu__head">Order #' + esc(ord.o.number) + (ord.o.buyer ? ' \u00b7 ' + esc(ord.o.buyer) : '') + '</div>' +
+            (ord.o.url ? item('order', 'external', 'View order') : '') +
+            (door ? item('checkin', 'yes-alt', 'Check in\u2026') : '') +
+            (door && s.st === 'checked_in' ? item('undo', 'undo', 'Undo check-in (' + esc(seatNo) + ')') : '');
+    }
+
     function openMenu(el, x, y) {
-        var ord = orderOf(el);
-        if (!ord) return false;
+        var html = menuHtml(el);
+        if (!html) return false;
         hide();
         menuSeat = el;
-        var head = 'Order #' + esc(ord.o.number) + (ord.o.buyer ? ' \u00b7 ' + esc(ord.o.buyer) : '');
-        var isIn = seatInfo(el).st === 'checked_in';
-        var seatNo = el.getAttribute('data-k').replace('-', '');
-        $menu.html(
-            '<div class="ptv-menu__head">' + head + '</div>' +
-            (ord.o.url ? '<button type="button" role="menuitem" data-act="order"><span class="dashicons dashicons-external"></span> View order</button>' : '') +
-            (door ? '<button type="button" role="menuitem" data-act="checkin"><span class="dashicons dashicons-yes-alt"></span> Check in\u2026</button>' : '') +
-            (door && isIn ? '<button type="button" role="menuitem" data-act="undo"><span class="dashicons dashicons-undo"></span> Undo check-in (' + esc(seatNo) + ')</button>' : '')
-        ).prop('hidden', false);
+        $menu.html(html).prop('hidden', false);
         var mw = $menu.outerWidth(), mh = $menu.outerHeight();
         $menu.css({
             left: Math.max(8, Math.min(x, window.innerWidth - mw - 8)) + 'px',
@@ -192,7 +211,7 @@
     }
 
     $map.on('contextmenu', '.ptv-seat', function(e) {
-        if (!orderOf(this)) return;
+        if (!menuHtml(this)) return;
         e.preventDefault();
         var x = e.clientX, y = e.clientY;
         if (!x && !y) {
@@ -211,6 +230,10 @@
         var el = menuSeat, ord = el && orderOf(el);
         var act = $(this).data('act');
         closeMenu(false);
+        if (act === 'door_sell' || act === 'door_unsell') {
+            doorSale(el, act);
+            return;
+        }
         if (!ord) return;
         if (act === 'order' && ord.o.url) window.open(ord.o.url, '_blank', 'noopener');
         if (act === 'checkin') openDoor(el, ord);
@@ -288,6 +311,33 @@
         post({ op: 'list' }, function(d) {
             doorTickets = d.tickets || [];
             showChoice();
+        });
+    }
+
+    function doorSale(el, act) {
+        var sell = act === 'door_sell';
+        var sid = el.getAttribute('data-s'), key = el.getAttribute('data-k');
+        startDoor(el, { id: 0, o: { number: '' } }, '', sell ? 'Selling at the door\u2026' : 'Undoing the door sale\u2026');
+        $door.find('#ptv-door-title').text(el.getAttribute('aria-label'));
+        $door.find('.ptv-door__sub').text(sell ? 'Sold at the door' : 'Undo door sale');
+        post({ op: act, section: sid, key: key }, function(d) {
+            if (d.ok) {
+                var on = data.sections[sid] && data.sections[sid].enabled;
+                if (sell) {
+                    data.seats[sid + '|' + key] = { st: 'checked_in', o: 0, n: '', until: '', who: d.who, in: d.in, door: true };
+                    $(el).removeClass('is-free is-closed').addClass('is-checked-in');
+                } else {
+                    delete data.seats[sid + '|' + key];
+                    $(el).removeClass('is-checked-in').addClass(on ? 'is-free' : 'is-closed');
+                }
+                paint([], d.total_in);
+            }
+            $door.find('.ptv-door__body').html(d.ok
+                ? '<p class="ptv-door__done' + (sell ? '' : ' ptv-door__done--undo') + '">' + (sell ? '\u2713 ' : '\u21a9 ') + esc(d.message) + '</p>'
+                : '<div class="notice notice-warning inline"><p>' + esc(d.message) + '</p></div>');
+            actions([['Done', 'close', true]]);
+            $door.find('[data-act="close"]').trigger('focus');
+            if (d.ok) closeTimer = setTimeout(closeDoor, 1200);
         });
     }
 
