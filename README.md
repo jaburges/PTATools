@@ -2,7 +2,7 @@
 
 A comprehensive WordPress plugin that integrates Microsoft Azure/Microsoft 365 with WordPress and WooCommerce. Single sign-on, calendar sync, email, backups, PTA organizational management, OneDrive media, **Classes**, **Event Tickets**, **Newsletter**, **Auction**, **Product Fields**, **Donations**, and **Volunteer Sign Up** modules—all from one unified plugin (also known as **Microsoft WP**).
 
-**Current release: [v3.147.150](https://github.com/jaburges/PTATools/releases/tag/v3.147.150)** — [changelog since v3.147.116](https://github.com/jaburges/PTATools/releases/tag/v3.147.150). The same notes are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog).
+**Download the latest release: [pta-tools.zip](https://github.com/jaburges/PTATools/releases/latest/download/pta-tools.zip)** ([release notes](https://github.com/jaburges/PTATools/releases/latest)). Every version's notes are in [CHANGELOG.md](CHANGELOG.md) and on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog).
 
 ---
 
@@ -162,9 +162,10 @@ A comprehensive code review has been completed:
 
 ### **🎫 Event Tickets**
 - WooCommerce “Event Ticket” product type
-- Visual seating designer and seat selection
+- Visual seating designer and seat selection, with seat holds and a cart timer
 - QR code tickets and Apple Wallet
-- Event check-in
+- Event check-in: phone scanner, door PINs for volunteers, and the seat Visualizer
+- Seat Visualizer: who has every seat, a four-page door printout, and right-click check-in and door sales
 
 ### **🔨 Auction**
 - WooCommerce “Auction” product type
@@ -1062,9 +1063,10 @@ WooCommerce “Event Ticket” product type with visual seating designer, seat s
 ### **Key Features**
 
 - **Product type**: “Event Ticket” in WooCommerce
-- **Seating**: Designer for venue layouts; customers pick seats
+- **Seating**: Designer for venue layouts (rows, wheelchair spaces and companion seats); customers pick seats, which are held while they check out
 - **Tickets**: QR codes and Apple Wallet passes
-- **Check-in**: Dedicated check-in page/tool for events
+- **Check-in**: Dedicated check-in page and the PTSA Board app scanner; a per-performance **door PIN** lets volunteers scan without signing in
+- **Visualizer** (Tickets → Visualizer, shop managers and admins): the seat map for each performance showing who has every seat, the seats bought together, and a four-page printout for the door. Right-click a sold seat to open its order or **check the order in** without a QR code (all at once or seat by seat), or to undo a seat's check-in. Right-click a free seat to mark it **sold at the door**, which shows it as checked in and takes it off online sale
 - **TEC**: Link to The Events Calendar events and venues
 
 ### **No Shortcodes Listed Here**
@@ -1622,7 +1624,7 @@ Each module follows a consistent pattern:
 
 ### **Plugin Documentation**
 
-- **Changelog**: [v3.147.150 release notes](https://github.com/jaburges/PTATools/releases/tag/v3.147.150) and the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog)
+- **Changelog**: [latest release notes](https://github.com/jaburges/PTATools/releases/latest), [CHANGELOG.md](CHANGELOG.md) and the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog)
 - **Review & Roadmap**: See `review.md` for detailed code review and optimization roadmap
 - **Performance Guide**: See Performance & Optimization section above
 - **Logging Strategy**: Automatic rotation and cleanup implemented
