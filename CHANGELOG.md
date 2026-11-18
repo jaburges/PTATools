@@ -2,6 +2,23 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.215 — Tap to Pay at events (website side)
+
+The website half of taking card payments at PTSA events with the PTSA Board app: volunteers pick the event, type its PIN, and sell from a till on their phone, with the money going to the PTSA's own Stripe account. The app screens follow in the app's next release.
+
+### Added
+
+- **Products: Sales channel** on the General tab (and in bulk edit): **Online only** (the default), **Online and Tap to Pay**, or **Tap to Pay only**. Tap to Pay only hides the product from the shop and search and stops it being bought online, while the app can still sell it; switching back shows it as it was shown before.
+- **Events: Take payments in the app (Tap to Pay)** box on PTSA calendar events: switch it on, set a PIN for the volunteers, optionally choose which Tap to Pay products the event sells (none chosen means all of them), and optionally a show performance whose tickets are sold too. Volunteers can open the till from 3 hours before the event starts until 2 hours after it ends. Changing the PIN or switching payments off ends every phone's session.
+- **WooCommerce → Settings → Products → Tap to Pay**: the Stripe Terminal location ID (`tml_…`) the phones connect to. Tap to Pay uses the Stripe keys already set in the WooCommerce Stripe gateway, in test or live mode as the gateway is.
+- **Tickets at the till**: seats from a seat map that shows only free and taken seats (never who bought them) and general-admission places, at the section's price (the ADA price for wheelchair spaces). Seats are held while the card is tapped, sold with the order, and checked in once it is paid, since the buyer is at the door. Sections kept for cast and crew families are never sold at the till; closing online sales doesn't stop the till.
+- **App API** (`/wp-json/ptsa/v1/pos/…`): events taking payments, PIN to a payment session, the event's products and tickets, the seat map, a Stripe Terminal connection token, and creating, completing and cancelling a sale. The website prices every sale from WooCommerce and checks stock and pack sizes, and only marks an order paid after Stripe confirms the payment for the order's exact amount; a different amount puts the order on hold for a board member. Payment sessions can't see or change anything else. Shop managers and administrators signed in to the app can take payments at any event taking them, without the PIN.
+- Sales left unpaid (the phone lost signal, the app was closed) are settled every hour: paid ones are completed, the rest cancelled with their payment and seats released.
+
+### Changed
+
+- Orders from the till don't send the shop's "New order" email, so a busy bake sale doesn't fill the inbox. They are in WooCommerce → Orders as usual, paid by "Tap to Pay (PTSA Board app)", with the event, the seller and the card in the notes.
+
 ## 3.147.214 — Sell seats at the door from the Visualizer
 
 ### Added
