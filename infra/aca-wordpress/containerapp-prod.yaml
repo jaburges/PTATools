@@ -58,17 +58,12 @@ properties:
           # the CPU actually in use.
           #
           # Container Apps fixes the ratio at 1 vCPU : 2 GiB, so these move
-          # together. Halving from 1.0/2.0Gi was measured, not assumed: homepage
-          # TTFB stayed at 0.88-1.04s against 0.87-1.02s before, because a single
-          # render is latency-bound on sequential PHP and database round trips
-          # rather than starved of CPU.
-          #
-          # That holds at one request at a time. Concurrency is the untested
-          # direction, and it is the reason not to go lower: memory still has to
-          # cover the 256 MB OPcache plus a 512 MB PHP limit per worker.
-          # Re-measure under real traffic after the domain cutover.
-          cpu: 0.5
-          memory: 1.0Gi
+          # together. Under real traffic (October 2026) ordinary days peaked at
+          # 0.44-1.02 vCPU and 0.53-1.23 GiB, so 0.75/1.5Gi leaves too little
+          # memory headroom: running out kills the container, it doesn't just
+          # slow it down. Ticket releases ran at 2.0/4Gi and came back down after.
+          cpu: 1.0
+          memory: 2.0Gi
         volumeMounts:
           - volumeName: wpcontent
             mountPath: /var/www/html/wp-content/uploads
