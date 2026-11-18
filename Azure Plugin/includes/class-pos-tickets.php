@@ -164,7 +164,19 @@ class Azure_POS_Tickets {
             'shapes'      => $shapes,
             'rows'        => $map['rows'],
             'seats'       => $seats,
-            'performance' => $performance,
+            'performance' => self::performance_payload($performance),
+        );
+    }
+
+    /** What the app needs to title the map; unlike the board's, never the door PIN. */
+    private static function performance_payload($performance) {
+        $product = wc_get_product($performance);
+        $ts = (int) Azure_Tickets_Config::event_ts($performance);
+        return array(
+            'id'        => (int) $performance,
+            'name'      => $product ? html_entity_decode($product->get_name(), ENT_QUOTES, 'UTF-8') : '',
+            'starts_at' => $ts,
+            'when'      => $ts ? wp_date('D j M, g:ia', $ts) : '',
         );
     }
 
