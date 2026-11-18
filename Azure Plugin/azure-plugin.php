@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/jaburges/PTATools
  * Update URI: https://github.com/jaburges/PTATools/
  * Description: Microsoft 365 integration for WordPress — SSO with Entra ID claims mapping, automated backup to Azure Blob Storage, Outlook calendar embedding with shared mailbox support, native PTA event calendar (pta_event CPT), email via Microsoft Graph API, PTA role management with O365 Groups sync, WooCommerce class products with event scheduling, Auction module, Newsletter module, and OneDrive media integration.
- * Version: 3.147.214
+ * Version: 3.147.215
  * Author: Jamie Burgess
  * License: GPL v2 or later
  * Text Domain: azure-plugin
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('AZURE_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('AZURE_PLUGIN_PATH', plugin_dir_path(__FILE__));
-define('AZURE_PLUGIN_VERSION', '3.147.214');
+define('AZURE_PLUGIN_VERSION', '3.147.215');
 
 require_once AZURE_PLUGIN_PATH . 'includes/class-private-storage.php';
 
@@ -1050,6 +1050,8 @@ class AzurePlugin {
                 $this->init_orders_reports_components($ctx);
                 PTA_Trace::module('order_rules');
                 $this->init_order_rules_components($ctx);
+                PTA_Trace::module('pos');
+                $this->init_pos_components($ctx);
             }
 
             if (!empty($settings['enable_product_fields'])) {
@@ -1830,6 +1832,37 @@ class AzurePlugin {
         } catch (\Throwable $e) {
             Azure_Logger::error('AI Connectors init failed: ' . $e->getMessage(), array('module' => 'AIConnectors', 'file' => $e->getFile(), 'line' => $e->getLine()));
             error_log('Azure Plugin: AI Connectors init error - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Tap to Pay: the Sales channel field (which also stops online sales
+     * of Tap to Pay only products), the event settings, the Stripe
+     * settings section, and the hourly clean-up of unpaid sales. The
+     * app's /pos routes are registered with the PTSA REST API.
+     */
+    private function init_pos_components($ctx) {
+        try {
+            $this->require_module_files(array(
+                'class-pos-channel.php',
+                'class-pos-events.php',
+                'class-pos-stripe.php',
+                'class-ptsa-rest-pos.php',
+            ));
+            if (!class_exists('Azure_PTSA_REST_POS')) {
+                return;
+            }
+            Azure_POS_Channel::get_instance();
+            Azure_POS_Stripe::get_instance();
+            Azure_POS_Events::get_instance();
+            add_action(Azure_PTSA_REST_POS::CRON_HOOK, array('Azure_PTSA_REST_POS', 'reconcile'));
+            add_filter('woocommerce_email_enabled_new_order', array('Azure_PTSA_REST_POS', 'skip_new_order_email'), 10, 2);
+            if (Azure_POS_Stripe::location_id() !== '') {
+                Azure_PTSA_REST_POS::schedule();
+            }
+        } catch (\Throwable $e) {
+            Azure_Logger::error('Tap to Pay init failed: ' . $e->getMessage(), array('module' => 'POS', 'file' => $e->getFile(), 'line' => $e->getLine()));
+            error_log('Azure Plugin: Tap to Pay init error - ' . $e->getMessage());
         }
     }
 

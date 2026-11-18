@@ -225,6 +225,9 @@ class Azure_PTSA_REST_API {
 
         require_once AZURE_PLUGIN_PATH . 'includes/class-ptsa-rest-tickets.php';
         Azure_PTSA_REST_Tickets::register($ns, $auth);
+
+        require_once AZURE_PLUGIN_PATH . 'includes/class-ptsa-rest-pos.php';
+        Azure_PTSA_REST_POS::register($ns, $auth);
     }
 
     /* =================================================================
