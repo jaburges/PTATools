@@ -577,12 +577,12 @@ check('...and refuses them', Azure_POS_Tickets::reserve($gala, array('seats' => 
 
 $map = Azure_PTSA_REST_POS::seats(new WP_REST_Request(array('id' => $fair)));
 $states = array_column($map['seats'], 'st', 'label');
-check('the seat map shows free, taken and closed seats', $states === array('floor A-1' => 'free', 'floor A-2' => 'taken', 'floor A-3' => 'taken', 'cast C-1' => 'closed'));
+check('the seat map shows free, taken and closed seats', $states === array('floor A-1' => 'free', 'floor A-2' => 'sold', 'floor A-3' => 'sold', 'cast C-1' => 'closed'));
 $json = json_encode($map);
 check('...and never who has them', strpos($json, 'Pat Buyer') === false && strpos($json, 'pat@') === false && strpos($json, 'Board Bea') === false
     && !isset($map['orders']) && !array_intersect(array('name', 'order', 'who', 'g', 'sides', 'in', 'until'), array_keys($map['seats'][1])));
 check('the map names the performance, without its door PIN', $map['performance']['id'] === 700 && $map['performance']['name'] === 'Spring Musical – Friday' && !isset($map['performance']['door_pin']));
-check('...nor how many were checked in', $map['shapes'][0]['ga'] === array('capacity' => 3, 'free' => 2, 'enabled' => true));
+check('...nor how many were checked in', $map['shapes'][0]['ga'] === array('capacity' => 3, 'sold' => 1, 'free' => 2, 'enabled' => true));
 check('another event\'s seat map is refused', Azure_PTSA_REST_POS::seats(new WP_REST_Request(array('id' => $gala)))->get_error_code() === 'ptsa_pos_scope');
 
 $ticket_sale = function (array $tickets, array $lines = array()) use ($fair) {

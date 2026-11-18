@@ -27,9 +27,9 @@ class Azure_POS_Tickets {
     const MAX_TICKETS = 20;
     const HOLD_PREFIX = 'pos:';
 
-    /** Seat states guests may see. */
+    /** Seat states guests may see; the app reads states it doesn't know as free, so taken ones are "sold". */
     const FREE = 'free';
-    const TAKEN = 'taken';
+    const TAKEN = 'sold';
     const CLOSED = 'closed';
 
     public static function available() {
@@ -149,9 +149,12 @@ class Azure_POS_Tickets {
         foreach ((array) $map['shapes'] as $shape) {
             if (($shape['kind'] ?? '') === 'ga') {
                 $ga = (array) ($shape['ga'] ?? array());
+                $capacity = (int) ($ga['capacity'] ?? 0);
+                $free = (int) ($ga['free'] ?? 0);
                 $shape['ga'] = array(
-                    'capacity' => (int) ($ga['capacity'] ?? 0),
-                    'free'     => (int) ($ga['free'] ?? 0),
+                    'capacity' => $capacity,
+                    'sold'     => max(0, $capacity - $free),
+                    'free'     => $free,
                     'enabled'  => !empty($ga['enabled']),
                 );
             }
