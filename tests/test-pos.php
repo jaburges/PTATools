@@ -51,6 +51,11 @@ function wc_create_order($args) { $o = new FO($args); FX::$orders[$o->get_id()] 
 function wc_get_order($id) { return FX::$orders[(int) $id] ?? false; }
 function wc_get_orders($args) {
     FX::$order_queries[] = $args;
+    if (isset($args['meta_key'])) {
+        return array_values(array_filter(FX::$orders, function ($o) use ($args) {
+            return $o->get_created_via() === $args['created_via'] && $o->get_meta($args['meta_key']) === $args['meta_value'];
+        }));
+    }
     $cutoff = (int) substr($args['date_created'], 1);
     return array_values(array_filter(FX::$orders, function ($o) use ($args, $cutoff) {
         return in_array($o->get_status(), $args['status'], true) && $o->get_created_via() === $args['created_via'] && $o->created < $cutoff;
@@ -130,6 +135,9 @@ class FO {
 class FI {
     public $product_id; public $qty; public $meta = array();
     public function __construct($product_id, $qty) { $this->product_id = $product_id; $this->qty = $qty; }
+    public function get_product_id() { return $this->product_id; }
+    public function get_variation_id() { return 0; }
+    public function get_quantity() { return $this->qty; }
     public function get_meta($k) { return $this->meta[$k] ?? ''; }
     public function add_meta_data($k, $v, $unique = false) { $this->meta[$k] = $v; }
     public function save() { return true; }
@@ -387,7 +395,7 @@ check('retrieving expands the charge for the card details', strpos(last_stripe_c
 echo "Routes and access\n";
 $signed_in = function ($request) { return FX::$signed_in ? true : new WP_Error('ptsa_unauthorized', 'Sign in', array('status' => 401)); };
 Azure_PTSA_REST_POS::register('ptsa/v1', $signed_in);
-check('eight routes', count(FX::$routes) === 8);
+check('ten routes', count(FX::$routes) === 10);
 check('only the event list and PIN entry are open to everyone', FX::$routes['/pos/events']['permission_callback'] === '__return_true' && FX::$routes['/pos/open']['permission_callback'] === '__return_true'
     && FX::$routes['/pos/orders']['permission_callback'] !== '__return_true');
 
@@ -633,6 +641,130 @@ $paid = $complete($order->id);
 check('once paid the tickets are listed to let them in', $paid['tickets'] === array('Floor A-1', 'Floor A-4W', 'Lawn', 'Lawn'));
 check('...and checked in for the performance', array_column(Azure_Tickets_Checkin::$checked, 0) === array('TKT1', 'TKT2', 'TKT3', 'TKT4') && array_unique(array_column(Azure_Tickets_Checkin::$checked, 1)) === array(700));
 check('...with a note on the order', in_array('4 ticket(s) checked in at the till.', $order->notes, true));
+check('a sale without machine tickets has nothing to dispense', $paid['dispense'] === null);
+
+echo "Ticket dispenser\n";
+$secret = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
+update_option(Azure_POS_Dispenser::OPTION_SECRET, 'not-a-secret');
+$made = Azure_POS_Dispenser::secret();
+check('a missing or mistyped secret is replaced with a new one', preg_match('/^[0-9a-f]{64}$/', $made) === 1 && get_option(Azure_POS_Dispenser::OPTION_SECRET) === $made);
+update_option(Azure_POS_Dispenser::OPTION_SECRET, strtoupper($secret));
+check('a secret set by hand is kept', Azure_POS_Dispenser::secret() === $secret);
+// Same values as the dispenser firmware's host tests.
+check('vouchers match the dispenser', Azure_POS_Dispenser::voucher(1234, 5) === '6b056292e682559d69fde8e2465f858b06db079c346cdd49961ee54ad4d54da2');
+check('offline keys match the dispenser', Azure_POS_Dispenser::offline_key(77) === 'ec5df6170e2084b9a37e3ae7da01c7ebcf8630d754c8e34f3918fb873857d90f');
+check('each event has its own offline key', Azure_POS_Dispenser::offline_key($fair) !== Azure_POS_Dispenser::offline_key($gala));
+
+$five = new FP(40, 'Arcade tickets ×5', '4.00');
+$five->meta[Azure_POS_Dispenser::META_TICKETS] = 5;
+$one = new FP(41, 'Arcade ticket', '1.00');
+$one->meta[Azure_POS_Dispenser::META_TICKETS] = '1';
+FX::$products[40] = $five;
+FX::$products[41] = $one;
+Azure_POS_Channel::apply($five, 'pos');
+Azure_POS_Channel::apply($one, 'pos');
+check('a product says how many tickets it pays out', Azure_POS_Dispenser::tickets($five) === 5 && Azure_POS_Dispenser::tickets($muffin) === 0 && Azure_POS_Dispenser::tickets(null) === 0);
+$shirt->meta[Azure_POS_Dispenser::META_TICKETS] = 2;
+check('a variation pays out what its product does', Azure_POS_Dispenser::tickets($shirt_m) === 2);
+unset($shirt->meta[Azure_POS_Dispenser::META_TICKETS]);
+
+$catalog = Azure_PTSA_REST_POS::catalog(new WP_REST_Request(array('id' => $fair)));
+$by_id = array_column($catalog['products'], null, 'id');
+check('the catalog says what each product pays out', $by_id[40]['dispense'] === 5 && $by_id[41]['dispense'] === 1 && $by_id[11]['dispense'] === 0);
+check('...and gives the till the event\'s offline key', $catalog['dispenser'] === array('offline_key' => Azure_POS_Dispenser::offline_key($fair), 'max_tickets' => 100));
+
+check('more tickets than one payout is refused before the card', sale(array(array('product_id' => 40, 'quantity' => 20), array('product_id' => 41, 'quantity' => 1)))->get_error_code() === 'ptsa_pos_too_many_tickets');
+stub('/v1/payment_intents', stripe_reply(array('id' => 'pi_9', 'client_secret' => 's9', 'status' => 'requires_payment_method')));
+$arcade = sale(array(array('product_id' => 40, 'quantity' => 2), array('product_id' => 41, 'quantity' => 3), array('product_id' => 11, 'quantity' => 1)));
+$arcade_order = FX::$orders[$arcade['order']['id']];
+$dispensed = function (array $body, $id = null) use (&$arcade_order) {
+    return Azure_PTSA_REST_POS::dispensed(new WP_REST_Request(array('id' => $id ?? $arcade_order->id), $body));
+};
+check('nothing is recorded as paid out before the card goes through', $dispensed(array('qty' => 13, 'given' => 13))->get_error_code() === 'ptsa_pos_unpaid');
+stub('payment_intents/pi_9', stripe_reply(array('id' => 'pi_9', 'status' => 'succeeded', 'amount_received' => 1350, 'currency' => 'usd')));
+$paid = $complete($arcade_order->id);
+check('once paid, the till gets a voucher for the order\'s tickets', $paid['dispense'] === array('id' => $arcade_order->id, 'qty' => 13, 'voucher' => Azure_POS_Dispenser::voucher($arcade_order->id, 13)));
+
+$notes = count($arcade_order->notes);
+$dispensed(array('id' => $arcade_order->id, 'qty' => 13, 'given' => 13, 'reason' => 'none'));
+check('a full payout is noted on the order', end($arcade_order->notes) === 'The dispenser paid out 13 machine ticket(s).');
+$dispensed(array('id' => $arcade_order->id, 'qty' => 13, 'given' => 13, 'reason' => 'none'));
+check('...once, however often the app reports it', count($arcade_order->notes) === $notes + 1);
+$dispensed(array('id' => $arcade_order->id, 'qty' => 13, 'given' => 10, 'reason' => 'jam'));
+check('a short payout says how many are owed', end($arcade_order->notes) === 'The dispenser paid out 10 of 13 machine ticket(s) (the dispenser jammed): 3 owed, to give by hand.');
+$dispensed(array('id' => $arcade_order->id, 'qty' => 13, 'given' => null, 'reason' => 'interrupted'));
+check('a payout cut off by a power cut says to check with the buyer', strpos(end($arcade_order->notes), 'can\'t say how many came out') !== false
+    && $arcade_order->get_meta(Azure_POS_Dispenser::ORDER_DISPENSED) === array('id' => $arcade_order->id, 'qty' => 13, 'given' => null, 'reason' => 'interrupted'));
+$dispensed(array('id' => $arcade_order->id, 'qty' => 13, 'given' => 99, 'reason' => 'gremlins'));
+check('more than the sale and unknown reasons are cleaned up', $arcade_order->get_meta(Azure_POS_Dispenser::ORDER_DISPENSED) === array('id' => $arcade_order->id, 'qty' => 13, 'given' => 13, 'reason' => 'none'));
+
+echo "Sync tokens\n";
+$window = Azure_POS_Events::window($fair);
+check('opening the till also gives a sync token', $opened['sync_token'] !== '' && $opened['sync_expires_at'] === $window[1] + Azure_POS_Events::SYNC_LIFETIME);
+check('...that can\'t be used to sell', Azure_POS_Events::verify($opened['sync_token']) === 0 && Azure_POS_Events::verify_sync($opened['sync_token']) === $fair);
+check('...and a payment token isn\'t a sync token', Azure_POS_Events::verify_sync($opened['token']) === 0);
+$sync = array('authorization' => 'POS-Sync ' . $opened['sync_token']);
+$sync_request = new WP_REST_Request(array(), array(), $sync);
+check('sync tokens are refused by the till\'s other routes', is_wp_error(call_user_func(FX::$routes['/pos/orders']['permission_callback'], $sync_request))
+    && is_wp_error(call_user_func(FX::$routes['/pos/events/(?P<id>\d+)/catalog']['permission_callback'], $sync_request)));
+check('...but can upload sales and fetch connection tokens', call_user_func(FX::$routes['/pos/offline-sales']['permission_callback'], $sync_request) === true
+    && call_user_func(FX::$routes['/pos/connection-token']['permission_callback'], $sync_request) === true
+    && call_user_func(FX::$routes['/pos/orders/(?P<id>\d+)/dispensed']['permission_callback'], $sync_request) === true);
+unset(WP_Shim::$post_meta[$fair][Azure_POS_Events::META_ENABLED]);
+check('turning payments off after the event still lets its sales upload', Azure_POS_Events::verify_sync($opened['sync_token']) === $fair);
+WP_Shim::$post_meta[$fair][Azure_POS_Events::META_ENABLED] = 'yes';
+WP_Shim::$post_meta[$fair][Azure_POS_Events::META_PIN] = '999888';
+check('changing the PIN ends sync tokens too', Azure_POS_Events::verify_sync($opened['sync_token']) === 0);
+WP_Shim::$post_meta[$fair][Azure_POS_Events::META_PIN] = '246810';
+
+echo "Sales made offline\n";
+authorize_as_sync();
+function authorize_as_sync() {
+    global $signed_in, $sync;
+    return Azure_PTSA_REST_POS::authorize($signed_in, new WP_REST_Request(array(), array(), $sync), true);
+}
+$offline = function (array $body) { return Azure_PTSA_REST_POS::offline_sale(new WP_REST_Request(array(), $body)); };
+$saved = array(
+    'sale_id' => 'a1b2c3d4-0001', 'event_id' => $fair, 'created_at' => $now, 'currency' => 'USD', 'amount_cents' => 650, 'intent_id' => 'pi_off1',
+    'lines' => array(array('product_id' => 40, 'quantity' => 1), array('product_id' => 11, 'quantity' => 1)),
+    'dispense' => array('id' => 2147483649, 'qty' => 5, 'given' => 5, 'reason' => 'none'),
+);
+$orders_before = count(FX::$orders);
+stub('payment_intents/pi_off1', stripe_reply(array('id' => 'pi_off1', 'status' => 'succeeded', 'amount_received' => 650, 'currency' => 'usd', 'metadata' => array('offline_sale_id' => 'someone-else'))));
+$stolen = $offline($saved);
+check('a card payment made for another sale is refused', is_wp_error($stolen) && $stolen->get_error_code() === 'ptsa_pos_offline_intent' && count(FX::$orders) === $orders_before);
+check('a sale Stripe doesn\'t have yet is refused', $offline(array('intent_id' => '') + $saved)->get_error_code() === 'ptsa_pos_offline');
+check('a sale for another event is refused', $offline(array('event_id' => $gala) + $saved)->get_error_code() === 'ptsa_pos_scope');
+check('a sale in another currency is refused', $offline(array('currency' => 'EUR') + $saved)->get_error_code() === 'ptsa_pos_offline');
+
+stub('payment_intents/pi_off1', stripe_reply(array('id' => 'pi_off1', 'status' => 'requires_capture', 'amount_received' => 0, 'currency' => 'usd', 'metadata' => array('offline_sale_id' => 'a1b2c3d4-0001'))));
+stub('payment_intents/pi_off1/capture', stripe_reply(array('id' => 'pi_off1', 'status' => 'succeeded', 'amount_received' => 650, 'currency' => 'usd', 'metadata' => array('offline_sale_id' => 'a1b2c3d4-0001'))));
+$uploaded = $offline($saved);
+$off_order = FX::$orders[$uploaded['order']['id']];
+check('a sale made offline becomes a paid order', $uploaded['status'] === 'paid' && $off_order->status === 'completed' && $off_order->transaction === 'pi_off1' && $off_order->total === 6.5);
+check('...after capturing the payment Stripe holds', last_stripe_call('pi_off1/capture') !== null);
+check('...noting it was made offline, by whom', $off_order->get_meta('_pta_pos_seller') === 'a volunteer (event PIN, offline)' && $off_order->get_meta('_pta_pos_offline_sale') === 'a1b2c3d4-0001'
+    && (bool) array_filter($off_order->notes, function ($n) { return strpos($n, 'made without a connection to the website') !== false; }));
+check('...and what the dispenser paid out', in_array('The dispenser paid out 5 machine ticket(s).', $off_order->notes, true)
+    && $off_order->get_meta(Azure_POS_Dispenser::ORDER_DISPENSED)['id'] === 2147483649);
+$calls = count(WP_Shim::$http_calls);
+$again = $offline($saved);
+check('sending it again answers with the same order and asks Stripe nothing', $again['order']['id'] === $off_order->id && $again['status'] === 'paid' && count(FX::$orders) === $orders_before + 1 && count(WP_Shim::$http_calls) === $calls);
+check('the same card payment can\'t pay for a second sale', $offline(array('sale_id' => 'a1b2c3d4-0002') + $saved)->get_error_message() === 'That card payment is already on another order.');
+
+stub('payment_intents/pi_off2', stripe_reply(array('id' => 'pi_off2', 'status' => 'succeeded', 'amount_received' => 500, 'currency' => 'usd', 'metadata' => array('offline_sale_id' => 'a1b2c3d4-0003'))));
+$repriced = $offline(array('sale_id' => 'a1b2c3d4-0003', 'intent_id' => 'pi_off2', 'amount_cents' => 500, 'lines' => array(array('product_id' => 40, 'quantity' => 1), array('product_id' => 99, 'quantity' => 2))) + $saved);
+$repriced_order = FX::$orders[$repriced['order']['id']];
+check('a sale whose prices changed since is still recorded as paid', $repriced['status'] === 'paid');
+check('...noting the difference and what is gone from the website', in_array('The card was charged 5.00 USD but the items now come to 4.00 USD (prices changed, or items were removed).', $repriced_order->notes, true)
+    && in_array('Items no longer on the website, so not on this order: 2 × product #99.', $repriced_order->notes, true));
+
+$declined = $offline(array('sale_id' => 'a1b2c3d4-0004', 'intent_id' => '', 'failed' => 'Your card was declined.') + $saved);
+$declined_order = FX::$orders[$declined['order']['id']];
+check('a card declined once it reached Stripe is recorded as a failed order', $declined['status'] === 'failed' && $declined_order->status === 'failed'
+    && in_array('Tap to Pay: the card payment was declined when the app sent it to Stripe: Your card was declined.', $declined_order->notes, true));
+check('...with what the dispenser paid out regardless', in_array('The dispenser paid out 5 machine ticket(s).', $declined_order->notes, true));
+authorize_as($pos);
 
 echo "Not set up\n";
 update_option(Azure_POS_Stripe::OPTION_LOCATION, '');

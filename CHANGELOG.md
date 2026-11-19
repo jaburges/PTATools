@@ -2,6 +2,18 @@
 
 Release notes for PTA Tools, newest first. Earlier versions are on the [wiki changelog](https://github.com/jaburges/PTATools/wiki/Changelog) and the [GitHub releases](https://github.com/jaburges/PTATools/releases).
 
+## 3.147.216 — Ticket dispensers and offline sales at the till
+
+For a self-service till in the PTSA Board app that pays out arcade-style tickets from a ticket dispenser once the card goes through, and keeps selling when the event's Wi-Fi drops.
+
+### Added
+
+- **Products: Machine tickets** on the General tab: how many tickets one of the product pays out from a ticket dispenser (for example 5 on an "Arcade tickets ×5" product). The till won't start a sale that would pay out more than 100 in one go.
+- **WooCommerce → Settings → Products → Tap to Pay → Ticket dispenser secret**, made automatically and set on each dispenser with its setup tool. Once a sale is paid the website signs a voucher for the order's ticket count, and the dispenser pays out only against a valid voucher it hasn't used before; the app never holds the secret. Each event also gets its own offline key derived from the secret, so the till can still pay out sales made while the website was out of reach.
+- **What came out** is noted on the order: a full payout, or how many are owed (with why: jammed, ran out, unplugged, lost power) so a volunteer can make them up by hand.
+- **Sales made offline**: when the app can't reach the website it takes the card with Stripe's offline mode and sends the sale when it's back online. The website prices it from WooCommerce, checks with Stripe that the card payment is for that sale and amount, and records it as a paid order noting it was made offline (and any price change or removed product since). A card declined once it reaches Stripe is recorded as a failed order. Sending the same sale again changes nothing.
+- Opening the till also gives the app a **sync token** that can only send offline sales and payout results and fetch reader connections, for up to 14 days after the event; changing the event's PIN ends it.
+
 ## 3.147.215 — Tap to Pay at events (website side)
 
 The website half of taking card payments at PTSA events with the PTSA Board app: volunteers pick the event, type its PIN, and sell from a till on their phone, with the money going to the PTSA's own Stripe account. The app screens follow in the app's next release.
