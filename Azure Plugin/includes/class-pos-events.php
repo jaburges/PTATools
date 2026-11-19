@@ -34,6 +34,8 @@ class Azure_POS_Events {
     const DEFAULT_LENGTH = 4 * HOUR_IN_SECONDS;
     /** Events that started longer ago than this aren't looked at. */
     const LONGEST_EVENT = 3 * DAY_IN_SECONDS;
+    /** Sync tokens keep working this long after the window closes. */
+    const SYNC_LIFETIME = 14 * DAY_IN_SECONDS;
 
     const NONCE = 'pta_pos_event_nonce';
 
@@ -145,22 +147,59 @@ class Azure_POS_Events {
     }
 
     /**
+     * A sync token for the event: it only uploads sales the app saved while
+     * the website was out of reach, and lasts SYNC_LIFETIME past the window
+     * so a till that comes back online the next day can still send them.
+     *
+     * @return array{token:string,expires_at:int}|null
+     */
+    public static function issue_sync($event_id) {
+        $window = self::window($event_id);
+        $pin = self::pin($event_id);
+        if (!$window || $pin === '' || !self::enabled($event_id)) {
+            return null;
+        }
+        $exp = $window[1] + self::SYNC_LIFETIME;
+        $body = self::b64(json_encode(array('e' => (int) $event_id, 'exp' => $exp, 's' => 1)));
+        return array('token' => $body . '.' . self::sign($body, $pin), 'expires_at' => $exp);
+    }
+
+    /**
      * @return int The event the token is for, or 0 if it is forged, expired,
-     *             or its PIN has since been changed or payments turned off.
+     *             a sync token, or its PIN has since been changed or payments
+     *             turned off.
      */
     public static function verify($token) {
+        $claims = self::claims($token);
+        if (!$claims || $claims['sync'] || !self::enabled($claims['e'])) {
+            return 0;
+        }
+        return $claims['e'];
+    }
+
+    /**
+     * @return int The event a sync token is for, or 0. Payments may have been
+     *             turned off since: the sales were made while they were on.
+     */
+    public static function verify_sync($token) {
+        $claims = self::claims($token);
+        return $claims && $claims['sync'] ? $claims['e'] : 0;
+    }
+
+    /** @return array{e:int,sync:bool}|null A token signed with the event's current PIN and not expired. */
+    private static function claims($token) {
         $parts = explode('.', (string) $token);
         if (count($parts) !== 2) {
-            return 0;
+            return null;
         }
         $claims = json_decode((string) base64_decode(strtr($parts[0], '-_', '+/')), true);
         $id = (int) ($claims['e'] ?? 0);
         $exp = (int) ($claims['exp'] ?? 0);
         $pin = $id ? self::pin($id) : '';
-        if ($pin === '' || !self::enabled($id) || $exp < time() || !hash_equals(self::sign($parts[0], $pin), $parts[1])) {
-            return 0;
+        if ($pin === '' || $exp < time() || !hash_equals(self::sign($parts[0], $pin), $parts[1])) {
+            return null;
         }
-        return $id;
+        return array('e' => $id, 'sync' => !empty($claims['s']));
     }
 
     /**

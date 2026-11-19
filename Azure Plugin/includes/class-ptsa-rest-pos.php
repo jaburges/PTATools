@@ -19,6 +19,16 @@
  * Payment tokens can't see or change anything else: no other orders,
  * refunds or products.
  *
+ * Sales made while the website was out of reach: the app collects the card
+ * with Stripe Terminal's offline mode, keeps the sale, and once Stripe has
+ * the payment sends it to POST /pos/offline-sales, which checks the
+ * payment with Stripe before recording a paid order. The PIN also gets a
+ * sync token (`Authorization: POS-Sync <token>`) that can only upload
+ * those sales and fetch connection tokens, and lasts two weeks past the
+ * event, so a till that comes back online late can still send them.
+ *
+ * Ticket dispensers: see Azure_POS_Dispenser.
+ *
  * @package AzurePlugin
  */
 
@@ -28,6 +38,7 @@ if (!defined('ABSPATH')) {
 
 require_once __DIR__ . '/class-tickets-door.php';
 require_once __DIR__ . '/class-pos-channel.php';
+require_once __DIR__ . '/class-pos-dispenser.php';
 require_once __DIR__ . '/class-pos-events.php';
 require_once __DIR__ . '/class-pos-stripe.php';
 require_once __DIR__ . '/class-pos-tickets.php';
@@ -41,6 +52,7 @@ class Azure_PTSA_REST_POS {
     const ORDER_INTENT = '_pta_pos_intent';
     const ORDER_AMOUNT = '_pta_pos_amount';
     const ORDER_SELLER = '_pta_pos_seller';
+    const ORDER_OFFLINE_SALE = '_pta_pos_offline_sale';
 
     /** Shop managers and administrators can sell without the PIN. */
     const CAP = 'edit_shop_orders';
@@ -58,9 +70,15 @@ class Azure_PTSA_REST_POS {
     /** @var int Event the current request's payment token is for; 0 for signed-in callers. */
     private static $event = 0;
 
+    /** @var bool The current request came with a sync token. */
+    private static $sync = false;
+
     public static function register($ns, $auth) {
         $pos_or_auth = function ($request) use ($auth) {
             return self::authorize($auth, $request);
+        };
+        $sync_or_auth = function ($request) use ($auth) {
+            return self::authorize($auth, $request, true);
         };
         register_rest_route($ns, '/pos/events', array(
             'methods' => 'GET', 'callback' => array(__CLASS__, 'list_events'), 'permission_callback' => '__return_true',
@@ -75,7 +93,7 @@ class Azure_PTSA_REST_POS {
             'methods' => 'GET', 'callback' => array(__CLASS__, 'seats'), 'permission_callback' => $pos_or_auth,
         ));
         register_rest_route($ns, '/pos/connection-token', array(
-            'methods' => 'POST', 'callback' => array(__CLASS__, 'connection_token'), 'permission_callback' => $pos_or_auth,
+            'methods' => 'POST', 'callback' => array(__CLASS__, 'connection_token'), 'permission_callback' => $sync_or_auth,
         ));
         register_rest_route($ns, '/pos/orders', array(
             'methods' => 'POST', 'callback' => array(__CLASS__, 'create_order'), 'permission_callback' => $pos_or_auth,
@@ -86,15 +104,32 @@ class Azure_PTSA_REST_POS {
         register_rest_route($ns, '/pos/orders/(?P<id>\d+)/cancel', array(
             'methods' => 'POST', 'callback' => array(__CLASS__, 'cancel_order'), 'permission_callback' => $pos_or_auth,
         ));
+        register_rest_route($ns, '/pos/orders/(?P<id>\d+)/dispensed', array(
+            'methods' => 'POST', 'callback' => array(__CLASS__, 'dispensed'), 'permission_callback' => $sync_or_auth,
+        ));
+        register_rest_route($ns, '/pos/offline-sales', array(
+            'methods' => 'POST', 'callback' => array(__CLASS__, 'offline_sale'), 'permission_callback' => $sync_or_auth,
+        ));
     }
 
     /**
-     * `Authorization: POS <token>` lets the request through for its event;
-     * anything else needs the normal sign-in and the shop capability.
+     * `Authorization: POS <token>` lets the request through for its event,
+     * and on the routes that allow it so does a sync token; anything else
+     * needs the normal sign-in and the shop capability.
      */
-    public static function authorize($auth, $request) {
+    public static function authorize($auth, $request, $allow_sync = false) {
         self::$event = 0;
+        self::$sync = false;
         $header = method_exists($request, 'get_header') ? (string) $request->get_header('authorization') : '';
+        if (stripos($header, 'POS-Sync ') === 0) {
+            $id = $allow_sync ? Azure_POS_Events::verify_sync(trim(substr($header, 9))) : 0;
+            if (!$id) {
+                return new WP_Error('ptsa_pos_expired', 'This payment session has ended. Choose the event and enter its PIN again.', array('status' => 401));
+            }
+            self::$event = $id;
+            self::$sync = true;
+            return true;
+        }
         if (stripos($header, 'POS ') === 0) {
             $id = Azure_POS_Events::verify(trim(substr($header, 4)));
             if (!$id) {
@@ -140,11 +175,14 @@ class Azure_PTSA_REST_POS {
             Azure_Tickets_Door::record_failure();
             return new WP_Error('ptsa_pos_pin', 'That PIN isn\'t right for this event, or it isn\'t taking payments right now. Check with a board member.', array('status' => 401));
         }
+        $sync = Azure_POS_Events::issue_sync($event);
         return rest_ensure_response(array(
-            'token'      => $session['token'],
-            'expires_at' => $session['expires_at'],
-            'expires'    => wp_date('c', $session['expires_at']),
-            'event'      => Azure_POS_Events::payload($event),
+            'token'           => $session['token'],
+            'expires_at'      => $session['expires_at'],
+            'expires'         => wp_date('c', $session['expires_at']),
+            'sync_token'      => $sync ? $sync['token'] : '',
+            'sync_expires_at' => $sync ? $sync['expires_at'] : 0,
+            'event'           => Azure_POS_Events::payload($event),
         ));
     }
 
@@ -169,6 +207,7 @@ class Azure_PTSA_REST_POS {
             'test_mode'   => Azure_POS_Stripe::test_mode(),
             'products'    => $products,
             'tickets'     => Azure_POS_Tickets::summary($event, get_woocommerce_currency()),
+            'dispenser'   => array('offline_key' => Azure_POS_Dispenser::offline_key($event), 'max_tickets' => Azure_POS_Dispenser::MAX_PER_SALE),
         ));
     }
 
@@ -219,12 +258,17 @@ class Azure_PTSA_REST_POS {
             $allowed[(int) $product->get_id()] = $product;
         }
         $order_lines = array();
+        $machine_tickets = 0;
         foreach ($lines as $line) {
             $sold = self::line_product($line, $allowed);
             if (is_wp_error($sold)) {
                 return $sold;
             }
             $order_lines[] = array($sold, $line['quantity']);
+            $machine_tickets += Azure_POS_Dispenser::tickets($sold) * $line['quantity'];
+        }
+        if ($machine_tickets > Azure_POS_Dispenser::MAX_PER_SALE) {
+            return new WP_Error('ptsa_pos_too_many_tickets', sprintf('The dispenser pays out at most %d tickets at a time. Split this into two sales.', Azure_POS_Dispenser::MAX_PER_SALE), array('status' => 400));
         }
 
         $hold_key = Azure_POS_Tickets::hold_key();
@@ -311,7 +355,144 @@ class Azure_PTSA_REST_POS {
         if ($result !== 'paid') {
             return new WP_Error('ptsa_pos_unpaid', 'The payment hasn\'t gone through yet.', array('status' => 409, 'intent_status' => $result));
         }
-        return rest_ensure_response(array('status' => 'paid', 'order' => self::order_payload($order), 'card' => self::card($order), 'tickets' => self::ticket_labels($order)));
+        return rest_ensure_response(array(
+            'status'   => 'paid',
+            'order'    => self::order_payload($order),
+            'card'     => self::card($order),
+            'tickets'  => self::ticket_labels($order),
+            'dispense' => Azure_POS_Dispenser::for_order($order),
+        ));
+    }
+
+    /**
+     * What the dispenser paid out for a sale. Body: {id, qty, given, reason}
+     * with given null when the dispenser can't say.
+     */
+    public static function dispensed(WP_REST_Request $req) {
+        $order = self::pos_order((int) $req['id']);
+        if (is_wp_error($order)) {
+            return $order;
+        }
+        if (!$order->is_paid()) {
+            return new WP_Error('ptsa_pos_unpaid', 'The payment hasn\'t gone through yet.', array('status' => 409));
+        }
+        $body = $req->get_json_params() ?: array();
+        $given = array_key_exists('given', $body) && $body['given'] !== null ? (int) $body['given'] : null;
+        Azure_POS_Dispenser::record($order, (int) ($body['id'] ?? $order->get_id()), (int) ($body['qty'] ?? 0), $given, (string) ($body['reason'] ?? 'none'));
+        return rest_ensure_response(array('status' => 'recorded', 'order' => self::order_payload($order)));
+    }
+
+    /**
+     * A sale the app made while it couldn't reach the website. Body:
+     * {sale_id, event_id, created_at, lines, amount_cents, currency,
+     * intent_id | failed, dispense?: {id, qty, given, reason}}.
+     *
+     * The order is priced from WooCommerce as usual but must match the
+     * card payment, which is checked with Stripe (it must carry the sale's
+     * ID). Sending the same sale again answers with the same order.
+     * `failed` (the card was declined when the payment reached Stripe)
+     * records the sale as a failed order so the shop knows what went out.
+     */
+    public static function offline_sale(WP_REST_Request $req) {
+        if (!function_exists('wc_create_order') || Azure_POS_Stripe::secret_key() === '') {
+            return new WP_Error('ptsa_pos_off', 'The shop or Stripe is turned off on the website.', array('status' => 404));
+        }
+        $body = $req->get_json_params() ?: array();
+        $sale_id = (string) ($body['sale_id'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9-]{8,64}$/', $sale_id)) {
+            return new WP_Error('ptsa_pos_offline', 'The saved sale couldn\'t be read.', array('status' => 400));
+        }
+        $existing = self::offline_order($sale_id);
+        if ($existing) {
+            $status = $existing->is_paid() ? 'paid' : (string) $existing->get_status();
+            return rest_ensure_response(array('status' => $status, 'order' => self::order_payload($existing)));
+        }
+
+        $event = (int) ($body['event_id'] ?? 0);
+        if (self::$event ? $event !== self::$event : !Azure_POS_Events::times($event)) {
+            return new WP_Error('ptsa_pos_scope', 'This phone is only taking payments for one event.', array('status' => 403));
+        }
+        $lines = self::clean_lines($body['lines'] ?? array());
+        if (is_wp_error($lines)) {
+            return $lines;
+        }
+        $amount = (int) ($body['amount_cents'] ?? 0);
+        $currency = strtolower((string) ($body['currency'] ?? ''));
+        if ($amount <= 0 || !$lines || $currency !== strtolower(get_woocommerce_currency())) {
+            return new WP_Error('ptsa_pos_offline', 'The saved sale couldn\'t be read.', array('status' => 400));
+        }
+        $failed = trim((string) ($body['failed'] ?? ''));
+        $intent_id = (string) ($body['intent_id'] ?? '');
+        if ($failed === '') {
+            if (!preg_match('/^pi_[A-Za-z0-9]+$/', $intent_id)) {
+                return new WP_Error('ptsa_pos_offline', 'Stripe doesn\'t have this payment yet. The app sends it once it does.', array('status' => 400));
+            }
+            if (self::orders_with(self::ORDER_INTENT, $intent_id)) {
+                return new WP_Error('ptsa_pos_offline_intent', 'That card payment is already on another order.', array('status' => 409));
+            }
+            $intent = Azure_POS_Stripe::retrieve_intent($intent_id);
+            if (is_wp_error($intent)) {
+                return $intent;
+            }
+            if ((string) ($intent['metadata']['offline_sale_id'] ?? '') !== $sale_id) {
+                return new WP_Error('ptsa_pos_offline_intent', 'That card payment isn\'t for this sale.', array('status' => 409));
+            }
+        }
+
+        $order = wc_create_order(array('status' => 'pending', 'created_via' => self::CREATED_VIA, 'customer_id' => self::$event ? 0 : get_current_user_id()));
+        if (is_wp_error($order) || !$order) {
+            return new WP_Error('ptsa_pos_order', 'Couldn\'t record the sale. The app will try again.', array('status' => 500));
+        }
+        $missing = array();
+        foreach ($lines as $line) {
+            $product = wc_get_product($line['variation_id'] ?: $line['product_id']);
+            if ($product) {
+                $order->add_product($product, $line['quantity']);
+            } else {
+                $missing[] = sprintf('%d × product #%d', $line['quantity'], $line['variation_id'] ?: $line['product_id']);
+            }
+        }
+        $event_name = Azure_POS_Events::payload($event)['name'];
+        $order->set_payment_method(self::PAYMENT_METHOD);
+        $order->set_payment_method_title(__('Tap to Pay (PTSA Board app)', 'azure-plugin'));
+        $order->update_meta_data(self::ORDER_EVENT, $event);
+        $order->update_meta_data(self::ORDER_SELLER, self::seller());
+        $order->update_meta_data(self::ORDER_OFFLINE_SALE, $sale_id);
+        $order->update_meta_data(self::ORDER_AMOUNT, $amount);
+        $order->calculate_totals();
+        $made = (int) ($body['created_at'] ?? 0);
+        $order->add_order_note(sprintf(
+            'Tap to Pay sale at %s, by %s, made without a connection to the website%s and sent later.',
+            $event_name,
+            self::seller(),
+            $made > 0 ? ' at ' . wp_date('g:ia j M', $made) : ''
+        ));
+        if ($missing) {
+            $order->add_order_note('Items no longer on the website, so not on this order: ' . implode(', ', $missing) . '.');
+        }
+        $priced = Azure_POS_Stripe::to_minor($order->get_total(), $order->get_currency());
+        if ($priced !== $amount) {
+            $order->add_order_note(sprintf('The card was charged %s but the items now come to %s (prices changed, or items were removed).', self::money($amount), self::money($priced)));
+        }
+
+        if ($failed !== '') {
+            $order->update_status('failed', 'Tap to Pay: the card payment was declined when the app sent it to Stripe: ' . $failed);
+        } else {
+            $order->update_meta_data(self::ORDER_INTENT, $intent_id);
+            $order->save();
+            $settled = self::settle($order);
+            if (is_wp_error($settled)) {
+                $order->save();
+                self::record_offline_dispense($order, $body);
+                return $settled;
+            }
+        }
+        $order->save();
+        self::record_offline_dispense($order, $body);
+        return rest_ensure_response(array(
+            'status' => $order->is_paid() ? 'paid' : (string) $order->get_status(),
+            'order'  => self::order_payload($order),
+        ));
     }
 
     public static function cancel_order(WP_REST_Request $req) {
@@ -568,6 +749,7 @@ class Azure_PTSA_REST_POS {
             'price_cents' => Azure_POS_Stripe::to_minor(wc_get_price_to_display($product), $currency),
             'stock'       => self::stock($product),
             'step'        => class_exists('Azure_Product_Packs') ? Azure_Product_Packs::size($product) : 1,
+            'dispense'    => Azure_POS_Dispenser::tickets($product),
             'options'     => array(),
         );
         if ($product->is_type('variable')) {
@@ -629,7 +811,42 @@ class Azure_PTSA_REST_POS {
         return $labels;
     }
 
+    private static function record_offline_dispense($order, array $body) {
+        $d = $body['dispense'] ?? null;
+        if (!is_array($d) || (int) ($d['qty'] ?? 0) < 1) {
+            return;
+        }
+        $given = array_key_exists('given', $d) && $d['given'] !== null ? (int) $d['given'] : null;
+        Azure_POS_Dispenser::record($order, (int) ($d['id'] ?? 0), (int) $d['qty'], $given, (string) ($d['reason'] ?? 'none'));
+    }
+
+    /** @return WC_Order|null The order already recorded for an offline sale. */
+    private static function offline_order($sale_id) {
+        $orders = self::orders_with(self::ORDER_OFFLINE_SALE, $sale_id);
+        return $orders ? $orders[0] : null;
+    }
+
+    /** @return WC_Order[] Till orders with this meta value. */
+    private static function orders_with($key, $value) {
+        return array_values((array) wc_get_orders(array(
+            'limit'       => 1,
+            'status'      => 'any',
+            'created_via' => self::CREATED_VIA,
+            'meta_key'    => $key,
+            'meta_value'  => $value,
+        )));
+    }
+
+    private static function money($minor) {
+        $currency = get_woocommerce_currency();
+        $whole = in_array(strtolower($currency), Azure_POS_Stripe::ZERO_DECIMAL, true);
+        return number_format($whole ? $minor : $minor / 100, $whole ? 0 : 2) . ' ' . strtoupper($currency);
+    }
+
     private static function seller() {
+        if (self::$sync) {
+            return 'a volunteer (event PIN, offline)';
+        }
         if (self::$event) {
             return 'a volunteer (event PIN)';
         }
